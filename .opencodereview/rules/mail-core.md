@@ -58,6 +58,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `remote-content.ts.createRemoteContentSettings` or another privacy-relevant
+  settings store publishing permissive defaults before persisted choices load.
+  Keep readers closed while the policy is unresolved, including cache-only
+  presentation, and apply the documented fallback only after a missing, unreadable
+  or failed read settles. Otherwise a saved Never policy briefly displays remote
+  content or offers consent under Ask before the saved choice takes effect.
+- `gmail-inbox.ts.loadRemoteImages` or another batch-capped scan relying on a
+  render or notification to schedule its next batch when misses emit no state
+  change. Continue until the current eligible sources are covered, respecting
+  existing budgets; use live owner, viewport and authorization interest rather
+  than replaying a captured request that can overwrite newer interest. Compose
+  internal batches within one Effect run. Otherwise an all-miss first batch hides
+  later cached content, or delayed work restores an old viewport or permission.
+
 - `createGmailInbox.store` or `retainBodies` changing body-cache membership
   without notifying the cache subscribers exposed by `createMailboxes.bodies`.
   Publish after admitted commits and successful pruning, using the coordinator

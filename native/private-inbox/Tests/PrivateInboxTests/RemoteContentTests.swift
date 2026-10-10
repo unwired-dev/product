@@ -9,8 +9,8 @@ extension PrivateInboxTests {
   // Only globally routable unicast destinations may receive a remote image request; NAT64 carries
   // the IPv4 destination it embeds.
   @Test func remoteContentRefusesNonPublicAddresses() {
-    func allowed(_ text: String) -> Bool {
-      RemoteAddress.isPublic((IPv4Address(text).map { $0 as IPAddress } ?? IPv6Address(text))!)
+    func admission(_ text: String) -> RemoteAddress.Admission {
+      RemoteAddress.admission((IPv4Address(text).map { $0 as IPAddress } ?? IPv6Address(text))!)
     }
     for refused in [
       "0.1.2.3", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1",
@@ -19,21 +19,25 @@ extension PrivateInboxTests {
       "ff02::1", "2001:db8::1", "2001::1", "2002:0808:0808::1", "64:ff9b::7f00:1",
       "3fff::1", "3fff:fff:ffff::1",
     ] {
-      #expect(!allowed(refused), "\(refused)")
+      #expect(admission(refused) == .refused, "\(refused)")
     }
-    for permitted in ["8.8.8.8", "93.184.216.34", "2606:4700::1111", "64:ff9b::808:808"] {
-      #expect(allowed(permitted), "\(permitted)")
+    #expect(admission("2606:4700::1111") == .ambiguous)
+    for permitted in ["8.8.8.8", "93.184.216.34", "2600:1f00:808:808:808:808:808:808", "64:ff9b::808:808"] {
+      #expect(admission(permitted) == .admitted, "\(permitted)")
     }
   }
 
   // Destinations are HTTPS without credentials; a literal or resolved non-public address, even
-  // one answer among several, refuses the name; the request carries no cookie or credential.
+  // one answer among several, refuses the name; an answer that may embed private IPv4 is skipped
+  // for a public one; the request carries no cookie or credential.
   @Test func remoteContentValidatesEveryDestination() async throws {
     let fetcher = RemoteContentFetcher(
       resolve: { host in
         switch host {
-        case "images.example": [IPv4Address("93.184.216.34")!, IPv6Address("2606:4700::1111")!]
+        case "images.example": [IPv4Address("93.184.216.34")!, IPv6Address("2600:1f00:808:808:808:808:808:808")!]
         case "rebind.example": [IPv4Address("93.184.216.34")!, IPv4Address("10.0.0.2")!]
+        case "dual.example": [IPv6Address("2606:4700::1111")!, IPv4Address("93.184.216.34")!]
+        case "ambiguous.example": [IPv6Address("2606:4700::1111")!]
         default: throw RemoteContentError.unavailable
         }
       },
@@ -41,12 +45,36 @@ extension PrivateInboxTests {
     for refused in [
       "http://images.example/a.png", "https://user:secret@images.example/a.png",
       "https://127.0.0.1/a.png", "https://[::1]/a.png", "https://rebind.example/a.png",
-      "https://bücher.example/a.png", "ftp://images.example/a.png",
+      "https://ambiguous.example/a.png", "https://bücher.example/a.png", "ftp://images.example/a.png",
     ] {
       await #expect(throws: RemoteContentError.refused, "\(refused)") {
         _ = try await fetcher.destination(try #require(URL(string: refused)))
       }
     }
+    // A dual-stack host connects over its public IPv4 answer, never the ambiguous IPv6 one.
+    let dual = try await fetcher.destination(try #require(URL(string: "https://dual.example/a.png")))
+    #expect(dual.address as? IPv4Address == IPv4Address("93.184.216.34"))
+    let publicAddress = IPv4Address("93.184.216.34")!
+    let target = try #require(URL(string: "https://mixed.example/a.png"))
+    // A later refused answer must still block a previously admitted one, in either answer order.
+    for refused in ["10.0.0.2", "fc00::1", "2001:db8::1", "64:ff9b::a00:1"] {
+      let address = (IPv4Address(refused).map { $0 as IPAddress } ?? IPv6Address(refused))!
+      for answers in [[publicAddress, address], [address, publicAddress]] {
+        let mixed = RemoteContentFetcher(resolve: { _ in answers })
+        await #expect(throws: RemoteContentError.refused, "mixed \(refused)") {
+          _ = try await mixed.destination(target)
+        }
+      }
+    }
+    for answers: [IPAddress] in [
+      [publicAddress, IPv6Address("2606:4700::1111")!],
+      [IPv6Address("2606:4700::1111")!, publicAddress],
+    ] {
+      let mixed = RemoteContentFetcher(resolve: { _ in answers })
+      #expect(try await mixed.destination(target).address as? IPv4Address == publicAddress)
+    }
+    let empty = RemoteContentFetcher(resolve: { _ in [] })
+    await #expect(throws: RemoteContentError.refused) { _ = try await empty.destination(target) }
     let destination = try await fetcher.destination(
       try #require(URL(string: "https://Images.Example:8443/p/a%20b.png?x=1#fragment")))
     #expect(destination.address as? IPv4Address == IPv4Address("93.184.216.34"))
@@ -59,11 +87,61 @@ extension PrivateInboxTests {
     }
   }
 
+  // DNS64 may use an undiscoverable prefix for private IPv4. An address that reads as private IPv4
+  // under any RFC 6052 layout, even with a nonzero suffix, is never connected to.
+  @Test func remoteContentChecksIPv4BehindNetworkSpecificNAT64() async throws {
+    let bypass = IPv6Address("2600:1f00:bbbb::a00:1")!
+    for length in [32, 40, 48, 56, 64, 96] {
+      var bytes = [UInt8](repeating: 8, count: 16)
+      bytes[0] = 0x26
+      bytes[8] = 0
+      let indices = (length / 8..<16).filter { $0 != 8 }.prefix(4)
+      let publicTarget = IPv6Address(Data(bytes))!
+      // Only this layout's first IPv4 byte is private; the other layouts still start with 8.
+      bytes[indices.first!] = 10
+      let privateTarget = IPv6Address(Data(bytes))!
+      let fetcher = RemoteContentFetcher(resolve: { _ in [privateTarget] })
+      #expect(RemoteAddress.isPublic(publicTarget), "public /\(length)")
+      #expect(RemoteAddress.admission(privateTarget) == .ambiguous, "private /\(length)")
+      await #expect(throws: RemoteContentError.refused, "resolved /\(length)") {
+        _ = try await fetcher.destination(try #require(URL(string: "https://internal.example/a.png")))
+      }
+      await #expect(throws: RemoteContentError.refused, "literal /\(length)") {
+        _ = try await fetcher.destination(
+          try #require(URL(string: "https://[\(privateTarget)]/a.png")))
+      }
+    }
+    let fetcher = RemoteContentFetcher(
+      resolve: { host in
+        host == "images.example" ? [IPv4Address("93.184.216.34")!] : [bypass]
+      },
+      exchange: { _ in
+        Data("HTTP/1.1 302 Found\r\nLocation: https://internal.example/a.png\r\n\r\n".utf8)
+      })
+    // An Internet translator advertised by ipv4only.arpa need not disclose this private /96.
+    await #expect(throws: RemoteContentError.refused) {
+      _ = try await fetcher.destination(try #require(URL(string: "https://internal.example/a.png")))
+    }
+    await #expect(throws: RemoteContentError.refused) {
+      _ = try await fetcher.fetch(try #require(URL(string: "https://images.example/a.png")))
+    }
+    // An IPv6-only destination that may embed private IPv4 has nothing to connect to; with a
+    // public IPv4 answer the possibly translated one is skipped.
+    await #expect(throws: RemoteContentError.refused) {
+      _ = try await fetcher.destination(try #require(URL(string: "https://[2606:4700::1111]/a.png")))
+    }
+    let mixed = RemoteContentFetcher(resolve: { _ in [bypass, IPv4Address("8.8.8.8")!] })
+    let pinned = try await mixed.destination(try #require(URL(string: "https://mixed.example/a.png")))
+    #expect(pinned.address as? IPv4Address == IPv4Address("8.8.8.8"))
+    _ = try await fetcher.destination(try #require(URL(string: "https://[64:ff9b::808:808]/a.png")))
+  }
+
   // Every redirect repeats the destination checks, the chain is bounded, and response framing
   // and size are enforced.
   @Test func remoteContentRechecksRedirectsAndBoundsResponses() async throws {
     let responses: [String: String] = [
       "/start": "HTTP/1.1 302 Found\r\nLocation: /next\r\n\r\n",
+      "/dual": "HTTP/1.1 302 Found\r\nLocation: https://dual.example/next\r\n\r\n",
       "/next": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n",
       "/private": "HTTP/1.1 301 Moved\r\nLocation: https://10.0.0.1/a.png\r\n\r\n",
       "/plain": "HTTP/1.1 307 Temporary\r\nLocation: http://images.example/a.png\r\n\r\n",
@@ -73,8 +151,13 @@ extension PrivateInboxTests {
       "/framing": "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\nabcd",
     ]
     let fetcher = RemoteContentFetcher(
-      resolve: { _ in [IPv4Address("93.184.216.34")!] },
+      resolve: { host in
+        host == "dual.example"
+          ? [IPv6Address("2606:4700::1111")!, IPv4Address("93.184.216.34")!]
+          : [IPv4Address("93.184.216.34")!]
+      },
       exchange: { destination in
+        #expect(destination.address as? IPv4Address == IPv4Address("93.184.216.34"))
         let request = String(decoding: destination.request, as: UTF8.self)
         let path = String(request.split(separator: " ")[1])
         return Data((responses[path] ?? "HTTP/1.1 500 Error\r\n\r\n").utf8)
@@ -83,6 +166,7 @@ extension PrivateInboxTests {
       try await fetcher.fetch(try #require(URL(string: "https://images.example\(path)")))
     }
     #expect(try await fetch("/start") == Data("abcde".utf8))
+    #expect(try await fetch("/dual") == Data("abcde".utf8))
     for refused in ["/private", "/plain", "/loop", "/missing"] {
       await #expect(throws: RemoteContentError.refused, "\(refused)") { _ = try await fetch(refused) }
     }
@@ -116,7 +200,7 @@ extension PrivateInboxTests {
     let anchor = try #require(
       SecCertificateCreateWithData(nil, Data(base64Encoded: Self.fixtureCertificate)! as CFData))
     let fetcher = RemoteContentFetcher(
-      resolve: { _ in [IPv4Address("127.0.0.1")!] }, permits: { _ in true },
+      resolve: { _ in [IPv4Address("127.0.0.1")!] }, admission: { _ in .admitted },
       exchange: {
         try await RemoteTransport(
           anchors: [anchor], verifyDate: Date(timeIntervalSince1970: 1_780_000_000),
@@ -136,7 +220,7 @@ extension PrivateInboxTests {
     let reply = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 7\r\n\r\nPNGDATA"
     let budget = RemoteContentBudget(bytes: reply.utf8.count + 1)
     let bounded = RemoteContentFetcher(
-      resolve: { _ in [IPv4Address("127.0.0.1")!] }, permits: { _ in true },
+      resolve: { _ in [IPv4Address("127.0.0.1")!] }, admission: { _ in .admitted },
       exchange: {
         try await RemoteTransport(
           anchors: [anchor], verifyDate: Date(timeIntervalSince1970: 1_780_000_000),

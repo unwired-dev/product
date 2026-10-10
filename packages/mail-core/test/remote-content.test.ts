@@ -178,6 +178,98 @@ describe('remote message content', () => {
     }
   });
 
+  it('keeps restoring cached images nearby after a full batch of cache misses', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const cachedUrl = 'https://images.example/later/20.png';
+    const urls = [
+      ...Array.from(
+        { length: 20 },
+        (_, index) => `https://images.example/later/${index}.png`,
+      ),
+      cachedUrl,
+    ];
+    gmail.serveRemote(cachedUrl, { data: png(2, 2) });
+    const id = gmail.deliver({
+      content: {
+        html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const reader = await open(inbox, id);
+    try {
+      // An earlier authorized presentation cached only the last source.
+      await inbox.loadRemoteImages(id, [cachedUrl], true);
+      inbox.forgetRemoteImages(id);
+      expect(reader.shown().remote.pending).toContain(cachedUrl);
+      // The first twenty nearby sources miss the cache; the twenty-first is still restored.
+      await inbox.loadRemoteImages(id, urls, false);
+      expect(reader.shown().remote.pending).not.toContain(cachedUrl);
+      expect(gmail.remoteFetches).toStrictEqual([cachedUrl]);
+    } finally {
+      reader.release();
+    }
+  });
+
+  it('does not restore the old viewport when a held cache-only batch continues', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const urls = Array.from(
+      { length: 21 },
+      (_, index) => `https://images.example/withdrawn/${index}.png`,
+    );
+    const cachedUrl = urls[20]!;
+    gmail.serveRemote(cachedUrl, { data: png(2, 2) });
+    const id = gmail.deliver({
+      content: { html: urls.map((url) => `<img src="${url}">`).join('') },
+    });
+    let releaseCache: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold cache reads until the viewport withdraws them.
+    const heldCache = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    let readCache = gmail.native.openRemoteContent;
+    const probes: string[] = [];
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openRemoteContent: (scope, resource) => readCache(scope, resource),
+    });
+    await inbox.load();
+    const reader = await open(inbox, id);
+    let loading: Promise<void> | undefined = undefined;
+    try {
+      await inbox.loadRemoteImages(id, [cachedUrl], true);
+      inbox.forgetRemoteImages(id);
+      readCache = async (scope, resource) => {
+        probes.push(resource.url);
+        await heldCache;
+        return gmail.native.openRemoteContent(scope, resource);
+      };
+      loading = inbox.loadRemoteImages(id, urls, {
+        network: false,
+        reader: reader.reader,
+      });
+      await vi.waitFor(() => {
+        expect(probes).toHaveLength(6);
+      });
+      await inbox.loadRemoteImages(id, [], {
+        network: false,
+        reader: reader.reader,
+      });
+      releaseCache();
+      await loading;
+      expect(probes).toHaveLength(6);
+      expect(reader.shown().remote.pending).toContain(cachedUrl);
+      expect(reader.shown().document).not.toContain('data:image/png');
+      expect(gmail.remoteFetches).toStrictEqual([cachedUrl]);
+    } finally {
+      reader.release();
+      releaseCache();
+      await loading;
+    }
+  });
+
   it('cancels withdrawn window requests while another window authorizes different images', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -524,6 +616,45 @@ describe('remote message content', () => {
     }
   });
 
+  it('keeps remote content hidden until the saved policy is read, and asks after a failed read', async () => {
+    expect.hasAssertions();
+    let read: (reply: unknown) => void = () => undefined;
+    const settings = createRemoteContentSettings({
+      remoteContentSettings: () =>
+        // oxlint-disable-next-line promise/avoid-new -- The saved policy arrives when the test releases it.
+        new Promise((resolve) => {
+          read = resolve;
+        }),
+      setRemoteContentSettings: () => Promise.resolve(null),
+      clearRemoteContent: () => Promise.resolve(null),
+    });
+    const loading = settings.load();
+    // A cold launch has not read the saved Never yet; nothing is restored or offered meanwhile.
+    expect(remoteContentPolicy(settings.getSnapshot(), 'connection-a')).toBe(
+      'never',
+    );
+    read({ settings: '{"policy":"never","overrides":{}}' });
+    await loading;
+    expect(remoteContentPolicy(settings.getSnapshot(), 'connection-a')).toBe(
+      'never',
+    );
+
+    const failing = createRemoteContentSettings({
+      remoteContentSettings: () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic failure'), {
+            code: 'unavailable',
+          }),
+        ),
+      setRemoteContentSettings: () => Promise.resolve(null),
+      clearRemoteContent: () => Promise.resolve(null),
+    });
+    await failing.load();
+    expect(remoteContentPolicy(failing.getSnapshot(), 'connection-a')).toBe(
+      'ask',
+    );
+  });
+
   it('keeps device-local policies, per-connection overrides and Clear Remote Content', async () => {
     expect.hasAssertions();
     const saved: string[] = [];
@@ -545,7 +676,7 @@ describe('remote message content', () => {
     });
     stored = '{"policy":"sometimes","overrides":{}}';
     await settings.load();
-    expect(settings.getSnapshot().policy).toBe('ask');
+    expect(settings.getSnapshot()?.policy).toBe('ask');
 
     await settings.setPolicy('always');
     await settings.setOverride('connection-a', 'never');

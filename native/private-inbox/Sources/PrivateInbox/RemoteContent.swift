@@ -19,7 +19,7 @@ struct RemoteContentFetcher: Sendable {
   }
 
   var resolve: @Sendable (String) async throws -> [IPAddress] = RemoteAddress.resolve
-  var permits: @Sendable (IPAddress) -> Bool = RemoteAddress.isPublic
+  var admission: @Sendable (IPAddress) -> RemoteAddress.Admission = RemoteAddress.admission
   var exchange: @Sendable (Destination) async throws -> Data = { try await RemoteTransport().exchange($0) }
   var budget: RemoteContentBudget?
 
@@ -71,8 +71,13 @@ struct RemoteContentFetcher: Sendable {
     } else {
       addresses = try await resolve(host)
     }
-    // One non-public answer refuses the name: a rebinding resolver cannot mix in a private target.
-    guard let address = addresses.first, addresses.allSatisfy(permits) else {
+    // A definitely non-public answer refuses the name, so a rebinding resolver cannot mix in a
+    // private target. An answer that may embed private IPv4 under some NAT64 layout is skipped
+    // and never connected to; the first admitted answer is pinned.
+    let admissions = addresses.map { ($0, admission($0)) }
+    guard !admissions.contains(where: { $0.1 == .refused }),
+      let address = admissions.first(where: { $0.1 == .admitted })?.0
+    else {
       throw RemoteContentError.refused
     }
     let path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
@@ -206,24 +211,35 @@ final class RemoteContentBudget: @unchecked Sendable {
 enum RemoteAddress {
   // Globally routable unicast only: no loopback, private, shared, link-local, documentation,
   // benchmarking, multicast or reserved space, and IPv6 transition forms only for public IPv4.
-  static func isPublic(_ address: IPAddress) -> Bool {
+  // How an address may be used: connected to, skipped because it may embed private IPv4 under an
+  // undiscoverable NAT64 layout, or refusing its whole name as definitely non-public.
+  enum Admission: Sendable { case admitted, ambiguous, refused }
+
+  static func isPublic(_ address: IPAddress) -> Bool { admission(address) == .admitted }
+
+  static func admission(_ address: IPAddress) -> Admission {
     let bytes = [UInt8](address.rawValue)
-    if bytes.count == 4 { return isPublicIPv4(bytes) }
-    guard bytes.count == 16 else { return false }
+    if bytes.count == 4 { return isPublicIPv4(bytes) ? .admitted : .refused }
+    guard bytes.count == 16 else { return .refused }
     // NAT64 (64:ff9b::/96) carries an IPv4 destination, as IPv6-only networks synthesize it.
     if bytes[0..<12] == [0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0] {
-      return isPublicIPv4(Array(bytes[12...]))
+      return isPublicIPv4(Array(bytes[12...])) ? .admitted : .refused
     }
-    guard bytes[0] & 0xe0 == 0x20 else { return false }  // 2000::/3
+    guard bytes[0] & 0xe0 == 0x20 else { return .refused }  // 2000::/3
     let prefix = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
-    if prefix == 0x3fff && bytes[2] & 0xf0 == 0 { return false }  // 3fff::/20 documentation
-    if prefix == 0x2002 { return false }  // 6to4
+    if prefix == 0x3fff && bytes[2] & 0xf0 == 0 { return .refused }  // 3fff::/20 documentation
+    if prefix == 0x2002 { return .refused }  // 6to4
     if prefix == 0x2001 {
       // 2001::/23 protocol assignments (Teredo, ORCHID, benchmarking) and 2001:db8::/32.
-      if bytes[2] < 0x02 { return false }
-      if bytes[2] == 0x0d && bytes[3] == 0xb8 { return false }
+      if bytes[2] < 0x02 { return .refused }
+      if bytes[2] == 0x0d && bytes[3] == 0xb8 { return .refused }
     }
-    return true
+    // Discovery cannot expose destination-specific translators (RFC 7050 §5.1). An address that
+    // reads as private IPv4 under any RFC 6052 layout is never connected to.
+    let translated = [32, 40, 48, 56, 64, 96].allSatisfy { length in
+      isPublicIPv4((length / 8..<16).filter { $0 != 8 }.prefix(4).map { bytes[$0] })
+    }
+    return translated ? .admitted : .ambiguous
   }
 
   private static func isPublicIPv4(_ b: [UInt8]) -> Bool {

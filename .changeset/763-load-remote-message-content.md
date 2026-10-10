@@ -15,3 +15,5 @@ destinations, pins one validated address while authenticating the original host,
 and repeats those checks for every redirect. Validated images are kept in a
 separate 250 MB encrypted cache scoped to each account, mailbox, message and
 source, which Clear remote content empties. Known tracking pixels never load.
+IPv6 answers that could translate to a private address are never used; hosts
+reachable only through such addresses keep their images as placeholders.

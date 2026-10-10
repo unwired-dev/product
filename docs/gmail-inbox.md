@@ -533,7 +533,11 @@ sources, including plain HTTP and internationalized host names, stay placeholder
 - **Policies.** The account page's **Remote images** section chooses **Ask** (the
   default), **Never** or **Always load** for this device, and each Gmail mailbox
   can use the device setting or its own choice. Choices stay on this device in its
-  local defaults and are never synchronized; unreadable settings ask.
+  local defaults and are never synchronized; unreadable settings ask. Until the
+  saved choices are read at launch, readers show no remote content and offer no
+  **Load images**, so a saved **Never** is never preceded by Ask's cache restoration.
+- **Cache-only restoration** considers every nearby source, even when earlier
+  sources only missed the cache. A viewport change withdraws the old sources.
 - **Ask.** While a message has unloaded remote images, the reader explains that
   loading them shows the sender the device's IP address and when the message was
   opened, and offers **Load images**. Choosing it authorizes this presentation of
@@ -549,8 +553,14 @@ sources, including plain HTTP and internationalized host names, stay placeholder
   view stay placeholders.
 - **Requests** run six at a time per message and twelve across the account. Native
   code owns the isolated HTTPS fetch outside WebKit, with no cookies, credentials,
-  referrer, user agent or shared session. Literal and resolved destinations must
-  all be public (including embedded IPv4 in NAT64 addresses); retrieval uses no
+  referrer, user agent or shared session. Any literal or resolved answer that is
+  definitely not public, including well-known NAT64 (`64:ff9b::/96`) carrying
+  non-public IPv4, refuses the host. An IPv6 answer that would read as private IPv4
+  under any RFC 6052 NAT64 layout is never connected to, because a network may
+  translate it to a private destination; the fetch pins a remaining public answer
+  instead, such as a dual-stack host's public IPv4 address. A host with no such
+  answer, typically IPv6-only, is refused and its images remain placeholders.
+  Retrieval uses no
   proxy, requires TLS 1.2 or later and authenticates the original host. Each
   redirect repeats those requirements. A message makes at most 20 network-authorized source attempts, follows at
   most three redirects per attempt and has a 30-second loading deadline and a

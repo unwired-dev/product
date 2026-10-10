@@ -47,7 +47,8 @@ export const RemoteContentContext = createContext<
 
 const noSubscription = () => () => undefined;
 
-// The policy for a mailbox's messages; without settings, every presentation asks.
+// The policy for a mailbox's messages: without a settings store every presentation asks, and
+// while saved settings are read remote content stays hidden.
 export function useRemoteContentPolicy(
   connection: string | undefined,
 ): RemoteContentPolicy {
@@ -186,7 +187,7 @@ export function MailboxRemoteContent({ id, address }: MailboxConnection) {
   const store = use(RemoteContentContext);
   const override = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
-    () => store?.getSnapshot().overrides[id],
+    () => store?.getSnapshot()?.overrides[id],
   );
   if (store === undefined) {
     return null;

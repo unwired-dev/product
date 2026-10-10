@@ -261,12 +261,32 @@ viewport and authorization; the union keeps another window from revoking an
 eligible source. Losing a source's last authorization retires active work even
 when another window authorizes different sources. Each presentation schedules at
 most twenty network-authorized sources; cache-only reads are bounded per batch
-and do not spend that network budget.
+and do not spend that network budget. Each cache-only batch probes at most twenty
+sources; even all-miss batches continue within the same Effect run using the live
+reader ledger, without re-registering an earlier viewport. Settings remain
+unresolved until the first native read settles. Both hosts gate readers with Never
+during that interval; a missing, unreadable or failed initial read publishes Ask.
 
 The native bridge maintains a shared byte/deadline budget per request session.
-It resolves every HTTPS destination, rejects any non-public result, and connects
-to one validated IP with proxy use disabled while authenticating the original
-TLS host with TLS 1.2 or later. Each of at most
+It resolves every HTTPS destination, refuses the hostname if any answer is
+definitely non-public, discards ambiguous IPv6 answers and pins the first remaining
+admitted IP. An empty admitted set refuses the destination. Proxy use is disabled
+and TLS 1.2 or later authenticates the original host. Globally formatted IPv6
+destinations must have public embedded IPv4 under all six RFC 6052 layouts,
+skipping reserved byte 8, to be admitted; otherwise they are ambiguous and never
+connected to.
+RFC 7050 discovery cannot expose destination-specific translation prefixes, so
+matching only discovered prefixes cannot close the private-network boundary.
+The [2026-10-10 ADR 0029 amendment](../adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-10)
+records the superseded round-2 2–1 whole-host refusal and round-3 3–0 filtering
+decision after live DNS showed false refusals for 16 of 18 common image hosts.
+Dual-stack names can use admitted public IPv4; names with only ambiguous IPv6
+answers remain refused. No discovery lookup is needed. Well-known NAT64 addresses
+keep their direct embedded-IPv4 check and refuse the name when it is non-public.
+The transport uses a numeric endpoint without re-resolution or fallback to an
+unchecked answer. This classifies addresses, not arbitrary network routing; the
+DNS sample does not qualify real fetches or native networks.
+Each of at most
 three redirects repeats that process. The minimal HTTP/1.1 client sends no cookie,
 authorization, referrer or user-agent headers and shares no browser session. Raw
 received bytes, including framing, redirects and rejected responses, consume the

@@ -4,6 +4,53 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-10-10
+
+During [#763](https://github.com/unwired-dev/product/issues/763) thermo-nuclear
+review round 2, the repository decision panel selected conservative IPv6
+admission, including whole-host refusal when any answer failed it, over accepting
+private-network access behind an undiscovered NAT64 prefix. The vote was 2–1:
+gpt-6.1-sol and gpt-6-astra chose conservative admission; claude-fable-5-1 chose
+discovery-scoped admission and warned about substantial false refusals.
+
+That whole-host rule is superseded by the round-3 decision below. A live-DNS
+sample on 2026-10-10 found that 16 of 18 common email-image hosts, including
+Gmail's image proxy and newsletter/CDN hosts, had ambiguous IPv6 answers and were
+refused despite also having public IPv4 answers. This is compatibility evidence,
+not live fetch or native-network qualification. A fresh panel unanimously chose
+filtering ambiguous IPv6 answers instead of refusing their entire hostname:
+claude-fable-5-1, gpt-6.1-sol and gpt-6-astra all voted for filtering (3–0).
+They retained the private-destination prohibition while restoring use of admitted
+dual-stack answers; gpt-6-astra explicitly required no unchecked transport fallback.
+
+For globally formatted IPv6 remote-content destinations, require public embedded
+IPv4 under every RFC 6052 prefix layout (/32, /40, /48, /56, /64 and /96), skipping
+reserved byte 8 for the shorter layouts, before admitting an address. An otherwise
+global IPv6 address failing this check is ambiguous: discard it and never connect
+to it. A definitely non-public IPv4 or IPv6 answer still refuses the whole name,
+including a well-known NAT64 (`64:ff9b::/96`) answer carrying non-public IPv4.
+If no definitely non-public answer exists, pin the first remaining admitted answer;
+if none remains, refuse. Apply this selection to literals, resolved answers and
+every redirect. The socket must never re-resolve the hostname or fall back to a
+discarded or unchecked address. Remove prefix discovery: [RFC 7050 §5.1](https://datatracker.ietf.org/doc/html/rfc7050#section-5.1)
+permits different translation prefixes for special IPv4 ranges and explains that
+discovery cannot learn those mappings. A successful discovery therefore cannot
+establish that another global-looking address does not reach private IPv4.
+
+Genuine native IPv6 and public translated IPv6 whose other candidate layouts look
+private remain unusable as socket destinations. Dual-stack hosts may load through
+their admitted public IPv4 answer; hosts with only ambiguous answers, including
+IPv6-only networks supplying only network-specific synthesized AAAA records, keep
+their images as placeholders. Public IPv4 and well-known NAT64/public IPv4 remain
+usable. The guard closes these RFC 6052 representations, not arbitrary network
+routing. Real IPv6/NAT64/proxy qualification remains required before release.
+
+This supersedes the prior every-answer requirement only for ambiguous globally
+formatted IPv6; definitely non-public answers still refuse the hostname.
+
+Consent, HTTPS isolation, TLS authentication, pinned addresses, redirects,
+cancellation, image admission and cache limits remain unchanged.
+
 ## Amendment — 2026-10-06
 
 The product owner approved these changes during

@@ -3902,26 +3902,6 @@ export function createGmailInbox(
         return Promise.resolve();
       }
       const { scope } = remote;
-      const eligible = [...remote.near].filter((url) => {
-        const known = remote.images.get(url);
-        return (
-          known === undefined ||
-          (remote.networkUrls.has(url) && known.kind === 'absent')
-        );
-      });
-      const network = eligible
-        .filter((url) => remote.networkUrls.has(url))
-        .slice(0, inlineImageLimits.attempts - remote.attempts);
-      const cached = eligible
-        .filter((url) => !remote.networkUrls.has(url))
-        .slice(0, inlineImageLimits.attempts);
-      const wanted = [...network, ...cached];
-      if (wanted.length === 0) {
-        return Promise.resolve();
-      }
-      for (const url of wanted) {
-        remote.images.set(url, { kind: 'loading' });
-      }
       const reading = owner;
       const current = (url: string) =>
         owner === reading &&
@@ -3930,60 +3910,88 @@ export function createGmailInbox(
         remote.near.has(url) &&
         readers.has(id) &&
         readable(id);
-      const lane = remoteLanes.get(id) ?? {
-        permits: Semaphore.makeUnsafe(6),
-        pending: 0,
-      };
-      remoteLanes.set(id, lane);
-      lane.pending += wanted.length;
-      const attemptStart = remote.sequence;
-      remote.sequence += wanted.length;
-      remote.attempts += network.length;
       return runLogged(
-        Effect.forEach(
-          wanted,
-          (url) =>
-            lane.permits
-              .withPermit(
-                shared.remote.withPermit(
-                  remoteImage(
-                    scope,
-                    { id, url },
-                    {
-                      network: () => remote.networkUrls.has(url),
-                      request: {
-                        session: remote.session,
-                        request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
-                      },
-                      current: () => current(url),
-                      retain: (image) => reserveRemote({ id, url }, image),
-                    },
-                  ),
-                ),
-              )
-              .pipe(
-                Effect.map((result) => [url, result] as const),
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    lane.pending -= 1;
-                    if (lane.pending === 0 && !remoteImages.has(id)) {
-                      remoteLanes.delete(id);
-                    }
-                  }),
-                ),
-              ),
-          { concurrency: 'unbounded' },
-        ).pipe(
-          Effect.flatMap((results) =>
-            Effect.sync(() => {
-              settleRemoteImages(
-                id,
-                results,
-                () => remoteImages.get(id) === remote,
+        Effect.gen(function* () {
+          while (remoteImages.get(id) === remote) {
+            const eligible = [...remote.near].filter((url) => {
+              const known = remote.images.get(url);
+              return (
+                known === undefined ||
+                (remote.networkUrls.has(url) && known.kind === 'absent')
               );
-            }),
-          ),
-        ),
+            });
+            const network = eligible
+              .filter((url) => remote.networkUrls.has(url))
+              .slice(0, inlineImageLimits.attempts - remote.attempts);
+            const cached = eligible
+              .filter((url) => !remote.networkUrls.has(url))
+              .slice(0, inlineImageLimits.attempts);
+            const wanted = [...network, ...cached];
+            if (wanted.length === 0) {
+              return;
+            }
+            for (const url of wanted) {
+              remote.images.set(url, { kind: 'loading' });
+            }
+            const lane = remoteLanes.get(id) ?? {
+              permits: Semaphore.makeUnsafe(6),
+              pending: 0,
+            };
+            remoteLanes.set(id, lane);
+            lane.pending += wanted.length;
+            const attemptStart = remote.sequence;
+            remote.sequence += wanted.length;
+            remote.attempts += network.length;
+            yield* Effect.forEach(
+              wanted,
+              (url) =>
+                lane.permits
+                  .withPermit(
+                    shared.remote.withPermit(
+                      remoteImage(
+                        scope,
+                        { id, url },
+                        {
+                          network: () => remote.networkUrls.has(url),
+                          request: {
+                            session: remote.session,
+                            request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
+                          },
+                          current: () => current(url),
+                          retain: (image) => reserveRemote({ id, url }, image),
+                        },
+                      ),
+                    ),
+                  )
+                  .pipe(
+                    Effect.map((result) => [url, result] as const),
+                    Effect.ensuring(
+                      Effect.sync(() => {
+                        lane.pending -= 1;
+                        if (lane.pending === 0 && !remoteImages.has(id)) {
+                          remoteLanes.delete(id);
+                        }
+                      }),
+                    ),
+                  ),
+              { concurrency: 'unbounded' },
+            ).pipe(
+              Effect.flatMap((results) =>
+                Effect.sync(() => {
+                  settleRemoteImages(
+                    id,
+                    results,
+                    () => remoteImages.get(id) === remote,
+                  );
+                }),
+              ),
+            );
+            // Misses publish no presentation; keep scanning only the current nearby sources.
+            if (cached.length !== inlineImageLimits.attempts) {
+              return;
+            }
+          }
+        }),
       );
     },
     // Drops a message's loaded Remote Message Content from memory and presents it again, as when

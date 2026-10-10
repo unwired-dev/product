@@ -34,10 +34,15 @@ export interface NativeRemoteContent {
   readonly clearRemoteContent: () => Promise<unknown>;
 }
 
+// Until the device's saved settings are read, no policy is known and remote content stays
+// hidden, so a saved Never is never preceded by Ask's cache restoration.
 export const remoteContentPolicy = (
-  settings: RemoteContentSettings,
+  settings: RemoteContentSettings | undefined,
   connection: string,
-): RemoteContentPolicy => settings.overrides[connection] ?? settings.policy;
+): RemoteContentPolicy =>
+  settings === undefined
+    ? 'never'
+    : (settings.overrides[connection] ?? settings.policy);
 
 // A native settings or cache call that failed; its cause is logged only as a diagnostic.
 class RemoteContentNativeFailure extends Schema.TaggedError<RemoteContentNativeFailure>()(
@@ -58,7 +63,8 @@ const logFailure =
 
 export function createRemoteContentSettings(native: NativeRemoteContent) {
   const operations = Semaphore.makeUnsafe(1);
-  let settings = defaults;
+  // Unresolved until the first read settles; an unreadable or failed read asks.
+  let settings: RemoteContentSettings | undefined = undefined;
   const listeners = new Set<() => void>();
   const publish = (next: RemoteContentSettings) => {
     settings = next;
@@ -73,7 +79,7 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
       operations
         .withPermit(
           Effect.gen(function* () {
-            const next = update(settings);
+            const next = update(settings ?? defaults);
             yield* call(() =>
               native.setRemoteContentSettings(encodeSettings(next)),
             );
@@ -118,9 +124,16 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
             ),
           )
           .pipe(
-            Effect.catchTag(
-              'RemoteContentNativeFailure',
-              logFailure('Remote content settings could not be read:'),
+            Effect.catchTag('RemoteContentNativeFailure', (failure) =>
+              logFailure('Remote content settings could not be read:')(
+                failure,
+              ).pipe(
+                Effect.andThen(
+                  Effect.sync(() => {
+                    publish(settings ?? defaults);
+                  }),
+                ),
+              ),
             ),
           ),
       ),
