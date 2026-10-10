@@ -116,6 +116,7 @@ const styles = StyleSheet.create({
     gap: spacing.small,
   },
   grow: { flex: 1 },
+  editing: { gap: spacing.medium },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   actionText: { fontSize: 16 },
   status: { fontSize: 13 },
@@ -594,10 +595,12 @@ function Recipients({
   field,
   onChange,
   onCaretMove,
+  editable,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
+  readonly editable: boolean;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -655,6 +658,7 @@ function Recipients({
       </View>
       <TextInput
         accessibilityLabel={name}
+        editable={editable}
         autoCapitalize="none"
         autoComplete="email"
         autoCorrect={false}
@@ -1131,6 +1135,8 @@ function Editor({
   >();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
+  // While Send is pending the editor accepts no edits, so nothing typed then is lost.
+  const [sending, setSending] = useState(false);
   const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
@@ -1392,6 +1398,9 @@ function Editor({
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
+    if (sending) {
+      return;
+    }
     if (nativeEvent.key === 'Delete') {
       deletion.current = 'forward';
     } else if (nativeEvent.key === 'Backspace') {
@@ -1479,6 +1488,7 @@ function Editor({
     const previous = authored.current;
     setRefused(undefined);
     setClosing('saving');
+    setSending(true);
     // As for Discard, later edits wait: the version shown at Send is the one sent.
     discarded.current = true;
     lifetime.current.finishing += 1;
@@ -1505,6 +1515,7 @@ function Editor({
       } else {
         setClosing(undefined);
         setRefused(refusal);
+        setSending(false);
       }
     }
   };
@@ -1552,14 +1563,14 @@ function Editor({
             </Text>
           </View>
           <Action
-            disabled={history.past.length === 0}
+            disabled={sending || history.past.length === 0}
             label={t('drafts.undo')}
             onPress={() => {
               travel(undo);
             }}
           />
           <Action
-            disabled={history.future.length === 0}
+            disabled={sending || history.future.length === 0}
             label={t('drafts.redo')}
             onPress={() => {
               travel(redo);
@@ -1567,6 +1578,7 @@ function Editor({
           />
           <Action
             destructive
+            disabled={sending}
             label={t('drafts.discard')}
             onPress={() => {
               setClosing('discard');
@@ -1636,250 +1648,267 @@ function Editor({
             />
           </View>
         ) : null}
-        <SendingMailbox
-          draft={draft}
-          onChange={(mailbox) => {
-            change(withSender(authored.current, mailbox));
-          }}
-        />
-        <Recipients
-          draft={draft}
-          getDraft={getDraft}
-          field="to"
-          onChange={change}
-          onCaretMove={breakTyping}
-        />
-        {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
-          <>
-            <Recipients
-              draft={draft}
-              getDraft={getDraft}
-              field="cc"
-              onChange={change}
-              onCaretMove={breakTyping}
-            />
-            <Recipients
-              draft={draft}
-              getDraft={getDraft}
-              field="bcc"
-              onChange={change}
-              onCaretMove={breakTyping}
-            />
-          </>
-        ) : (
-          <Action
-            accessibilityLabel={t('drafts.showCcBcc')}
-            label={t('drafts.ccBcc')}
-            onPress={() => {
-              change({ ...authored.current, copies: true });
+        <View
+          pointerEvents={sending ? 'none' : 'auto'}
+          style={styles.editing}>
+          <SendingMailbox
+            draft={draft}
+            onChange={(mailbox) => {
+              change(withSender(authored.current, mailbox));
             }}
           />
-        )}
-        <View style={styles.field}>
+          <Recipients
+            draft={draft}
+            getDraft={getDraft}
+            editable={!sending}
+            field="to"
+            onChange={change}
+            onCaretMove={breakTyping}
+          />
+          {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
+            <>
+              <Recipients
+                draft={draft}
+                getDraft={getDraft}
+                editable={!sending}
+                field="cc"
+                onChange={change}
+                onCaretMove={breakTyping}
+              />
+              <Recipients
+                draft={draft}
+                getDraft={getDraft}
+                editable={!sending}
+                field="bcc"
+                onChange={change}
+                onCaretMove={breakTyping}
+              />
+            </>
+          ) : (
+            <Action
+              accessibilityLabel={t('drafts.showCcBcc')}
+              label={t('drafts.ccBcc')}
+              onPress={() => {
+                change({ ...authored.current, copies: true });
+              }}
+            />
+          )}
+          <View style={styles.field}>
+            <TextInput
+              accessibilityLabel={t('drafts.subject')}
+              editable={!sending}
+              onChangeText={(subject) => {
+                const previous = authored.current.subject;
+                subjectCaret.current =
+                  subjectSelection.current.end +
+                  subject.length -
+                  previous.length;
+                // One character added at the caret continues a typing step until a word ends.
+                const added =
+                  subjectSelection.current.start ===
+                    subjectSelection.current.end &&
+                  subject.length === previous.length + 1;
+                const typed = subject[subjectSelection.current.start] ?? ' ';
+                change(
+                  { ...authored.current, subject },
+                  added && !/\s/u.test(typed),
+                  'subject',
+                );
+              }}
+              onSelectionChange={({ nativeEvent }) => {
+                const next = nativeEvent.selection;
+                if (
+                  next.start !== next.end ||
+                  next.start !== subjectCaret.current
+                ) {
+                  commitHistory((current) => ({ ...current, typing: false }));
+                }
+                subjectCaret.current = undefined;
+                subjectSelection.current = next;
+              }}
+              placeholder={t('drafts.subject')}
+              placeholderTextColor={colors.secondary}
+              style={[styles.input, { color: colors.foreground }]}
+              value={draft.subject}
+            />
+          </View>
+          <View
+            accessibilityLabel={t('drafts.formatting')}
+            accessibilityRole="toolbar"
+            style={styles.bar}>
+            {markControls.map(([mark, label, name, style]) => (
+              <Pressable
+                key={mark}
+                accessibilityLabel={t(name)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active.includes(mark) }}
+                onPress={() => {
+                  format(mark);
+                }}
+                style={[
+                  styles.format,
+                  {
+                    backgroundColor: active.includes(mark)
+                      ? colors.selected
+                      : 'transparent',
+                  },
+                ]}>
+                <Text style={[{ color: colors.foreground }, style]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+            {blockControls.map(([value, label, name]) => (
+              <Pressable
+                key={value}
+                accessibilityLabel={t(name)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: kind === value }}
+                onPress={() => {
+                  block(value);
+                }}
+                style={[
+                  styles.format,
+                  {
+                    backgroundColor:
+                      kind === value ? colors.selected : 'transparent',
+                  },
+                ]}>
+                <Text style={{ color: colors.foreground }}>{label}</Text>
+              </Pressable>
+            ))}
+            <Action
+              disabled={
+                !hasTranslatableText(
+                  selectedText(
+                    draft.body,
+                    selection,
+                    translationInputLimit + 1,
+                  ),
+                )
+              }
+              label={t('translation.translate')}
+              accessibilityLabel={t('translation.translateSelectionLabel')}
+              onPress={() => {
+                const at = selectionNow.current;
+                const { body } = authored.current;
+                const text = selectedText(body, at, translationInputLimit + 1);
+                if (!lifetime.current.mounted || !hasTranslatableText(text)) {
+                  return;
+                }
+                captureGeneration.current += 1;
+                const capture = {
+                  body,
+                  selection: at,
+                  text,
+                  id: captureGeneration.current,
+                };
+                captureNow.current = capture;
+                setTranslating(capture);
+              }}
+            />
+          </View>
+          <View
+            accessibilityLabel={t('drafts.assets.toolbar')}
+            accessibilityRole="toolbar"
+            style={styles.bar}>
+            <Action
+              label={t('drafts.assets.attachFilesPanel')}
+              onPress={() => {
+                void choose('files', false);
+              }}
+            />
+            <Action
+              label={t('drafts.assets.insertImagePanel')}
+              onPress={() => {
+                void choose('photos', true);
+              }}
+            />
+          </View>
+          {translating === undefined ? null : (
+            <DraftTranslation
+              key={translating.id}
+              text={translating.text}
+              onApply={applyTranslation}
+              onClose={() => {
+                if (captureNow.current === translating) {
+                  captureNow.current = undefined;
+                  setTranslating(undefined);
+                }
+              }}
+            />
+          )}
           <TextInput
-            accessibilityLabel={t('drafts.subject')}
-            onChangeText={(subject) => {
-              const previous = authored.current.subject;
-              subjectCaret.current =
-                subjectSelection.current.end + subject.length - previous.length;
-              // One character added at the caret continues a typing step until a word ends.
-              const added =
-                subjectSelection.current.start ===
-                  subjectSelection.current.end &&
-                subject.length === previous.length + 1;
-              const typed = subject[subjectSelection.current.start] ?? ' ';
-              change(
-                { ...authored.current, subject },
-                added && !/\s/u.test(typed),
-                'subject',
-              );
-            }}
+            accessibilityLabel={t('drafts.body')}
+            editable={!sending}
+            // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
+            // usual. React Native macOS supports these props but leaves them out of TextInputProps.
+            {...({
+              onPaste: ({ nativeEvent }) => {
+                addFiles(
+                  transferred(
+                    t('drafts.assets.pastedImage'),
+                    nativeEvent.dataTransfer,
+                  ),
+                  true,
+                );
+              },
+              pastedTypes: ['fileUrl', 'image', 'string'],
+            } satisfies TextInputMacOSProps)}
+            keyDownEvents={shortcuts}
+            multiline
+            onChangeText={edit}
+            onKeyDown={keyDown}
             onSelectionChange={({ nativeEvent }) => {
               const next = nativeEvent.selection;
-              if (
-                next.start !== next.end ||
-                next.start !== subjectCaret.current
-              ) {
+              // Moving the caret anywhere but past typed text ends marks toggled for typing.
+              if (next.start !== next.end || next.start !== caret.current) {
+                placeTyping(undefined);
                 commitHistory((current) => ({ ...current, typing: false }));
               }
-              subjectCaret.current = undefined;
-              subjectSelection.current = next;
+              caret.current = undefined;
+              setPlaced(undefined);
+              selectionNow.current = next;
+              setSelection(next);
             }}
-            placeholder={t('drafts.subject')}
+            placeholder={t('drafts.bodyPlaceholder')}
             placeholderTextColor={colors.secondary}
-            style={[styles.input, { color: colors.foreground }]}
-            value={draft.subject}
+            scrollEnabled={false}
+            selection={placed}
+            style={[styles.body, { color: colors.foreground }]}
+            textAlignVertical="top">
+            {display.lines.map((line, index) => (
+              <Text
+                // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+                key={index}
+                style={[
+                  kindStyles[line.kind],
+                  line.kind === 'quote' ? { color: colors.secondary } : null,
+                ]}>
+                {line.marker}
+                {line.spans.map((span, at) => (
+                  <Text
+                    // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                    key={at}
+                    style={markStyle(span.marks)}>
+                    {span.text}
+                  </Text>
+                ))}
+                {index < display.lines.length - 1 ? '\n' : ''}
+              </Text>
+            ))}
+          </TextInput>
+          {draft.quoted === undefined ? null : (
+            <QuotedText quoted={draft.quoted} />
+          )}
+          <DraftAssets
+            draft={draft}
+            onCancel={(id) => {
+              void store.cancelImport(id);
+            }}
+            onRemove={removeAsset}
           />
         </View>
-        <View
-          accessibilityLabel={t('drafts.formatting')}
-          accessibilityRole="toolbar"
-          style={styles.bar}>
-          {markControls.map(([mark, label, name, style]) => (
-            <Pressable
-              key={mark}
-              accessibilityLabel={t(name)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active.includes(mark) }}
-              onPress={() => {
-                format(mark);
-              }}
-              style={[
-                styles.format,
-                {
-                  backgroundColor: active.includes(mark)
-                    ? colors.selected
-                    : 'transparent',
-                },
-              ]}>
-              <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
-            </Pressable>
-          ))}
-          {blockControls.map(([value, label, name]) => (
-            <Pressable
-              key={value}
-              accessibilityLabel={t(name)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: kind === value }}
-              onPress={() => {
-                block(value);
-              }}
-              style={[
-                styles.format,
-                {
-                  backgroundColor:
-                    kind === value ? colors.selected : 'transparent',
-                },
-              ]}>
-              <Text style={{ color: colors.foreground }}>{label}</Text>
-            </Pressable>
-          ))}
-          <Action
-            disabled={
-              !hasTranslatableText(
-                selectedText(draft.body, selection, translationInputLimit + 1),
-              )
-            }
-            label={t('translation.translate')}
-            accessibilityLabel={t('translation.translateSelectionLabel')}
-            onPress={() => {
-              const at = selectionNow.current;
-              const { body } = authored.current;
-              const text = selectedText(body, at, translationInputLimit + 1);
-              if (!lifetime.current.mounted || !hasTranslatableText(text)) {
-                return;
-              }
-              captureGeneration.current += 1;
-              const capture = {
-                body,
-                selection: at,
-                text,
-                id: captureGeneration.current,
-              };
-              captureNow.current = capture;
-              setTranslating(capture);
-            }}
-          />
-        </View>
-        <View
-          accessibilityLabel={t('drafts.assets.toolbar')}
-          accessibilityRole="toolbar"
-          style={styles.bar}>
-          <Action
-            label={t('drafts.assets.attachFilesPanel')}
-            onPress={() => {
-              void choose('files', false);
-            }}
-          />
-          <Action
-            label={t('drafts.assets.insertImagePanel')}
-            onPress={() => {
-              void choose('photos', true);
-            }}
-          />
-        </View>
-        {translating === undefined ? null : (
-          <DraftTranslation
-            key={translating.id}
-            text={translating.text}
-            onApply={applyTranslation}
-            onClose={() => {
-              if (captureNow.current === translating) {
-                captureNow.current = undefined;
-                setTranslating(undefined);
-              }
-            }}
-          />
-        )}
-        <TextInput
-          accessibilityLabel={t('drafts.body')}
-          // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
-          // usual. React Native macOS supports these props but leaves them out of TextInputProps.
-          {...({
-            onPaste: ({ nativeEvent }) => {
-              addFiles(
-                transferred(
-                  t('drafts.assets.pastedImage'),
-                  nativeEvent.dataTransfer,
-                ),
-                true,
-              );
-            },
-            pastedTypes: ['fileUrl', 'image', 'string'],
-          } satisfies TextInputMacOSProps)}
-          keyDownEvents={shortcuts}
-          multiline
-          onChangeText={edit}
-          onKeyDown={keyDown}
-          onSelectionChange={({ nativeEvent }) => {
-            const next = nativeEvent.selection;
-            // Moving the caret anywhere but past typed text ends marks toggled for typing.
-            if (next.start !== next.end || next.start !== caret.current) {
-              placeTyping(undefined);
-              commitHistory((current) => ({ ...current, typing: false }));
-            }
-            caret.current = undefined;
-            setPlaced(undefined);
-            selectionNow.current = next;
-            setSelection(next);
-          }}
-          placeholder={t('drafts.bodyPlaceholder')}
-          placeholderTextColor={colors.secondary}
-          scrollEnabled={false}
-          selection={placed}
-          style={[styles.body, { color: colors.foreground }]}
-          textAlignVertical="top">
-          {display.lines.map((line, index) => (
-            <Text
-              // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-              key={index}
-              style={[
-                kindStyles[line.kind],
-                line.kind === 'quote' ? { color: colors.secondary } : null,
-              ]}>
-              {line.marker}
-              {line.spans.map((span, at) => (
-                <Text
-                  // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-                  key={at}
-                  style={markStyle(span.marks)}>
-                  {span.text}
-                </Text>
-              ))}
-              {index < display.lines.length - 1 ? '\n' : ''}
-            </Text>
-          ))}
-        </TextInput>
-        {draft.quoted === undefined ? null : (
-          <QuotedText quoted={draft.quoted} />
-        )}
-        <DraftAssets
-          draft={draft}
-          onCancel={(id) => {
-            void store.cancelImport(id);
-          }}
-          onRemove={removeAsset}
-        />
       </ScrollView>
     </View>
   );

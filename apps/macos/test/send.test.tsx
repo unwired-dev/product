@@ -13,7 +13,13 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 import { useState } from 'react';
 
 import { Composer } from '../src/composer.tsx';
@@ -196,6 +202,40 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('accepts no edits while Send is pending, then closes once the message is admitted', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+      // Storage holds the admission, as a slow write would.
+      sender.storage.hold();
+
+      await press('Send');
+
+      for (const field of ['To', 'Subject', 'Message body']) {
+        expect(screen.getByLabelText(field)).toHaveProp('editable', false);
+      }
+      for (const name of ['Undo', 'Discard', 'Send']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      await act(async () => {
+        sender.storage.release();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      expect(
+        screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
+      ).toBeOnTheScreen();
     } finally {
       sender.outbox.dispose();
     }
