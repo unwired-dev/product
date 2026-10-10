@@ -896,4 +896,99 @@ describe('sending a Draft through the Outbox', () => {
     expect(sending.list().map((each) => each.id)).toStrictEqual([id]);
     sending.outbox.dispose();
   });
+
+  it('saves a definite non-delivery again when storage refused it, then sends once', async () => {
+    expect.hasAssertions();
+    let phone: Device | undefined = undefined;
+    const { server, gmail } = sharedAccount(() => phone);
+    const sending = await sender(server, gmail, 'phone');
+    phone = sending;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Gmail refuses for a rate limit, and storage refuses to record that answer.
+      gmail.failSend({ status: 429, body: '{}' });
+      const { gmailSend } = gmail.native;
+      gmail.native.gmailSend = async (...args) => {
+        gmail.native.gmailSend = gmailSend;
+        const reply = await gmailSend(...args);
+        sending.storage.failNextCommit('locked');
+        return reply;
+      };
+
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'sending' },
+      ]);
+
+      later(30_000);
+      await sending.outbox.process();
+      // The definite non-delivery is recorded, so the message stays retryable and editable.
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'queued', problem: 'rate-limited' },
+      ]);
+      later(30_000);
+      await sending.outbox.process();
+      expect(gmail.sends).toHaveLength(1);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('refuses Send when the sending mailbox changes while its files are verified', async () => {
+    expect.hasAssertions();
+    let phone: Device | undefined = undefined;
+    const { server, gmail } = sharedAccount(() => phone);
+    const sending = await sender(server, gmail, 'phone');
+    phone = sending;
+    const outbox = createOutbox({
+      drafts: {
+        ...sending.drafts,
+        readAsset: async (asset, options) => {
+          sending.change({
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: JSON.stringify([
+              {
+                ...alex,
+                address: 'renamed@example.invalid',
+                state: 'connected',
+              },
+            ]),
+          });
+          return sending.drafts.readAsset(asset, options);
+        },
+      },
+      mailboxes: sending.mailboxes,
+      registration: sending.registration,
+      claims: sending.storage.delivery,
+    });
+    try {
+      const id = await addressed(sending);
+      const draft = sending.draft(id);
+      sending.storage.addFile('file:///notes.txt', 'notes');
+      const notes = sending.drafts.prepare({
+        name: 'notes.txt',
+        type: 'text/plain',
+      });
+      await sending.drafts.update({ ...draft, attachments: [notes] }, draft);
+      await sending.drafts.importAsset(notes, {
+        kind: 'file',
+        uri: 'file:///notes.txt',
+      });
+
+      await expect(outbox.send(() => sending.draft(id))).resolves.toBe(
+        'sender',
+      );
+
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(sending.list().map((each) => each.id)).toStrictEqual([id]);
+    } finally {
+      outbox.dispose();
+      sending.outbox.dispose();
+    }
+  });
 });

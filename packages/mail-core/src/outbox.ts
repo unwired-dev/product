@@ -122,6 +122,8 @@ export function createOutbox({
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
   const retryAt = new Map<string, number>();
+  // Outcomes Gmail gave that storage refused to record; saved again while the message is 'sending'.
+  const unrecorded = new Map<string, SendOutcome>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
 
@@ -132,7 +134,8 @@ export function createOutbox({
     if (entry.state === 'waiting') {
       return Math.max(entry.sendAt, retryAt.get(entry.id) ?? 0);
     }
-    return entry.state === 'queued'
+    return entry.state === 'queued' ||
+      (entry.state === 'sending' && unrecorded.has(entry.id))
       ? (retryAt.get(entry.id) ?? 0)
       : Number.POSITIVE_INFINITY;
   };
@@ -227,6 +230,29 @@ export function createOutbox({
   };
 
   // Hands a claimed message to Gmail once, after its durable handoff.
+  // Records an outcome, keeping it to save again when storage refuses, so a message Gmail never
+  // received does not stay 'sending' and read as unknown after a relaunch.
+  const keep = async (id: string, outcome: SendOutcome) => {
+    if (await record(id, outcome)) {
+      unrecorded.delete(id);
+    } else if (entryOf(id)?.state === 'sending') {
+      unrecorded.set(id, outcome);
+    }
+  };
+
+  // Saves an outcome storage refused earlier. Resolves whether one was waiting.
+  const resave = async (entry: OutboxEntry) => {
+    const outcome = unrecorded.get(entry.id);
+    if (outcome === undefined) {
+      return false;
+    }
+    unrecorded.delete(entry.id);
+    if (entry.state === 'sending') {
+      await keep(entry.id, outcome);
+    }
+    return true;
+  };
+
   const handOff = async (id: string) => {
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
@@ -245,7 +271,7 @@ export function createOutbox({
     if (sending !== undefined) {
       const problem = senderProblem(sending.draft);
       if (problem !== undefined) {
-        await record(id, { kind: 'failed', problem });
+        await keep(id, { kind: 'failed', problem });
         return;
       }
     }
@@ -253,7 +279,7 @@ export function createOutbox({
       sending === undefined || inbox === undefined
         ? { kind: 'queued', problem: 'offline' }
         : await inbox.send(sending.message);
-    await record(id, outcome);
+    await keep(id, outcome);
   };
 
   // Ends a message's Undo Send Window once it has passed. Resolves false when storage refused that.
@@ -307,6 +333,9 @@ export function createOutbox({
     const account = ownerOf(registration);
     const waiting = entryOf(id);
     if (account === undefined || waiting === undefined) {
+      return;
+    }
+    if (await resave(waiting)) {
       return;
     }
     if (!(await release(waiting))) {
@@ -437,6 +466,11 @@ export function createOutbox({
       }
       if (!(await verified(draft))) {
         return 'assets';
+      }
+      // The sending mailbox can change while files are read; it is checked again before admission.
+      const late = refusalOf(expected());
+      if (late !== undefined) {
+        return late;
       }
       const message = messageOf(draft);
       if (message.size > gmailMessageLimit) {

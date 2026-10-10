@@ -71,6 +71,9 @@ in the background or with Mac windows closed is
   response never grants permission to submit.
 - Claims contain no message content. Another device cannot take over delivery;
   an uncertain provider outcome never causes automatic resubmission.
+- When storage refuses to record Gmail's answer, the app saves it again with the
+  next retry while it keeps running, so a message Gmail never received stays
+  retryable rather than reading as unknown.
 - Native code owns encrypted file access and Gmail credentials. Keys, credentials
   and asset bytes never cross the JavaScript bridge; logs contain no mail content,
   addresses or identifiers.
