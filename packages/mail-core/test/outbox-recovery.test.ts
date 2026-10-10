@@ -458,6 +458,93 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     }
   });
 
+  it('checks Gmail again once the mailbox is ready after a refresh interrupted the Sent check', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Gmail accepts without answering, and the mailbox generation renews during the Sent check.
+      gmail.failSend({ lost: true });
+      gmail.fail({ code: 'mailbox-invalidated' });
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+
+      await sending.mailboxes.load();
+
+      await vi.waitFor(() => {
+        expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      });
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('uses a mailbox refresh that finishes before the interrupted Sent check answers', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const sentList = holdSentList(gmail);
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ lost: true });
+      const processing = sending.outbox.process();
+      await vi.waitFor(() => {
+        expect(sentList.held()).toBe(true);
+      });
+
+      await sending.mailboxes.load();
+      gmail.fail({ code: 'mailbox-invalidated' });
+      sentList.release();
+      await processing;
+
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      sentList.release();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('answers overlapping Check Again and activation requests from the Sent lookup already running', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      const before = sentLists(gmail);
+      sentList = holdSentList(gmail);
+
+      const first = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+      const second = sending.outbox.check(id);
+      const activation = sending.outbox.process();
+      sentList.release();
+
+      await expect(
+        Promise.all([first, second, activation]),
+      ).resolves.toStrictEqual([false, false, undefined]);
+      expect(sentLists(gmail) - before).toBe(1);
+    } finally {
+      sentList?.release();
+      sending.outbox.dispose();
+    }
+  });
+
   it('locks the Inbox when a Sent check finds storage locked, keeping the message unknown', async () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();
@@ -603,6 +690,37 @@ async function interrupted(
   } finally {
     sending.outbox.dispose();
   }
+}
+
+// How many times Gmail was asked for its newest Sent messages.
+function sentLists(gmail: ReturnType<typeof sharedAccount>['gmail']) {
+  return gmail.requests.filter(
+    ({ path, query }) =>
+      path === 'messages' && query.get('labelIds') === 'SENT',
+  ).length;
+}
+
+// Holds Gmail's Sent message lists until `release`, as a slow connection would.
+function holdSentList(gmail: ReturnType<typeof sharedAccount>['gmail']) {
+  const answer = Promise.withResolvers<undefined>();
+  const request = gmail.native.gmailRequest;
+  let held = false;
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (
+      path === 'messages' &&
+      query.some(([name, value]) => name === 'labelIds' && value === 'SENT')
+    ) {
+      held = true;
+      await answer.promise;
+    }
+    return request(path, query, owner);
+  };
+  return {
+    held: () => held,
+    release: () => {
+      answer.resolve(undefined);
+    },
+  };
 }
 
 // Stops the app at one point of a delivery; `claim` and `submit` are the unstopped calls.

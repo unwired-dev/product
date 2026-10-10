@@ -71,6 +71,14 @@ Check Again. Automatic checks wait for a ready mailbox with verified provider
 access; the mailbox subscription retries a startup check after Draft storage opens
 first. Disposal removes both Draft and mailbox subscriptions.
 
+`findSent` returns no outcome when its open mailbox scope was unavailable or
+invalidated, while an inconclusive Gmail lookup returns `unknown`. Reconciliation
+restores automatic-check eligibility only for the former. Running lookups coalesce
+explicit and automatic triggers; a ready publication observed during a lookup is
+remembered and queues one fresh check if that lookup was interrupted. Readiness
+arriving after interruption queues through the mailbox subscription. A completed
+lookup consumes overlapping triggers without repeating provider reads.
+
 The panel also chose Check Again plus warned Edit over Check Again plus Remove,
 3–0. An unknown entry can return to Drafts only by the person's explicit choice
 after the host warning; it retains its old claim and returns under a new identifier.

@@ -3461,11 +3461,12 @@ export function createGmailInbox(
       );
     },
     // Looks for a message whose handoff had no answer in this mailbox's Sent messages by its MIME
-    // boundary. Resolves sent with Gmail's identifier, or unknown when Gmail cannot establish it.
+    // boundary. Resolves sent with Gmail's identifier, unknown when Gmail cannot establish it, or
+    // undefined when the open mailbox was not looked at, as when it closed or changed meanwhile.
     findSent: (boundary: string) => {
       const scope = opened;
       if (scope === undefined || forgotten) {
-        return Promise.resolve<SendOutcome>({ kind: 'unknown' });
+        return Promise.resolve(undefined);
       }
       const reading = owner;
       return runLogged(
@@ -3474,12 +3475,16 @@ export function createGmailInbox(
             // A lock, revocation or refused grant found here recovers the Inbox as a search does.
             SyncFailure: (failure) =>
               searchFailed(failure, reading).pipe(
-                Effect.as<SendOutcome>({ kind: 'unknown' }),
+                Effect.map((page) =>
+                  page === undefined
+                    ? undefined
+                    : ({ kind: 'unknown' } satisfies SendOutcome),
+                ),
               ),
             GmailNotFound: () =>
-              Effect.succeed<SendOutcome>({ kind: 'unknown' }),
+              Effect.succeed<SendOutcome | undefined>({ kind: 'unknown' }),
             GmailInvalidPage: () =>
-              Effect.succeed<SendOutcome>({ kind: 'unknown' }),
+              Effect.succeed<SendOutcome | undefined>({ kind: 'unknown' }),
           }),
         ),
       );

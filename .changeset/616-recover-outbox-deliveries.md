@@ -15,3 +15,7 @@ already have sent it before returning it to the Drafts.
 Sent checks also recover locked storage, device removal and refused Gmail access,
 showing the authorization action even after an offline retry while keeping the
 delivery outcome unknown.
+
+A Sent check interrupted by a mailbox refresh resumes once the mailbox is ready,
+including when readiness returns before the interrupted answer. Overlapping
+**Check Again** requests share the running lookup.

@@ -135,6 +135,8 @@ export function createOutbox({
   // already queued once by this Outbox.
   const checks = new Set<string>();
   const queuedChecks = new Set<string>();
+  // Running Sent lookups, and whether a ready mailbox was published while each awaited its answer.
+  const checking = new Map<string, boolean>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
 
@@ -307,8 +309,12 @@ export function createOutbox({
     if (boundary === undefined || inbox === undefined) {
       return;
     }
+    queuedChecks.add(id);
     const outcome = await inbox.findSent(boundary);
-    if (outcome.kind === 'sent') {
+    if (outcome === undefined) {
+      // The mailbox closed or changed meanwhile; it is checked again once it is ready.
+      queuedChecks.delete(id);
+    } else if (outcome.kind === 'sent') {
       await keep(id, outcome);
     }
   };
@@ -432,13 +438,45 @@ export function createOutbox({
     }
   };
 
+  // Queues a check of every unknown message, or only those this Outbox has not checked yet.
+  const checkUnknown = (all: boolean) => {
+    let added = false;
+    for (const entry of drafts.getOutbox()) {
+      const mailbox = mailboxes
+        .getSnapshot()
+        .find((each) => each.id === entry.draft.connection);
+      // Draft storage can open before Gmail at launch or during authorization renewal.
+      if (mailbox?.state.kind !== 'ready' || !mailbox.state.organize) {
+        queuedChecks.delete(entry.id);
+      } else if (entry.state === 'unknown') {
+        if (checking.has(entry.id)) {
+          checking.set(entry.id, true);
+        } else if (all || !queuedChecks.has(entry.id)) {
+          queuedChecks.add(entry.id);
+          checks.add(entry.id);
+          added = true;
+        }
+      }
+    }
+    return added;
+  };
+
   // Passes run one at a time; a request during one runs another after it.
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
   const pass = async () => {
     for (const id of checks) {
       checks.delete(id);
-      await reconcile(id);
+      checking.set(id, false);
+      try {
+        await reconcile(id);
+      } finally {
+        const refreshed = checking.get(id) === true;
+        checking.delete(id);
+        if (refreshed && !queuedChecks.has(id) && !disposed) {
+          checkUnknown(false);
+        }
+      }
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
@@ -476,28 +514,6 @@ export function createOutbox({
       }
     })();
     await passing;
-  };
-
-  // Queues a check of every unknown message, or only those this Outbox has not checked yet.
-  const checkUnknown = (all: boolean) => {
-    let added = false;
-    for (const entry of drafts.getOutbox()) {
-      const mailbox = mailboxes
-        .getSnapshot()
-        .find((each) => each.id === entry.draft.connection);
-      // Draft storage can open before Gmail at launch or during authorization renewal.
-      if (mailbox?.state.kind !== 'ready' || !mailbox.state.organize) {
-        queuedChecks.delete(entry.id);
-      } else if (
-        entry.state === 'unknown' &&
-        (all || !queuedChecks.has(entry.id))
-      ) {
-        queuedChecks.add(entry.id);
-        checks.add(entry.id);
-        added = true;
-      }
-    }
-    return added;
   };
 
   let seen = drafts.getOutbox();
@@ -602,7 +618,9 @@ export function createOutbox({
     // Looks for an unknown message in Gmail's Sent mailbox now. Resolves whether it left the
     // Outbox as sent.
     check: async (id: string) => {
-      checks.add(id);
+      if (!checking.has(id)) {
+        checks.add(id);
+      }
       await process();
       return entryOf(id) === undefined;
     },

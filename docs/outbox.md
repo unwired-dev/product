@@ -146,6 +146,9 @@ cover:
 - an accepted message whose answer was lost, confirmed from Gmail's Sent mailbox;
 - mailbox loading after reopened Draft storage, boundary parsing without named
   capture groups in the host runtime, and conflicting or unavailable Sent evidence;
+- mailbox refresh interrupting a Sent check, with readiness returning before or
+  after the interrupted check answers, and overlapping Check Again requests sharing
+  one provider lookup;
 - an unknown message that Gmail never kept, which stays unknown through
   **Check Again** and returns to the Drafts under a new identifier;
 - a renamed sender while queued, during a claim, or while handoff is being saved,
