@@ -130,6 +130,7 @@ After the required review and applicable local checks, commit only task-owned
 changes, push the task branch, and create or update its ready-for-review PR.
 When the user forbids merging, make the PR a draft (converting a ready PR) so
 automatic merge skips it, and end the handoff without invoking babysit-pr.
+That hands the work back, so remove the `in progress` label as described below.
 Reference the issue with a closing keyword only when the PR fully resolves it.
 Describe the resulting behavior, verification, and any deferred release checks.
 Do not create duplicate PRs or publish a partial implementation as complete.
