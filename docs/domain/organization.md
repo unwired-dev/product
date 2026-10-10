@@ -3,8 +3,9 @@
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/organization.md)
 
 These terms include prototype organization features and follow-up work.
-References to a feature's first release or v1 retain their original scope; they
-do not add that feature to the focused replacement release.
+References to a feature's first release or v1 retain their original scope. The
+[power-user launch specification](../product/power-user-launch.md) identifies
+which organization workflows are required in the maintained clients.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
@@ -13,6 +14,10 @@ for launch scope; a term's presence does not establish implementation or release
 
 ## Language
 
+**Mail Rule**:
+A user-defined set of explicit conditions and mail actions for organizing matching messages without model inference.
+_Avoid_: Notification Rule, Category, AI categorization
+
 **Blocked Sender**:
 An exact normalized sender email address whose future arriving messages are moved recoverably to the Mail Provider's Trash on each trusted device that can mutate that Mailbox Connection. The synchronized preference does not retroactively move existing mail, infer aliases, or permanently erase messages.
 _Avoid_: Display sender name, domain block, spam report
@@ -20,6 +25,10 @@ _Avoid_: Display sender name, domain block, spam report
 **Mail View**:
 A user-selectable filter within the currently selected mailbox scope that narrows the **Threads** shown without changing mailbox membership or **Message Categories**.
 _Avoid_: Category, Mailbox, bottom tab
+
+**Saved Search**:
+A named, reusable mail query and its selected scope within one Mail Profile.
+_Avoid_: Mail Rule, Category, provider folder
 
 **All Messages Mail View**:
 The permanent **Mail View** that shows every Thread in the selected mailbox scope and is labeled “All” in compact navigation.

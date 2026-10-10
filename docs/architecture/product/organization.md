@@ -8,12 +8,14 @@ replacement requirements or release qualification.
 ## Scope
 
 These terms include prototype organization features and follow-up work.
-References to a feature's first release or v1 retain their original scope; they
-do not add that feature to the focused replacement release.
+References to a feature's first release or v1 retain their original scope.
+ADR 0069 and the power-user launch specification identify promoted workflows;
+other prototype features do not become implicit launch requirements.
 
 ## Decisions and scope
 
-- [Accepted replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Allow multiple Categories per message](../../adr/0024-allow-multiple-categories-per-message.md)
 - [Make Inbox Cleanup reviewed and recoverable](../../adr/0043-make-inbox-cleanup-reviewed-and-recoverable.md)
 - [Synchronize Muted Threads as product state](../../adr/0051-synchronize-muted-threads-as-product-state.md)

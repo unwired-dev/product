@@ -5,9 +5,9 @@ The review agent owns the separate [architecture companion](../architecture/doma
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/mailboxes.md)
 
-The replacement launches with Gmail. The engine dependency, certified
-Standards-Based Mail and legacy-provider terms describe the Swift prototype or
-future work; they do not establish support in the new client.
+The [power-user launch scope](../product/power-user-launch.md) requires Gmail,
+IMAP/SMTP and Microsoft mail. Provider and engine terms also describe the Swift
+prototype; their presence does not establish support in the maintained clients.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
@@ -114,5 +114,5 @@ A mailbox containing messages whose delivery has completed successfully; its uni
 _Avoid_: Outbox, sending queue
 
 **Gmail-first provider support**:
-The provider strategy where the first release supports only Gmail **Mailbox Connections**, with IMAP/SMTP and Microsoft 365 planned afterward.
+The superseded launch strategy that limited the first release to Gmail **Mailbox Connections**, with IMAP/SMTP and Microsoft 365 planned afterward.
 _Avoid_: Provider-agnostic v1

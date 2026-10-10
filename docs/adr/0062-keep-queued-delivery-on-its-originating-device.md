@@ -4,6 +4,14 @@ status: accepted
 
 # Keep queued delivery on its originating device
 
+## Launch scope amendment — 2026-10-11
+
+The power-user Apple launch extends these delivery protections and required
+content-free atomic Convex send admission to every launch provider. Gmail-specific
+wording below records the original provider scope; originating-device ownership
+and uncertain-outcome protections remain unchanged. See
+[ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
+
 The replacement synchronizes rich-text Drafts and their assets through End-to-End
 Encrypted Product Sync, preserving conflicting edits instead of silently
 overwriting them. When a person presses Send, the originating device owns the

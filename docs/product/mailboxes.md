@@ -5,9 +5,9 @@ The review agent owns the separate [architecture companion](../architecture/prod
 
 [Vocabulary](../domain/mailboxes.md) · [Domain index](../../GLOSSARY.md)
 
-The replacement launches with Gmail. The engine dependency, certified
-Standards-Based Mail and legacy-provider terms describe the Swift prototype or
-future work; they do not establish support in the new client.
+The [power-user launch scope](power-user-launch.md) requires Gmail, IMAP/SMTP and
+Microsoft mail. Provider and engine terms also describe the Swift prototype;
+their presence does not establish support in the maintained clients.
 
 These observable requirements were separated from the former monolithic glossary
 and its implementation notes. The reviewer owns the separate architecture companion
@@ -97,4 +97,4 @@ implemented.
 
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Bulk actions preserve per-connection ordering behind existing pending actions. Different connections progress independently, and successful batches remain successful when another connection fails.
-- **Gmail-first provider support** limits the first release to Gmail **Mailbox Connections**, with IMAP/SMTP and Microsoft 365 planned afterward
+- **Gmail-first provider support** describes the superseded release scope. The [power-user launch](power-user-launch.md#providers) requires all three provider families; an intermediate Gmail beta does not establish launch completion.

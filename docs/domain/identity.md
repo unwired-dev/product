@@ -5,9 +5,10 @@ The review agent owns the separate [architecture companion](../architecture/doma
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/identity.md)
 
-Product Account identity and device trust apply to the replacement. Advanced
-Profiles are follow-up work; Default Profile and the deployed Profile Record
-Scope describe prototype migration behavior.
+Product Account identity and device trust apply to the replacement. Optional
+Mail Profiles are required by the [power-user launch scope](../product/power-user-launch.md).
+Default Profile and the deployed Profile Record Scope also describe prototype
+migration behavior; their definitions do not prove replacement implementation.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and

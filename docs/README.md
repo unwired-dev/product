@@ -6,6 +6,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 ## Replacement requirements and operations
 
+- [Confirmed power-user launch scope and delivery order](product/power-user-launch.md)
 - [Expo bootstrap, stack, setup and checks](expo-client.md)
 - [Native Mac windows, setup and checks](macos-client.md)
 - [On-demand and nightly TestFlight builds from CI and a Mac](testflight.md)

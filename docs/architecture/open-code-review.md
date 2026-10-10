@@ -49,8 +49,9 @@ unavailable source/check. Do not infer completion from rule resolution.
 This routing is not an exhaustive decision inventory. R1 requires any affected
 source beyond these starting points. Check retained Swift against its applicable
 prototype decisions; apply explicit replacement supersessions to replacement
-work. Deferred providers, Profiles and advanced features remain deferred unless
-an authorized decision changes their scope.
+work. ADR 0069 promotes the selected providers, optional Profiles and power-user
+workflows to launch. Other prototype and deferred features remain outside launch
+unless an authorized decision changes their scope.
 
 ## Rule matching and selection
 

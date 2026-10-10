@@ -37,6 +37,10 @@ _Avoid_: Blocking loading state, hidden sync error
 Locally encrypted storage for prefetched recent readable body representations and opened older readable body representations, excluding attachments and constrained by eviction controls.
 _Avoid_: On-demand-only body cache, permanent body store, attachment archive
 
+**Keep Offline**:
+A device-local retention choice for the downloaded content of selected conversations or provider folders, optionally including attachments, independent of ordinary body-cache eviction. It is distinct from a Pin and does not itself mean the requested downloads have completed.
+_Avoid_: Pin, automatic download, full mailbox archive
+
 **Remote Message Content**:
 Content referenced by a message but fetched from an external server only for an authorized message presentation, such as remote images. After that fetch, the client may restore it from the **Authorized Remote Content Cache** without contacting the server again.
 _Avoid_: Message body, downloaded attachment
@@ -80,6 +84,10 @@ _Avoid_: Return to Attention, guaranteed reminder, automatic send
 **Quiet State**:
 A Mail Profile's interruption-suppression state, synchronized through **End-to-End Encrypted Product Sync**, that may be inactive, indefinite, or active until an absolute instant. While active, it suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work.
 _Avoid_: Quiet, Profile Quiet, Profile Lock, paused synchronization
+
+**Quiet Hours**:
+A Mail Profile's configured schedule of periods that suppress visible notifications without suspending mailbox work.
+_Avoid_: Paused sync, Profile Lock, indefinite Quiet State
 
 **Profile Lock**:
 Device-local protection scoped to one Product Account and Mail Profile that requires device-owner authentication before mail UI or search can reveal Profile content, with a device-local background grace period. Lock removes the Profile's Spotlight entries and suppresses content-bearing notifications while background work continues.
