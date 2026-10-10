@@ -18,9 +18,11 @@ finish, the implementer:
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
    created or selected before implementation, and pushes the branch.
-2. Updates the task's open same-repository PR against `main` when one exists, marking a draft ready for
-   review. Otherwise opens a PR ready
-   for review against `main` that references its issue, using the `pr` skill for
+2. Updates the task's open same-repository PR against `main` when one exists,
+   marking a draft ready for review and dropping a `[WIP]` title marker. A
+   `[skip review]` title, `do-not-review` label, or bot author blocks automatic
+   merge; leave it in place and report the blocker.
+   Otherwise opens a PR ready for review against `main` that references its issue, using the `pr` skill for
    the body and recording any decision-panel outcomes. In T3 Code, link the PR
    to the thread with `link_pull_request`.
 3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
