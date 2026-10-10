@@ -36,7 +36,6 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
-// oxlint-disable-next-line node/no-sync -- Pure JSON decoding of a recorded request, not synchronous I/O.
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const alex = syntheticMailboxes['alex@example.invalid'];

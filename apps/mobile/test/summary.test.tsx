@@ -16,7 +16,6 @@ import { GmailMessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext, MessageSummary } from '../src/message-summary.tsx';
 
-// oxlint-disable-next-line node/no-sync -- Pure JSON decoding of a recorded request, not synchronous I/O.
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.

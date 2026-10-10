@@ -46,6 +46,13 @@ export default buildOxlintConfig({
         files: ['**/*.tsx'],
         rules: { 'typescript/prefer-readonly-parameter-types': 'allow' },
       },
+      {
+        // Tests use synchronous setup and pure Schema decoders, as allowed by the root config.
+        files: ['**/*.test.ts', '**/*.test.tsx'],
+        // Node rule settings only apply where an override enables the plugin.
+        plugins: ['node'],
+        rules: { 'node/no-sync': 'allow' },
+      },
     ],
   },
 });
