@@ -4,6 +4,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `apps/mobile/plugins/private-inbox.cjs` leaving a removed test-only Swift source
+  or its Compile Sources entry in an existing generated iOS project. Check the
+  incremental prebuild as well as fresh generation, including repeated execution
+  and preservation of unrelated sources; otherwise moving the fixture out of
+  production directories still leaves it compiled into regenerated apps.
 - `scripts/auto-merge.sh` using a ruleset bypass token while matching required checks only by name rather than their configured integration, or reading only one rules page. This permits merging without the ruleset's trusted checks.
 - `scripts/auto-merge.sh` ignoring an applicable rule's strict required-check policy, reversing the head-to-base comparison, or accepting an unavailable comparison. A bypass token can then merge a head that lacks commits from `main` despite the ruleset's up-to-date requirement; enforce strictness if any applicable rule requires it and recheck branch freshness before acting.
 - The merger deciding eligibility from incomplete label/check/thread pages, omitting CodeRabbit's configured exclusions or bot authors, or merging from the pre-dismissal snapshot without checking new feedback and the original head. A missing exclusion or changed feedback must not authorize the privileged merge.

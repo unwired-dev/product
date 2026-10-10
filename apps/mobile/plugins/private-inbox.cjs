@@ -71,6 +71,16 @@ module.exports = function privateInbox(config) {
     const root = result.modRequest.platformProjectRoot;
     const destination = path.join(root, 'PrivateInbox');
     fs.mkdirSync(destination, { recursive: true });
+    // Incremental prebuild keeps files and references copied before this fixture moved to tests.
+    const retired = 'PrivateInbox/SyntheticCredential.swift';
+    if (project.hasFile(retired)) {
+      project.removeSourceFile(
+        retired,
+        { target },
+        project.getFirstProject().firstProject.mainGroup,
+      );
+    }
+    fs.rmSync(path.join(root, retired), { force: true });
     const source = path.resolve(
       result.modRequest.projectRoot,
       '../../native/private-inbox',
