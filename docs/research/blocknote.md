@@ -205,6 +205,11 @@ These are proposed checks, not completed tests. If BlockNote is separately
 evaluated after the Tiptap-first effort, limit its spike to core editing and our
 current document subset on all three native form factors.
 
+The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts)
+and [Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+remain the acceptance contract in their current scope and qualification status;
+the checks below highlight journeys rather than replace that contract.
+
 1. **Host boundary:** package a local web asset without adding React DOM to the
    native renderer; prove launch, focus, resize, and teardown on iPhone, iPad,
    and Mac. Confirm the shipped assets work with networking disabled.
@@ -212,12 +217,18 @@ current document subset on all three native form factors.
    blocks/marks, mixed lists, empty paragraphs, Unicode, inline images and asset
    IDs. Include link creation, destination/text edits, removal and undo/redo;
    reopening the saved semantic document must preserve linked text ranges and
-   destinations. Reject or explicitly normalize unsupported pasted content without silent
+   destinations. Paste or drop image data into the body to create an Inline Image;
+   choosing an image through the attachment picker must create an Attachment.
+   Exercise explicit context conversion in both directions, then undo/redo and
+   save/reopen, preserving the resulting representation, inline position and Draft Asset identity.
+   Reject or explicitly normalize unsupported pasted content without silent
    loss. Keep quoted correspondence and recipients outside authored-body edits.
 3. **Editing quality:** require native spelling, autocorrection and predictive
    text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
    Exercise IME, dictation, selection, caret formatting, input shortcuts, hardware
-   keyboard, VoiceOver, and grouped undo/redo. Test selection around inline images
+   keyboard and VoiceOver. Undo/Redo must advance one edit step per activation,
+   a word of typing at a time; repeated commands before redraw must each advance
+   the history, including Mac Command-Z and Shift-Command-Z. Test selection around inline images
    and iPad keyboard/split-view transitions. Verify Markdown marker conversion
    and one-step Undo, literal pasted Markdown, and equivalent semantic formatting
    through toolbar and pointer/touch/keyboard context actions. Hiding the toolbar

@@ -276,6 +276,11 @@ recipients and subject outside arbitrary body transformations.
 [Delivery terminology](../domain/messages-and-delivery.md),
 [assistance scope](../domain/assistance.md).
 
+The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts)
+and [Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+remain the acceptance contract in their current scope and qualification status;
+the checks below highlight journeys rather than replace that contract.
+
 Run the same small corpus and native journeys against the current composer and
 Tiptap first; add Lexical only if a concrete Tiptap-specific limitation justifies
 it. General WebView failures in native keyboard,
@@ -287,12 +292,18 @@ accessibility or host behavior call for evaluating the native approach instead:
    formatting, Unicode, image positions/IDs, paste normalization and undo/redo.
    Include link creation, destination/text edits, removal and undo/redo;
    reopening the saved semantic document must preserve linked text ranges and
-   destinations.
+   destinations. Paste or drop image data into the body to create an Inline Image;
+   choosing an image through the attachment picker must create an Attachment.
+   Exercise explicit context conversion in both directions, then undo/redo and
+   save/reopen, preserving the resulting representation, inline position and Draft Asset identity.
    Reopen the saved semantic document and compare meaning, not just screenshot.
 3. **Native editing:** require native spelling, autocorrection and predictive
    text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
    Exercise software/hardware keyboards, IME, dictation, selection handles,
    VoiceOver, shortcuts, iPad split view and Mac menu/undo integration. Verify
+   Undo/Redo advances one edit step per activation, a word of typing at a time;
+   repeated commands before redraw must each advance the history, including Mac
+   Command-Z and Shift-Command-Z. Verify
    selection/caret formatting, Markdown marker conversion and one-step Undo,
    literal pasted Markdown, and equivalent semantic formatting through toolbar
    and pointer/touch/keyboard context actions. Hiding the toolbar must leave
