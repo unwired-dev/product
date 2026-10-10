@@ -800,11 +800,13 @@ const encodeDocument = (
     ...(sent.length === 0 ? {} : { sent }),
   }).pipe(Effect.mapError(malformed));
 
-// Only a message never handed to Gmail can return to the Drafts.
+// A message handed to Gmail returns to the Drafts only once its outcome is unknown, as the person
+// chooses after a warning.
 const restorable = (
   entry: OutboxEntry | undefined,
-): entry is OutboxEntry & { state: 'waiting' | 'queued' | 'failed' } =>
-  entry !== undefined && entry.state !== 'sending' && entry.state !== 'unknown';
+): entry is OutboxEntry & {
+  state: 'waiting' | 'queued' | 'failed' | 'unknown';
+} => entry !== undefined && entry.state !== 'sending';
 
 // The confirmed sends kept to tell a repeated outcome from a new one.
 const sentLimit = 20;
@@ -1557,7 +1559,7 @@ export function createDrafts(
       }),
     );
 
-  // Returns an Outbox message that was never handed to Gmail to the Drafts. One whose claim was
+  // Returns an Outbox message not awaiting Gmail's answer to the Drafts. One whose claim was
   // requested keeps its claim's identifier retired and returns under a new one.
   const restoring = (current: number, id: string) =>
     guarded(
@@ -2207,7 +2209,7 @@ export function createDrafts(
       id: string,
       step: (entry: OutboxEntry) => OutboxEntry | Sent | undefined,
     ) => runLogged(delivering(generation, id, step)),
-    // Returns an Outbox message that was never handed to Gmail to the Drafts. Resolves the Draft's
+    // Returns an Outbox message not awaiting Gmail's answer to the Drafts. Resolves the Draft's
     // identifier, or false when the message can no longer return.
     restore: async (id: string) => {
       const restored = await runLogged(restoring(generation, id));

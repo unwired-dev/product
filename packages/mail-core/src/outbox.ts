@@ -17,6 +17,7 @@ import {
 import { assetsOf } from './draft-model.ts';
 import { sendingStateOf, threadOf, unsendableAssets } from './drafts.ts';
 import {
+  boundaryOf,
   gmailMessageLimit,
   outgoingMessage,
   sendableAddress,
@@ -104,7 +105,8 @@ const step =
 // Window, a message is claimed through Convex so no other Trusted Device can send the same Draft,
 // marked as handed to Gmail in storage, and only then sent once. A message that reached neither
 // Convex nor Gmail is tried again later; one handed to Gmail without a confirmed answer is never
-// sent again automatically.
+// sent again automatically. Gmail's Sent mailbox is checked for it when it becomes unknown, when
+// this Outbox starts, when the app becomes active and when the person asks.
 export function createOutbox({
   drafts,
   mailboxes,
@@ -121,7 +123,7 @@ export function createOutbox({
     | 'readAsset'
     | 'subscribe'
   >;
-  mailboxes: Pick<Mailboxes, 'getSnapshot'>;
+  mailboxes: Pick<Mailboxes, 'getSnapshot' | 'subscribe'>;
   registration: Pick<Registration, 'getSnapshot'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
@@ -129,6 +131,10 @@ export function createOutbox({
   const retryAt = new Map<string, number>();
   // Outcomes Gmail gave that storage refused to record; saved again while awaiting an outcome.
   const unrecorded = new Map<string, SendOutcome>();
+  // Unknown messages to look for in Gmail's Sent mailbox on the next pass, and current messages
+  // already queued once by this Outbox.
+  const checks = new Set<string>();
+  const queuedChecks = new Set<string>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
 
@@ -288,6 +294,25 @@ export function createOutbox({
     await keep(id, outcome);
   };
 
+  // Records an unknown message as sent only when Gmail's Sent mailbox holds exactly one copy.
+  const reconcile = async (id: string) => {
+    const entry = entryOf(id);
+    if (entry?.state !== 'unknown' || ownerOf(registration) === undefined) {
+      return;
+    }
+    const boundary = boundaryOf(entry.message.segments);
+    const inbox = mailboxes
+      .getSnapshot()
+      .find((mailbox) => mailbox.id === entry.draft.connection)?.inbox;
+    if (boundary === undefined || inbox === undefined) {
+      return;
+    }
+    const outcome = await inbox.findSent(boundary);
+    if (outcome.kind === 'sent') {
+      await keep(id, outcome);
+    }
+  };
+
   // Ends a message's Undo Send Window once it has passed. Resolves false when storage refused that.
   const release = async (entry: OutboxEntry) =>
     entry.state !== 'waiting' ||
@@ -411,6 +436,10 @@ export function createOutbox({
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
   const pass = async () => {
+    for (const id of checks) {
+      checks.delete(id);
+      await reconcile(id);
+    }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
       const { id } = entry;
@@ -449,6 +478,28 @@ export function createOutbox({
     await passing;
   };
 
+  // Queues a check of every unknown message, or only those this Outbox has not checked yet.
+  const checkUnknown = (all: boolean) => {
+    let added = false;
+    for (const entry of drafts.getOutbox()) {
+      const mailbox = mailboxes
+        .getSnapshot()
+        .find((each) => each.id === entry.draft.connection);
+      // Draft storage can open before Gmail at launch or during authorization renewal.
+      if (mailbox?.state.kind !== 'ready' || !mailbox.state.organize) {
+        queuedChecks.delete(entry.id);
+      } else if (
+        entry.state === 'unknown' &&
+        (all || !queuedChecks.has(entry.id))
+      ) {
+        queuedChecks.add(entry.id);
+        checks.add(entry.id);
+        added = true;
+      }
+    }
+    return added;
+  };
+
   let seen = drafts.getOutbox();
   const unsubscribe = drafts.subscribe(() => {
     const outbox = drafts.getOutbox();
@@ -464,12 +515,29 @@ export function createOutbox({
           unrecorded.delete(id);
         }
       }
-      if (passing === undefined) {
+      for (const id of queuedChecks) {
+        if (!sending.has(id)) {
+          queuedChecks.delete(id);
+          checks.delete(id);
+        }
+      }
+      if (checkUnknown(false)) {
+        void process();
+      } else if (passing === undefined) {
         plan(() => void process());
       }
     }
   });
-  plan(() => void process());
+  const unsubscribeMailboxes = mailboxes.subscribe(() => {
+    if (checkUnknown(false)) {
+      void process();
+    }
+  });
+  if (checkUnknown(false)) {
+    void process();
+  } else {
+    plan(() => void process());
+  }
 
   return {
     // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
@@ -524,22 +592,34 @@ export function createOutbox({
         ? 'changed'
         : 'storage';
     },
-    // Returns a message not yet handed to Gmail to the Drafts, as Undo or after a refusal.
-    // Resolves the Draft's identifier, or false when it can no longer return.
+    // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
+    // edit one whose delivery is unknown. Resolves the Draft's identifier, or false when it can no
+    // longer return.
     undo: async (id: string) => {
       retryAt.delete(id);
       return drafts.restore(id);
     },
-    // Tries every due message now, as when the app becomes active.
+    // Looks for an unknown message in Gmail's Sent mailbox now. Resolves whether it left the
+    // Outbox as sent.
+    check: async (id: string) => {
+      checks.add(id);
+      await process();
+      return entryOf(id) === undefined;
+    },
+    // Tries every due message now and checks every unknown one, as when the app becomes active.
     process: async () => {
       retryAt.clear();
+      checkUnknown(true);
       await process();
     },
     dispose: () => {
       disposed = true;
       timer?.abort();
       unsubscribe();
+      unsubscribeMailboxes();
       unrecorded.clear();
+      checks.clear();
+      queuedChecks.clear();
     },
   };
 }

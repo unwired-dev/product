@@ -49,13 +49,42 @@ retries only recording that answer from `sending` or `unknown`, never Gmail
 submission. Another store's conservative recovery to `unknown` cannot erase
 the live handoff's known answer; only that handoff's Outbox holds the answer.
 It forgets the answer when the entry advances or disappears and on disposal. A relaunch without
-that saved answer still reads the durable handoff as unknown; #616 owns recovery.
+that saved answer still reads the durable handoff as unknown and checks Gmail's
+Sent mailbox without resubmission.
 
-## Retry scope for #615
+## Unknown-outcome recovery (#616)
+
+Reconciliation reads the newest 20 SENT messages and each one's Content-Type
+metadata. Exactly one top-level MIME boundary matching the frozen outgoing message
+confirms acceptance and records Gmail's message identifier through the existing
+durable outcome path. Missing, conflicting or unavailable evidence retains unknown.
+The lookup is bounded and never turns absence into permission to resend. Real
+Gmail preservation of the boundary remains deferred release qualification.
+
+The implementation decision panel chose the existing random MIME boundary over
+adding a recipient-visible marker header, 3–0. It works with #615's persisted
+messages without rebuilding their content. Both boundary parsers use positional
+captures so host transforms that omit named capture groups do not break recovery.
+
+Checks run when an entry first becomes unknown, on launch, activation and explicit
+Check Again. Automatic checks wait for a ready mailbox with verified provider
+access; the mailbox subscription retries a startup check after Draft storage opens
+first. Disposal removes both Draft and mailbox subscriptions.
+
+The panel also chose Check Again plus warned Edit over Check Again plus Remove,
+3–0. An unknown entry can return to Drafts only by the person's explicit choice
+after the host warning; it retains its old claim and returns under a new identifier.
+An in-flight `sending` entry remains ineligible for Edit.
+
+## Retry scope for #615 and #616
 
 The review decision panel selected the existing 30-second safe queued retry
 policy over introducing durable attempt/age budgets in this slice, 3–0
 (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`, all high reasoning).
-The prototype’s ADR 0016 retry budget is not imposed on #615. Recovery and retry
-budgets belong with #616; unknown outcomes remain excluded from automatic
-resubmission under ADR 0062.
+For #616, the implementation panel again chose the existing unlimited 30-second
+and activation retries for definite queued non-delivery over durable attempt/age
+budgets, 3–0, with the same models and reasoning settings. This supersedes the
+#615 handoff assigning budgets to #616; the prototype's ADR 0016 budget remains
+outside this replacement slice. Unknown outcomes remain excluded from automatic
+resubmission under ADR 0062. These decisions do not qualify real Gmail, Convex or
+native process-termination behavior.

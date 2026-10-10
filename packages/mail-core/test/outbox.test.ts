@@ -713,36 +713,32 @@ describe('sending a Draft through the Outbox', () => {
     },
   );
 
-  it('records a definite refusal and an unknown outcome apart, and never sends an unknown one again', async () => {
+  it("records a definite refusal apart from a lost answer, which Gmail's Sent mailbox confirms without sending again", async () => {
     expect.hasAssertions();
     let phone: Device | undefined = undefined;
     const { server, gmail } = sharedAccount(() => phone);
     const sending = await sender(server, gmail, 'phone');
     phone = sending;
     const refusedId = await addressed(sending, 'First');
-    const unknownId = await addressed(sending, 'Second');
+    const lostId = await addressed(sending, 'Second');
     gmail.failSend({ status: 400, body: '{}' }, { lost: true });
     await sending.outbox.send(() => sending.draft(refusedId));
-    await sending.outbox.send(() => sending.draft(unknownId));
+    await sending.outbox.send(() => sending.draft(lostId));
     later(undoSendWindow);
 
     await sending.outbox.process();
 
+    // Gmail accepted the second message although its reply was lost; its Sent copy confirms it.
+    expect(gmail.sends).toHaveLength(1);
     expect(sending.drafts.getOutbox()).toMatchObject([
       { id: refusedId, state: 'failed', problem: 'refused' },
-      { id: unknownId, state: 'unknown' },
     ]);
-    expect(sending.drafts.getOutbox()[1]).not.toHaveProperty('problem');
-    // Gmail accepted the second message although its reply was lost.
-    expect(gmail.sends).toHaveLength(1);
-    await expect(sending.outbox.undo(unknownId)).resolves.toBe(false);
+    expect(sending.storage.stored()?.document).toContain(
+      `"id":"${lostId}","message":"${gmail.sends[0]?.id}"`,
+    );
     await sending.relaunch();
     await sending.outbox.process();
     expect(gmail.sends).toHaveLength(1);
-    expect(sending.drafts.getOutbox()).toMatchObject([
-      { id: refusedId, state: 'failed' },
-      { id: unknownId, state: 'unknown' },
-    ]);
     // A refused message returns to the Drafts to correct, apart from its claimed identity.
     const restored = await sending.outbox.undo(refusedId);
     expect(restored).not.toBe(refusedId);
