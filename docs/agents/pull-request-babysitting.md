@@ -14,9 +14,8 @@ An implementation request authorizes the full delivery without further
 confirmation. After both [implementation reviews](implementation-review.md)
 finish, the implementer:
 
-1. Works on a branch that belongs to the task: a detached HEAD, `main`, or
-   another task's branch gets a new task branch first. Commits the reviewed
-   changes (preserving unrelated work) and pushes the branch.
+1. Commits the reviewed changes (preserving unrelated work) on the task branch
+   created before implementation, and pushes the branch.
 2. Updates the task's existing PR when one exists. Otherwise opens a PR ready
    for review against `main` that references its issue, using the `pr` skill for
    the body and recording any decision-panel outcomes. In T3 Code, link the PR

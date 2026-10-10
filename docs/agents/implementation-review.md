@@ -56,7 +56,9 @@ not itself restrict filesystem or Git-history access.
 
 ## Implementer handoff
 
-1. Before editing, record the starting commit, `git status --short`, and any
+1. Before editing, work on a branch that belongs to the task. From a detached
+   HEAD, `main`, or another task's branch, create a new task branch from the
+   latest `main`. Then record the starting commit, `git status --short`, and any
    existing staged, unstaged or untracked changes. Preserve unrelated work.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
