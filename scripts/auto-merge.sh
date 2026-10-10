@@ -40,7 +40,7 @@ decide='
      | last | .body // "" | [capture("Reviewed commit:\\*\\* `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSha
   # Codex now edits one summary comment instead of posting a clearance; findings arrive as a review of the commit.
   | ([.editedComments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("<!-- codex-pull-request-review-summary -->")))]
-     | last | .body // "" | [capture("Code Review\\*\\* \\| ✅ \\*\\*Completed\\*\\*[^|]*\\| `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSummarySha
+     | last | .body // "" | [capture("Code Review\\*\\* \\| ✅ \\*\\*Completed\\*\\*[^|]*\\| `(?<sha>[0-9a-f]{7,40})`")] | .[0].sha // "") as $codexSummarySha
   # CodeRabbit reports a successful status even when it paused or skipped a commit.
   | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .creator.login == "coderabbitai" and .state == "SUCCESS"
       and (.description | IN("Review completed", "Review approved")))) as $rabbitReviewedHead

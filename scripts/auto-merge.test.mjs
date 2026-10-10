@@ -296,6 +296,14 @@ const blocked = [
   ],
   ['no Codex clearance comment', (pr) => (pr.comments.nodes = [])],
   [
+    'a too-short Codex summary SHA',
+    (pr) => {
+      const summary = codexSummary('✅ **Completed**');
+      summary.body = summary.body.replace('`0123456`', '`0`');
+      pr.comments.nodes = [summary];
+    },
+  ],
+  [
     'a Codex review summary still running',
     (pr) => (pr.comments.nodes = [codexSummary('🔄 **Running** since')]),
   ],
