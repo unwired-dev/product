@@ -851,14 +851,19 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // Darwin's fsync leaves data in the drive cache; F_FULLFSYNC flushes it, falling back to fsync
-  // where the file system does not support it.
+  // only where the file system does not support it. An I/O error is a failed write.
   private func fullSync(_ url: URL) throws {
     let descriptor = Darwin.open(url.path, O_RDONLY)
     guard descriptor >= 0 else { throw PrivateInboxError.unavailable }
     defer { close(descriptor) }
-    guard fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0 else {
+    var result: Int32
+    repeat { result = fcntl(descriptor, F_FULLFSYNC) } while result != 0 && errno == EINTR
+    if result == 0 { return }
+    guard [ENOTSUP, EOPNOTSUPP, ENOTTY, EINVAL].contains(errno) else {
       throw PrivateInboxError.unavailable
     }
+    repeat { result = fsync(descriptor) } while result != 0 && errno == EINTR
+    guard result == 0 else { throw PrivateInboxError.unavailable }
   }
 
   private func transaction<T>(_ operation: () throws -> T) throws -> T {
