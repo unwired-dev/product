@@ -44,6 +44,11 @@ their storage compare-and-set succeeds, rechecking the requested transition
 against competing local progress after a conflict. A stale writer cannot roll
 back a handoff or report a cancelled message while durable storage still queues it.
 
+If storage refuses a known Gmail outcome, the running Outbox remembers it and
+retries only that `sending` transition, never Gmail submission. It forgets the
+answer when the entry advances or disappears and on disposal. A relaunch without
+that saved answer still reads the durable handoff as unknown; #616 owns recovery.
+
 ## Retry scope for #615
 
 The review decision panel selected the existing 30-second safe queued retry

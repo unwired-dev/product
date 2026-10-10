@@ -152,6 +152,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `outbox.ts.handOff` or another durable provider-outcome transition ignoring a
+  refused storage write. Preserve a known answer for storage-only recovery while
+  its entry remains handed off; never repeat provider submission merely to record
+  that answer. Exercise queued non-delivery, confirmed success and unknown
+  outcomes, repeated storage refusal and a competing writer. Clear remembered
+  outcomes when their entries disappear or advance, on account invalidation and
+  disposal, including late completion after disposal; otherwise safe non-delivery
+  stays stranded as unknown or old delivery identifiers remain in memory.
+- `outbox.ts.send` or another admission check validating mutable eligibility only
+  before awaited asset reads or preparation. Repeat every applicable refusal check
+  after the await and before admission, preserving the frozen content and live
+  editor binding. Exercise mailbox rename/removal/authorization changes during
+  verification; otherwise an unavailable sender or invalid Draft is admitted and
+  its composer closes despite Send's refusal contract.
+
 - `drafts.ts.sendingStateOf`, `outbox.ts.senderProblem` or another sender check
   matching only the connection ID while its current address differs from the
   Draft's frozen From address. Keep the displayed selection consistent with the

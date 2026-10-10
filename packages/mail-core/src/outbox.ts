@@ -229,13 +229,12 @@ export function createOutbox({
     );
   };
 
-  // Hands a claimed message to Gmail once, after its durable handoff.
   // Records an outcome, keeping it to save again when storage refuses, so a message Gmail never
   // received does not stay 'sending' and read as unknown after a relaunch.
   const keep = async (id: string, outcome: SendOutcome) => {
     if (await record(id, outcome)) {
       unrecorded.delete(id);
-    } else if (entryOf(id)?.state === 'sending') {
+    } else if (!disposed && entryOf(id)?.state === 'sending') {
       unrecorded.set(id, outcome);
     }
   };
@@ -253,6 +252,7 @@ export function createOutbox({
     return true;
   };
 
+  // Hands a claimed message to Gmail once, after its durable handoff.
   const handOff = async (id: string) => {
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
@@ -448,6 +448,16 @@ export function createOutbox({
     const outbox = drafts.getOutbox();
     if (outbox !== seen) {
       seen = outbox;
+      const sending = new Set(
+        outbox
+          .filter((entry) => entry.state === 'sending')
+          .map((entry) => entry.id),
+      );
+      for (const id of unrecorded.keys()) {
+        if (!sending.has(id)) {
+          unrecorded.delete(id);
+        }
+      }
       if (passing === undefined) {
         plan(() => void process());
       }
@@ -514,6 +524,7 @@ export function createOutbox({
       disposed = true;
       timer?.abort();
       unsubscribe();
+      unrecorded.clear();
     },
   };
 }

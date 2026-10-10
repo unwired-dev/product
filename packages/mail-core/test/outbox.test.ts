@@ -1,98 +1,25 @@
 import PostalMime from 'postal-mime';
 
 import type { Draft } from '../src/drafts.ts';
-import type { SyntheticProductSync } from '../src/testing/drafts.ts';
+import type { Device } from './outbox-fixture.ts';
 
 import { createDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import {
-  applyText,
   insertImage,
   plainText,
   toggleMark,
 } from '../src/semantic-document.ts';
-import { createSyntheticProductSync } from '../src/testing/drafts.ts';
-import {
-  createSyntheticGmail,
-  syntheticConnections,
-} from '../src/testing/gmail-mailbox.ts';
+import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { alex, device, present } from './draft-sync-fixture.ts';
-
-type Device = Awaited<ReturnType<typeof device>>;
-
-const account = 'account-a';
-
-// A Trusted Device that sends through `gmail`, the mailbox every device of the account connects.
-async function sender(
-  server: Readonly<SyntheticProductSync>,
-  gmail: ReturnType<typeof createSyntheticGmail>,
-  name: string,
-) {
-  const phone = await device(server, account, name);
-  const mailboxes = createMailboxes(
-    syntheticConnections({ [alex.id]: gmail }),
-    phone.registration,
-  );
-  await mailboxes.load();
-  const open = () =>
-    createOutbox({
-      drafts: phone.drafts,
-      mailboxes,
-      registration: phone.registration,
-      claims: phone.storage.delivery,
-    });
-  let outbox = open();
-  return {
-    ...phone,
-    mailboxes,
-    get drafts() {
-      return phone.drafts;
-    },
-    get outbox() {
-      return outbox;
-    },
-    // A relaunch reopens storage and starts a new Outbox over it.
-    relaunch: async () => {
-      outbox.dispose();
-      await phone.relaunch();
-      outbox = open();
-    },
-  };
-}
-
-// Synthetic Gmail and Product Sync shared by the account's devices. Gmail reads each sent file's
-// bytes from whichever device's Draft storage holds them, as that device's native code would.
-function sharedAccount(...devices: Array<() => Device | undefined>) {
-  const server = createSyntheticProductSync();
-  const gmail = createSyntheticGmail({
-    assets: (id, digest) =>
-      devices
-        .map((each) => each()?.storage.bytesOf(account, id, digest))
-        .find((bytes) => bytes !== undefined),
-  });
-  return { server, gmail };
-}
-
-const write = (draft: Draft, text: string): Draft => ({
-  ...draft,
-  body: applyText(draft.body, text).document,
-});
-
-// A Draft with recipients and a subject, ready to send.
-async function addressed(phone: Device, text = 'See you there') {
-  const id = present(await phone.drafts.create(alex), 'a new Draft');
-  const created = phone.draft(id);
-  await phone.drafts.update(
-    {
-      ...write(created, text),
-      to: [{ name: 'Sam Lee', address: 'sam@example.invalid' }],
-      subject: 'Lunch',
-    },
-    created,
-  );
-  return id;
-}
+import {
+  account,
+  addressed,
+  sender,
+  sharedAccount,
+  write,
+} from './outbox-fixture.ts';
 
 // Places a profile refresh at one controlled external boundary of delivery.
 async function renameDuring(
@@ -895,100 +822,5 @@ describe('sending a Draft through the Outbox', () => {
     expect(sending.drafts.getOutbox()).toStrictEqual([]);
     expect(sending.list().map((each) => each.id)).toStrictEqual([id]);
     sending.outbox.dispose();
-  });
-
-  it('saves a definite non-delivery again when storage refused it, then sends once', async () => {
-    expect.hasAssertions();
-    let phone: Device | undefined = undefined;
-    const { server, gmail } = sharedAccount(() => phone);
-    const sending = await sender(server, gmail, 'phone');
-    phone = sending;
-    try {
-      const id = await addressed(sending);
-      await sending.outbox.send(() => sending.draft(id));
-      later(undoSendWindow);
-      // Gmail refuses for a rate limit, and storage refuses to record that answer.
-      gmail.failSend({ status: 429, body: '{}' });
-      const { gmailSend } = gmail.native;
-      gmail.native.gmailSend = async (...args) => {
-        gmail.native.gmailSend = gmailSend;
-        const reply = await gmailSend(...args);
-        sending.storage.failNextCommit('locked');
-        return reply;
-      };
-
-      await sending.outbox.process();
-      expect(sending.drafts.getOutbox()).toMatchObject([
-        { id, state: 'sending' },
-      ]);
-
-      later(30_000);
-      await sending.outbox.process();
-      // The definite non-delivery is recorded, so the message stays retryable and editable.
-      expect(sending.drafts.getOutbox()).toMatchObject([
-        { id, state: 'queued', problem: 'rate-limited' },
-      ]);
-      later(30_000);
-      await sending.outbox.process();
-      expect(gmail.sends).toHaveLength(1);
-      expect(sending.drafts.getOutbox()).toStrictEqual([]);
-    } finally {
-      sending.outbox.dispose();
-    }
-  });
-
-  it('refuses Send when the sending mailbox changes while its files are verified', async () => {
-    expect.hasAssertions();
-    let phone: Device | undefined = undefined;
-    const { server, gmail } = sharedAccount(() => phone);
-    const sending = await sender(server, gmail, 'phone');
-    phone = sending;
-    const outbox = createOutbox({
-      drafts: {
-        ...sending.drafts,
-        readAsset: async (asset, options) => {
-          sending.change({
-            kind: 'connected',
-            productAccountId: account,
-            signInProvider: 'google',
-            mailboxes: JSON.stringify([
-              {
-                ...alex,
-                address: 'renamed@example.invalid',
-                state: 'connected',
-              },
-            ]),
-          });
-          return sending.drafts.readAsset(asset, options);
-        },
-      },
-      mailboxes: sending.mailboxes,
-      registration: sending.registration,
-      claims: sending.storage.delivery,
-    });
-    try {
-      const id = await addressed(sending);
-      const draft = sending.draft(id);
-      sending.storage.addFile('file:///notes.txt', 'notes');
-      const notes = sending.drafts.prepare({
-        name: 'notes.txt',
-        type: 'text/plain',
-      });
-      await sending.drafts.update({ ...draft, attachments: [notes] }, draft);
-      await sending.drafts.importAsset(notes, {
-        kind: 'file',
-        uri: 'file:///notes.txt',
-      });
-
-      await expect(outbox.send(() => sending.draft(id))).resolves.toBe(
-        'sender',
-      );
-
-      expect(sending.drafts.getOutbox()).toStrictEqual([]);
-      expect(sending.list().map((each) => each.id)).toStrictEqual([id]);
-    } finally {
-      outbox.dispose();
-      sending.outbox.dispose();
-    }
   });
 });
