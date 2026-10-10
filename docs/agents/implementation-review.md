@@ -58,8 +58,10 @@ not itself restrict filesystem or Git-history access.
 
 1. Before editing, record `git status --short` and any existing staged,
    unstaged or untracked changes. Preserve unrelated work: when such changes
-   exist, put the task branch in a separate worktree instead of switching this
-   checkout. Then work on the task's branch: check out the head
+   exist and this checkout is on a different branch, put the task branch in a
+   separate worktree instead of switching this checkout. When it is already on
+   the task's branch, stay here and leave those changes out of task commits; if
+   another worktree has it checked out, work in that worktree. Then work on the task's branch: check out the head
    branch of the task's existing same-repository PR when there is one (a fork
    head is a delivery blocker to report); otherwise, from a
    detached HEAD, `main`, or another task's branch, create a new task branch
