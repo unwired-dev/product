@@ -3032,6 +3032,12 @@ describe('gmail operational connection registration', () => {
         routeId,
         scheduledAt: now,
       });
+      await ctx.db.insert('draftDeliveryClaims', {
+        claimIdentifier: `draft-delivery.${'a'.repeat(32)}`,
+        claimedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      });
       await ctx.db.insert('scheduledSends', {
         deadlineAt: now + 86_400_000,
         dueAt: now + 60_000,
@@ -3093,6 +3099,7 @@ describe('gmail operational connection registration', () => {
       t.run(async (ctx) => ({
         accounts: await ctx.db.query('productAccounts').collect(),
         bindings: await ctx.db.query('gmailOpaqueIdentityBindings').collect(),
+        claims: await ctx.db.query('draftDeliveryClaims').collect(),
         devices: await ctx.db.query('trustedDevices').collect(),
         enrollments: await ctx.db.query('pendingDevices').collect(),
         heartbeats: await ctx.db.query('devicePushRouteHeartbeats').collect(),
@@ -3104,6 +3111,7 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual({
       accounts: [],
       bindings: [],
+      claims: [],
       devices: [],
       enrollments: [],
       heartbeats: [],

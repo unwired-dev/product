@@ -55,15 +55,20 @@ import Testing
   }
   var gmailRequests: [URL] = []
   var gmailBodies: [Data?] = []
-  func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
-    Int, Data
-  ) {
+  var gmailContentTypes: [String] = []
+  var gmailResponse: (Int, Data) = (200, Data(#"{"historyId":"7"}"#.utf8))
+  var gmailFailure: (any Error)?
+  func gmail(
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+  ) async throws -> (Int, Data) {
     gmailRequests.append(url)
+    gmailContentTypes.append(contentType)
     gmailBodies.append(body)
     let pause = beforeGmail
     beforeGmail = nil
     await pause?()
-    return (200, Data(#"{"historyId":"7"}"#.utf8))
+    if let gmailFailure { throw gmailFailure }
+    return gmailResponse
   }
   func store(keys: DeviceKeychain, mailCache: PrivateInboxStore? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil

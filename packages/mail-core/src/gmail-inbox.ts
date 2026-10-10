@@ -10,12 +10,14 @@ import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { DeliveryProblem } from './draft-model.ts';
 import type { GmailAction, GmailLabel } from './gmail-actions.ts';
 import type {
   BodyDocument,
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
+import type { MessageSegment } from './outgoing-message.ts';
 
 import {
   decodeDiagnostic,
@@ -73,6 +75,14 @@ export interface NativeGmailMailbox {
       add: readonly string[];
       remove: readonly string[];
     }>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Sends one message through Gmail's messages.send upload, inserting each asset segment's
+  // verified bytes, and joins `threadId` when given. Resolves `{ status, body }` once Gmail
+  // answers. Rejects with 'delivery-unknown' when the request may have reached Gmail without an
+  // answer; any other rejection means it never left this device.
+  readonly gmailSend: (
+    message: OutgoingSend,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
   // Resolves `{ revision, address, generation, document }`; another mailbox's document reads as null.
@@ -901,6 +911,75 @@ const httpFailure = (status: number, body: string) =>
     cause: status,
     diagnostic: `status ${status}`,
   });
+
+export type OutgoingSend = Readonly<{
+  segments: readonly MessageSegment[];
+  threadId?: string;
+}>;
+
+// What became of a message handed to Gmail: sent, never delivered and safe to try again
+// ('queued'), refused for good ('failed'), or possibly delivered without a confirmed answer.
+export type SendOutcome =
+  | Readonly<{ kind: 'sent'; message?: string }>
+  | Readonly<{ kind: 'queued' | 'failed'; problem: DeliveryProblem }>
+  | Readonly<{ kind: 'unknown' }>;
+
+const decodeSent = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ id: GmailId })),
+);
+
+// Native code rejects with 'delivery-unknown' once the request may have reached Gmail; every other
+// rejection happened before it left this device.
+const rejectionOutcomes = new Map<string, SendOutcome>([
+  ['delivery-unknown', { kind: 'unknown' }],
+  ['gmail-unavailable', { kind: 'failed', problem: 'authorization' }],
+  ['mailbox-revoked', { kind: 'failed', problem: 'mailbox' }],
+  // A mailbox generation refreshed meanwhile, as on returning to the app: nothing left the device,
+  // so it waits. A connection that is really gone fails on the next pass, before any handoff.
+  ['mailbox-invalidated', { kind: 'queued', problem: 'offline' }],
+  ['attachment-missing', { kind: 'failed', problem: 'assets' }],
+  ['too-large', { kind: 'failed', problem: 'too-large' }],
+  ['locked', { kind: 'queued', problem: 'locked' }],
+]);
+const sendRejection = (cause: unknown): SendOutcome =>
+  rejectionOutcomes.get(rejectionCode(cause) ?? '') ?? {
+    kind: 'queued',
+    problem: 'offline',
+  };
+
+// Gmail answered: a 2xx accepted the message. Refusals that Gmail reports before accepting it are
+// final, apart from rate limits; a server error may follow acceptance, so its outcome is unknown.
+// Gmail's final refusals by status, apart from a rate limit's 403.
+const refusedStatuses = new Map<number, SendOutcome>([
+  [401, { kind: 'failed', problem: 'authorization' }],
+  [403, { kind: 'failed', problem: 'authorization' }],
+  [413, { kind: 'failed', problem: 'too-large' }],
+  [429, { kind: 'queued', problem: 'rate-limited' }],
+]);
+const sendStatus = ({
+  status,
+  body,
+}: Readonly<{ status: number; body: string }>): SendOutcome => {
+  if (status >= 200 && status < 300) {
+    return {
+      kind: 'sent',
+      ...Option.match(decodeSent(body), {
+        onNone: () => ({}),
+        onSome: ({ id }) => ({ message: id }),
+      }),
+    };
+  }
+  if (status === 403 && Option.isSome(rateLimited(body))) {
+    return { kind: 'queued', problem: 'rate-limited' };
+  }
+  const refused = refusedStatuses.get(status);
+  if (refused !== undefined) {
+    return refused;
+  }
+  return status >= 400 && status < 500
+    ? { kind: 'failed', problem: 'refused' }
+    : { kind: 'unknown' };
+};
 
 // Body loads shared by every connection's Inbox on this device: four at a time account-wide,
 // and speculative prefetch in any connection waits while an explicit read waits or runs.
@@ -3300,6 +3379,36 @@ export function createGmailInbox(
         generation: scope.generation,
         file: saved.file,
       };
+    },
+    // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
+    // provider, so the message waits.
+    send: (message: OutgoingSend) => {
+      const scope = opened;
+      if (scope === undefined || forgotten) {
+        return Promise.resolve<SendOutcome>({
+          kind: 'queued',
+          problem: 'offline',
+        });
+      }
+      return runLogged(
+        Effect.tryPromise({
+          try: () => native.gmailSend(message, scope),
+          catch: sendRejection,
+        }).pipe(
+          Effect.flatMap((reply) =>
+            decodeResponse(reply).pipe(
+              Effect.map(sendStatus),
+              // A reply that cannot be read may follow acceptance.
+              Effect.orElseSucceed((): SendOutcome => ({ kind: 'unknown' })),
+            ),
+          ),
+          // A rejection is itself an outcome.
+          Effect.match({
+            onFailure: (outcome) => outcome,
+            onSuccess: (outcome) => outcome,
+          }),
+        ),
+      );
     },
     // An opened message's body and headers, which Reply, Reply All and Forward start from;
     // undefined until both are read.

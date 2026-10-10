@@ -3,11 +3,13 @@ import type {
   NativeDraftSync,
 } from '@private-email/mail-core/drafts';
 import type { NativeGmailMailboxes } from '@private-email/mail-core/mailboxes';
+import type { NativeDeliveryClaim } from '@private-email/mail-core/outbox';
 import type { NativeRegistration } from '@private-email/mail-core/registration';
 import type { TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { createOutbox } from '@private-email/mail-core/outbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { TurboModuleRegistry } from 'react-native';
 
@@ -17,7 +19,8 @@ interface RegistrationModule
     NativeRegistration,
     NativeGmailMailboxes,
     NativeDrafts,
-    NativeDraftSync {
+    NativeDraftSync,
+    NativeDeliveryClaim {
   readonly cancelGmailRequest: (request: string) => void;
 }
 const native = () =>
@@ -66,6 +69,7 @@ export const gmailMailboxes = createMailboxes(
       }
     },
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
+    gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>
       native().commitMailbox(mailbox, expectedRevision, document),
@@ -120,3 +124,14 @@ export const drafts = createDrafts(
     },
   },
 );
+
+// Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
+// other Trusted Device sends the same Draft, and is handed to Gmail once.
+export const outbox = createOutbox({
+  drafts,
+  mailboxes: gmailMailboxes,
+  registration,
+  claims: {
+    claimDraftDelivery: (owner, id) => native().claimDraftDelivery(owner, id),
+  },
+});

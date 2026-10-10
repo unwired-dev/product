@@ -106,7 +106,9 @@ whose removal failed keeps counting until a later save removes it.
 Damaged or unreadable Drafts are preserved and reported as unavailable, and a
 missing key never creates a replacement while the document exists. Every account
 purge removes the document with the caches and needs no key. Draft access needs no
-Gmail authorization or network.
+Gmail authorization or network. The same document holds this device's
+[Outbox](outbox.md) and its latest confirmed sends; an Outbox message keeps its Draft
+Assets until it is sent or returns to the Drafts.
 
 A Draft's files and inline images are **Draft Assets**, encrypted for the Product
 Account and checked against their recorded digest when read. Assets moved to

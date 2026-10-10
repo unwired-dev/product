@@ -1,6 +1,6 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
-import type { Draft } from '@private-email/mail-core/drafts';
+import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
@@ -29,7 +29,12 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
 
-import { DraftList, DraftRow, useOpenDraft } from './composer.tsx';
+import {
+  DraftHeading,
+  DraftList,
+  DraftRow,
+  useOpenDraft,
+} from './composer.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
@@ -41,10 +46,12 @@ import {
   useLeaveComposer,
   useMailbox,
   useMailboxes,
+  useOutboxEntries,
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
+import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -119,6 +126,7 @@ const composeNothing = () => undefined;
 
 // A Draft as a row of the Inbox list, apart from received mail.
 type DraftItem = Readonly<{ draft: Draft }>;
+type OutboxItem = Readonly<{ outbox: OutboxEntry }>;
 
 // The Drafts an Inbox lists: none where it offers no composer.
 const listedDrafts = (
@@ -561,13 +569,17 @@ const searchSections = <T,>(
     : [{ key: 'gmail', data: online.found?.results ?? [] }]),
 ];
 
-// Drafts come before received mail; a search lists matching messages alone.
+// Outbox and Drafts come before received mail; a search lists matching messages alone.
 function inboxSections<M>({
+  outbox,
+  canCompose,
   drafts,
   messages,
   online,
   searching,
 }: Readonly<{
+  outbox: readonly OutboxEntry[];
+  canCompose: boolean;
   drafts: readonly Draft[];
   messages: readonly M[];
   online: Readonly<{
@@ -576,12 +588,17 @@ function inboxSections<M>({
   }>;
   searching: boolean;
 }>) {
+  const outboxRows =
+    searching || !canCompose
+      ? []
+      : outbox.map((entry): OutboxItem | DraftItem | M => ({ outbox: entry }));
   const draftRows = searching
     ? []
-    : drafts.map((draft): DraftItem | M => ({ draft }));
+    : drafts.map((draft): OutboxItem | DraftItem | M => ({ draft }));
   return [
+    ...(outboxRows.length === 0 ? [] : [{ key: 'outbox', data: outboxRows }]),
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
-    ...searchSections<DraftItem | M>(messages, online),
+    ...searchSections<OutboxItem | DraftItem | M>(messages, online),
   ];
 }
 
@@ -606,6 +623,7 @@ export function Inbox({
     }
   };
   const draftState = useDrafts();
+  const outbox = useOutboxEntries();
   const drafts = listedDrafts(draftState, onCompose !== undefined);
   const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
@@ -648,6 +666,8 @@ export function Inbox({
   const online = useGmailSearch(shown, searched, scope);
   const messages = results ?? listed;
   const sections = inboxSections({
+    outbox,
+    canCompose: onCompose !== undefined,
     drafts,
     messages,
     online,
@@ -767,24 +787,34 @@ export function Inbox({
           contentContainerStyle={styles.list}
           sections={sections}
           stickySectionHeadersEnabled={false}
-          renderSectionHeader={({ section }) =>
-            section.key === 'gmail' ? (
+          renderSectionHeader={({ section }) => {
+            if (section.key === 'outbox') {
+              return <OutboxHeading />;
+            }
+            if (section.key === 'drafts') {
+              return <DraftHeading />;
+            }
+            return section.key === 'gmail' ? (
               <OnlineHeading
                 search={online}
                 several={several}
               />
-            ) : null
-          }
+            ) : null;
+          }}
           extraData={rows}
-          keyExtractor={(item) =>
-            'draft' in item ? `draft\n${item.draft.id}` : resultKey(item)
-          }
+          keyExtractor={(item) => {
+            if ('outbox' in item) {
+              return `outbox\n${item.outbox.id}`;
+            }
+            return 'draft' in item
+              ? `draft\n${item.draft.id}`
+              : resultKey(item);
+          }}
           ListHeaderComponent={
             onCompose === undefined ? null : (
               <DraftList
                 onCompose={onCompose}
                 scope={scope}
-                searching={results !== undefined}
               />
             )
           }
@@ -799,8 +829,16 @@ export function Inbox({
               ? empty
               : null
           }
-          renderItem={({ item, section }) =>
-            'draft' in item ? (
+          renderItem={({ item, section }) => {
+            if ('outbox' in item) {
+              return (
+                <OutboxRow
+                  entry={item.outbox}
+                  onOpen={openDraft}
+                />
+              );
+            }
+            return 'draft' in item ? (
               <DraftRow
                 draft={item.draft}
                 onOpen={openDraft}
@@ -834,8 +872,8 @@ export function Inbox({
                     : savedStatus(t, saved?.get(resultKey(item)))
                 }
               />
-            )
-          }
+            );
+          }}
         />
         <LanguageSelector />
         <Text style={[styles.footer, { color: colors.secondary }]}>

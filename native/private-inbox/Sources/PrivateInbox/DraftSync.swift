@@ -25,6 +25,13 @@ struct DraftRecord: Codable, Equatable {
 
   func identifier(draft id: String) throws -> String { try ring.identifier("draft", id) }
 
+  // This device's claim to send Draft `id`, under an identifier that tells Convex nothing about it.
+  func claimDelivery(draft id: String) async throws -> [String: Any] {
+    let claimed = try await backend.claimDelivery(
+      session, product, try ring.identifier("draft-delivery", id))
+    return ["owner": owner, "claimed": claimed]
+  }
+
   // Every chunk is bound to its asset's identifier and digest and to its position.
   func identifiers(asset id: String, digest: String, size: Int) throws -> [String] {
     let base = try ring.identifier("draft-asset", id + "\n" + digest)

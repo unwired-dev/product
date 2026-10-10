@@ -130,11 +130,74 @@ extension RegistrationStore {
       url: url, body: body, connection: connection, address: address, generation: generation)
   }
 
+  // Gmail's largest message through its messages.send upload.
+  static let gmailMessageLimit = 35 * 1024 * 1024
+
+  // The one Gmail send: a message TypeScript composed as ASCII text, with each named Draft Asset's
+  // verified bytes inserted here as base64 lines, so an asset's bytes never cross the bridge. Any
+  // failure once the request starts may follow Gmail accepting the message: deliveryUnknown.
+  func gmailSend(
+    segments: [Any], threadId: String?, connection: String, address: String, generation: String
+  ) async throws -> [String: Any] {
+    let owner = try mailboxAccount(connection).productAccountId
+    guard
+      threadId?.range(of: "^[0-9A-Za-z]{1,100}$", options: .regularExpression) != nil
+        || threadId == nil
+    else { throw RegistrationError.unavailable }
+    var message = Data()
+    for segment in segments {
+      let segment = segment as? [String: Any]
+      if let text = segment?["text"] as? String, text.utf8.allSatisfy({ $0 < 0x80 }) {
+        message.append(Data(text.utf8))
+      } else if let asset = segment?["asset"] as? [String: Any],
+        let id = asset["id"] as? String,
+        id.range(of: "^[0-9a-z]{8,64}$", options: .regularExpression) != nil,
+        let digest = asset["digest"] as? String,
+        digest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+      {
+        let bytes: Data
+        do {
+          bytes = try await draftAssetBytes(owner: owner, id: id, digest: digest)
+        } catch PrivateInboxError.invalidStore {
+          // Bytes that no longer verify against their digest are not sent either.
+          throw PrivateInboxError.attachmentMissing
+        }
+        message.append(
+          bytes.base64EncodedData(options: [
+            .lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed,
+          ]))
+      } else {
+        throw RegistrationError.unavailable
+      }
+      guard message.count <= Self.gmailMessageLimit else { throw PrivateInboxError.tooLarge }
+    }
+    // Gmail's multipart upload: the thread to join, then the message.
+    let boundary = "unwired-upload-" + UUID().uuidString
+    var body = Data(
+      "--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".utf8)
+    body.append(
+      try JSONSerialization.data(withJSONObject: threadId.map { ["threadId": $0] } ?? [:]))
+    body.append(Data("\r\n--\(boundary)\r\nContent-Type: message/rfc822\r\n\r\n".utf8))
+    body.append(message)
+    body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+    guard
+      let url = URL(
+        string:
+          "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=multipart"
+      )
+    else { throw RegistrationError.unavailable }
+    return try await gmail(
+      url: url, body: body, contentType: "multipart/related; boundary=" + boundary,
+      connection: connection, address: address, generation: generation, sending: true)
+  }
+
   // Resolves the HTTP status and body. A grant Google refuses to renew is gmailUnavailable, which
   // asks for authorization again; a renewal that cannot reach Google is unavailable, a retry.
+  // While `sending`, a failure once the request starts is deliveryUnknown, and Gmail's answer is
+  // returned whatever changed meanwhile, as the message may already be sent.
   private func gmail(
-    url: URL, body: Data?, connection id: String, address: String,
-    generation expectedGeneration: String
+    url: URL, body: Data?, contentType: String = "application/json", connection id: String,
+    address: String, generation expectedGeneration: String, sending: Bool = false
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
     // Work from before a removal or another verification is stale, whatever the connection's
@@ -187,8 +250,20 @@ extension RegistrationStore {
       latest.update(id) { $0.credential = identity.credential }
       try save(latest)
     }
-    let (status, data) = try await provider.gmail(identity, url: url, body: body)
-    guard current() else { throw PrivateInboxError.mailboxInvalidated }
+    let status: Int
+    let data: Data
+    do {
+      (status, data) = try await provider.gmail(
+        identity, url: url, body: body, contentType: contentType)
+    } catch RegistrationError.unavailable where sending {
+      // It never left this device, so it is safe to try again.
+      throw RegistrationError.unavailable
+    } catch where sending {
+      throw PrivateInboxError.deliveryUnknown
+    } catch is GmailRequestInterrupted {
+      throw RegistrationError.unavailable
+    }
+    guard sending || current() else { throw PrivateInboxError.mailboxInvalidated }
     return ["status": status, "body": String(decoding: data, as: UTF8.self)]
   }
 
@@ -427,14 +502,14 @@ extension PrivateInboxStore.BodyTier {
 enum GmailTransport {
   static func send(
     token: String, url: URL, body: Data?, session: URLSession,
-    limit: Int = 40 * 1024 * 1024
+    limit: Int = 40 * 1024 * 1024, contentType: String = "application/json"
   ) async throws -> (Int, Data) {
     var request = URLRequest(url: url)
     request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
     if let body {
       request.httpMethod = "POST"
       request.httpBody = body
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.setValue(contentType, forHTTPHeaderField: "Content-Type")
     }
     request.timeoutInterval = 30
     do {
@@ -451,15 +526,38 @@ enum GmailTransport {
       } onCancel: {
         task.cancel()
       }
-    } catch let error as URLError where error.code == .cancelled {
-      throw CancellationError()
-    } catch is CancellationError {
-      throw CancellationError()
     } catch {
-      throw RegistrationError.unavailable
+      throw failure(error)
     }
   }
+
+  // Failures that prove the request never left this device: no connection, no host, or a secure
+  // connection that was never established.
+  static let unsent: Set<URLError.Code> = [
+    .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+    .dataNotAllowed, .internationalRoamingOff, .callIsActive, .secureConnectionFailed,
+    .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid,
+    .serverCertificateHasUnknownRoot, .appTransportSecurityRequiresSecureConnection,
+  ]
+
+  // A request that never left this device is unavailable, a retry; any other failure may follow
+  // Gmail receiving it, which only a write must tell apart.
+  static func failure(_ error: any Error) -> any Error {
+    if let error = error as? URLError, error.code == .cancelled {
+      return CancellationError()
+    }
+    if error is CancellationError {
+      return error
+    }
+    if let error = error as? URLError, unsent.contains(error.code) {
+      return RegistrationError.unavailable
+    }
+    return GmailRequestInterrupted()
+  }
 }
+
+// A Gmail request that failed after it may have reached Gmail.
+struct GmailRequestInterrupted: Error {}
 
 // One response's status and body, refused once it exceeds the limit, whether its length is
 // declared or streamed.

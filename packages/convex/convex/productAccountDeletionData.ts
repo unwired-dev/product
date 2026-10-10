@@ -806,6 +806,18 @@ async function deleteNextBatchData(
     }
     return false;
   }
+  const deliveryClaims = await ctx.db
+    .query('draftDeliveryClaims')
+    .withIndex('by_productAccountId_and_claimIdentifier', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (deliveryClaims.length > 0) {
+    for (const deliveryClaim of deliveryClaims) {
+      await ctx.db.delete('draftDeliveryClaims', deliveryClaim._id);
+    }
+    return false;
+  }
   const devices = await ctx.db
     .query('trustedDevices')
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>

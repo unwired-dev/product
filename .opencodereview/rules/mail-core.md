@@ -161,6 +161,67 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.rejectionOutcomes` or another Send outcome mapper treating a
+  pre-request `mailbox-invalidated` refusal as a terminal delivery failure.
+  Ordinary foreground verification can renew the native generation while Outbox
+  processing uses the previous one. Keep this definite non-delivery queued with its
+  held claim, and recheck removed, unauthorized or renamed senders before retry.
+  Trace native `gmailSend` and `gmail(sending: true)` before changing this mapping:
+  after a request may reach Gmail, preserve its answer or an unknown outcome,
+  never infer safe resubmission from a later generation change. Otherwise an
+  ordinary refresh reports Not sent, or an uncertain handoff sends twice.
+- `outbox.ts.handOff` or another durable provider-outcome transition ignoring a
+  refused storage write. Preserve a known answer for storage-only recovery while
+  its entry remains handed off; never repeat provider submission merely to record
+  that answer. Exercise queued non-delivery, confirmed success and unknown
+  outcomes, repeated storage refusal and a competing writer. Clear remembered
+  outcomes when their entries disappear or advance, on account invalidation and
+  disposal, including late completion after disposal; otherwise safe non-delivery
+  stays stranded as unknown or old delivery identifiers remain in memory.
+  A recovering writer may conservatively save `unknown` while the live handoff
+  still awaits Gmail: that state must not erase the live owner's definite answer.
+  Only the instance that performed this handoff may upgrade it from its received
+  or retained outcome; a recovering instance without that answer cannot resend.
+  Exercise both orderings of the recovery save and the provider answer.
+- `outbox.ts.send` or another admission check validating mutable eligibility only
+  before awaited asset reads or preparation. Repeat every applicable refusal check
+  after the await and before admission, preserving the frozen content and live
+  editor binding. Exercise mailbox rename/removal/authorization changes during
+  verification; otherwise an unavailable sender or invalid Draft is admitted and
+  its composer closes despite Send's refusal contract.
+
+- `drafts.ts.sendingStateOf`, `outbox.ts.senderProblem` or another sender check
+  matching only the connection ID while its current address differs from the
+  Draft's frozen From address. Keep the displayed selection consistent with the
+  frozen identity, require explicit reselection after a rename, and revalidate
+  after awaited claim/storage work immediately before provider handoff. Otherwise
+  the composer shows one sender while immutable MIME names another, or a rename
+  during those waits bypasses admission's guard. Exercise casing equivalence,
+  queued and held-claim/handoff renames, and visible reselection in both hosts;
+  do not rewrite an admitted message or add a deferred alias system.
+
+- `outbox.ts.send` or another editor-owned write pinning a Draft identifier before
+  awaited asset verification or earlier saves. Resolve the live editor target at
+  the serialized write and on each CAS retry while preserving Send's frozen
+  content. Product Sync can rebind the editor to a conflict copy during that
+  await; a mismatched target and expected identifier otherwise deletes another
+  writer's version and admits it alongside the first editor's rendered message.
+  Hold a native asset read, trigger a real editor rebind, and verify admission,
+  the other writer's retained Draft and reopened storage.
+  Compare the admitted Draft against the content used to build the message,
+  allowing only the live binding's identifier and conflict-copy metadata to
+  follow a rebind. A callback returning newly edited content is not evidence
+  that the earlier rendered message matches; refuse the changed Draft rather
+  than removing it with an older message. Exercise a same-identifier edit during
+  verification as well as a content-preserving conflict-copy rebind.
+- `outgoing-message.ts` allowing non-ASCII/control text into native-bound MIME
+  segments. Names, subjects and filenames need their existing encodings; raw
+  sender/recipient addresses must be refused before Outbox admission, and invalid
+  received reply identifiers must be omitted without dropping valid threading.
+  Trace every literal header and MIME parameter, including asset identifiers and
+  boundaries. Native Gmail accepts ASCII only, so its `unavailable` rejection
+  otherwise becomes an endlessly retried offline message rather than useful
+  composer feedback. Verify both refusal and ASCII output with Unicode content.
 - `assistance.ts.captureDraftText` or a host recomputing refusal guidance from
   raw text instead of the input builder's actual refusal cause. Encoded authored
   text and request framing can exhaust the reply budget despite fitting the raw

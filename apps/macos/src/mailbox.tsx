@@ -1,4 +1,5 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
+import type { Outbox } from '@private-email/mail-core/outbox';
 import type { ReactNode } from 'react';
 
 import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
@@ -24,10 +25,14 @@ import type {
 
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
-import { drafts as defaultDrafts } from './registration.ts';
+import {
+  drafts as defaultDrafts,
+  outbox as defaultOutbox,
+} from './registration.ts';
 
 const MailboxesContext = createContext<MailboxList>(defaultMailboxes);
 const DraftsContext = createContext<Drafts>(defaultDrafts);
+const OutboxContext = createContext<Outbox>(defaultOutbox);
 // The mailbox a reader or status belongs to.
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
 
@@ -67,10 +72,13 @@ export function InboxProvider({
   children,
   mailboxes = defaultMailboxes,
   drafts = defaultDrafts,
+  outbox = defaultOutbox,
 }: {
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
   readonly drafts?: Drafts;
+  // Sends the Drafts admitted to `drafts`' Outbox.
+  readonly outbox?: Outbox;
 }) {
   const refreshInbox = use(AccountContext)?.refreshInbox;
   const navigation = useMemo(() => createComposerNavigation(), []);
@@ -106,15 +114,42 @@ export function InboxProvider({
       }),
     [refreshInbox, mailboxes],
   );
+  // Returning tries queued messages again at once, once for every window.
+  useEffect(
+    () =>
+      followOnce(outbox, () => {
+        const subscription = AppState.addEventListener('change', (state) => {
+          if (state === 'active') {
+            void outbox.process();
+          }
+        });
+        return () => {
+          subscription.remove();
+        };
+      }),
+    [outbox],
+  );
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
-        <ComposerNavigationContext value={navigation}>
-          {children}
-        </ComposerNavigationContext>
+        <OutboxContext value={outbox}>
+          <ComposerNavigationContext value={navigation}>
+            {children}
+          </ComposerNavigationContext>
+        </OutboxContext>
       </DraftsContext>
     </MailboxesContext>
   );
+}
+
+export function useOutbox() {
+  return use(OutboxContext);
+}
+
+// The Outbox of the signed-in Product Account, oldest Send first.
+export function useOutboxEntries() {
+  const drafts = use(DraftsContext);
+  return useSyncExternalStore(drafts.subscribe, drafts.getOutbox);
 }
 
 // The signed-in Product Account's Drafts store and its state.

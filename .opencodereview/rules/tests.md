@@ -80,6 +80,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A journey that creates an Outbox, synchronizer or another timer/subscription
+  owner and disposes it only after its final assertion. Put cleanup in `finally`
+  or the test framework's guaranteed teardown, covering setup as well as assertions
+  and disposing before other awaited cleanup can reject. Include the current owner
+  after relaunch; an assertion or awaited action can fail first, leaving scheduled work
+  to mutate later tests after their clocks or external boundaries are replaced.
+
 - `SyntheticGoogleRegistrationProvider.verifyGmail` returning one mutable
   profile address for several saved subjects in a multi-connection journey.
   Configure subject-scoped profiles for that scenario; changing the chosen

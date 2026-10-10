@@ -81,6 +81,10 @@ struct ProductSyncBackend {
   // One record, or nil when none is stored.
   var get: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> StoredPayload? =
     { _, _, _ in throw RegistrationError.unavailable }
+  // Claims an opaque Draft delivery identifier for this Trusted Device: true when it holds the
+  // claim, the first to ask or asking again, false when another device holds it.
+  var claimDelivery: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Bool =
+    { _, _, _ in throw RegistrationError.unavailable }
 
 }
 

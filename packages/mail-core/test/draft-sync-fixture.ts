@@ -33,6 +33,7 @@ export const present = <T>(value: T | undefined, what: string): T => {
 export async function device(
   server: Readonly<SyntheticProductSync>,
   productAccountId = 'account-a',
+  name = 'this-device',
 ) {
   let snapshot: RegistrationSnapshot = connected(productAccountId);
   const listeners = new Set<() => void>();
@@ -45,6 +46,7 @@ export async function device(
   };
   const storage = createSyntheticDrafts(() => productAccountId, {
     server,
+    device: name,
   });
   const open = async () => {
     const store = createDrafts(storage.native, registration, {
@@ -57,6 +59,13 @@ export async function device(
   let drafts = await open();
   return {
     storage,
+    registration,
+    change: (next: RegistrationSnapshot) => {
+      snapshot = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
     get drafts() {
       return drafts;
     },

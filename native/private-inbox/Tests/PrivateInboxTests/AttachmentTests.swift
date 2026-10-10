@@ -214,8 +214,9 @@ extension PrivateInboxTests {
       token: "synthetic-access", url: URL(string: "https://gmail.googleapis.com/chunked")!,
       body: nil, session: session, limit: 4)
     #expect(status == 200 && bytes == Data([1, 2, 3, 4]))
+    // An oversized response arrived, so the request reached Gmail; reads still retry it.
     for part in ["length", "chunked"] {
-      await #expect(throws: RegistrationError.unavailable) {
+      await #expect(throws: GmailRequestInterrupted.self) {
         _ = try await GmailTransport.send(
           token: "synthetic-access",
           url: URL(string: "https://gmail.googleapis.com/\(part)")!, body: nil, session: session,

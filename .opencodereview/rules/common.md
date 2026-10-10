@@ -18,6 +18,14 @@ Use the handoff's actual pinned comparison and inventory task-owned staged, unst
 
 #### R3 — Validated findings and evidence (all files)
 
+Match local validation to the actual CI invocation and gate, not only a similarly
+named package script. For Fallow changes, check `.github/workflows/ci.yml` and run
+`git fetch origin main` followed by
+`mise exec -- pnpm exec fallow audit --root . --quiet --changed-since origin/main --gate new-only`.
+Record the audit verdict; `pnpm fallow` reports health findings without enforcing
+that new-only gate and cannot establish a pass. Leave individual tool-decided
+complexity/duplication findings to Fallow, while reviewing suppressions under R0.
+
 Independently reproduce or substantiate each finding against source and applicable decisions. Fix confirmed issues in the authorized checkout, preserving unrelated work; update affected tests and operational/architecture documentation. Rerun appropriate checks, refresh coverage and resolved rules after edits, and rereview the corrected artifact until no in-scope issue remains. Reviewer fixes stay within this review; later implementer edits require a new pinned review. Report sources consulted, applicable conditional sections and their dispositions, coverage, validated findings/fixes, changed files, checks/results, unavailable tooling and unresolved decision blockers. Separate OCR selection/rule-resolution evidence from host reasoning and actual integration/native/CI evidence; an unavailable check is deferred or blocked, never passing. Do not disclose architecture source or rule bodies in the implementer handback. Review completion and required CI are independent.
 
 #### R4 — Identity, authorization and recovery (conditional)
@@ -31,6 +39,14 @@ For persistence, native key access, ciphertext records, enrollment/recovery enve
 #### R6 — Mail, transport and delivery (conditional)
 
 For providers, message identity, caches, attachments, rendering, search, pending actions or Outbox, read the applicable mailbox/messages/privacy companions and ADRs 0006, 0009 through 0017, 0028 through 0030 and 0062. Preserve mailbox-scoped identity and provider-native contracts without adding deferred providers to replacement launch scope. Enforce authenticated secure transport, certificate/hostname verification and the restored TLS 1.2 minimum where applicable. Preserve local metadata search, bounded encrypted body caching, attachment consent/size/cancellation/storage boundaries, and sanitized isolated message rendering with the owning decision's explicit remote-content rules. A changed reader/remote-fetch path must check those decisions in full rather than infer consent or allow network access from a cache entry. Durable provider actions must retain their retry/cancellation and authorization-generation fences. For replacement sending, synchronize Drafts and encrypted assets with conflict preservation, keep Outbox delivery on the originating device, retain the default 10-second Undo Send window and require the content-free atomic Convex ownership claim before Gmail submission. Offline queueing does not authorize provider submission; uncertain provider outcome must never trigger automatic resubmission. No independent helper, cross-device delivery takeover or alternate Convex-outage send path is a first-release requirement.
+
+Review Outbox delivery text in `docs/outbox.md` and localized values under
+`packages/localization/catalogs.bundle/` against `createOutbox` and Gmail's
+`SendOutcome` mapping. Distinguish retryable definite refusals from uncertain
+handoffs rather than promising one provider request; identify the required
+Product Account service rather than peer-device connectivity; and describe
+another device's retained claim without asserting it is currently sending.
+Otherwise the interface misstates when delivery can proceed, stop or retry.
 
 #### R7 — Assistance and notifications (conditional)
 

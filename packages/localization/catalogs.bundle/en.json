@@ -516,13 +516,25 @@
     },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
-      "removed": "This mailbox was removed from this account. Choose another mailbox to send from."
+      "removed": "This mailbox was removed from this account. Choose another mailbox to send from.",
+      "renamed": "This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox."
     },
     "titleShortened": "{{title}}, subject shortened",
     "close": "Close",
     "undo": "Undo",
     "redo": "Redo",
     "discard": "Discard",
+    "send": "Send",
+    "sendRefused": {
+      "recipients": "Add a recipient before sending.",
+      "entries": "Correct or remove the invalid address before sending.",
+      "addresses": "An address in this message uses characters this app cannot send yet. Use a plain email address.",
+      "sender": "This mailbox cannot send now. Choose another mailbox to send from.",
+      "assets": "Some files are not ready to send. Remove them, or wait until they are added.",
+      "too-large": "This message is too large for Gmail. Remove some files and try again.",
+      "changed": "This Draft changed in another window. Review it, then send it again.",
+      "storage": "This message could not be queued because Drafts are not saved. Try again."
+    },
     "discardDraft": "Discard Draft",
     "keepEditing": "Keep Editing",
     "status": "Draft · {{status}}",
@@ -605,6 +617,30 @@
       "forwardedCc": "Cc: {{value}}",
       "showQuoted": "Show quoted text",
       "hideQuoted": "Hide quoted text"
+    }
+  },
+  "outbox": {
+    "heading": "Outbox",
+    "rowLabel": "{{subject}}. {{recipients}}. {{status}}",
+    "undo": "Undo",
+    "edit": "Edit",
+    "state": {
+      "waiting": "Sending soon",
+      "sending": "Sending…",
+      "unknown": "Delivery unknown. Check Sent in Gmail before sending it again."
+    },
+    "queued": {
+      "offline": "Waiting to send. It sends when this device can reach Gmail and your Unwired Mail account.",
+      "locked": "Waiting to send while private storage is locked. Unlock your device.",
+      "rate-limited": "Waiting to send. Gmail asked to wait before sending more."
+    },
+    "failed": {
+      "claimed": "Not sent. Another of your devices claimed this message to send it.",
+      "authorization": "Not sent. This mailbox needs Gmail access again.",
+      "mailbox": "Not sent. This mailbox is no longer connected.",
+      "assets": "Not sent. Its files are no longer on this device.",
+      "too-large": "Not sent. It is too large for Gmail.",
+      "refused": "Not sent. Gmail refused this message."
     }
   }
 }

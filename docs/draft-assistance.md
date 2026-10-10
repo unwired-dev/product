@@ -51,6 +51,8 @@ system language model. There is no cloud or product-backend model fallback.
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
   an earlier state cannot affect a replaced or closed one.
+- Send closes any assistance preview and cancels its pending request. Rewrite and
+  Suggest reply wait while Send is pending and become available again if it is refused.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
   the same reasons as [message summaries](message-summaries.md#behavior). A
   refusal, cancellation and other failures have their own messages. **Try again**

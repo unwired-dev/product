@@ -8,6 +8,7 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
+import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
   Asset,
@@ -34,7 +35,6 @@ import {
   addRecipients,
   draftOf,
   entryOf,
-  draftsOf,
   isEmptyDraft,
   recipientLabel,
   draftSummary,
@@ -101,6 +101,7 @@ import {
   useDrafts,
   useDraftStore,
   useLeaveComposer,
+  useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -290,7 +291,7 @@ const shortcuts = [
   { key: 'Z', metaKey: true, shiftKey: true },
 ];
 
-function Action({
+export function Action({
   label,
   onPress,
   disabled = false,
@@ -421,10 +422,7 @@ export function useOpenDraft(
 export function DraftList({
   onCompose,
   scope,
-  searching = false,
 }: {
-  // Search lists received mail alone, so the Drafts heading is hidden meanwhile.
-  readonly searching?: boolean;
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
@@ -442,7 +440,6 @@ export function DraftList({
   }
   const senders = sendingMailboxes(account.mailboxes);
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
-  const drafts = draftsOf(state);
   // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
     if (creating.current) {
@@ -506,16 +503,21 @@ export function DraftList({
           />
         </View>
       ) : null}
-      {drafts.length === 0 || searching ? null : (
-        <View
-          accessible
-          accessibilityLabel={t('drafts.heading')}
-          accessibilityRole="header">
-          <Text style={[styles.section, { color: colors.secondary }]}>
-            {t('drafts.heading')}
-          </Text>
-        </View>
-      )}
+    </View>
+  );
+}
+
+export function DraftHeading() {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <View
+      accessible
+      accessibilityLabel={t('drafts.heading')}
+      accessibilityRole="header">
+      <Text style={[styles.section, { color: colors.secondary }]}>
+        {t('drafts.heading')}
+      </Text>
     </View>
   );
 }
@@ -523,8 +525,10 @@ export function DraftList({
 function SendingMailbox({
   draft,
   onChange,
+  editable,
 }: {
   readonly draft: Draft;
+  readonly editable: boolean;
   readonly onChange: (mailbox: MailboxConnection) => void;
 }) {
   const account = use(AccountContext);
@@ -567,7 +571,8 @@ function SendingMailbox({
                 { address },
               )}
               accessibilityRole="button"
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled: !editable }}
+              disabled={!editable}
               onPress={() => {
                 onChange(mailbox);
               }}
@@ -600,10 +605,12 @@ function Recipients({
   field,
   onChange,
   onCaretMove,
+  editable,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
+  readonly editable: boolean;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -615,6 +622,9 @@ function Recipients({
   const caret = useRef<number | undefined>(undefined);
   const name = t(`drafts.fields.${field}`);
   const add = (value: string, all: boolean, typing = false) => {
+    if (!editable) {
+      return;
+    }
     const current = getDraft();
     const result = addRecipients(current, { field, text: value, all });
     if (result.draft !== current) {
@@ -639,6 +649,8 @@ function Recipients({
               recipient: recipientLabel(recipient),
             })}
             accessibilityRole="button"
+            accessibilityState={{ disabled: !editable }}
+            disabled={!editable}
             onPress={() => {
               const current = getDraft();
               onChange(
@@ -661,6 +673,8 @@ function Recipients({
       </View>
       <TextInput
         accessibilityLabel={name}
+        editable={editable}
+        accessibilityState={{ disabled: !editable }}
         autoCapitalize="none"
         autoComplete="email"
         autoCorrect={false}
@@ -844,6 +858,7 @@ function usePreview(asset: Asset, inline: boolean) {
 
 function AssetRow({
   asset,
+  editable,
   inline,
   running,
   onRemove,
@@ -852,6 +867,7 @@ function AssetRow({
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
+  readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
 }) {
@@ -893,6 +909,7 @@ function AssetRow({
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
+          disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryLabel', {
             name: asset.name,
           })}
@@ -902,6 +919,7 @@ function AssetRow({
       ) : null}
       {running ? (
         <Action
+          disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
           })}
@@ -912,6 +930,7 @@ function AssetRow({
         />
       ) : null}
       <Action
+        disabled={!editable}
         accessibilityLabel={t('drafts.assets.removeLabel', {
           name: asset.name,
         })}
@@ -927,10 +946,12 @@ function AssetRow({
 // A Draft's attachments and inline images, with what can still be done to each.
 function DraftAssets({
   draft,
+  editable,
   onRemove,
   onCancel,
 }: {
   readonly draft: Draft;
+  readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
 }) {
@@ -955,6 +976,7 @@ function DraftAssets({
       <AssetRow
         key={asset.id}
         asset={asset}
+        editable={editable}
         inline={inline}
         onCancel={onCancel}
         onRemove={onRemove}
@@ -1030,6 +1052,23 @@ const rewriteLabel = (at: Selection) =>
   at.start === at.end
     ? 'assistance.rewriteDraftLabel'
     : 'assistance.rewriteSelectionLabel';
+
+// Why the last Send left the Draft in the composer, if it did.
+function SendRefusalNotice({
+  refused,
+}: {
+  readonly refused: SendRefusal | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return refused === undefined ? null : (
+    <Notice
+      alert
+      style={[styles.notice, { color: colors.foreground }]}>
+      {t(`drafts.sendRefused.${refused}`)}
+    </Notice>
+  );
+}
 
 function Editor({
   initial,
@@ -1136,6 +1175,15 @@ function Editor({
   const [closing, setClosing] = useState<
     'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
   >();
+  // Why the last Send left this Draft here.
+  const [refused, setRefused] = useState<SendRefusal>();
+  // While Send is pending the editor accepts no edits, so nothing typed then is lost.
+  const [sending, setSending] = useState(false);
+  // Native callbacks can arrive before the disabled props commit.
+  const sendingNow = useRef(false);
+  // A control that also waits while Send is pending.
+  const lockedUnless = (available: boolean) => sending || !available;
+  const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
@@ -1175,12 +1223,16 @@ function Editor({
       }
       authored.current = bound;
       if (!discarded.current) {
+        setRefused(undefined);
         void store.update(bound, previous, rebind);
       }
     },
     [rebind, store],
   );
   const change = (next: Draft, word = false, field?: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     const continuing = typingField.current === field;
     commitHistory((current) =>
       keepIdentity(
@@ -1244,6 +1296,9 @@ function Editor({
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {
+    if (discarded.current) {
+      return;
+    }
     addFiles(
       await store.pick(
         source,
@@ -1256,6 +1311,9 @@ function Editor({
     );
   };
   const removeAsset = (id: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     void store.cancelImport(id);
     const latest = authored.current;
     change({
@@ -1273,11 +1331,17 @@ function Editor({
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
+    if (sendingNow.current) {
+      return;
+    }
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
     update(historyNow.current.present);
   };
   const edit = (text: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
@@ -1313,6 +1377,9 @@ function Editor({
     }
   };
   const format = (mark: Mark) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     if (at.start === at.end) {
@@ -1326,6 +1393,7 @@ function Editor({
   const applyCaptured = (replacement: string) => {
     const latest = authored.current;
     if (
+      sendingNow.current ||
       !lifetime.current.mounted ||
       captured === undefined ||
       captureNow.current !== captured ||
@@ -1346,13 +1414,20 @@ function Editor({
     setPlaced(result.selection);
   };
   const closeCaptured = () => {
-    if (captured !== undefined && captureNow.current === captured) {
+    if (
+      !sendingNow.current &&
+      captured !== undefined &&
+      captureNow.current === captured
+    ) {
       captureNow.current = undefined;
       setCaptured(undefined);
     }
   };
   // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
   const capture = (purpose: CapturedDraftText['purpose'], at: Selection) => {
+    if (sendingNow.current || !lifetime.current.mounted) {
+      return;
+    }
     captureGeneration.current += 1;
     const next = {
       ...captureDraftText(purpose, authored.current, at),
@@ -1362,6 +1437,9 @@ function Editor({
     setCaptured(next);
   };
   const block = (kind: BlockKind) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     const result = setBlockKind(latest.body, at, kind);
@@ -1419,6 +1497,9 @@ function Editor({
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
+    if (sendingNow.current) {
+      return;
+    }
     if (nativeEvent.key === 'Delete') {
       deletion.current = 'forward';
     } else if (nativeEvent.key === 'Backspace') {
@@ -1480,6 +1561,67 @@ function Editor({
       }
     }
   };
+  // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
+  const send = async () => {
+    if (discarded.current) {
+      return;
+    }
+    const latest = authored.current;
+    let finished = latest;
+    for (const field of ['to', 'cc', 'bcc'] as const) {
+      finished = addRecipients(finished, {
+        field,
+        text: entryOf(finished, field),
+        all: true,
+      }).draft;
+    }
+    if (finished !== latest) {
+      commitHistory((current) => keepIdentity(record(current, finished)));
+      update(finished);
+    }
+    if (finished.entries !== undefined) {
+      setClosing(undefined);
+      setRefused('entries');
+      return;
+    }
+    const previous = authored.current;
+    setRefused(undefined);
+    setClosing('saving');
+    sendingNow.current = true;
+    setSending(true);
+    captureNow.current = undefined;
+    setCaptured(undefined);
+    // As for Discard, later edits wait: the version shown at Send is the one sent.
+    discarded.current = true;
+    lifetime.current.finishing += 1;
+    const baseline = () =>
+      previous.id === authored.current.id
+        ? previous
+        : { ...previous, id: authored.current.id, conflict: true as const };
+    let refusal: SendRefusal | undefined = 'storage';
+    try {
+      refusal = await outbox.send(baseline);
+    } catch {
+      // An unexpected rejection keeps the Draft open to send again.
+    }
+    if (refusal !== undefined) {
+      sendingNow.current = false;
+      discarded.current = false;
+      if (authored.current !== previous) {
+        void store.update(authored.current, baseline(), rebind);
+      }
+    }
+    finishOperation();
+    if (lifetime.current.mounted) {
+      if (refusal === undefined) {
+        onClose();
+      } else {
+        setClosing(undefined);
+        setRefused(refusal);
+        setSending(false);
+      }
+    }
+  };
   const title = clip(draft.subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < draft.subject.length
@@ -1524,14 +1666,14 @@ function Editor({
             </Text>
           </View>
           <Action
-            disabled={history.past.length === 0}
+            disabled={lockedUnless(history.past.length > 0)}
             label={t('drafts.undo')}
             onPress={() => {
               travel(undo);
             }}
           />
           <Action
-            disabled={history.future.length === 0}
+            disabled={lockedUnless(history.future.length > 0)}
             label={t('drafts.redo')}
             onPress={() => {
               travel(redo);
@@ -1539,9 +1681,19 @@ function Editor({
           />
           <Action
             destructive
+            disabled={sending}
             label={t('drafts.discard')}
             onPress={() => {
-              setClosing('discard');
+              if (!sendingNow.current) {
+                setClosing('discard');
+              }
+            }}
+          />
+          <Action
+            disabled={closing === 'saving'}
+            label={t('drafts.send')}
+            onPress={() => {
+              void send();
             }}
           />
         </View>
@@ -1572,6 +1724,7 @@ function Editor({
             {t('drafts.invalidRecipients')}
           </Notice>
         ) : null}
+        <SendRefusalNotice refused={refused} />
         {closing === 'discard' ? (
           <View style={styles.bar}>
             <Notice
@@ -1596,6 +1749,7 @@ function Editor({
         ) : null}
         <SendingMailbox
           draft={draft}
+          editable={!sending}
           onChange={(mailbox) => {
             change(withSender(authored.current, mailbox));
           }}
@@ -1603,6 +1757,7 @@ function Editor({
         <Recipients
           draft={draft}
           getDraft={getDraft}
+          editable={!sending}
           field="to"
           onChange={change}
           onCaretMove={breakTyping}
@@ -1612,6 +1767,7 @@ function Editor({
             <Recipients
               draft={draft}
               getDraft={getDraft}
+              editable={!sending}
               field="cc"
               onChange={change}
               onCaretMove={breakTyping}
@@ -1619,6 +1775,7 @@ function Editor({
             <Recipients
               draft={draft}
               getDraft={getDraft}
+              editable={!sending}
               field="bcc"
               onChange={change}
               onCaretMove={breakTyping}
@@ -1626,6 +1783,7 @@ function Editor({
           </>
         ) : (
           <Action
+            disabled={sending}
             accessibilityLabel={t('drafts.showCcBcc')}
             label={t('drafts.ccBcc')}
             onPress={() => {
@@ -1636,6 +1794,8 @@ function Editor({
         <View style={styles.field}>
           <TextInput
             accessibilityLabel={t('drafts.subject')}
+            editable={!sending}
+            accessibilityState={{ disabled: sending }}
             onChangeText={(subject) => {
               const previous = authored.current.subject;
               subjectCaret.current =
@@ -1678,7 +1838,11 @@ function Editor({
               key={mark}
               accessibilityLabel={t(name)}
               accessibilityRole="button"
-              accessibilityState={{ selected: active.includes(mark) }}
+              accessibilityState={{
+                selected: active.includes(mark),
+                disabled: sending,
+              }}
+              disabled={sending}
               onPress={() => {
                 format(mark);
               }}
@@ -1698,7 +1862,11 @@ function Editor({
               key={value}
               accessibilityLabel={t(name)}
               accessibilityRole="button"
-              accessibilityState={{ selected: kind === value }}
+              accessibilityState={{
+                selected: kind === value,
+                disabled: sending,
+              }}
+              disabled={sending}
               onPress={() => {
                 block(value);
               }}
@@ -1713,25 +1881,29 @@ function Editor({
             </Pressable>
           ))}
           <Action
-            disabled={
-              !hasTranslatableText(
+            disabled={lockedUnless(
+              hasTranslatableText(
                 selectedText(draft.body, selection, translationInputLimit + 1),
-              )
-            }
+              ),
+            )}
             label={t('translation.translate')}
             accessibilityLabel={t('translation.translateSelectionLabel')}
             onPress={() => {
               const at = selectionNow.current;
               const { body } = authored.current;
               const text = selectedText(body, at, translationInputLimit + 1);
-              if (!lifetime.current.mounted || !hasTranslatableText(text)) {
+              if (
+                sendingNow.current ||
+                !lifetime.current.mounted ||
+                !hasTranslatableText(text)
+              ) {
                 return;
               }
               capture('translate', at);
             }}
           />
           <Action
-            disabled={!canRewrite(draft.body, selection)}
+            disabled={lockedUnless(canRewrite(draft.body, selection))}
             label={t('assistance.rewrite')}
             accessibilityLabel={t(rewriteLabel(selection))}
             onPress={() => {
@@ -1746,6 +1918,7 @@ function Editor({
           />
           {canSuggestReply(draft) ? (
             <Action
+              disabled={sending}
               label={t('assistance.suggestReply')}
               accessibilityLabel={t('assistance.suggestReplyLabel')}
               onPress={() => {
@@ -1761,12 +1934,14 @@ function Editor({
           accessibilityRole="toolbar"
           style={styles.bar}>
           <Action
+            disabled={sending}
             label={t('drafts.assets.attachFilesPanel')}
             onPress={() => {
               void choose('files', false);
             }}
           />
           <Action
+            disabled={sending}
             label={t('drafts.assets.insertImagePanel')}
             onPress={() => {
               void choose('photos', true);
@@ -1793,6 +1968,8 @@ function Editor({
         )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
+          editable={!sending}
+          accessibilityState={{ disabled: sending }}
           // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
           // usual. React Native macOS supports these props but leaves them out of TextInputProps.
           {...({
@@ -1855,8 +2032,11 @@ function Editor({
         )}
         <DraftAssets
           draft={draft}
+          editable={!sending}
           onCancel={(id) => {
-            void store.cancelImport(id);
+            if (!sendingNow.current) {
+              void store.cancelImport(id);
+            }
           }}
           onRemove={removeAsset}
         />
