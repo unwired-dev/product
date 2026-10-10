@@ -139,7 +139,7 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   push, and open a PR ready for review that references its issue, without
   asking. The request itself authorizes the commit, push, and PR.
 - Then babysit that PR until it is merged or closed, following the
-  [implementer babysitting policy](docs/agents/pull-request-babysitting.md#implementer-pr-delivery).
+  [repository policy](docs/agents/pull-request-babysitting.md).
   Independently validate feedback, record the disposition, and resolve handled
   conversations, including deferred work. Keep reviewer and CI completion gates
   independent.
