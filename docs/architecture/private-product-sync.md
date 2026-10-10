@@ -198,8 +198,9 @@ It reads the encrypted mailbox descriptors; Gmail credentials remain device-loca
 and require their own authorization.
 
 Reconnect may create or refresh an enrollment request before the key is checked.
-If the key cannot open the envelope, native recovery resolves with the current
-registration status plus a transient `recoveryNotice: "rejected"`. The shared store
+If the key cannot open the envelope, native recovery reports rejection; the
+TypeScript flow assembles the current registration status with a transient
+`recoveryNotice: "rejected"`. The shared store
 consumes the notice and publishes that snapshot with `recoveryFailure: "rejected"`,
 so an expired or cancelled request's replacement Enrollment Code remains visible.
 Malformed keys use the same status-and-notice reply without reconnecting. The
@@ -275,8 +276,9 @@ synchronization; otherwise it emits `unconfirmed` and preserves the confirmed
 key. A failed transition read retains the pending marker for the next
 synchronization; an authoritative mismatch clears it without promoting the
 unapplied key. It durably saves the adopted ring before acknowledging. A retried
-`revoke` that adopts its unanswered attempt returns the `recovery-key` snapshot
-instead of throwing on the unconfirmed-key guard; it emits `removed` only when
+revocation that adopts its unanswered attempt lets the TypeScript flow publish the
+`recovery-key` snapshot instead of throwing on the unconfirmed-key guard; it emits
+`removed` only when
 the saved target ID matches the requested target. A different target, or an older
 marker without a target ID, still surfaces the adopted key but claims no removal
 for that request. An already shown, unconfirmed key likewise returns its status
@@ -286,9 +288,10 @@ key and require it to retain every held key. The backend publishes the new
 recovery envelope only after every remaining device acknowledges; until then
 backup guidance retains the previous key as well as the new one.
 
-Every registration bridge operation enters `RegistrationStore.purgingIfRevoked`.
-When a readable saved registration contains a Product Account, this boundary calls
-`requireNotRevoked` using `productAccount:isTrustedDeviceRevoked` before invoking
+Every registration flow program enters `createRegistrationFlow.guarded` in
+`packages/mail-core`. When a readable saved registration contains a Trusted
+Device's Product Account, this boundary calls `requireNotRevoked` using
+`productAccount:isTrustedDeviceRevoked` before invoking
 the requested operation. Restore, Linked Sign-In, signing in again, provider
 switching, Recovery Key unlock and removal therefore check before provider
 validation or an interactive prompt. Failed provider renewal or prompt
@@ -327,10 +330,11 @@ and credential stay refused; an invented identifier gains only Pending Device
 access. Hosts show the enrollment gate and permit Gmail authorization only after
 admission. The previous key's continued use applies to already-trusted devices.
 
-The retained flow still uses the existing native coordinator. ADR 0067 stages its
-move to TypeScript through #756–759; native key custody, credentialed transport
-and persist-before-acknowledge guarantees remain in force during that migration.
-This slice does not claim those later flow migrations or live-provider qualification.
+Issue #756 moves registration sequencing and the revocation guard to TypeScript.
+Product Sync, enrollment, recovery and rotation operations retain their native
+implementation until #757–758; native key custody, credentialed transport and
+persist-before-acknowledge guarantees remain in force. This slice does not claim
+those later migrations or live-provider qualification.
 
 ## Mailbox Connections (#606)
 

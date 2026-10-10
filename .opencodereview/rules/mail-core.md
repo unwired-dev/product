@@ -58,6 +58,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `registration-flow.ts.signOut` or `deleteAccount` sending irreversible remote work before native removal intent is durable, or reconnecting while an unanswered removal remains. Acknowledged cleanup must resume before provider work. Treat a lost reply as uncertainty and never claim no removal occurred. Deletion may withdraw newly recorded intent after a definite refusal, but must retain an earlier unanswered attempt; otherwise retry can reopen locally retained private state after remote deletion.
 - `createGmailInbox.store` or `retainBodies` changing body-cache membership
   without notifying the cache subscribers exposed by `createMailboxes.bodies`.
   Publish after admitted commits and successful pruning, using the coordinator

@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native test mirror such as `RegistrationFlowSupport.swift` classifying failures
+  differently from the production bridge and `registration-flow.ts`. Trace the
+  error through the production rejection mapper before comparing cached,
+  authorization-required and refusal states; retain native evidence that real
+  transport errors reach the fixed code the shared flow consumes. Otherwise a
+  passing Swift journey can hide a different production recovery decision.
+
 - A New Message account-race test that replaces the account only with a distinct
   sender, or checks only the returned identifier. Use the same Gmail connection ID
   and address across accounts, finish opening the replacement Drafts before

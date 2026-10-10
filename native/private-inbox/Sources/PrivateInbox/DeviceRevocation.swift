@@ -1,20 +1,18 @@
 import Foundation
 
 extension RegistrationStore {
-  // Removes another Trusted Device after a fresh interactive Product Sign-In. A new key epoch
+  // Removes another Trusted Device with the fresh interactive Product Sign-In the flow just
+  // collected, and reports whether its new Recovery Key applied. A new key epoch
   // reaches the remaining devices sealed to the account key they already hold, and a new Recovery
   // Key wraps it. Backend authorization withholds the transition from the removed device; sealing
   // it to secrets that device never held is tracked in #753.
-  func revoke(_ trustedDeviceId: String) async throws -> [String: String] {
+  // Temporary until #758.
+  func revoke(_ trustedDeviceId: String) async throws -> String? {
     guard let backend = productSync, let saved = try load(), let product = saved.product,
       trustedDeviceId != product.trustedDeviceId,
-      var vault = try loadVault(product.productAccountId), vault.published
+      var vault = try loadVault(product.productAccountId), vault.published, let identity
     else { throw RegistrationError.unavailable }
-    let identity = try await productIdentity(
-      saved.provider, hint: saved.provider == .google ? saved.subject : nil)
-    guard identity.provider == saved.provider, identity.subject == saved.subject else {
-      throw RegistrationError.invalidIdentity
-    }
+    guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
     session = identity
     let account = product.productAccountId
     // An epoch another removal started joins this ring first, so the new ring carries it too.
@@ -27,9 +25,8 @@ extension RegistrationStore {
         unanswered.map {
           vault.recoveryKey == $0.recoveryKey && $0.trustedDeviceId == trustedDeviceId
         } ?? false
-      return try status(await synchronize(saved)).merging(
-        adopted ? ["revocationNotice": "removed"] : [:]
-      ) { $1 }
+      _ = try await synchronize(saved)
+      return adopted ? "removed" : nil
     }
     let recovery = try await backend.recoveryEnvelope(identity, product)
     let committed = recovery.encryptedPayload.keyVersion
@@ -58,11 +55,10 @@ extension RegistrationStore {
       throw error
     }
     trustedDevices[account]?.removeAll { $0.id == trustedDeviceId }
-    let current = try status(await synchronize(saved))
+    _ = try await synchronize(saved)
     // Only this removal's own transition, once adopted, makes its new Recovery Key current. A removal
     // another device completed first, or a synchronization that failed just now, leaves it unconfirmed.
-    let adopted = try loadVault(account)?.recoveryKey == recoveryKey.bytes
-    return current.merging(["revocationNotice": adopted ? "removed" : "unconfirmed"]) { $1 }
+    return try loadVault(account)?.recoveryKey == recoveryKey.bytes ? "removed" : "unconfirmed"
   }
 
   // Adopts the epoch a removal started, sealed to a key this device holds, and reports it so the
