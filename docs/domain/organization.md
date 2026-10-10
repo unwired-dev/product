@@ -9,7 +9,8 @@ which organization workflows are required in the maintained clients.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
-[ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+[power-user launch specification](../product/power-user-launch.md)
+([ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md))
 for launch scope; a term's presence does not establish implementation or release.
 
 ## Language
