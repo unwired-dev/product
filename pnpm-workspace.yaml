@@ -8,6 +8,7 @@ overrides:
   electron-to-chromium: 1.5.444
 
 catalog:
+  '@effect/vitest': 4.0.0
   '@effect/tsgo': 0.48.0
   '@changesets/cli': ^3.0.3
   '@convex-dev/eslint-plugin': ^5.0.0

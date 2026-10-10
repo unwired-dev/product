@@ -205,3 +205,24 @@ open. Removing another connection preserves the root metadata and its durable
 pending actions. Account purge removes every layout. Cache deletion attempts all
 owned paths and retains the first failure, so failure on one path does not skip
 other known private data. Completed per-connection cleanup clears its retry marker.
+
+## Saved registration vault
+
+The saved registration is one device-only Keychain record per host and Google client.
+It holds the Product Sign-In's renewal credential, this installation's identifier,
+the Product Account receipt with its Trusted or Pending Device credential, each
+Mailbox Connection's Gmail credential and receipt, and any removal waiting for its
+answer. Product Sync keys and an open enrollment request are separate Keychain items
+of the same account.
+
+The [registration flow](../google-registration.md#where-the-registration-flow-runs)
+runs in TypeScript, which never reads this record. It reads a projection without
+credentials, tokens, the installation identifier or provider subjects, and changes
+the record only through native operations named by purpose: saving the latest
+sign-in, connecting, adding, confirming or marking a connection, recording why
+setup ended, recording or withdrawing removal intent, and purging. Native code saves
+a sign-in before any backend request, so an interruption keeps it; it never replaces
+a record that already received a Product Account, and it ignores a record for
+another deployment or client. Purging removes every connection's cache, then the
+Product Sync and enrollment items, and the registration record last, so a failed
+purge is retried.

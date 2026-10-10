@@ -115,12 +115,14 @@ both identities. `convex-test` does not exercise the deployment's JWT gateway.
 Shared application and rendered host tests cover linking from account settings,
 persistence across relaunch and remount, and alternate sign-in. They also show
 that an owned identity, stale authentication and other failures leave the account
-unchanged. The hosted native storage suite uses real Keychain and a synthetic
-backend that enforces single ownership. It confirms interactive reverification of
-the current identity, no hint for the linked one and unchanged records after
-cancellation. It also covers alternate sign-in on another installation and
-recovery after Apple revocation. Owned identities, stale sessions, a different
-Apple ID and unlinked provider switches are rejected.
+unchanged. The [registration flow](google-registration.md#where-the-registration-flow-runs)'s
+tests run it over a synthetic native vault and a backend that enforces single
+ownership. They confirm interactive reverification of the current identity, no
+hint for the linked one and unchanged records after cancellation. They also cover
+alternate sign-in on another installation and recovery after Apple revocation.
+Owned identities, stale sessions, a different Apple ID and unlinked provider
+switches are rejected, and Convex link replies are decoded whatever their HTTP
+status.
 
 The `registration-link` Mock Mail Session registers with Apple and connects Gmail.
 It links the synthetic Google identity, then relaunches with both sign-in methods.

@@ -4,10 +4,8 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import { TurboModuleRegistry } from 'react-native';
 
 import { gmailMailboxes, registration } from '../src/registration.ts';
@@ -78,13 +76,13 @@ describe('attachment transfer cancellation bridge', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ content: { text: 'Notes attached.' } });
-    const session = createMockRegistrationSession('registration-success');
+    const { vault } = createSyntheticVault();
     const base = syntheticConnections({
       [syntheticMailboxes['alex@example.invalid']]: gmail,
     });
     const { transport, downloading, cancel, retry } = holdAttachment(base);
     const bridge = {
-      ...session.native,
+      ...vault,
       ...transport,
       getConstants: () => ({}),
       cancelGmailRequest: jest.fn(cancel),

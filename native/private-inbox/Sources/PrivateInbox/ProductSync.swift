@@ -662,7 +662,7 @@ extension RegistrationStore {
     return result
   }
 
-  func confirmRecoveryKey(_ entry: String) throws -> [String: String] {
+  func confirmRecoveryKey(_ entry: String) throws {
     guard let saved = try load(), let product = saved.product,
       var vault = try loadVault(product.productAccountId), vault.published
     else { throw RegistrationError.unavailable }
@@ -675,11 +675,10 @@ extension RegistrationStore {
       vault.recoveryKeyConfirmed = true
       try saveVault(vault)
     }
-    return try status(saved)
   }
 
   // Seals this device's keys to another device of the account, unlocked by the code it shows.
-  func approveEnrollment(_ requestId: String, code entry: String) async throws -> [String: String] {
+  func approveEnrollment(_ requestId: String, code entry: String) async throws {
     let code: EnrollmentCode
     do { code = try EnrollmentCode(parsing: entry) } catch {
       throw RegistrationError.enrollmentCodeInvalid
@@ -698,36 +697,14 @@ extension RegistrationStore {
       binding: .init(account: product.productAccountId, device: request.pendingDeviceId))
     try await backend.approveEnrollment(session, product, request, vault.ring.current, envelope)
     enrollmentRequests[product.productAccountId]?.removeAll { $0.pendingDeviceId == requestId }
-    return try status(saved)
   }
 
-  func declineEnrollment(_ requestId: String) async throws -> [String: String] {
+  func declineEnrollment(_ requestId: String) async throws {
     guard let backend = productSync, let session, let saved = try load(),
       let product = saved.product
     else { throw RegistrationError.enrollmentUnavailable }
     try await backend.declineEnrollment(session, product, requestId)
     enrollmentRequests[product.productAccountId]?.removeAll { $0.pendingDeviceId == requestId }
-    return try status(saved)
-  }
-
-  // Checks for an approval of this device, or for another device waiting for one.
-  func refreshPrivateSync() async throws -> [String: String] {
-    guard let saved = try load(), saved.product != nil else {
-      throw RegistrationError.unavailable
-    }
-    switch saved.provider {
-    case .google:
-      // Google renews its Product Sign-In silently.
-      return try await status(reconfirm(saved))
-    case .apple:
-      // Apple cannot renew silently; without this process's sign-in it asks interactively.
-      guard let session else { return try await signIn(with: .apple) }
-      // A Pending Device reconnects, which renews a record that ended with its Enrollment Code.
-      if saved.product?.pending == true {
-        return try await status(establish(saved, identity: session))
-      }
-      return try await status(synchronize(saved))
-    }
   }
 
 }

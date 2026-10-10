@@ -475,43 +475,68 @@
       "synthetic-product-subject": "synthetic-product-account",
       "synthetic-apple-subject": "synthetic-apple-product-account",
     ]
+    // Another device's removal of this one is recorded by its bare device identifier.
+    let revoked = { (product: ProductRegistrationReceipt) throws -> Bool in
+      let prefix = "synthetic-device-"
+      guard product.trustedDeviceId.hasPrefix(prefix) else { return false }
+      return try productSync.state().removedIdentifiers.contains(
+        String(product.trustedDeviceId.dropFirst(prefix.count)))
+    }
     return RegistrationStore(
       keys: keys,
       deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, apple: MockAppleRegistrationProvider(google: google),
-      linking: SignInLinking(
-        request: { identity, product, _ in
-          guard accounts[identity.subject] == product.productAccountId else {
-            throw RegistrationError.invalidIdentity
-          }
-          return SignInLinkRequest(
-            linkTicket: String(repeating: "b", count: 64),
-            signInProviders: product.signInProviders ?? [identity.provider])
-        },
-        complete: { identity, product, _ in
-          guard scenario == "registration-link" else { throw RegistrationError.identityOwned }
-          return (product.signInProviders ?? []) + [identity.provider]
-        }),
       productSync: productSync.backend,
-      removal: AccountRemoval(
+      // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
+      // removals so the packaged journeys reach the synthetic Gmail mailbox.
+      deviceRevoked: { try revoked($0) },
+      // The Convex calls TypeScript's registration flow names, answered as Convex would.
+      transport: { request in
+        func reply(_ value: Any) throws -> (Int, Data) {
+          (200, try JSONSerialization.data(withJSONObject: ["status": "success", "value": value]))
+        }
+        func refusal(_ code: String) throws -> (Int, Data) {
+          (
+            200,
+            try JSONSerialization.data(withJSONObject: [
+              "status": "error", "errorData": ["code": code],
+            ])
+          )
+        }
+        guard let product = request.product else { return try refusal("UNAVAILABLE") }
+        switch request.path {
+        case "productAccount:isTrustedDeviceRevoked": return try reply(revoked(product))
+        case "/sign-in-links/request":
+          guard let identity = request.identity, accounts[identity.subject] == product.productAccountId
+          else { return try refusal("SIGN_IN_NOT_LINKED") }
+          return try reply([
+            "linkTicket": String(repeating: "b", count: 64),
+            "signInProviders": (product.signInProviders ?? [identity.provider]).map(\.rawValue),
+          ])
+        case "/sign-in-links/complete":
+          guard scenario == "registration-link", let identity = request.identity else {
+            return try refusal("SIGN_IN_IDENTITY_OWNED")
+          }
+          return try reply([
+            "productAccountId": product.productAccountId,
+            "signInProviders": ((product.signInProviders ?? []) + [identity.provider]).map(
+              \.rawValue),
+          ])
         // Signing out forgets this device; signing in again makes it wait for admission.
-        unregister: { _, product, deviceIdentifier in
+        case "productAccount:unregisterTrustedDevice", "productAccount:unregisterPendingDevice":
+          let deviceIdentifier = request.args["deviceIdentifier"] as? String
           try productSync.update { state in
             state.admitted[product.productAccountId]?.removeAll { $0 == deviceIdentifier }
             state.requests[product.trustedDeviceId] = nil
           }
-        },
-        delete: { _, product in
-          try productSync.update { $0.deleted.insert(product.productAccountId) }
-        }),
-      // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
-      // removals so the packaged journeys reach the synthetic Gmail mailbox.
-      deviceRevoked: { product in
-        // Another device's removal of this one is recorded by its bare device identifier.
-        let prefix = "synthetic-device-"
-        guard product.trustedDeviceId.hasPrefix(prefix) else { return false }
-        return try productSync.state().removedIdentifiers.contains(
-          String(product.trustedDeviceId.dropFirst(prefix.count)))
+          return try reply(["registered": false])
+        case "productSyncEnrollment:status":
+          return try reply(["state": "pending"])
+        case "/product-account/delete":
+          _ = try productSync.update { $0.deleted.insert(product.productAccountId) }
+          return (200, Data(#"{"deleted":true}"#.utf8))
+        default: return try refusal("UNAVAILABLE")
+        }
       },
       mailCache: mailCache,
       connect: { identity, deviceIdentifier, _ in

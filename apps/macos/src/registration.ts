@@ -4,19 +4,20 @@ import type {
 } from '@private-email/mail-core/drafts';
 import type { NativeGmailMailboxes } from '@private-email/mail-core/mailboxes';
 import type { NativeDeliveryClaim } from '@private-email/mail-core/outbox';
-import type { NativeRegistration } from '@private-email/mail-core/registration';
+import type { NativeRegistrationVault } from '@private-email/mail-core/registration-flow';
 import type { TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
 import { createRegistration } from '@private-email/mail-core/registration';
+import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import { TurboModuleRegistry } from 'react-native';
 
 interface RegistrationModule
   extends
     TurboModule,
-    NativeRegistration,
+    NativeRegistrationVault,
     NativeGmailMailboxes,
     NativeDrafts,
     NativeDraftSync,
@@ -26,24 +27,44 @@ interface RegistrationModule
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
 
-export const registration = createRegistration({
-  restore: () => native().restore(),
-  signIn: (provider) => native().signIn(provider),
-  addMailbox: (chooseAccount) => native().addMailbox(chooseAccount),
-  authorizeGmail: (connection) => native().authorizeGmail(connection),
-  removeMailbox: (connection) => native().removeMailbox(connection),
-  link: (provider) => native().link(provider),
-  confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
-  recoverWithRecoveryKey: (entry) => native().recoverWithRecoveryKey(entry),
-  approveEnrollment: (requestId, code) =>
-    native().approveEnrollment(requestId, code),
-  declineEnrollment: (requestId) => native().declineEnrollment(requestId),
-  revokeTrustedDevice: (trustedDeviceId) =>
-    native().revokeTrustedDevice(trustedDeviceId),
-  refreshPrivateSync: () => native().refreshPrivateSync(),
-  signOut: () => native().signOut(),
-  deleteProductAccount: () => native().deleteProductAccount(),
-});
+export const registration = createRegistration(
+  createRegistrationFlow({
+    registration: () => native().registration(),
+    signInIdentity: (provider, hint) => native().signInIdentity(provider, hint),
+    renewIdentity: () => native().renewIdentity(),
+    appleCredentialState: () => native().appleCredentialState(),
+    reuseSession: () => native().reuseSession(),
+    saveIdentity: (replacing) => native().saveIdentity(replacing),
+    connect: (mode) => native().connect(mode),
+    synchronize: () => native().synchronize(),
+    forgetMailboxAccess: () => native().forgetMailboxAccess(),
+    retryMailboxCleanup: () => native().retryMailboxCleanup(),
+    refreshMailbox: (connection) => native().refreshMailbox(connection),
+    signInMailbox: (connection, suggest) =>
+      native().signInMailbox(connection, suggest),
+    verifyGmail: () => native().verifyGmail(),
+    confirmMailbox: (connection) => native().confirmMailbox(connection),
+    storeMailbox: () => native().storeMailbox(),
+    markMailbox: (connection, access) =>
+      native().markMailbox(connection, access),
+    recordMailboxSetup: (reason) => native().recordMailboxSetup(reason),
+    saveSignInProviders: (providers) => native().saveSignInProviders(providers),
+    recordRemoval: (operation) => native().recordRemoval(operation),
+    prepareSignOut: () => native().prepareSignOut(),
+    endSession: () => native().endSession(),
+    purge: (notice) => native().purge(notice),
+    call: (request) => native().call(request),
+    removeMailbox: (connection) => native().removeMailbox(connection),
+    confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
+    readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
+    recoverWithRecoveryKey: (entry) => native().recoverWithRecoveryKey(entry),
+    approveEnrollment: (requestId, code) =>
+      native().approveEnrollment(requestId, code),
+    declineEnrollment: (requestId) => native().declineEnrollment(requestId),
+    revokeTrustedDevice: (trustedDeviceId) =>
+      native().revokeTrustedDevice(trustedDeviceId),
+  }),
+);
 
 let nextRead = 0;
 

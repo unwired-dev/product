@@ -66,6 +66,21 @@ belongs to, so its saved changes survive. Removing the legacy connection before
 opening its Inbox also removes its earlier cache and bodies, without needing their
 key. Removing another connection preserves that legacy connection's pending changes.
 
+## Saved registration
+
+The native vault keeps the full saved registration in device-only Keychain storage,
+including Product Sign-In, Trusted or Pending Device, and mailbox credentials.
+The [TypeScript registration flow](google-registration.md#where-the-registration-flow-runs)
+reads only a non-secret projection and changes storage through native operations
+named by purpose. Credentials, tokens, installation identifiers and provider
+subjects never cross the bridge.
+
+A saved sign-in survives interruption before backend registration and resumes
+without replacing a committed Product Account or its encrypted Inbox. A record for
+another deployment or Google client is ignored. Purging attempts every account
+cache and key item and removes registration last; incomplete cleanup remains
+retryable after relaunch.
+
 ## Message body cache
 
 Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the
