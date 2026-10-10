@@ -99,6 +99,8 @@ export type ProductSyncMaterialInitializedResponse = Infer<
   typeof productSyncMaterialInitializedResponseValidator
 >;
 
+// Legacy: the Swift prototype's backend-readable Gmail connection, mailbox address included. No
+// replacement client reads it; it is removed with the prototype at cutover (#627).
 export const gmailProviderConnectionStatusValidator = v.object({
   connectedAt: v.number(),
   emailAddress: v.string(),

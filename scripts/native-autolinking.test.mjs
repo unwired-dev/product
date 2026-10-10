@@ -3,12 +3,14 @@ import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +19,75 @@ import * as Schema from 'effect/Schema';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const macFiles = ['package.json', 'react-native.config.cjs', 'macos/Podfile'];
+
+test('incremental Expo generation removes the retired synthetic credential from production', async () => {
+  const mobile = path.join(root, 'apps/mobile');
+  const requireMobile = createRequire(path.join(mobile, 'package.json'));
+  const { IOSConfig } = requireMobile('expo/config-plugins');
+  const privateInbox = requireMobile('./plugins/private-inbox.cjs');
+  const scratch = path.join(root, 'scratchpad');
+  mkdirSync(scratch, { recursive: true });
+  const fixture = mkdtempSync(path.join(scratch, 'native-generation-'));
+  const ios = path.join(fixture, 'ios');
+  const projectDirectory = path.join(ios, 'Test.xcodeproj');
+  const destination = path.join(ios, 'PrivateInbox');
+  try {
+    mkdirSync(projectDirectory, { recursive: true });
+    mkdirSync(destination);
+    writeFileSync(
+      path.join(projectDirectory, 'project.pbxproj'),
+      `{
+        archiveVersion = 1;
+        objectVersion = 54;
+        objects = {
+          /* Begin PBXProject section */
+          ROOT = { isa = PBXProject; mainGroup = GROUP; targets = (TARGET,); };
+          /* End PBXProject section */
+          /* Begin PBXGroup section */
+          GROUP = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
+          /* End PBXGroup section */
+          /* Begin PBXNativeTarget section */
+          TARGET = { isa = PBXNativeTarget; buildPhases = (SOURCES /* Sources */,); };
+          /* End PBXNativeTarget section */
+          /* Begin PBXSourcesBuildPhase section */
+          SOURCES /* Sources */ = { isa = PBXSourcesBuildPhase; files = (); };
+          /* End PBXSourcesBuildPhase section */
+          /* Begin PBXFileReference section */
+          /* End PBXFileReference section */
+          /* Begin PBXBuildFile section */
+          /* End PBXBuildFile section */
+          /* Begin XCBuildConfiguration section */
+          CONFIG = { isa = XCBuildConfiguration; buildSettings = {}; };
+          /* End XCBuildConfiguration section */
+        };
+        rootObject = ROOT;
+      }\n`,
+    );
+    const project = IOSConfig.XcodeUtils.getPbxproj(fixture);
+    const retired = 'PrivateInbox/SyntheticCredential.swift';
+    const unrelated = 'PrivateInbox/HostOwned.swift';
+    for (const file of [retired, unrelated]) {
+      project.addSourceFile(file, { target: 'TARGET' }, 'GROUP');
+      writeFileSync(path.join(ios, file), '// Previous generated source\n');
+    }
+    const config = privateInbox({ name: 'Test', slug: 'test' });
+    // Run the real Expo mod twice, as an incremental prebuild and a later regeneration do.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await config.mods.ios.xcodeproj({
+        ...config,
+        modResults: project,
+        modRequest: { projectRoot: mobile, platformProjectRoot: ios },
+      });
+    }
+    assert.equal(existsSync(path.join(ios, retired)), false);
+    assert.doesNotMatch(project.writeSync(), /SyntheticCredential/u);
+    assert.equal(existsSync(path.join(ios, unrelated)), true);
+    assert.ok(project.hasFile(unrelated));
+    assert.match(project.writeSync(), /PrivateInboxStore\.swift in Sources/u);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
 
 // Copies a host's native inputs beside it, so its dependencies still resolve, and runs its check.
 const verifyFixture = (host, files, change) => {

@@ -13,6 +13,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
+  of a stronger guarantee as permission to succeed through a weaker fallback.
+  Restrict fallback to the platform's documented unsupported-operation errors,
+  retry interrupted calls and inspect their failure code before another operation
+  can overwrite it. Propagate real I/O and other failures before publishing success;
+  otherwise a failed drive-cache flush can be reported as a durable mutation.
+
 - `DraftSync.push` mapping every failed expected-revision write to a conflict.
   Only the coded conditional-write refusal, reconciled with authenticated record
   absence, can become `committed: false`; preserve transport, cancellation and

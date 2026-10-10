@@ -307,6 +307,12 @@ class EnrollmentCodeInvalid extends Schema.TaggedError<EnrollmentCodeInvalid>()(
   {},
 ) {}
 
+// A link the backend refused, for example an identity owned by another Product Account, leaves
+// the Product Account and its sign-ins unchanged; it is an expected outcome.
+class LinkRefused extends Schema.TaggedError<LinkRefused>()('LinkRefused', {
+  failure: LinkFailureSchema,
+}) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -401,6 +407,7 @@ export function createRegistration(native: NativeRegistration) {
       | RecoveryKeyMismatch
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
+      | LinkRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -465,6 +472,11 @@ export function createRegistration(native: NativeRegistration) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 enrollmentFailure: 'code-invalid',
+              })),
+            LinkRefused: ({ failure }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                linkFailure: failure,
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -602,14 +614,18 @@ export function createRegistration(native: NativeRegistration) {
       execute(request(() => native.removeMailbox(connection))),
     link: (provider: SignInProvider) =>
       execute(
-        request(() => native.link(provider)),
-        (snapshot, cause) => ({
-          ...settled(snapshot),
-          linkFailure: Option.getOrElse(
-            Option.map(linkFailureCode(cause), ({ code }) => code),
-            (): LinkFailure => 'failed',
+        request(() => native.link(provider)).pipe(
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('RegistrationFailed', (error) =>
+            Effect.fail(
+              Option.match(linkFailureCode(error.cause), {
+                onNone: () => error,
+                onSome: ({ code }) => new LinkRefused({ failure: code }),
+              }),
+            ),
           ),
-        }),
+        ),
+        (snapshot) => ({ ...settled(snapshot), linkFailure: 'failed' }),
       ),
     confirmRecoveryKey: (entry: string) =>
       execute(

@@ -7,11 +7,14 @@ import * as Schema from 'effect/Schema';
 import scenarios from '../../scripts/mock-mail-scenarios.json';
 import manifest from './package.json';
 
+const { build } = Schema.decodeSync(
+  Schema.Struct({ build: Schema.Array(Schema.NonEmptyString) }),
+)(scenarios);
 const mockScenario: unknown = env.UNWIRED_MOCK_SCENARIO;
 if (
   mockScenario !== undefined &&
   mockScenario !== '' &&
-  (typeof mockScenario !== 'string' || !scenarios.build.includes(mockScenario))
+  !Schema.is(Schema.Literals(build))(mockScenario)
 ) {
   throw new Error('Unknown Mock Mail Session scenario');
 }
