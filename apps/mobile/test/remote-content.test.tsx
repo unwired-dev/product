@@ -144,6 +144,54 @@ describe('remote message content in the reader', () => {
 
   /* oxlint-enable vitest/max-expects */
 
+  it('requires Load images again after Never interrupts an Ask presentation', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const settings = settingsWith(null);
+    await settings.load();
+    const later = 'https://images.example/later.png';
+    const { gmail, app, scroll } = await openReader(
+      settings,
+      `<p>Weekly news</p><img src="${source}" alt="Photo"><img src="${later}" alt="Later">`,
+    );
+    gmail.serveRemote(later, { data: photo });
+    const both = {
+      contentSize: { width: 320, height: 4000 },
+      remoteImages: [
+        { index: 0, top: 0, bottom: 100 },
+        { index: 1, top: 3000, bottom: 3100 },
+      ],
+    };
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', { nativeEvent: both });
+      });
+      await act(() => {
+        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+      // Another window switches the mailbox to Never and back while this reader stays open.
+      await act(async () => {
+        await settings.setPolicy('never');
+        await settings.setPolicy('ask');
+      });
+      // Scrolling the later image into view fetches nothing until consent is given again.
+      await act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 2600 },
+            layoutMeasurement: { height: 600 },
+          },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+      expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('fetches one normalized resource for every admitted equivalent occurrence', async () => {
     expect.hasAssertions();
     placeDocument();

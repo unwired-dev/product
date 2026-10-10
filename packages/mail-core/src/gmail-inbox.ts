@@ -1821,23 +1821,31 @@ export function createGmailInbox(
   // Updates every reader before the caller publishes its reconciled remote state.
   const prepareRemotePresentations = (id: string) => {
     const document = documents.get(id);
-    if (document === undefined || bodies.get(id)?.kind !== 'ready') {
+    const body = bodies.get(id);
+    if (document === undefined || body?.kind !== 'ready') {
       return;
     }
     const count = legacyReaders.get(id) ?? 0;
-    if (count > 0) {
+    if (count > 0 && body.presentation.rich !== undefined) {
       bodies.set(id, {
         kind: 'ready',
         presentation: present(id, document, count),
       });
     }
-    for (const [reader, message] of viewReaders) {
-      if (message === id) {
-        viewBodies.set(reader, {
-          kind: 'ready',
-          presentation: present(reader, document),
-        });
-      }
+    // A terminal fallback stays plain until a fresh body or reader prepares a rich presentation.
+    const rich = [...viewReaders].filter(([reader, message]) => {
+      const view = viewBodies.get(reader);
+      return (
+        message === id &&
+        view?.kind === 'ready' &&
+        view.presentation.rich !== undefined
+      );
+    });
+    for (const [reader] of rich) {
+      viewBodies.set(reader, {
+        kind: 'ready',
+        presentation: present(reader, document),
+      });
     }
   };
 
@@ -1905,7 +1913,14 @@ export function createGmailInbox(
     ) {
       return undefined;
     }
-    return interest;
+    const body =
+      typeof interest.reader === 'symbol'
+        ? viewBodies.get(interest.reader)
+        : bodies.get(id);
+    if (body?.kind !== 'ready' || body.presentation.rich === undefined) {
+      return undefined;
+    }
+    return { ...interest, sources: body.presentation.rich.remote.images };
   };
 
   const shownRemoteImages = (id: string) => {
@@ -1926,6 +1941,28 @@ export function createGmailInbox(
         );
       }),
     );
+  };
+
+  const releaseUnshownRemote = (id: string) => {
+    const remote = remoteImages.get(id);
+    if (remote === undefined) {
+      return;
+    }
+    const displayed = shownRemoteImages(id);
+    const wanted = new Set(
+      [...remote.readers.values()].flatMap(({ urls }) => [...urls]),
+    );
+    for (const [key, { resource }] of retainedRemote) {
+      // A healthy reader's unfinished batch still owns its tentative retention.
+      const settling =
+        remote.images.get(resource[2])?.kind === 'loading' &&
+        wanted.has(resource[2]);
+      if (resource[1] === id && !displayed.has(resource[2]) && !settling) {
+        retainedRemote.delete(key);
+        remote.admitted -= 1;
+        remote.images.set(resource[2], { kind: 'deferred' });
+      }
+    }
   };
 
   const settleRemoteImages = (
@@ -2183,13 +2220,7 @@ export function createGmailInbox(
     authorization: boolean | Readonly<{ network: boolean; reader: symbol }>,
   ) => {
     const scope = opened;
-    const body = bodies.get(id);
-    if (
-      scope === undefined ||
-      !readers.has(id) ||
-      body?.kind !== 'ready' ||
-      !readable(id)
-    ) {
+    if (scope === undefined || !readers.has(id) || !readable(id)) {
       return undefined;
     }
     const interest = remoteReaderInterest(id, authorization);
@@ -2213,7 +2244,7 @@ export function createGmailInbox(
       admitted: 0,
     };
     remoteImages.set(id, initial);
-    const allowed = new Set(body.presentation.rich?.remote.images);
+    const allowed = new Set(interest.sources);
     initial.readers.set(interest.reader, {
       urls: new Set(urls.filter((url) => allowed.has(url))),
       network: interest.network,
@@ -4133,22 +4164,31 @@ export function createGmailInbox(
           current?.kind === 'ready' &&
           current.presentation === expected
         ) {
+          // Its remote requests end with the rich view; nothing it loads could be shown.
+          remoteImages.get(id)?.readers.delete(reader);
           imageReservations.delete(reader);
           viewBodies.set(reader, {
             kind: 'ready',
             presentation: { readable: expected.readable },
           });
+          releaseUnshownRemote(id);
+          refreshRemoteInterest(id);
           notify(state);
         }
         return;
       }
       const current = bodies.get(id);
       if (current?.kind === 'ready' && current.presentation === expected) {
+        remoteImages.get(id)?.readers.delete(id);
         imageReservations.delete(id);
-        setBody(id, {
+        const fallback = {
           kind: 'ready',
           presentation: { readable: expected.readable },
-        });
+        } as const;
+        bodies.set(id, fallback);
+        releaseUnshownRemote(id);
+        refreshRemoteInterest(id);
+        setBody(id, fallback);
       }
     },
   };

@@ -857,6 +857,10 @@ export function GmailMessageBody({
     readonly inbox: GmailInbox;
     readonly id: string;
   }>();
+  // Never revokes this presentation's Ask consent, so a later Ask must be consented again.
+  if (policy === 'never' && consent !== undefined) {
+    setConsent(undefined);
+  }
   const consented = consent?.inbox === inbox && consent.id === id;
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('message reader'));

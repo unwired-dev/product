@@ -86,6 +86,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   interest and inherit tentative retention. Otherwise images the reader never
   shows stay young in LRU eviction, populate the cache or consume a display budget
   that later requests cannot use.
+- `gmail-inbox.ts.discardRichMessage` switching a reader to plain text without
+  retiring its remote interest and excluding that reader from later remote
+  presentation settlement. Cancel transfers no surviving rich reader wants and
+  release undisplayed retention; preserve another reader's valid work. Fence
+  registration, cache touches/commits and shared display accounting until a
+  refreshed body or new reader can try rich rendering again, including legacy
+  callers and owner invalidation. Derive allowed sources from the requesting
+  reader's current rich presentation, so a failed legacy view cannot disable a
+  healthy symbol reader or leave a newly prepared legacy reader fenced by stale
+  fallback state. Otherwise a failed view keeps hidden work
+  alive, is rebuilt by settlement, or treats unseen bytes as displayed content.
 
 - `createGmailInbox.store` or `retainBodies` changing body-cache membership
   without notifying the cache subscribers exposed by `createMailboxes.bodies`.
