@@ -12,7 +12,8 @@ exists. Nothing here is implemented yet. The work is tracked in
 ## Behavior
 
 - A list/chat toggle in the Inbox header switches between the message list and
-  Catch Up and remembers the last choice. The list is the default. Both views
+  Catch Up. Each device, and each Mac window, remembers its own last choice; it
+  is never synchronized. The list is the default. Both views
   show the same mail and share archive, delete and read state.
 - Each message is one bubble, with no grouping by Thread, except collapsed
   category mail described below. A message bubble shows the
@@ -22,7 +23,8 @@ exists. Nothing here is implemented yet. The work is tracked in
   “me” bubbles.
 - The newest message is at the bottom. Catch Up opens at an unread divider above
   the oldest message not yet seen in Catch Up; with nothing unseen, it opens at
-  the bottom.
+  the bottom. When that message is inside a collapsed category bubble, the
+  divider sits above the bubble, which stays collapsed.
 - Messages that enter Catch Up on first open, from a newly connected
   mailbox or through history backfill count as seen when already read and unseen
   otherwise; newly arriving mail is unseen.
@@ -49,7 +51,8 @@ exists. Nothing here is implemented yet. The work is tracked in
   window. Quoted history follows the existing Reply All Draft behavior.
 - Long-pressing a bubble opens archive, delete, mark unread, reply and open Thread.
   Archive, delete and mark unread are labelled as Thread actions and act on the
-  whole Thread, changing all its bubbles together. Reply and quick reply target
+  whole Thread, changing all its bubbles together. Mark unread changes Message
+  Read State only; it does not clear seen markers or move the divider. Reply and quick reply target
   the pressed message.
 
 ## Summaries
