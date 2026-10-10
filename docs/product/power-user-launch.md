@@ -47,6 +47,36 @@ Microsoft work is tracked in
 These provider capabilities are launch requirements. Provider implementation and
 qualification may progress before distribution of the intermediate Gmail beta.
 
+## First mailbox after Product Sign-In
+
+After Google or Apple Product Sign-In and any required device enrollment,
+offer the Mail Provider choices independently: Gmail, iCloud Mail, Fastmail,
+manual IMAP/SMTP, and Microsoft mail. A person can choose a non-Gmail first
+Mailbox Connection without granting Gmail access or linking another Product
+Sign-In. Google sign-in may suggest its Google mailbox, but must also offer the
+other providers; an Apple contact or relay address is not a mailbox selection.
+
+Choosing another provider skips Gmail authorization. Cancelling, declining or
+failing the selected provider's setup keeps the Product Account and returns to
+resumable mailbox setup, with retry and provider selection available. It never
+silently starts Gmail authorization or creates a connected Inbox. Without any
+verified Mailbox Connection, remaining in setup does not expose a mail Inbox.
+Once the selected provider's connection is verified and other setup requirements
+are complete, open that mailbox's Inbox. Additional connections follow the same
+provider choice and preserve existing connections on cancellation or failure.
+Product Sign-In, trusted-device admission and mailbox verification remain
+separate requirements.
+
+The [Google](../google-registration.md) and [Apple](../apple-registration.md)
+registration guides distinguish their current Gmail path and evidence from this
+required launch journey. First-connection implementation belongs to the existing
+provider slices [#629](https://github.com/unwired-dev/product/issues/629) and
+[#634](https://github.com/unwired-dev/product/issues/634); qualification
+[#855](https://github.com/unwired-dev/product/issues/855) must cover both Product
+Sign-In choices, each launch Mail Provider as the first connection, cancellation,
+retry, provider switching and relaunch. Non-Gmail journeys must complete those
+checks without a Gmail grant.
+
 ## Everyday reliability
 
 - Make mailbox navigation and complete conversation history available, including
