@@ -145,9 +145,10 @@ and "most npm libraries that work in the browser, Deno, and Cloudflare workers".
 ([Convex runtimes](https://docs.convex.dev/functions/runtimes)). `pushRelay.ts`
 runs in the default runtime. `apns.ts` and `productAccountDeletion.ts` are
 `'use node'`, where jose's Node build applies. The jose README does not list
-Convex by name. Keep the existing database-backed Google key cache and pass its
-keys to `createLocalJWKSet`, because isolate-local `createRemoteJWKSet` caching
-may not persist across Convex invocations.
+Convex by name. `pushRelay.ts:295-305` caches Google's keys per isolate
+(`cachedGoogleSigningKeys`) until their HTTP cache lifetime ends. Keep that
+cache, which honours `Cache-Control`, and pass its keys to `createLocalJWKSet`.
+A persistent cache would be new work to scope and test separately.
 
 **Cost and risk.** Medium. The code works and is covered by the Convex tests, so
 migrate one site at a time and keep the existing negative tests. The gain is less
@@ -215,9 +216,12 @@ Together they are about 70 KB unminified. They are pure ESM and need only Node
 
 **Cost and risk.** Medium to high, because this is a security boundary. Replace
 only the tokenizing and declaration splitting, and keep every admission and
-normalization rule. Prove it with a differential test over the existing
-sanitizer fixtures before switching. If the outputs differ only where the
-hand-rolled scanner was wrong, adopt it. Otherwise, keep the current code.
+normalization rule. Before switching, run both parsers over the existing
+sanitizer fixtures plus adversarial CSS (escapes, comments, unterminated
+strings, `;` and `}` inside strings and URLs). Use WebKit as the oracle: parse
+each input through `CSSStyleDeclaration` in a WebKit engine, such as Playwright
+WebKit or the host WebView. Adopt only if every divergence matches WebKit.
+Otherwise, keep the current code.
 
 **Alternatives.** `css-tree` 3.2.1 is larger (it depends on `mdn-data`) and its
 last release was in March 2026. PostCSS targets Node and is not
