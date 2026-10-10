@@ -67,7 +67,8 @@ not itself restrict filesystem or Git-history access.
       otherwise a new task branch from the latest `main`.
    3. Work where that branch is usable without moving unrelated changes: this
       checkout, the worktree that already has it checked out (record and
-      classify its status too), or a new worktree.
+      classify its status too), or a new worktree. Carry only the task-owned
+      changes there, for example as a patch, and leave unrelated ones behind.
    4. Record the starting commit: the branch head, or for a reused PR or branch
       with commits no completed review covered, its merge-base with `main`.
 2. Implement the requested behavior and run the relevant checks under the
