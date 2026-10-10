@@ -20,7 +20,7 @@ query='query($owner: String!, $name: String!, $number: Int!) {
       labels(first: 50) { totalCount nodes { name } }
       reactions(content: THUMBS_UP, first: 100) { nodes { user { login } } }
       comments(last: 100) { nodes { author { login } body createdAt } }
-      reviews(last: 100) { nodes { databaseId author { login } state submittedAt commit { oid } } }
+      reviews(last: 100) { totalCount nodes { databaseId author { login } state submittedAt commit { oid } } }
       reviewThreads(first: 100) { totalCount nodes { isResolved comments(last: 1) { nodes { createdAt } } } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
         totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state description creator { login } } }
@@ -63,6 +63,7 @@ decide='
     # ponytail: fail closed past one page of threads; paginate if PRs outgrow it.
     elif .reviewThreads.totalCount != (.reviewThreads.nodes | length) then "wait: too many review threads to verify"
     elif any(.reviewThreads.nodes[]; .isResolved | not) then "wait: unresolved review threads"
+    elif .reviews.totalCount != (.reviews.nodes | length) then "wait: too many reviews to verify"
     elif all(.reactions.nodes[]; .user.login != "chatgpt-codex-connector[bot]") then "wait: no Codex 👍"
     elif any(.reviews.nodes[]; .author.login == "chatgpt-codex-connector" and .commit.oid == $head) then "wait: Codex has findings on the head commit"
     elif all($codexSha, $codexSummarySha; . as $sha | $sha == "" or ($head | startswith($sha) | not)) then "wait: Codex has not cleared the head commit"

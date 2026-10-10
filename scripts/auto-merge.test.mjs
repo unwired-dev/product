@@ -131,6 +131,7 @@ if (a[0] === 'pr' && a[1] === 'list') { console.log('[{"number":7}]'); process.e
 if (a[0] === 'api' && a[1] === 'graphql') {
 const count = fs.readFileSync(dir + '/gh.log', 'utf8').trim().split('\\n').map(JSON.parse).filter(call => call[1] === 'graphql').length;
 const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
+for (const snapshot of snapshots) snapshot.reviews.totalCount ??= snapshot.reviews.nodes.length;
 console.log(JSON.stringify({ data: { repository: { pullRequest: snapshots[Math.min(count - 1, snapshots.length - 1)] } } }));
 process.exit(0);
 }
@@ -266,6 +267,7 @@ const blocked = [
       (pr.commits.nodes[0].commit.statusCheckRollup.contexts.totalCount = 101),
   ],
   ['more than 100 review threads', (pr) => (pr.reviewThreads.totalCount = 101)],
+  ['more than 100 reviews', (pr) => (pr.reviews.totalCount = 101)],
   [
     'a required check from the wrong app',
     (pr) =>

@@ -119,7 +119,7 @@ has had no new commits, comments or reviews for more than 2 hours. It then merge
 first dismissing a change request as stale. It never merges a pull request
 without both reviewers, a pull request CodeRabbit is configured to skip, a fork
 head, a bot-authored pull request, or the `changeset-release/main` version pull request.
-Incomplete label, required-check or review-thread pages block the merge. The merge uses the
+Incomplete label, required-check, review or review-thread pages block the merge. The merge uses the
 `GH_TOKEN` personal token so the push to `main` runs its workflows; because that
 token's owner may bypass the ruleset, the script checks the required status
 checks itself. Eligibility is checked again before acting and after a stale-review
