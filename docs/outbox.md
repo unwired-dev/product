@@ -48,6 +48,8 @@ in the background or with Mac windows closed is
   seconds and whenever the app becomes active, and offers **Edit**.
   If storage is locked when the Undo Send Window ends, the message remains
   cancellable and retries after the same delay.
+  A mailbox refresh that prevents handoff also keeps the message waiting;
+  returning to the app does not turn an ordinary refresh into **Not sent**.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again, is no longer connected, or changed its
@@ -98,7 +100,8 @@ mise exec -- pnpm --filter @private-email/macos test
 mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
-Shared journeys in `packages/mail-core/test/outbox.test.ts` use the real Draft
+Shared journeys in `packages/mail-core/test/outbox.test.ts` and
+`outbox-recovery.test.ts` use the real Draft
 store, Gmail Inbox and Outbox with synthetic Draft storage, Gmail and Convex
 claims. They send a formatted reply with an inline image and an attachment once
 after the Undo Send Window, and parse it with an independent MIME parser. They also
@@ -120,6 +123,8 @@ cover:
 - the app stopping while Gmail has the message;
 - a renamed sender while queued, during a claim, or while handoff is being saved,
   without submitting the frozen message;
+- a mailbox refresh refusing handoff before submission, retaining the claim and
+  sending on the next pass;
 - each refusal at Send.
 
 `outgoing-message.test.ts` checks header folding, encoding and injection, the

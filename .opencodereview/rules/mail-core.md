@@ -161,6 +161,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.rejectionOutcomes` or another Send outcome mapper treating a
+  pre-request `mailbox-invalidated` refusal as a terminal delivery failure.
+  Ordinary foreground verification can renew the native generation while Outbox
+  processing uses the previous one. Keep this definite non-delivery queued with its
+  held claim, and recheck removed, unauthorized or renamed senders before retry.
+  Trace native `gmailSend` and `gmail(sending: true)` before changing this mapping:
+  after a request may reach Gmail, preserve its answer or an unknown outcome,
+  never infer safe resubmission from a later generation change. Otherwise an
+  ordinary refresh reports Not sent, or an uncertain handoff sends twice.
 - `outbox.ts.handOff` or another durable provider-outcome transition ignoring a
   refused storage write. Preserve a known answer for storage-only recovery while
   its entry remains handed off; never repeat provider submission merely to record
