@@ -7,6 +7,7 @@ import type { NativeGmailMailbox, OutgoingSend } from '../gmail-inbox.ts';
 import type { NativeGmailMailboxes } from '../mailboxes.ts';
 
 import { base64Lines } from '../outgoing-message.ts';
+import { createSyntheticRemoteContent } from './remote-content.ts';
 
 // A controlled Gmail API and native mailbox cache for tests. It answers the Gmail reads the
 // Inbox makes with Gmail's response shapes and keeps the cache's revision and address rules.
@@ -606,6 +607,7 @@ export function createSyntheticGmail({
   let generation = 0;
   const current = (owner: Readonly<{ address: string; generation: string }>) =>
     owner.address === address && owner.generation === String(generation);
+  const remote = createSyntheticRemoteContent(current, () => address);
   const native = {
     gmailRequest: (path, query, owner) => {
       if (owner.signal?.aborted === true) {
@@ -799,6 +801,7 @@ export function createSyntheticGmail({
       presentations.push({ name: saved.name, action });
       return Promise.resolve(null);
     },
+    ...remote.native,
   } satisfies NativeGmailMailbox;
 
   return {
@@ -844,6 +847,7 @@ export function createSyntheticGmail({
     },
     bodyCommits,
     bodyRetains,
+    ...remote.controls,
     // Attachment files saved for this connection, with the name and bytes each was saved with.
     savedFiles,
     presentations,
@@ -949,5 +953,19 @@ export function syntheticConnections(
     presentAttachment: (mailbox, file, action) =>
       of(mailbox.connection)?.presentAttachment(mailbox, file, action) ??
       missing(),
+    openRemoteContent: (mailbox, resource) =>
+      of(mailbox.connection)?.openRemoteContent(mailbox, resource) ?? missing(),
+    fetchRemoteContent: (mailbox, url, request) =>
+      of(mailbox.connection)?.fetchRemoteContent(mailbox, url, request) ??
+      missing(),
+    cancelRemoteContent: (mailbox, session, finished) =>
+      of(mailbox.connection)?.cancelRemoteContent(mailbox, session, finished) ??
+      missing(),
+    commitRemoteContent: (mailbox, resource, admission) =>
+      of(mailbox.connection)?.commitRemoteContent(
+        mailbox,
+        resource,
+        admission,
+      ) ?? missing(),
   };
 }

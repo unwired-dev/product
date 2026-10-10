@@ -245,6 +245,48 @@ performance constraints. Remote Message Content remains owned by #763; its
 consent, policy, viewport-plus-margin, isolated transport and separate encrypted
 cache rules are unchanged and do not authorize retrieval in #605.
 
+## Authorized remote message content
+
+Issue [#763](https://github.com/unwired-dev/product/issues/763) implements the
+remote-content contract in [ADR 0029](../adr/0029-sanitize-html-before-webkit-rendering.md).
+Request-equivalent ASCII references normalize host/scheme case, the default HTTPS
+port, fragments and an empty root path while preserving path and query bytes.
+The shared store owns consent-independent cache admission, six permits per
+message, twelve account-wide, and presentation-bound request sessions. Retiring a
+session aborts queued effects and cancels its native tasks. Permits survive a
+close/reopen while old work drains. Admission checks the current owner and reader
+ledger again before publication. The shared account ledger includes displayed
+resources from every connection and window. Each reader contributes its own
+viewport and authorization; the union keeps another window from revoking an
+eligible source. Losing a source's last authorization retires active work even
+when another window authorizes different sources. Each presentation schedules at
+most twenty network-authorized sources; cache-only reads are bounded per batch
+and do not spend that network budget.
+
+The native bridge maintains a shared byte/deadline budget per request session.
+It resolves every HTTPS destination, rejects any non-public result, and connects
+to one validated IP with proxy use disabled while authenticating the original
+TLS host with TLS 1.2 or later. Each of at most
+three redirects repeats that process. The minimal HTTP/1.1 client sends no cookie,
+authorization, referrer or user-agent headers and shares no browser session. Raw
+received bytes, including framing, redirects and rejected responses, consume the
+20 MiB budget; concurrent receives reserve capacity before reading. Cancellation
+stops the connection and fences resolver completion. HTTP parsing rejects
+ambiguous length/chunk framing and malformed chunk arithmetic without trapping.
+The native operation gate checks the mailbox before and after the fetch without
+holding it during network work; only a 200 response is used. Mock scenario builds
+refuse network retrieval.
+
+Sanitized remote occurrences retain an app-owned index on both their placeholder
+and validated local image. The initial inline-only document remains the WebView's
+stable source. A native string prop carries only sanitized replacement nodes,
+and application-owned `callAsyncJavaScript` in `WKContentWorld.defaultClientWorld`
+replaces those marked image/placeholder nodes in place. Page JavaScript stays
+disabled, browser storage stays non-persistent, and the existing CSP admits no
+remote sources. Updating images preserves link markers and document/scroll
+identity, and remeasures positions after image decoding. Source and update revision
+fences discard completion from an earlier document.
+
 ## Evidence limits
 
 Controlled transport and cache integration tests, rendered host journeys and

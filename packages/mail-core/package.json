@@ -19,6 +19,7 @@
     "./registration-mode": "./src/registration-mode.ts",
     "./testing/registration-session": "./src/testing/registration-session.ts",
     "./message-body": "./src/message-body.ts",
+    "./remote-content": "./src/remote-content.ts",
     "./link-inspection": "./src/link-inspection.ts",
     "./assistance": "./src/assistance.ts",
     "./translation": "./src/translation.ts",

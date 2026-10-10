@@ -448,6 +448,55 @@ extension RegistrationStore {
     }
     return [:]
   }
+
+  // Remote Message Content needs no Gmail access, so a saved mailbox may use it too; it still
+  // belongs to the caller's current mailbox.
+  func remoteContentOwner(connection: String, address: String, generation: String) throws {
+    _ = try bodyOwner(
+      connection: connection, address: address, generation: generation, verified: false)
+  }
+
+  func openRemoteContent(
+    connection: String, address: String, generation: String, id: String, url: String
+  ) async throws -> [String: Any] {
+    guard let account = try load()?.product?.productAccountId else { throw RegistrationError.unavailable }
+    let data = try await bodyWork(
+      connection: connection, address: address, generation: generation, verified: false
+    ) {
+      try $0.openRemoteContent(
+        account: account, connection: connection, address: address, subject: $1, id: id, url: url)
+    }
+    return ["data": data?.base64EncodedString() ?? NSNull()]
+  }
+
+  func commitRemoteContent(
+    connection: String, address: String, generation: String, id: String, url: String,
+    admission: [String: Any]
+  ) async throws -> [String: Any] {
+    guard let encoded = admission["data"] as? String,
+      let data = Data(base64Encoded: encoded),
+      let pairs = admission["protected"] as? [[String]],
+      pairs.allSatisfy({ $0.count == 3 }),
+      let saved = try load(), let account = saved.product?.productAccountId
+    else { throw RegistrationError.unavailable }
+    let protected = try pairs.map { pair in
+      guard let mailbox = saved.connection(pair[0]) else { throw RegistrationError.unavailable }
+      return (connection: pair[0], address: mailbox.receipt.address, subject: mailbox.receipt.subject, id: pair[1], url: pair[2])
+    }
+    let admitted = try await bodyWork(
+      connection: connection, address: address, generation: generation, verified: false
+    ) {
+      try $0.commitRemoteContent(
+        account: account, connection: connection, address: address, subject: $1, id: id, url: url, data: data,
+        protected: protected)
+    }
+    return ["admitted": admitted]
+  }
+
+  func clearRemoteContent() async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) { try mailCache.clearRemoteContent() }.value
+  }
 }
 
 // Downloaded Attachments: bytes TypeScript verified come from the verified mailbox's Gmail, and

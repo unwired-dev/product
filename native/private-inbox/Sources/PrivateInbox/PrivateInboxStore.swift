@@ -53,6 +53,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // The Bounded Encrypted Body Cache's device-wide limit, in stored bytes.
   private let bodyLimit: Int
   private let attachmentLimit: Int
+  // The Authorized Remote Content Cache's separate device-wide limit, in stored bytes.
+  private let remoteLimit: Int
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
@@ -71,12 +73,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
   init(
     directory: URL, service: String, attachments: URL? = nil,
     protectedDataAvailable: @escaping @Sendable () -> Bool,
-    bodyLimit: Int = 500 * 1024 * 1024, attachmentLimit: Int = 250 * 1024 * 1024
+    bodyLimit: Int = 500 * 1024 * 1024, attachmentLimit: Int = 250 * 1024 * 1024,
+    remoteLimit: Int = 250 * 1024 * 1024
   ) {
     self.directory = directory
     self.attachments = attachments ?? directory.appendingPathComponent("attachments")
     self.bodyLimit = bodyLimit
     self.attachmentLimit = attachmentLimit
+    self.remoteLimit = remoteLimit
     keychain = DeviceKeychain(service: service + ".database")
     self.protectedDataAvailable = protectedDataAvailable
   }
@@ -774,6 +778,118 @@ public final class PrivateInboxStore: @unchecked Sendable {
     guard total <= bodyLimit else { return false }
     for entry in evicted { try FileManager.default.removeItem(at: entry.file) }
     return true
+  }
+
+  // The Authorized Remote Content Cache holds validated remote image bytes, one file per resource,
+  // sealed to its Product Account, mailbox, message and exact destination, so nothing is shared
+  // across them. Its device-wide limit is separate from the body cache's; least recently shown
+  // entries go first, and the resources currently displayed are never evicted to admit another.
+  private func remoteName(
+    account: String, connection: String, address: String, subject: String, id: String, url: String
+  ) throws -> (String, Data) {
+    let identity = try JSONEncoder().encode([account, connection, subject, address, id, url])
+    let name = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+    return (name, Data("dev.unwired.private-inbox.remote.v1\n".utf8) + identity)
+  }
+
+  // A missing or unreadable entry reads as nil; an unreadable one is discarded.
+  public func openRemoteContent(
+    account: String, connection: String, address: String, subject: String, id: String, url: String
+  ) throws -> Data? {
+    try transaction {
+      let (name, identity) = try remoteName(
+        account: account, connection: connection, address: address, subject: subject, id: id, url: url)
+      let file = directory.appendingPathComponent(try connectionPath(connection, "remote/\(name)"))
+      let data: Data
+      do {
+        data = try Data(contentsOf: file)
+      } catch CocoaError.fileReadNoSuchFile {
+        return nil
+      }
+      let key = try existingKey()
+      guard let box = try? AES.GCM.SealedBox(combined: data),
+        let plaintext = try? AES.GCM.open(
+          box, using: SymmetricKey(data: key), authenticating: identity)
+      else {
+        try FileManager.default.removeItem(at: file)
+        return nil
+      }
+      try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+      return plaintext
+    }
+  }
+
+  // Stores a resource when it fits after evicting entries outside the protected set, which names
+  // displayed resources across every connection; returns false when it cannot fit.
+  public func commitRemoteContent(
+    account: String, connection: String, address: String, subject: String, id: String, url: String, data: Data,
+    protected: [(connection: String, address: String, subject: String, id: String, url: String)]
+  ) throws -> Bool {
+    try transaction {
+      let (name, identity) = try remoteName(
+        account: account, connection: connection, address: address, subject: subject, id: id, url: url)
+      let target = directory.appendingPathComponent(try connectionPath(connection, "remote/\(name)"))
+      let kept = Set(
+        try protected.map { resource in
+          let name = try remoteName(
+            account: account, connection: resource.connection, address: resource.address,
+            subject: resource.subject, id: resource.id, url: resource.url).0
+          return directory.appendingPathComponent(try connectionPath(resource.connection, "remote/\(name)"))
+        }
+      ).union([target])
+      let key = try existingKey()
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent(try connectionPath(connection, "remote")),
+        withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      let entries = try remoteEntries()
+      // AES-GCM combined representation adds a 12-byte nonce and 16-byte tag.
+      var total = entries.reduce(data.count + 28) { $0 + ($1.file == target ? 0 : $1.size) }
+      var evicted: [BodyEntry] = []
+      for entry in entries.filter({ !kept.contains($0.file) }).sorted(by: {
+        ($0.read, $0.name) < ($1.read, $1.name)
+      }) where total > remoteLimit {
+        evicted.append(entry)
+        total -= entry.size
+      }
+      guard total <= remoteLimit else { return false }
+      for entry in evicted { try FileManager.default.removeItem(at: entry.file) }
+      try write(
+        data, file: try connectionPath(connection, "remote/\(name)"), key: key,
+        authenticating: identity)
+      return true
+    }
+  }
+
+  // Clear Remote Content: every connection's entries, without touching bodies or mail.
+  public func clearRemoteContent() throws {
+    try unlockedTransaction { try removeURLs(try remoteEntries().map(\.file)) }
+  }
+
+  private func remoteEntries() throws -> [BodyEntry] {
+    let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+    let manager = FileManager.default
+    let connections: [URL]
+    do {
+      connections = try manager.contentsOfDirectory(
+        at: directory.appendingPathComponent("mailboxes"), includingPropertiesForKeys: nil)
+    } catch CocoaError.fileReadNoSuchFile {
+      return []
+    }
+    return try connections.flatMap { folder -> [BodyEntry] in
+      let files: [URL]
+      do {
+        files = try manager.contentsOfDirectory(
+          at: folder.appendingPathComponent("remote"), includingPropertiesForKeys: keys)
+      } catch CocoaError.fileReadNoSuchFile {
+        return []
+      }
+      return try files.map { file in
+        let values = try file.resourceValues(forKeys: Set(keys))
+        return BodyEntry(
+          file: file, name: file.lastPathComponent, tier: .opened,
+          read: values.contentModificationDate ?? .distantPast, size: values.fileSize ?? 0)
+      }
+    }
   }
 
   private func readMailbox(file: String) throws -> MailboxCache? {

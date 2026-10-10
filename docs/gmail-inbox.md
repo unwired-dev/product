@@ -524,18 +524,51 @@ are not loaded. Known **Tracking Pixels** remain blocked even if other images ar
 authorized. Zero-dimension and declared 1×1 remote images are rejected using HTML
 and inline CSS dimensions, including max dimensions and CSS overrides.
 
-Rich rendering alone does not authorize a **Load images** action. The accepted
-remote-loading feature requires a notice explaining disclosure of the device's
-IP address and message-open time, explicit presentation-scoped consent under
-Ask, a separate isolated bounded HTTPS fetch outside WebKit, and encrypted reuse
-in the separate **Authorized Remote Content Cache**. Its device-local policies
-are Ask by default, Never and Always Load, with per-connection overrides. Known
-tracking pixels never become loadable. Consent, policies and the remote-content
-cache belong to [#763](https://github.com/unwired-dev/product/issues/763). Until
-that retrieval boundary is implemented, the reader shows placeholders and the
-blocked-content notice without a load action.
-Remote Message Content retains its viewport or one-viewport-margin loading rule,
-including Always Load; the Inline Images decision below does not change it.
+[#763](https://github.com/unwired-dev/product/issues/763) loads remote images on
+request. Only a visible, non-tracking image whose source is printable-ASCII HTTPS
+without credentials becomes a loadable reference; its exact source stays outside
+the document. Other
+sources, including plain HTTP and internationalized host names, stay placeholders.
+
+- **Policies.** The account page's **Remote images** section chooses **Ask** (the
+  default), **Never** or **Always load** for this device, and each Gmail mailbox
+  can use the device setting or its own choice. Choices stay on this device in its
+  local defaults and are never synchronized; unreadable settings ask.
+- **Ask.** While a message has unloaded remote images, the reader explains that
+  loading them shows the sender the device's IP address and when the message was
+  opened, and offers **Load images**. Choosing it authorizes this presentation of
+  this message only. Without it, the reader restores only what an earlier
+  authorization cached and makes no request. Cache misses do not spend the network
+  request budget. Another message, a later opening, or
+  a cache miss needs consent again.
+- **Never** shows no remote content, including content cached earlier, which stays
+  until eviction or **Clear remote content**. **Always load** loads without asking.
+- **Viewport.** Under every policy, loading starts only for images within the
+  visible range or one viewport above or below it. Queued work rechecks current
+  eligibility before starting. In a document taller than the 20,000-point view, images below its first
+  view stay placeholders.
+- **Requests** run six at a time per message and twelve across the account. Native
+  code owns the isolated HTTPS fetch outside WebKit, with no cookies, credentials,
+  referrer, user agent or shared session. Literal and resolved destinations must
+  all be public (including embedded IPv4 in NAT64 addresses); retrieval uses no
+  proxy, requires TLS 1.2 or later and authenticates the original host. Each
+  redirect repeats those requirements. A message makes at most 20 network-authorized source attempts, follows at
+  most three redirects per attempt and has a 30-second loading deadline and a
+  20 MiB total transfer limit, including rejected responses and framing. A single
+  response body is limited to 5 MiB. Closing the last reader, changing its owner or
+  withdrawing network authorization cancels queued and active work; later opening
+  starts a fresh presentation. Mock scenario builds refuse every fetch.
+- **Validation and display.** Fetched bytes are shown only as one complete
+  supported image within the [inline image](#mime-inline-images) per-image bounds,
+  as an app-generated `data:` source. Remote images share the displayed bodies'
+  presentation budget after the message's inline images. The reader's CSP and
+  isolation are unchanged. Images update in the existing document, preserving
+  scroll position and link inspection. Hiding them restores their placeholders.
+- **Cache.** Validated images are kept in the separate
+  [Authorized Remote Content Cache](private-inbox-storage.md#authorized-remote-content-cache);
+  a full cache still shows the image for this presentation.
+
+The Inline Images decision below does not change the viewport rule.
 
 ### MIME Inline Images
 
@@ -953,6 +986,11 @@ mailbox reselection and log privacy. The #605 body reading cases cover:
   markers, the eviction tier and protected set, two concurrent loads, and
   authentication failure;
 - link inspection signals;
+- remote content (#763): HTTPS references and markers without tracking pixels or
+  plain HTTP sources, cache-only restoration before consent, one fetch per source
+  after it, invalid and refused images left as placeholders, per-message cache
+  scoping, the displayed resources each commit protects, six requests per message
+  and twelve account-wide, and the device and per-mailbox policies;
 - offline reopening, failures and recovery, mismatched cached bodies, removal with
   a message or mailbox, and late results after the Inbox closes;
 - received attachments (#610): listing names, sizes and availability without
@@ -1194,6 +1232,10 @@ verify on iPhone, iPad and Mac before release:
 - that opening and prefetching mail make no request other than Gmail's while
   remote content is blocked, and that links open only after confirmation, with
   VoiceOver, Full Keyboard Access and Mac keyboard focus.
+- remote images from real senders under Ask, Never and Always load: consent, the
+  viewport margin while scrolling, redirects, IPv6 and NAT64 networks, a proxy
+  configured on the device, refused private destinations, a certificate for another
+  host, cached reopening offline and **Clear remote content**;
 - every organizing action and **Undo**, as seen in Gmail on the web;
 - changes made offline, then sent after reconnecting or relaunching;
 - a refused change after the label or message is deleted in Gmail;

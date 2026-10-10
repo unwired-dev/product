@@ -339,9 +339,9 @@ describe('the isolated rich reader', () => {
     expect(document).toContain('<div>Form note</div>');
     // The remote image keeps its description as a placeholder; the declared 1×1 pixel is gone.
     expect(document).toContain(
-      '<span class="blocked-image" role="img" aria-label="Team photo">Team photo</span>',
+      '<span class="blocked-image" data-remote="0" role="img" aria-label="Team photo">Team photo</span>',
     );
-    expect(document.match(/blocked-image" role="img"/gu)).toHaveLength(3);
+    expect(document.match(/class="blocked-image"/gu)).toHaveLength(3);
     expect(links).toStrictEqual([{ href: 'tel:+15551234', text: 'call us' }]);
     expect(readable(opened)).toMatchObject({ hidesImages: true });
   });

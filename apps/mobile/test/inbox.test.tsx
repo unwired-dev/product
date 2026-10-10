@@ -670,9 +670,13 @@ describe('connected Gmail Inbox', () => {
       await Promise.resolve();
     });
     expect(screen.queryByLabelText('Opening message')).toBeNull();
+    // The remote image waits for consent, which the notice explains before offering to load it.
     expect(
-      screen.getByText('Images in this message are not loaded.'),
+      screen.getByText(
+        "Images in this message are not loaded. Loading them shows the sender your device's IP address and when you opened this message.",
+      ),
     ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
     // Only the app's own initial document loads; a chosen link is cancelled and confirmed.
     expect(
       webview.props.onShouldStartLoadWithRequest({

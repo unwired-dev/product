@@ -92,6 +92,24 @@ that connection's working set, while pruning removes only its own connection's
 bodies. Removing a connection, and every account purge, remove the bodies with the
 mailbox cache.
 
+## Authorized Remote Content Cache
+
+Remote images a person or their policy authorized
+([remote content](gmail-inbox.md#links-and-blocked-remote-content)) are kept in the
+separate **Authorized Remote Content Cache**, also excluded from backups, under each
+connection's directory. Native code seals each validated image to its Product
+Account, Mailbox Connection, provider account, mailbox, message and exact source,
+so nothing is shared between messages, connections or accounts. A damaged or
+mismatched entry reads as absent and is removed; unavailable keys preserve it.
+Opening an entry needs no network and works for a mailbox showing saved mail only.
+The 250 MB budget is device-wide and separate from the body cache: admission evicts
+least recently shown entries first and never evicts the resources currently
+displayed across all open connections and windows. An entry that cannot fit is not stored, and its image is shown for the
+current presentation only. **Clear remote content** on the account page removes
+every entry without touching mail or bodies. Removing a connection, and every
+account purge, remove its entries with its directory. Mail Profiles do not exist
+yet; their scoping arrives with the Profile migration.
+
 ## Draft storage
 
 [Drafts](drafts.md) are encrypted for their Product Account with a device-only key
