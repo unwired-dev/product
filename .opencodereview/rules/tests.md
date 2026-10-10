@@ -112,6 +112,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A mock scenario that accepts anything but a fixed scenario name, or test-only code reachable from a production build.
 - A check that could not run recorded as passing rather than deferred.
 
+#### Test lint policy
+
+- Repeated per-line suppressions in `apps/{mobile,macos}/test/` for behavior
+  intentionally allowed by the root test override, such as `node/no-sync` for
+  `Schema.decodeSync`. Compare the app and root test policies; when the same
+  reason applies across tests, use a matching test-only override with its required
+  plugin enabled, preserving the Effect boundary rules. Otherwise the hosts drift
+  from the intended test policy and each new helper needs another suppression.
+  Keep a per-line suppression when its reason is specific to that site.
+
 #### Leave to tooling
 
-Vitest and Jest style rules, formatting, unused variables and type errors. `**/*.test.ts` and `**/*.test.tsx` are exempt from the `JSON.parse`, `typeof` guard and untagged-error lint rules by the documented, tracked exemption in the lint configurations; do not extend that exemption to other test/fixture names or languages. The merged Swift rule covers Swift test mechanics; this file's policy takes precedence where they differ.
+Vitest and Jest style rules, formatting, unused variables, type errors, and the enforced `JSON.parse`, `typeof` guard and untagged-error rules. Tests follow the same Effect boundary rules as production code; only the legacy `packages/mail-test-harness` remains exempt until #627. The merged Swift rule covers Swift test mechanics; this file's policy takes precedence where they differ.

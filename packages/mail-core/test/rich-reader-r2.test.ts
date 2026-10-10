@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 
+import * as Schema from 'effect/Schema';
+
 import type { GmailInbox } from '../src/gmail-inbox.ts';
 import type { GmailPart } from '../src/message-body.ts';
 
@@ -13,6 +15,8 @@ import {
 } from '../src/message-body.ts';
 import { messageLinkLimit, readableText } from '../src/readable-text.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+
+const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const textPart = (mimeType: string, content: string): GmailPart => ({
   mimeType,
@@ -316,7 +320,7 @@ describe('rich-reader review regressions', () => {
     await vi.waitFor(() => {
       expect(gmail.cachedBodies().has(id)).toBe(true);
     });
-    expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+    expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
       html,
     });
     await inbox.readMessage(id);
@@ -574,7 +578,7 @@ describe('rich-reader review regressions', () => {
         expect(gmail.bodyCommits).toHaveLength(1);
       });
       expect(observed.full).toBe(0);
-      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+      expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
         excluded: true,
       });
     },
@@ -1755,7 +1759,7 @@ describe('rich-reader review regressions', () => {
         kind: 'ready',
         presentation: { readable: { paragraphs: [[{ text: decoded }]] } },
       });
-      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+      expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
         html: decoded,
       });
       const reopened = createGmailInbox(gmail.native);

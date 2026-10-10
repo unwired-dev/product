@@ -2,7 +2,6 @@ import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
 import {
-  boundaryExemptions,
   boundaryRules,
   effectRules,
 } from '../../scripts/oxlint-effect-policy.ts';
@@ -48,9 +47,11 @@ export default buildOxlintConfig({
         rules: { 'typescript/prefer-readonly-parameter-types': 'allow' },
       },
       {
-        // Tests read trusted fixtures; their assertions check the shape. Removed by #716.
+        // Tests use synchronous setup and pure Schema decoders, as allowed by the root config.
         files: ['**/*.test.ts', '**/*.test.tsx'],
-        rules: boundaryExemptions,
+        // Node rule settings only apply where an override enables the plugin.
+        plugins: ['node'],
+        rules: { 'node/no-sync': 'allow' },
       },
     ],
   },
