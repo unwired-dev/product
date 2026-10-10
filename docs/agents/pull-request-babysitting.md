@@ -22,8 +22,9 @@ work and the stages left undone. After both
    otherwise opens one against `main` that references its issue, using the `pr`
    skill for the body and recording any decision-panel outcomes. The PR is
    ready for review, with a draft promoted and a `[WIP]` title marker dropped,
-   unless the request forbids merging: then it stays a draft, which
-   [automatic merge](#automatic-merge) skips. A `[skip review]` or
+   unless the request forbids merging: then it is a draft (convert a reused
+   ready PR back), which [automatic merge](#automatic-merge) skips, and
+   delivery ends with that report instead of babysitting. A `[skip review]` or
    `Version packages` title, `do-not-review` label, or bot author also blocks
    automatic merge; leave it in place and report the blocker. In T3 Code, link
    the PR to the thread with `link_pull_request`.
