@@ -60,7 +60,9 @@ extension RegistrationStore {
     } catch RevocationFailure.conflict {
       // The account changed since preparing, so this proposal never applied. A fresh proposal and
       // key are confirmed again.
-      vault.revocation = nil
+      // Keep the rejected proposal cancellable if preparing its replacement fails.
+      pending.submitted = false
+      vault.revocation = missingDeviceKey ? nil : pending
       try saveVault(vault)
       if missingDeviceKey {
         return try status(await synchronize(saved)).merging(["revocationNotice": "superseded"]) { $1 }
@@ -70,6 +72,8 @@ extension RegistrationStore {
         vault.revocation = try await proposal(
           removing: target, vault: vault, backend: backend, session: identity, product)
       } catch RevocationFailure.targetRemoved {
+        vault.revocation = nil
+        try saveVault(vault)
         return try await superseded(saved, removing: target)
       }
       try saveVault(vault)
@@ -89,13 +93,14 @@ extension RegistrationStore {
       try saveVault(vault)
       throw error
     }
+    // Read before adopting: a failed read then leaves the proposal to settle on the next attempt.
+    guard try await backend.revocationOutcome(identity, product, pending.request.proposalId) != nil
+    else { return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 } }
     // Keep the receipt locator until this device durably adopts the committed ring.
-    _ = try await adoptRotation(vault, backend: backend, session: identity, product)
-    let outcome = try await backend.revocationOutcome(identity, product, pending.request.proposalId)
+    let adoption = try await adoptRotationWithOutcome(
+      vault, backend: backend, session: identity, product)
     trustedDevices[product.productAccountId]?.removeAll { $0.id == target }
-    return try status(await synchronize(saved)).merging([
-      "revocationNotice": outcome?.recoveryKeyCurrent == true ? "removed" : "superseded"
-    ]) { $1 }
+    return try await revocationStatus(saved, vault: adoption.vault, outcome: adoption.outcome)
   }
 
   // Another device removed the target first; the current state shows it gone.
@@ -114,14 +119,14 @@ extension RegistrationStore {
       var vault = try loadVault(product.productAccountId), let pending = vault.revocation
     else { throw RegistrationError.unavailable }
     if pending.submitted {
-      if let backend = productSync, let session {
-        vault = try await adoptRotation(vault, backend: backend, session: session, product)
-        if vault.revocation == nil {
-          let outcome = try await backend.revocationOutcome(
-            session, product, pending.request.proposalId)
-          return try status(await synchronize(saved)).merging([
-            "revocationNotice": outcome?.recoveryKeyCurrent == true ? "removed" : "superseded"
-          ]) { $1 }
+      // Read before adopting, so a failed read leaves the proposal in place.
+      if let backend = productSync, let session,
+        try await backend.revocationOutcome(session, product, pending.request.proposalId) != nil
+      {
+        let adoption = try await adoptRotationWithOutcome(
+          vault, backend: backend, session: session, product)
+        if adoption.vault.revocation == nil {
+          return try await revocationStatus(saved, vault: adoption.vault, outcome: adoption.outcome)
         }
       }
       // An absent receipt cannot rule out a request that is still reaching the backend.
@@ -130,6 +135,32 @@ extension RegistrationStore {
     vault.revocation = nil
     try saveVault(vault)
     return try status(saved)
+  }
+
+  // Synchronization may adopt a later rotation; unreadable state must not reject settled removal.
+  func revocationStatus(
+    _ saved: SavedRegistration, vault: ProductSyncVault,
+    outcome: (keyEpoch: Int, recoveryKeyCurrent: Bool)?
+  ) async throws -> [String: String] {
+    let saved = try await synchronize(saved)
+    let epoch: Int
+    do {
+      if let current = try loadVault(vault.productAccountId) {
+        epoch = current.ring.current
+      } else if saved.product?.pending == true {
+        // Lost-key reenrollment intentionally removes the just-settled vault.
+        epoch = vault.ring.current
+      } else {
+        return try status(saved)
+      }
+    } catch {
+      Self.logProductSyncFailure("Product Sync state unreadable", error)
+      return try status(saved)
+    }
+    let recoveryKeyCurrent = outcome?.recoveryKeyCurrent == true && outcome?.keyEpoch == epoch
+    return try status(saved).merging([
+      "revocationNotice": recoveryKeyCurrent ? "removed" : "superseded"
+    ]) { $1 }
   }
 
   // A fresh interactive Product Sign-In of this registration's identity.
@@ -192,6 +223,16 @@ extension RegistrationStore {
     _ vault: ProductSyncVault, backend: ProductSyncBackend, session: ProductSignInIdentity,
     _ product: ProductRegistrationReceipt
   ) async throws -> ProductSyncVault {
+    try await adoptRotationWithOutcome(vault, backend: backend, session: session, product).vault
+  }
+
+  // Settlement uses the freshest receipt observed during adoption, even without a device key.
+  func adoptRotationWithOutcome(
+    _ vault: ProductSyncVault, backend: ProductSyncBackend, session: ProductSignInIdentity,
+    _ product: ProductRegistrationReceipt
+  ) async throws -> (
+    vault: ProductSyncVault, outcome: (keyEpoch: Int, recoveryKeyCurrent: Bool)?
+  ) {
     let account = product.productAccountId
     var next = vault
     var changed = false
@@ -214,7 +255,7 @@ extension RegistrationStore {
         try saveVault(next)
       }
       // No rotation acknowledgement or ordinary synchronization without fresh device admission.
-      return next
+      return (next, outcome)
     }
     let rotation = try await backend.keyRotation(session, product)
     if let rotation, !next.ring.keys.contains(where: { $0.version == rotation.keyEpoch }) {
@@ -232,8 +273,15 @@ extension RegistrationStore {
     }
     if changed { try saveVault(next) }
     if let rotation {
-      try await backend.acknowledgeRotation(session, product, rotation.keyEpoch)
+      do {
+        try await backend.acknowledgeRotation(session, product, rotation.keyEpoch)
+      } catch let error as RegistrationError where error.endsAccess {
+        throw error
+      } catch {
+        // Adoption is durable; later synchronization retries this tracking-only acknowledgement.
+        Self.logProductSyncFailure("Product Sync rotation acknowledgement failed", error)
+      }
     }
-    return next
+    return (next, outcome)
   }
 }

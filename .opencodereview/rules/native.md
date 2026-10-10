@@ -233,7 +233,21 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - Recovery Key verification that sends the key, an envelope encryption key or any derived secret beyond ADR 0066's explicit purpose-specific admission proof off the device, or a rejected key that leaves the device without its current enrollment status.
 - A recent-authentication requirement removed from an operation that needs it.
 - A rotation sealed with an earlier shared account key or an enrollment/recovery secret the removed device held. Follow ADR 0069: seal the complete ring with HPKE independently to every surviving Trusted Device's bound key, including the initiator, and authenticate account, exact recipient/key, epoch and protocol version. Never omit an unbound survivor. Otherwise backend read access plus removed secrets exposes the removal epoch or strands a survivor.
-- `RegistrationStore.confirmRevocation` or `cancelRevocation` treating a tombstone, current epoch or duplicate success as proof that this proposal's Recovery Key is current. Use the exact durable proposal receipt and its recovery-current result, including after a later rotation; otherwise an old confirmed key is presented as current recovery access.
+- `RegistrationStore.confirmRevocation` or `cancelRevocation` treating a tombstone, current epoch or duplicate success as proof that this proposal's Recovery Key is current. Use the freshest exact durable proposal receipt observed during adoption, including when a lost device key permits restoring only the original proposal's ring. Its recovery-current result must also agree with the latest durable epoch after subsequent synchronization; a newer observed ring supersedes its earlier current-key result. Unreadable local state cannot justify that assertion or reject an already settled removal. Otherwise an old confirmed key is presented as current recovery access.
+- `RegistrationStore.confirmRevocation`, `cancelRevocation` or `adoptRotation`
+  rejecting after durable adoption has cleared the proposal because a follow-up
+  remote read or adoption acknowledgement failed. Complete fallible reads needed
+  for the result before that local transition; keep post-adoption acknowledgement
+  failures nonfatal and retry them during later synchronization, while preserving
+  revoked/deleted rejections and purge. Exercise Confirm and Cancel with failures
+  at those boundaries. Otherwise the host retains a proposal whose native locator
+  is gone, so neither action can settle it.
+- `RegistrationStore.confirmRevocation` clearing a definitely rejected proposal
+  before fallible conflict renewal finishes. Retain it as unsubmitted and
+  cancellable until the replacement proposal is durable, then require the new
+  key's confirmation; clear it when the target is definitively gone. Otherwise
+  a failed roster or recovery-record read leaves the old proposal on screen but
+  removes its native Confirm/Cancel locator.
 - `revoke`, `cancelRevocation` or `signOut` replacing/discarding a submitted proposal before its outcome and committed ring are durably adopted. An absent receipt cannot rule out an in-flight request, and a definite refusal on a retry cannot settle an earlier unanswered attempt. Preserve the exact request through relaunch, cancellation and failed post-commit adoption. Treat malformed success replies as unknown outcomes. Otherwise interruption loses the sole reconciliation locator or recovery backup.
 - Removal submitted before its proposed replacement Recovery Key is saved and confirmed, or a stale proposal renewed without requiring confirmation of the new key. Preparation must not change the backend epoch or ordinary write key; otherwise cancellation removes a device or discarded-key confirmation authorizes different material.
 

@@ -58,6 +58,14 @@ import Testing
   var offlineAfterRevocation = false
   // The next activation finds the Product Sign-In no longer recent.
   var staleOnce = false
+  // Proposal outcome reads so far, and the one that loses its connection.
+  var outcomeReads = 0
+  var failingOutcomeRead: Int?
+  var failAcknowledgement = false
+  var failRecoveryRead = false
+  // A concurrent removal after the receipt was read, before this device adopts its ring.
+  var afterOutcomeRead: (() async throws -> Void)?
+  var afterAcknowledgement: (() async throws -> Void)?
   // Another device's removal that commits just before the next mailbox write lands.
   var removalBeforeMailboxPut: (keyEpoch: Int, envelopes: [String: KeyRingEnvelope.Rotation])?
 
@@ -274,6 +282,7 @@ import Testing
       },
       recoveryEnvelope: { [self] _, product in
         try trusted(product)
+        if failRecoveryRead { throw URLError(.networkConnectionLost) }
         guard let envelope = recovery[product.productAccountId] else {
           throw RegistrationError.unavailable
         }
@@ -288,10 +297,15 @@ import Testing
       // Adoption only: stale and repeated acknowledgements never lower it or hold anything back.
       acknowledgeRotation: { [self] _, product, keyEpoch in
         try trusted(product)
+        if failAcknowledgement { throw URLError(.networkConnectionLost) }
         guard keyEpoch <= epoch(product.productAccountId) else {
           throw RegistrationError.unavailable
         }
         epochs[product.trustedDeviceId] = max(epochs[product.trustedDeviceId] ?? 1, keyEpoch)
+        if let afterAcknowledgement {
+          self.afterAcknowledgement = nil
+          try await afterAcknowledgement()
+        }
       },
       trustedDevices: { [self] _, product in
         try trusted(product)
@@ -360,9 +374,16 @@ import Testing
       },
       revocationOutcome: { [self] _, product, proposalId in
         try trusted(product)
-        return proposals[proposalId].map {
+        outcomeReads += 1
+        if outcomeReads == failingOutcomeRead { throw URLError(.networkConnectionLost) }
+        let outcome = proposals[proposalId].map {
           ($0.keyEpoch, recoveryProposal[product.productAccountId] == proposalId)
         }
+        if let afterOutcomeRead {
+          self.afterOutcomeRead = nil
+          try await afterOutcomeRead()
+        }
+        return outcome
       },
       get: { [self] _, product, identifier in
         try trusted(product)
@@ -1961,6 +1982,189 @@ extension PrivateInboxTests {
       try await approver.confirmRevocation(String(key.suffix(4)))["revocationNotice"] == "removed")
     #expect(try await rejoined.refreshPrivateSync()["privateSync"] == "ready")
     #expect(try rejoined.loadVault(account)?.ring.current == 2)
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func aFailedOutcomeReadAfterActivationKeepsTheProposalToSettle(cancel: Bool) async throws {
+    let (creator, other) = (device(), device())
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [creator, other] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let target = backend.store(keys: other, google: google)
+    _ = try await target.signIn()
+    _ = try await target.recover(with: shown)
+    let targetId = try #require(try target.load()?.product?.trustedDeviceId)
+
+    // The activation applies, then the second outcome read after it loses its connection.
+    let key = try #require(try await remover.revoke(targetId)["revocationRecoveryKey"])
+    backend.outcomeReads = 0
+    backend.failingOutcomeRead = 2
+    await #expect(throws: URLError.self) {
+      try await remover.confirmRevocation(String(key.suffix(4)))
+    }
+    #expect(backend.activations == 1)
+    // The proposal is still there to settle, so the screen it shows still works.
+    #expect(try remover.loadVault(account)?.revocation?.submitted == true)
+    if cancel {
+      backend.failingOutcomeRead = backend.outcomeReads + 2
+      await #expect(throws: URLError.self) { try await remover.cancelRevocation() }
+      #expect(try remover.loadVault(account)?.revocation?.submitted == true)
+    }
+    backend.failingOutcomeRead = nil
+    let settled =
+      cancel
+      ? try await remover.cancelRevocation()
+      : try await remover.confirmRevocation(String(key.suffix(4)))
+    #expect(settled["revocationNotice"] == "removed")
+    #expect(settled["revocationRecoveryKey"] == nil)
+    #expect(backend.activations == 1)
+    #expect(try remover.loadVault(account)?.ring.current == 2)
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func aFailedAdoptionAcknowledgementDoesNotStrandRevocation(cancel: Bool) async throws {
+    let (creator, other) = (device(), device())
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [creator, other] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let target = backend.store(keys: other, google: google)
+    _ = try await target.signIn()
+    _ = try await target.recover(with: shown)
+    let targetId = try #require(try target.load()?.product?.trustedDeviceId)
+    let key = try #require(try await remover.revoke(targetId)["revocationRecoveryKey"])
+    backend.loseReply = true
+    #expect(
+      try await remover.confirmRevocation(String(key.suffix(4)))["revocationNotice"]
+        == "unconfirmed")
+
+    // Adoption is durable even when its acknowledgement cannot reach the backend.
+    backend.failAcknowledgement = true
+    let settled =
+      cancel
+      ? try await remover.cancelRevocation()
+      : try await remover.confirmRevocation(String(key.suffix(4)))
+    #expect(settled["revocationNotice"] == "removed")
+    #expect(settled["revocationRecoveryKey"] == nil)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    #expect(try remover.loadVault(account)?.ring.current == 2)
+    #expect(backend.activations == 1)
+  }
+
+  @Test(arguments: [false, true], [(false, false), (true, false), (false, true)]) @MainActor
+  func aRotationDuringRevocationSettlementNeverCallsTheProposedKeyCurrent(
+    cancel: Bool, scenario: (afterAdoption: Bool, missingKey: Bool)
+  )
+    async throws
+  {
+    let keychains = (0..<4).map { _ in device() }
+    let account = "account-synthetic-product-subject"
+    defer { for keys in keychains { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: keychains[0], google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    var stores: [RegistrationStore] = []
+    var ids: [String] = []
+    for keys in keychains.dropFirst() {
+      let store = backend.store(keys: keys, google: google)
+      _ = try await store.signIn()
+      _ = try await store.recover(with: shown)
+      stores.append(store)
+      ids.append(try #require(try store.load()?.product?.trustedDeviceId))
+    }
+    let key = try #require(try await remover.revoke(ids[0])["revocationRecoveryKey"])
+    backend.loseReply = true
+    _ = try await remover.confirmRevocation(String(key.suffix(4)))
+    // The first receipt says this key is current, but a second removal overtakes adoption.
+    let rotate = {
+      let laterKey = try #require(try await stores[2].revoke(ids[1])["revocationRecoveryKey"])
+      _ = try await stores[2].confirmRevocation(String(laterKey.suffix(4)))
+    }
+    if scenario.missingKey {
+      try keychains[0].remove("product-sync-device-key." + account)
+    }
+    if scenario.afterAdoption {
+      backend.afterAcknowledgement = rotate
+    } else {
+      backend.afterOutcomeRead = rotate
+    }
+    let settled =
+      cancel
+      ? try await remover.cancelRevocation()
+      : try await remover.confirmRevocation(String(key.suffix(4)))
+    #expect(settled["revocationNotice"] == "superseded")
+    #expect(settled["revocationRecoveryKey"] == nil)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    if scenario.missingKey {
+      #expect(settled["kind"] == "device-pending")
+      #expect(try remover.loadVault(account) == nil)
+    } else {
+      #expect(try remover.loadVault(account)?.ring.current == 3)
+    }
+    #expect(backend.activations == 2)
+    #expect(throws: ProductSyncError.rejected) {
+      try KeyRingEnvelope.openRecovery(
+        #require(backend.recovery[account]), key: RecoveryKey(parsing: key), account: account)
+    }
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func aFailedProposalRenewalKeepsTheRejectedProposalCancellable(cancel: Bool) async throws {
+    let keychains = (0..<4).map { _ in device() }
+    let account = "account-synthetic-product-subject"
+    defer { for keys in keychains { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: keychains[0], google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    var stores: [RegistrationStore] = []
+    var ids: [String] = []
+    for keys in keychains.dropFirst() {
+      let store = backend.store(keys: keys, google: google)
+      _ = try await store.signIn()
+      _ = try await store.recover(with: shown)
+      stores.append(store)
+      ids.append(try #require(try store.load()?.product?.trustedDeviceId))
+    }
+    let key = try #require(try await remover.revoke(ids[0])["revocationRecoveryKey"])
+    let laterKey = try #require(try await stores[2].revoke(ids[1])["revocationRecoveryKey"])
+    _ = try await stores[2].confirmRevocation(String(laterKey.suffix(4)))
+
+    // The stale proposal is refused, then renewal loses its recovery-record read.
+    backend.failRecoveryRead = true
+    await #expect(throws: URLError.self) {
+      try await remover.confirmRevocation(String(key.suffix(4)))
+    }
+    #expect(try remover.loadVault(account)?.revocation?.submitted == false)
+    #expect(try remover.loadVault(account)?.ring.current == 2)
+    #expect(!backend.revoked.contains(ids[0]))
+    backend.failRecoveryRead = false
+    if cancel {
+      let cancelled = try await remover.cancelRevocation()
+      #expect(cancelled["revocationRecoveryKey"] == nil)
+      #expect(try remover.loadVault(account)?.revocation == nil)
+      #expect(!backend.revoked.contains(ids[0]))
+      #expect(backend.activations == 1)
+    } else {
+      let renewed = try await remover.confirmRevocation(String(key.suffix(4)))
+      #expect(renewed["revocationNotice"] == "renewed")
+      let replacement = try #require(renewed["revocationRecoveryKey"])
+      #expect(replacement != key)
+      #expect(
+        try await remover.confirmRevocation(String(replacement.suffix(4)))["revocationNotice"]
+          == "removed")
+      #expect(backend.activations == 2)
+    }
   }
 
   @Test @MainActor func aLostDeviceKeyNeverDiscardsAnUnconfirmedRecoveryKey() async throws {
