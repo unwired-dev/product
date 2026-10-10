@@ -37,6 +37,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Changesets
 
+- A changeset or feature note that describes only the preferred mechanism while omitting an implemented fallback that weakens the stated guarantee. Trace the owning helper, such as `PrivateInboxStore.fullSync(_:)`, and its failure branches; otherwise consumers can mistake best-effort behavior for an unconditional durability or availability promise.
 - A changeset naming a package outside the workspace, a bump level that understates the change (a breaking exported type or wire change marked `patch`), or a summary that does not say what a user or consumer observes.
 - A runtime behavior or exported API or type change in the task with no changeset. Documentation, tests and internal refactors may omit one.
 
