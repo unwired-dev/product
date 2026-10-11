@@ -191,6 +191,8 @@ The visual reference for screens and components is the Figma file
 Its `Unwired` variable collection holds every color token below in Light and
 Dark modes. Tokens with a `-dark` suffix are the Dark value of the token
 without the suffix; a token without a `-dark` sibling is the same in both modes.
+Dimensions in the frontmatter use `px` because the DESIGN.md format requires CSS
+units. The Figma frames are drawn at 1×, so 1px equals 1pt on Apple platforms.
 The linked product requirements and feature guides govern behavior, controls and
 defaults wherever an earlier reference mockup differs.
 
