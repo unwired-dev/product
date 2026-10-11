@@ -86,108 +86,78 @@ export const emptyDocument: SemanticDocument = [
 ];
 
 // The editor shows one text: blocks joined by line breaks, list items after a marker that is
-// displayed but never stored.
-type Char = Readonly<{ ch: string; marks: readonly Mark[]; image?: Asset }>;
-type Line = Readonly<{
-  kind: BlockKind;
-  length: number;
-  chars: readonly Char[];
-}>;
+// displayed but never stored. Edits slice and join spans without expanding per-character objects;
+// unchanged blocks keep their identity in history.
+type Span = Block['spans'][number];
 
-// Cache compact wrappers, never expanded characters: history keeps old blocks alive. Only the
-// edited blocks expand; unchanged blocks keep their identity across history versions.
-// ponytail: one very long block still expands whole per edit; chunk it if typing stalls.
-const lineOfBlock = new WeakMap<Block, Line>();
-const blockOfLine = new WeakMap<Line, Block>();
+const lengthOf = (spans: readonly Span[]) =>
+  spans.reduce((count, { text }) => count + text.length, 0);
 
-const linesOf = (document: SemanticDocument): Line[] =>
-  document.map((block) => {
-    const cached = lineOfBlock.get(block);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const line: Line = {
-      kind: block.kind,
-      length: block.spans.reduce((count, { text }) => count + text.length, 0),
-      get chars() {
-        return block.spans.flatMap((span) =>
-          'image' in span
-            ? [
-                {
-                  ch: imageCharacter,
-                  marks: span.marks ?? [],
-                  image: span.image,
-                },
-              ]
-            : // Code units, as editor offsets count them; a split surrogate pair rejoins in order.
-              span.text
-                .split('')
-                .map((ch) => ({ ch, marks: span.marks ?? [] })),
-        );
-      },
-    };
-    lineOfBlock.set(block, line);
-    blockOfLine.set(line, block);
-    return line;
-  });
-
-const lineOf = (kind: BlockKind, chars: readonly Char[]): Line => ({
-  kind,
-  length: chars.length,
-  chars,
-});
+const marksOf = (span: Span | undefined): readonly Mark[] => span?.marks ?? [];
 
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-const blockOf = ({ kind, chars }: Line): Block => {
-  const spans: Array<{ text: string; marks: readonly Mark[]; image?: Asset }> =
-    [];
-  for (const { ch, marks, image } of chars) {
-    const last = spans.at(-1);
-    // An image is a span of its own.
-    if (
-      last !== undefined &&
-      image === undefined &&
-      last.image === undefined &&
-      sameMarks(last.marks, marks)
-    ) {
-      last.text += ch;
-    } else {
-      spans.push(
-        image === undefined ? { text: ch, marks } : { text: ch, marks, image },
-      );
-    }
-  }
-  return {
-    kind,
-    spans: spans.map(({ text, marks, image }) => {
-      const [first, ...rest] = marks;
-      const marked =
-        first === undefined ? {} : { marks: [first, ...rest] as const };
-      return image === undefined
-        ? { text, ...marked }
-        : { text: imageCharacter, image, ...marked };
-    }),
-  };
+const spanOf = (text: string, marks: readonly Mark[], image?: Asset): Span => {
+  const [first, ...rest] = marks;
+  const marked =
+    first === undefined ? {} : { marks: [first, ...rest] as const };
+  return image === undefined
+    ? { text, ...marked }
+    : { text: imageCharacter, image, ...marked };
 };
 
-const documentOf = (lines: readonly Line[]): SemanticDocument => {
-  const blocks = lines.map((line) => {
-    const cached = blockOfLine.get(line);
-    if (cached !== undefined) {
-      return cached;
+// The spans covering code units `from` to `to`. Code units, as editor offsets count them; a
+// split surrogate pair rejoins in order.
+const sliceSpans = (spans: readonly Span[], from: number, to = Infinity) => {
+  const sliced: Span[] = [];
+  let offset = 0;
+  for (const span of spans) {
+    const end = offset + span.text.length;
+    if (end > from && offset < to) {
+      sliced.push(
+        offset >= from && end <= to
+          ? span
+          : {
+              ...span,
+              text: span.text.slice(Math.max(0, from - offset), to - offset),
+            },
+      );
     }
-    const block = blockOf(line);
-    blockOfLine.set(line, block);
-    return block;
-  });
+    offset = end;
+    if (offset >= to) {
+      break;
+    }
+  }
+  return sliced;
+};
+
+// Adjacent text spans with the same marks merge; an image is a span of its own.
+const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
+  const spans: Span[] = [];
+  for (const span of parts.flat().filter(({ text }) => text !== '')) {
+    const last = spans.at(-1);
+    if (
+      last !== undefined &&
+      !('image' in last) &&
+      !('image' in span) &&
+      sameMarks(marksOf(last), marksOf(span))
+    ) {
+      spans[spans.length - 1] = { ...last, text: last.text + span.text };
+    } else {
+      spans.push(span);
+    }
+  }
+  return spans;
+};
+
+const documentOf = (blocks: readonly Block[]): SemanticDocument => {
   const [first, ...rest] = blocks;
   return first === undefined ? emptyDocument : [first, ...rest];
 };
 
 // Consecutive numbered items count from one; any other block restarts the count.
-const markersOf = (lines: readonly Line[]) => {
+const markersOf = (lines: readonly Block[]) => {
   let number = 0;
   return lines.map(({ kind }) => {
     number = kind === 'numbered' ? number + 1 : 0;
@@ -206,7 +176,7 @@ export type DisplayLine = Readonly<{
 
 // What the editor shows for a document, line by line, and as one text.
 export function displayOf(document: SemanticDocument) {
-  const markers = markersOf(linesOf(document));
+  const markers = markersOf(document);
   const lines: DisplayLine[] = document.map(({ kind, spans }, i) => ({
     kind,
     marker: markers[i] ?? '',
@@ -272,14 +242,15 @@ export const previewOf = (document: SemanticDocument, limit = 300) => {
 };
 
 // A display offset as a line and a column within that line's text, after its marker.
-const locate = (lines: readonly Line[], offset: number) => {
+const locate = (lines: readonly Block[], offset: number) => {
   const markers = markersOf(lines);
   let start = 0;
-  for (const [index, line] of lines.entries()) {
+  for (const [index, { spans }] of lines.entries()) {
     const marker = markers[index]?.length ?? 0;
-    const end = start + marker + line.length;
+    const length = lengthOf(spans);
+    const end = start + marker + length;
     if (offset <= end || index === lines.length - 1) {
-      const column = Math.min(offset - start, marker + line.length);
+      const column = Math.min(offset - start, marker + length);
       return { line: index, column, marker };
     }
     start = end + 1;
@@ -287,11 +258,12 @@ const locate = (lines: readonly Line[], offset: number) => {
   return { line: 0, column: 0, marker: 0 };
 };
 
-const offsetOf = (lines: readonly Line[], line: number, column: number) => {
+const offsetOf = (lines: readonly Block[], line: number, column: number) => {
   const markers = markersOf(lines);
   let offset = 0;
   for (let index = 0; index < line; index += 1) {
-    offset += (markers[index]?.length ?? 0) + (lines[index]?.length ?? 0) + 1;
+    offset +=
+      (markers[index]?.length ?? 0) + lengthOf(lines[index]?.spans ?? []) + 1;
   }
   return offset + (markers[line]?.length ?? 0) + column;
 };
@@ -421,47 +393,45 @@ const createdKind = (
 
 // The kept text before and after a change, and the kind of the block it starts in. Typing before
 // a list marker belongs to the item; any other change to the marker removes it.
-const edgesOf = (lines: readonly Line[], { start, end }: Change) => {
+const edgesOf = (lines: readonly Block[], { start, end }: Change) => {
   const from = locate(lines, start);
   const to = locate(lines, end);
-  const first = lines[from.line] ?? lineOf('paragraph', []);
+  const first = lines[from.line] ?? emptyDocument[0];
   const last = lines[to.line] ?? first;
-  const firstChars = first.chars;
-  const lastChars = first === last ? firstChars : last.chars;
   const intoMarker = from.column < from.marker;
   const removesMarker = intoMarker && (start !== end || from.column !== 0);
   return {
     from,
     to,
     kind: removesMarker ? 'paragraph' : first.kind,
-    head: firstChars.slice(0, Math.max(0, from.column - from.marker)),
-    tail: lastChars.slice(Math.max(0, to.column - to.marker)),
+    head: sliceSpans(first.spans, 0, Math.max(0, from.column - from.marker)),
+    tail: sliceSpans(last.spans, Math.max(0, to.column - to.marker)),
   } as const;
 };
 
 // Replaces the changed span of the lines, returning the new lines and the caret after it.
 // fallow-ignore-next-line complexity -- Inherited marks and created block kinds are one splice.
 const splice = (
-  lines: readonly Line[],
+  lines: readonly Block[],
   change: Change,
   marks: readonly Mark[] | undefined,
 ) => {
   const { from, to, kind, head, tail } = edgesOf(lines, change);
-  const typed = marks ?? head.at(-1)?.marks ?? tail[0]?.marks ?? [];
+  const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
   const parts = change.inserted
     // Only an inserted image carries its character; typed or pasted ones are dropped.
     .replaceAll(imageCharacter, '')
-    .split('\n')
-    .map((part) => part.split('').map((ch) => ({ ch, marks: typed })));
-  const above = head.length === 0 && parts.length > 1 && parts[0]?.length === 0;
+    .split('\n');
+  const above = head.length === 0 && parts.length > 1 && parts[0] === '';
   const last = parts.length - 1;
-  const created = parts.map((chars, index) =>
-    lineOf(createdKind(kind, { index, count: parts.length, above }), [
-      ...(index === 0 ? head : []),
-      ...chars,
-      ...(index === last ? tail : []),
-    ]),
-  );
+  const created = parts.map((text, index): Block => ({
+    kind: createdKind(kind, { index, count: parts.length, above }),
+    spans: joinSpans(
+      index === 0 ? head : [],
+      [spanOf(text, typed)],
+      index === last ? tail : [],
+    ),
+  }));
   return {
     lines: [
       ...lines.slice(0, from.line),
@@ -469,22 +439,21 @@ const splice = (
       ...lines.slice(to.line + 1),
     ],
     line: from.line + last,
-    column: (last === 0 ? head.length : 0) + (parts.at(-1)?.length ?? 0),
+    column: (last === 0 ? lengthOf(head) : 0) + (parts.at(-1)?.length ?? 0),
   };
 };
 
 // The block a just-typed Markdown marker turns its paragraph into, if any.
 const shortcutAt = (
-  line: Line | undefined,
+  line: Block | undefined,
   column: number,
   inserted: string,
 ) => {
   if (line?.kind !== 'paragraph' || (inserted !== ' ' && inserted !== '`')) {
     return undefined;
   }
-  const before = line.chars
-    .slice(0, column)
-    .map(({ ch }) => ch)
+  const before = sliceSpans(line.spans, 0, column)
+    .map(({ text }) => text)
     .join('');
   return shortcuts.find(([marker]) => marker === before)?.[1];
 };
@@ -510,8 +479,8 @@ export function applyText(
     return { document };
   }
   const change = changeOf(previous, next, { selection, deletion });
-  const { lines, line, column } = splice(linesOf(document), change, marks);
-  const caret = (forLines: readonly Line[], at: number) => {
+  const { lines, line, column } = splice(document, change, marks);
+  const caret = (forLines: readonly Block[], at: number) => {
     const offset = offsetOf(forLines, line, at);
     return { start: offset, end: offset };
   };
@@ -519,7 +488,9 @@ export function applyText(
   const shortcut = shortcutAt(current, column, change.inserted);
   if (current !== undefined && shortcut !== undefined) {
     const converted = lines.map((each, index) =>
-      index === line ? lineOf(shortcut, current.chars.slice(column)) : each,
+      index === line
+        ? { kind: shortcut, spans: sliceSpans(current.spans, column) }
+        : each,
     );
     return {
       document: documentOf(converted),
@@ -534,7 +505,7 @@ export function applyText(
 }
 
 // The characters a selection covers, line by line, excluding list markers.
-const covered = (lines: readonly Line[], { start, end }: Selection) => {
+const covered = (lines: readonly Block[], { start, end }: Selection) => {
   const from = locate(lines, Math.min(start, end));
   const to = locate(lines, Math.max(start, end));
   return lines.map((line, index) => {
@@ -544,20 +515,19 @@ const covered = (lines: readonly Line[], { start, end }: Selection) => {
     const first =
       index === from.line ? Math.max(0, from.column - from.marker) : 0;
     const last =
-      index === to.line ? Math.max(0, to.column - to.marker) : line.length;
+      index === to.line
+        ? Math.max(0, to.column - to.marker)
+        : lengthOf(line.spans);
     return [first, last] as const;
   });
 };
 
 // A document's lines and where a selection, in either direction, starts and ends among them.
-const bounds = (document: SemanticDocument, selection: Selection) => {
-  const lines = linesOf(document);
-  return {
-    lines,
-    from: locate(lines, Math.min(selection.start, selection.end)),
-    to: locate(lines, Math.max(selection.start, selection.end)),
-  };
-};
+const bounds = (document: SemanticDocument, selection: Selection) => ({
+  lines: document,
+  from: locate(document, Math.min(selection.start, selection.end)),
+  to: locate(document, Math.max(selection.start, selection.end)),
+});
 
 // Read a selected span range directly, without expanding editor character objects.
 const selectedLineText = (
@@ -631,7 +601,8 @@ export function replaceSelection(
     undefined,
   );
   const last = lines[to.line];
-  const tailRemains = last !== undefined && to.column - to.marker < last.length;
+  const tailRemains =
+    last !== undefined && to.column - to.marker < lengthOf(last.spans);
   const originals = lines.slice(from.line, to.line + 1);
   const lastKind = last?.kind ?? 'paragraph';
   const translated = result.lines
@@ -642,7 +613,7 @@ export function replaceSelection(
       if (index === result.line - from.line && index > 0 && tailRemains) {
         kind = lastKind;
       }
-      return kind === line.kind ? line : lineOf(kind, line.chars);
+      return kind === line.kind ? line : { ...line, kind };
     });
   const keptKinds = [
     ...result.lines.slice(0, from.line),
@@ -658,23 +629,24 @@ export function replaceSelection(
 
 // The marks shared by every selected character, or of the character before a caret.
 export function marksAt(document: SemanticDocument, selection: Selection) {
-  const lines = linesOf(document);
-  const ranges = covered(lines, selection);
   if (selection.start === selection.end) {
     // The marks typed text takes there: the character before the caret, or at the start of a
     // block the one after it, as insertion inherits them.
-    const { line, column, marker } = locate(lines, selection.start);
-    const chars = lines[line]?.chars ?? [];
+    const { line, column, marker } = locate(document, selection.start);
+    const spans = document[line]?.spans ?? [];
     const at = Math.max(0, column - marker);
-    return chars[at - 1]?.marks ?? chars[at]?.marks ?? [];
+    return marksOf(
+      sliceSpans(spans, at - 1, at)[0] ?? sliceSpans(spans, at, at + 1)[0],
+    );
   }
-  const chars = lines.flatMap((line, index) => {
+  const ranges = covered(document, selection);
+  const spans = document.flatMap(({ spans: line }, index) => {
     const [first, last] = ranges[index] ?? [0, 0];
-    return first === last ? [] : line.chars.slice(first, last);
+    return first === last ? [] : sliceSpans(line, first, last);
   });
   return markOrder.filter(
     (mark) =>
-      chars.length > 0 && chars.every(({ marks }) => marks.includes(mark)),
+      spans.length > 0 && spans.every((span) => marksOf(span).includes(mark)),
   );
 }
 
@@ -684,28 +656,31 @@ export function toggleMark(
   selection: Selection,
   mark: Mark,
 ): SemanticDocument {
-  const lines = linesOf(document);
-  const ranges = covered(lines, selection);
+  const ranges = covered(document, selection);
   const has = marksAt(document, selection).includes(mark);
   return documentOf(
-    lines.map((line, index) => {
+    document.map((line, index) => {
       const [first, last] = ranges[index] ?? [0, 0];
       if (first === last) {
         return line;
       }
-      return lineOf(
-        line.kind,
-        line.chars.map((char, column) =>
-          column < first || column >= last
-            ? char
-            : {
-                ...char,
-                marks: markOrder.filter((each) =>
-                  each === mark ? !has : char.marks.includes(each),
-                ),
-              },
+      const toggledSpans = sliceSpans(line.spans, first, last).map((span) =>
+        spanOf(
+          span.text,
+          markOrder.filter((each) =>
+            each === mark ? !has : marksOf(span).includes(each),
+          ),
+          'image' in span ? span.image : undefined,
         ),
       );
+      return {
+        kind: line.kind,
+        spans: joinSpans(
+          sliceSpans(line.spans, 0, first),
+          toggledSpans,
+          sliceSpans(line.spans, last),
+        ),
+      };
     }),
   );
 }
@@ -714,10 +689,8 @@ export function toggleMark(
 export const toggled = (marks: readonly Mark[], mark: Mark) =>
   markOrder.filter((each) => (each === mark) !== marks.includes(each));
 
-export const blockKindAt = (document: SemanticDocument, offset: number) => {
-  const lines = linesOf(document);
-  return lines[locate(lines, offset).line]?.kind ?? 'paragraph';
-};
+export const blockKindAt = (document: SemanticDocument, offset: number) =>
+  document[locate(document, offset).line]?.kind ?? 'paragraph';
 
 // Replaces the selection with an inline image, leaving the caret after it.
 export function insertImage(
@@ -728,17 +701,20 @@ export function insertImage(
   const start = Math.min(selection.start, selection.end);
   const end = Math.max(selection.start, selection.end);
   const { lines, line, column } = splice(
-    linesOf(document),
+    document,
     { start, end, inserted: '' },
     undefined,
   );
   const result = lines.map((each, index) =>
     index === line
-      ? lineOf(each.kind, [
-          ...each.chars.slice(0, column),
-          { ch: imageCharacter, marks: [], image },
-          ...each.chars.slice(column),
-        ])
+      ? {
+          kind: each.kind,
+          spans: joinSpans(
+            sliceSpans(each.spans, 0, column),
+            [spanOf(imageCharacter, [], image)],
+            sliceSpans(each.spans, column),
+          ),
+        }
       : each,
   );
   const offset = offsetOf(result, line, column + 1);
@@ -789,16 +765,10 @@ export const withImage = (
 
 // The document without the inline image `id`, keeping the text around it.
 export const withoutImage = (document: SemanticDocument, id: string) =>
-  editImageBlocks(document, id, (block) =>
-    blockOf(
-      lineOf(
-        block.kind,
-        (linesOf([block])[0]?.chars ?? []).filter(
-          (char) => char.image?.id !== id,
-        ),
-      ),
-    ),
-  );
+  editImageBlocks(document, id, (block) => ({
+    kind: block.kind,
+    spans: joinSpans(block.spans.filter((span) => !showsImage(span, id))),
+  }));
 
 // Sets every selected block to `kind`, or back to a paragraph when they all have it already.
 export function setBlockKind(
@@ -810,7 +780,7 @@ export function setBlockKind(
   const chosen = lines.slice(from.line, to.line + 1);
   const next = chosen.every((line) => line.kind === kind) ? 'paragraph' : kind;
   const result = lines.map((line, index) =>
-    index < from.line || index > to.line ? line : lineOf(next, line.chars),
+    index < from.line || index > to.line ? line : { ...line, kind: next },
   );
   const column = (at: Readonly<typeof from>) =>
     Math.max(0, at.column - at.marker);

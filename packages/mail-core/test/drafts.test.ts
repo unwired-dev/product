@@ -387,6 +387,38 @@ describe('editing a Semantic Message Document', () => {
     30_000,
   );
 
+  it('edits beside a long run of text without rebuilding it', () => {
+    expect.hasAssertions();
+    // Rebuilding an edited block from one object per code unit cost about 100 ms per keystroke
+    // in a 1,000,000-character paragraph. Reusing the untouched run is the deterministic sign
+    // that an edit costs the block's runs, not its characters.
+    const long = { text: 'x'.repeat(1_000_000) };
+    const before: SemanticDocument = [
+      { kind: 'paragraph', spans: [long, { text: 'tail', marks: ['bold'] }] },
+    ];
+    const end = 1_000_004;
+    const typed = applyText(before, `${displayOf(before).text}s`, {
+      selection: { start: end, end },
+    }).document;
+    expect(typed[0].spans[0]).toBe(long);
+    expect(typed[0].spans[1]).toStrictEqual({ text: 'tails', marks: ['bold'] });
+    const italic = toggleMark(
+      typed,
+      { start: 1_000_000, end: end + 1 },
+      'italic',
+    );
+    expect(italic[0].spans).toStrictEqual([
+      long,
+      { text: 'tails', marks: ['bold', 'italic'] },
+    ]);
+    expect(italic[0].spans[0]).toBe(long);
+    expect(marksAt(italic, { start: 1_000_000, end: end + 1 })).toStrictEqual([
+      'bold',
+      'italic',
+    ]);
+    expect(marksAt(italic, { start: 500_000, end: 500_000 })).toStrictEqual([]);
+  });
+
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
     expect.hasAssertions();
     const document: SemanticDocument = [
