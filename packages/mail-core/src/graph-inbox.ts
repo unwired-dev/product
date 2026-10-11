@@ -3,7 +3,9 @@ import type * as Schema from 'effect/Schema';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Order from 'effect/Order';
 
+import type { GmailAction, GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -11,12 +13,18 @@ import type {
 } from './mailbox-document.ts';
 import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
-import type { GraphAttachmentInfo } from './microsoft-graph.ts';
+import type { FolderRoles, GraphAttachmentInfo } from './microsoft-graph.ts';
 
-import { cacheLimit, merge, newestFirst } from './mailbox-document.ts';
+import {
+  cacheLimit,
+  merge,
+  newestFirst,
+  sameMailbox,
+} from './mailbox-document.ts';
 import {
   GmailNotFound,
   providerRead,
+  providerWrite,
   rejectedGrant,
   SyncFailure,
 } from './mailbox-read.ts';
@@ -24,20 +32,32 @@ import {
   decodeGraphAttachments,
   decodeGraphDelta,
   decodeGraphFile,
+  decodeGraphFolder,
+  decodeGraphFolders,
   decodeGraphFull,
   decodeGraphInbox,
   decodeGraphListed,
+  decodeGraphPlacement,
+  decodeGraphSearch,
   deltaIds,
   fileAttachments,
   fileData,
   graphAttachment,
   graphAttachments,
+  graphChange,
+  graphFolders,
   graphInbox,
   graphInboxDelta,
   graphInboxMessage,
+  graphLabels,
   graphMessage,
   graphPayload,
+  graphPlacement,
+  graphSearch,
+  graphWellKnownFolder,
+  isGraphSearchLink,
   listedMessage,
+  wellKnownFolders,
 } from './microsoft-graph.ts';
 
 export type ProviderPayload = GmailPart &
@@ -64,6 +84,17 @@ const pageLink = ({
 };
 
 type DeltaItems = Parameters<typeof deltaIds>[0];
+type PendingChange = Readonly<{
+  action: GmailAction;
+  message: Readonly<{ id: string }>;
+}>;
+
+const anotherMessage = () =>
+  new SyncFailure({
+    kind: 'retry',
+    cause: 'message mismatch',
+    diagnostic: 'another message',
+  });
 
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
@@ -326,6 +357,17 @@ export function createGraphReader(native: NativeGraphMailbox) {
     if (document !== undefined && quiet.has(document)) {
       return Effect.succeedNone;
     }
+    // Caches saved before organizing keep no labels; listing again adds them, and the round
+    // continues from its saved link.
+    if (
+      document !== undefined &&
+      isGraphCheckpoint(document.checkpoint) &&
+      document.messages.some(({ labels }) => labels === undefined)
+    ) {
+      return listGraph(scope, document, document.checkpoint).pipe(
+        Effect.asSome,
+      );
+    }
     if (step >= 200) {
       return Effect.fail(
         new SyncFailure({
@@ -338,5 +380,123 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return advanceRound(scope, document);
   };
 
-  return { advance, partData, fullMessage } as const;
+  // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
+  // as Archive, simply lacks it.
+  let known: Readonly<{ scope: MailboxScope; roles: FolderRoles }> | undefined =
+    undefined;
+  const folderRoles = Effect.fnUntraced(function* (scope: MailboxScope) {
+    if (known !== undefined && sameMailbox(known.scope, scope)) {
+      return known.roles;
+    }
+    const found = yield* Effect.forEach(
+      wellKnownFolders,
+      (name) =>
+        graphGet(scope)(graphWellKnownFolder(name), decodeGraphFolder).pipe(
+          Effect.map(({ id }) => [[id, name] as const]),
+          Effect.catchTag('GmailNotFound', () => Effect.succeed([])),
+        ),
+      { concurrency: 4 },
+    );
+    const roles: FolderRoles = new Map(found.flat());
+    known = { scope, roles };
+    return roles;
+  });
+  const placed = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    message: Readonly<{
+      id: string;
+      parentFolderId?: string;
+      isRead?: boolean;
+    }>,
+  ) {
+    if (message.id !== id) {
+      return yield* anotherMessage();
+    }
+    const roles = yield* folderRoles(scope);
+    return graphLabels(message.parentFolderId, message.isRead, roles);
+  });
+
+  // Move to's folders: the mailbox's top-level folders apart from the well-known ones, by name.
+  const labels = Effect.fnUntraced(function* (scope: MailboxScope) {
+    const roles = yield* folderRoles(scope);
+    const page = yield* graphGet(scope)(graphFolders, decodeGraphFolders);
+    return Arr.sort(
+      page.value
+        .filter(({ id }) => !roles.has(id))
+        .map(({ id, displayName }): GmailLabel => ({ id, name: displayName })),
+      Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+    );
+  });
+
+  // A message's labels as Graph has it now, or none once Graph no longer has it.
+  const readLabels = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    message: Readonly<{ id: string }>,
+  ) {
+    const found = yield* graphGet(scope)(
+      graphPlacement(message.id),
+      decodeGraphPlacement,
+    ).pipe(Effect.catchTag('GmailNotFound', () => Effect.void));
+    return found === undefined
+      ? Option.none<readonly string[]>()
+      : Option.some(yield* placed(scope, message.id, found));
+  });
+
+  // Graph's labels after one change, or none when Graph refuses it for good: the message or folder
+  // no longer exists, or the action has no Graph change. A change sets a state rather than
+  // toggling one, so a request whose reply was lost is safely sent again.
+  const modify = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { action, message }: PendingChange,
+  ) {
+    const change = graphChange(action);
+    const changed =
+      change === undefined
+        ? Option.none()
+        : yield* providerWrite(
+            () => native.graphModify({ message: message.id, ...change }, scope),
+            (status) => status === 200 || status === 201,
+            decodeGraphPlacement,
+          );
+    return Option.isNone(changed)
+      ? Option.none<readonly string[]>()
+      : Option.some(yield* placed(scope, message.id, changed.value));
+  });
+
+  // One page of Graph's search of every folder. Each result is labeled with where it is now.
+  const search = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { query, pageToken }: Readonly<{ query: string; pageToken?: string }>,
+    limit: number,
+  ) {
+    // A page token this Inbox never issued is refused before it reaches native code.
+    if (pageToken !== undefined && !isGraphSearchLink(pageToken)) {
+      return yield* new GmailNotFound();
+    }
+    const page = yield* graphGet(scope)(
+      pageToken ?? graphSearch(query, limit),
+      decodeGraphSearch,
+    );
+    const roles = yield* folderRoles(scope);
+    return {
+      messages: page.value.map((message) =>
+        listedMessage(
+          message,
+          graphLabels(message.parentFolderId, message.isRead, roles),
+        ),
+      ),
+      next: page['@odata.nextLink'],
+    };
+  });
+
+  return {
+    advance,
+    partData,
+    fullMessage,
+    labels,
+    readLabels,
+    modify,
+    search,
+  } as const;
 }

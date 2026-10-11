@@ -12,6 +12,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
@@ -195,6 +196,7 @@ function renderConnected(
   native: NativeGmailMailbox,
   // Set once another device has removed this one; restore then reports the purged device.
   removed?: Readonly<{ current: boolean }>,
+  provider: 'gmail' | 'microsoft-graph' = 'gmail',
 ) {
   const connected = {
     kind: 'connected',
@@ -202,7 +204,12 @@ function renderConnected(
     signInProvider: 'google',
     privateSync: 'ready',
     mailboxes: JSON.stringify([
-      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      {
+        id: alex,
+        address: 'alex@example.invalid',
+        state: 'connected',
+        provider,
+      },
     ]),
   } as const;
   const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
@@ -537,6 +544,69 @@ describe('connected Gmail Inbox', () => {
         .mocked(AccessibilityInfo.announceForAccessibility)
         .mock.calls.filter(([message]) => message === unsaved),
     ).toStrictEqual([[unsaved]]);
+  });
+
+  it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: 'alex@example.invalid' });
+    const travel = graph.createFolder('Travel');
+    const gone = graph.deliver({ subject: 'Old notes' });
+    const plans = graph.deliver({
+      from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
+      subject: 'Garden plans',
+    });
+    const connected = renderConnected(
+      graph.native,
+      undefined,
+      'microsoft-graph',
+    );
+    await connected.rendered;
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Rowan Hale. Garden plans',
+      }),
+    );
+    expect(
+      [
+        'Mark as read',
+        'Archive',
+        'Move to Trash',
+        'Report spam',
+        'Folders',
+      ].map((name) => screen.getByRole('button', { name })),
+    ).toHaveLength(5);
+    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+
+    // A Microsoft message is in one folder: it moves, with no label to add.
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(screen.queryByRole('checkbox', { name: 'Travel' })).toBeNull();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Move to Travel' }),
+      );
+    });
+    expect(graph.folderOf(plans)).toBe(travel);
+    expect(screen.getByText('Moved: “Garden plans”.')).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    });
+    expect(graph.folderOf(plans)).toBe('inbox');
+
+    // Copy names Microsoft, not Gmail.
+    graph.purge(gone);
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('button', { name: 'Unread. Rowan Hale. Old notes' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'read' } },
+      );
+    });
+    expect(
+      screen.getByRole('alert', {
+        name: 'Microsoft could not mark as read “Old notes”. The Inbox shows it as Microsoft has it.',
+      }),
+    ).toBeVisible();
   });
 
   it('names the exhausted action and resolves it through Retry and Discard controls', async () => {

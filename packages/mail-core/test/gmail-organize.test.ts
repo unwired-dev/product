@@ -1510,7 +1510,7 @@ describe('organizing Gmail mail', () => {
       message: target,
     });
     const outcome = unsavedNotice(inbox.getSnapshot());
-    expect(gmailActionCopy(english, outcome)).toContain(
+    expect(gmailActionCopy(english, outcome, 'Gmail')).toContain(
       '2 changes could not be saved',
     );
     expect(message(inbox, target.id).labels).not.toContain('STARRED');

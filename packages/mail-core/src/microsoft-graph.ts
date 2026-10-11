@@ -5,6 +5,7 @@ import * as Option from 'effect/Option';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
+import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
 
 // Microsoft Graph reads for one Outlook.com or Microsoft 365 mailbox. Native code attaches the
@@ -34,6 +35,33 @@ export const graphAttachments = (id: string) =>
 export const graphAttachment = (id: string, attachment: string) =>
   `${graphRoot}/me/messages/${id}/attachments/${attachment}`;
 
+// Where a message is and whether it was read, which organizing reads back.
+export const graphPlacement = (id: string) =>
+  `${graphRoot}/me/messages/${id}?$select=id,parentFolderId,isRead`;
+
+// A well-known folder's own ID, which a message's parentFolderId names.
+export const graphWellKnownFolder = (name: WellKnownFolder) =>
+  `${graphRoot}/me/mailFolders/${name}?$select=id`;
+
+// The mailbox's top-level folders, which Move to offers apart from the well-known ones.
+export const graphFolders = `${graphRoot}/me/mailFolders?$select=id,displayName&$top=100`;
+
+// Graph's own search of every folder, by relevance; a quote inside the query is escaped.
+export const graphSearch = (query: string, limit: number) =>
+  `${graphRoot}/me/messages?$search=${encodeURIComponent(`"${query.replaceAll(/["\\]/gu, String.raw`\$&`)}"`)}&$select=${listed},parentFolderId&$top=${limit}`;
+
+// Folders whose role the Inbox knows, and those Move to never offers.
+export const wellKnownFolders = [
+  'inbox',
+  'archive',
+  'deleteditems',
+  'junkemail',
+  'drafts',
+  'sentitems',
+  'outbox',
+] as const;
+export type WellKnownFolder = (typeof wellKnownFolders)[number];
+
 // Graph's message and attachment IDs are URL-safe base64 text.
 export const GraphId = Schema.String.check(
   Schema.isPattern(/^[\w=-]{1,512}$/u),
@@ -51,6 +79,12 @@ const GraphInboxLink = Schema.String.check(
     /^https:\/\/graph\.microsoft\.com\/v1\.0\/me\/mail[Ff]olders(?:\/[\w=-]+|\('[\w=-]+'\))\/messages\?[^#\s]+$/u,
   ),
 );
+const GraphSearchLink = Schema.String.check(
+  Schema.isPattern(
+    /^https:\/\/graph\.microsoft\.com\/v1\.0\/me\/messages\?[^#\s]+$/u,
+  ),
+);
+export const isGraphSearchLink = Schema.is(GraphSearchLink);
 const GraphAttachmentsLink = Schema.String.check(
   Schema.isPattern(
     /^https:\/\/graph\.microsoft\.com\/v1\.0\/me\/messages\/[\w=-]+\/attachments\?[^#\s]+$/u,
@@ -153,9 +187,81 @@ export const fileData = (contentBytes: string) => {
     : { data: Base64Url.encode(bytes.success), size: bytes.success.length };
 };
 
-// The Inbox's view of a listed Graph message. Graph has no labels to organize with here, so none
-// are kept and the Inbox offers no organizing actions.
-export const listedMessage = (message: GraphListed) => {
+// A message lives in exactly one folder. Organizing reads it with Gmail's label model: its folder's
+// role, or the folder itself, and its read state. Archive has no label, as an archived Gmail
+// message keeps no Inbox label.
+const roleLabels: Partial<Record<WellKnownFolder, string>> = {
+  inbox: 'INBOX',
+  deleteditems: 'TRASH',
+  junkemail: 'SPAM',
+};
+// Well-known folders by their IDs in one mailbox.
+export type FolderRoles = ReadonlyMap<string, WellKnownFolder>;
+export const graphLabels = (
+  folder: string | undefined,
+  isRead: boolean | undefined,
+  roles: FolderRoles,
+) => {
+  const role = folder === undefined ? undefined : roles.get(folder);
+  const place = role === undefined ? folder : roleLabels[role];
+  return [
+    ...(place === undefined ? [] : [place]),
+    ...(isRead === false ? ['UNREAD'] : []),
+  ];
+};
+
+// The one Graph change an organizing action makes. Star and Gmail labels have none for Microsoft
+// mail, which offers neither.
+export type GraphChange = Readonly<{ read: boolean } | { folder: string }>;
+// The well-known folder each removal from the Inbox, or Undo, moves a message to.
+const folderMoves: Partial<Record<GmailAction['kind'], WellKnownFolder>> = {
+  archive: 'archive',
+  trash: 'deleteditems',
+  spam: 'junkemail',
+  restore: 'inbox',
+};
+export const graphChange = (action: GmailAction): GraphChange | undefined => {
+  if (action.kind === 'read' || action.kind === 'unread') {
+    return { read: action.kind === 'read' };
+  }
+  const [chosen] = action.add;
+  const folder = action.kind === 'move' ? chosen : folderMoves[action.kind];
+  return folder === undefined ? undefined : { folder };
+};
+
+const GraphPlacementSchema = Schema.Struct({
+  id: GraphId,
+  parentFolderId: Schema.optionalKey(GraphId),
+  isRead: Schema.optionalKey(Schema.Boolean),
+});
+// A message after a change, or as organizing reads it back.
+export const decodeGraphPlacement = json(GraphPlacementSchema);
+export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
+export const decodeGraphFolders = json(
+  Schema.Struct({
+    value: Schema.Array(
+      Schema.Struct({ id: GraphId, displayName: Schema.String }),
+    ),
+  }),
+);
+export const decodeGraphSearch = json(
+  Schema.Struct({
+    value: Schema.Array(
+      Schema.Struct({
+        ...GraphListedSchema.fields,
+        parentFolderId: Schema.optionalKey(GraphId),
+      }),
+    ),
+    '@odata.nextLink': Schema.optionalKey(GraphSearchLink),
+  }),
+);
+
+// The Inbox's view of a listed Graph message; an Inbox listing names no folder, so its labels say
+// Inbox, and a search result's say where it is.
+export const listedMessage = (
+  message: GraphListed,
+  labels = ['INBOX', ...(message.isRead === false ? ['UNREAD'] : [])],
+) => {
   const sender = message.from?.emailAddress;
   const address = sender?.address?.trim() ?? '';
   const name = sender?.name?.trim() ?? '';
@@ -173,6 +279,7 @@ export const listedMessage = (message: GraphListed) => {
       Option.getOrThrow(DateTime.make(message.receivedDateTime)),
     ),
     unread: message.isRead === false,
+    labels,
   };
 };
 

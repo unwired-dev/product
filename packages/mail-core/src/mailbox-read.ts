@@ -2,6 +2,8 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { GraphChange } from './microsoft-graph.ts';
+
 import {
   decodeDiagnostic,
   rejectionCode,
@@ -18,6 +20,13 @@ export interface NativeGraphMailbox {
       generation: string;
       signal?: Readonly<AbortSignal>;
     }>,
+  ) => Promise<unknown>;
+  // Applies one change to one of the signed-in person's own messages: its read state, or a move
+  // to a well-known folder name or a folder ID. Native code writes the request, so only these
+  // values cross. Resolves `{ status, body }`, the body Graph's view of the message afterwards.
+  readonly graphModify: (
+    change: Readonly<{ message: string } & GraphChange>,
+    mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
 }
 
@@ -107,7 +116,7 @@ export const malformed = (
   new SyncFailure({ kind, cause: error, diagnostic: decodeDiagnostic(error) });
 
 // One Gmail request's `{ status, body }`; a rejected or malformed reply may pass on a later try.
-export const gmailResponse = (
+const gmailResponse = (
   request: (signal: Readonly<AbortSignal>) => Promise<unknown>,
 ) =>
   Effect.tryPromise({
@@ -121,7 +130,7 @@ export const gmailResponse = (
   );
 
 // Gmail refusing the grant needs authorization again; other HTTP failures may pass on a later try.
-export const httpFailure = (status: number, body: string) =>
+const httpFailure = (status: number, body: string) =>
   new SyncFailure({
     kind:
       status === 401 || (status === 403 && Option.isNone(rateLimited(body)))
@@ -130,6 +139,28 @@ export const httpFailure = (status: number, body: string) =>
     cause: status,
     diagnostic: `status ${status}`,
   });
+
+// One provider write's reply: none when the provider refuses it for good because the message or
+// its target no longer exists, the decoded body when `accepted` reads its status as success, and
+// other HTTP failures classified.
+export const providerWrite = Effect.fnUntraced(function* <A>(
+  request: () => Promise<unknown>,
+  accepted: (status: number) => boolean,
+  decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
+) {
+  const { status, body } = yield* gmailResponse(request);
+  if (status === 400 || status === 404) {
+    return Option.none<A>();
+  }
+  if (!accepted(status)) {
+    return yield* httpFailure(status, body);
+  }
+  return Option.some(
+    yield* decode(body).pipe(
+      Effect.mapError((error) => malformed(error, 'retry')),
+    ),
+  );
+});
 
 // One provider read. A missing resource is GmailNotFound, a continuation the provider no longer
 // accepts is GmailInvalidPage, and other HTTP failures are classified.

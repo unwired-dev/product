@@ -56,10 +56,9 @@ import {
 import {
   decodeResponse,
   GmailNotFound,
-  gmailResponse,
-  httpFailure,
   malformed,
   providerRead,
+  providerWrite,
   rateLimited,
   rejected,
   rejectedGrant,
@@ -86,6 +85,7 @@ import {
   unescapeHtml,
   withinMetadataBudgets,
 } from './message-body.ts';
+import { graphChange } from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-document.ts';
 
@@ -996,7 +996,7 @@ export function createGmailInbox(
     removed?: (() => void) | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
-    // Microsoft mail is read through Graph; organizing, online search and sending stay Gmail's.
+    // Microsoft mail is read and organized through Graph; sending stays Gmail's.
     provider?: MailProvider;
   }> = {},
 ) {
@@ -3199,30 +3199,32 @@ export function createGmailInbox(
     scope: MailboxScope,
     { action, message }: PendingAction,
   ) {
-    const { status, body } = yield* gmailResponse(() =>
-      native.gmailModify(
-        { message: message.id, add: action.add, remove: action.remove },
-        scope,
-      ),
+    const modified = yield* providerWrite(
+      () =>
+        native.gmailModify(
+          { message: message.id, add: action.add, remove: action.remove },
+          scope,
+        ),
+      (status) => status === 200,
+      decodeModified,
     );
-    if (status === 400 || status === 404) {
-      return Option.none<readonly string[]>();
-    }
-    if (status !== 200) {
-      return yield* httpFailure(status, body);
-    }
-    const modified = yield* decodeModified(body).pipe(
-      Effect.mapError((error) => malformed(error, 'retry')),
-    );
-    if (modified.id !== message.id) {
+    if (Option.isSome(modified) && modified.value.id !== message.id) {
       return yield* new SyncFailure({
         kind: 'retry',
         cause: 'message mismatch',
         diagnostic: 'another message',
       });
     }
-    return Option.some(modified.labelIds ?? []);
+    return modified.pipe(Option.map(({ labelIds }) => labelIds ?? []));
   });
+
+  // The mailbox's provider: Gmail's label changes, or Graph's read-state changes and moves.
+  const providerModify = graph?.modify ?? modify;
+  // Microsoft mail offers only the actions Graph can make.
+  const offered = (message: GmailMessage, action: GmailAction) =>
+    canOrganize(message) &&
+    (graph === undefined || graphChange(action) !== undefined);
+  const providerLabels = graph?.readLabels ?? readLabels;
 
   // A refused change leaves the queue once Gmail's current labels for its message are read.
   const settleRefusal = Effect.fnUntraced(function* (
@@ -3234,7 +3236,7 @@ export function createGmailInbox(
       return current;
     }
     const startedFor = ownership;
-    const observed = yield* readLabels(current.cache, head.message);
+    const observed = yield* providerLabels(current.cache, head.message);
     const next = settleObserved(
       current.document,
       head,
@@ -3282,7 +3284,7 @@ export function createGmailInbox(
         // Another store instance won this preparation and sends the change itself.
         return prepared;
       }
-      const outcome = yield* modify(prepared.cache, attempted);
+      const outcome = yield* providerModify(prepared.cache, attempted);
       if (Option.isNone(outcome)) {
         // Refusal is not authoritative metadata: save it first, so a label read that is interrupted
         // settles the refusal later instead of sending the refused change again.
@@ -3313,7 +3315,7 @@ export function createGmailInbox(
     if ((head.attempts?.length ?? 0) === 0) {
       return Option.none<{ cache: Cache; document: MailboxDocument }>();
     }
-    const observed = yield* readLabels(current.cache, head.message);
+    const observed = yield* providerLabels(current.cache, head.message);
     if (
       Option.isSome(observed) &&
       !requestedLabels(observed.value, head.action)
@@ -3361,15 +3363,17 @@ export function createGmailInbox(
     cache: Cache,
     document: MailboxDocument,
   ) {
-    const response = yield* gmail(cache)('labels', [], decodeLabels);
-    const labels = Arr.sort(
-      (response.labels ?? [])
-        .filter(({ type }) => type === 'user')
-        .map(({ id, name }) => ({ id, name }))
-        // A label whose ID this client cannot send is left out rather than failing the list.
-        .filter(Schema.is(GmailLabelSchema)),
-      Order.mapInput(Order.String, (label: GmailLabel) => label.name),
-    );
+    const labels =
+      graph === undefined
+        ? Arr.sort(
+            ((yield* gmail(cache)('labels', [], decodeLabels)).labels ?? [])
+              .filter(({ type }) => type === 'user')
+              .map(({ id, name }) => ({ id, name }))
+              // A label whose ID this client cannot send is left out rather than failing the list.
+              .filter(Schema.is(GmailLabelSchema)),
+            Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+          )
+        : yield* graph.labels(cache);
     const previous = document.labels ?? [];
     if (
       labels.length === previous.length &&
@@ -3447,7 +3451,7 @@ export function createGmailInbox(
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }
-    if (document !== undefined && graph === undefined) {
+    if (document !== undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
     }
     yield* finishSynchronization(cache, document);
@@ -3625,11 +3629,9 @@ export function createGmailInbox(
     ),
   );
 
-  // One page of Gmail's own search of this mailbox, newest first as Gmail orders it. Results are
-  // held for the reader; a reply for an Inbox that closed or changed owner meanwhile is dropped.
-  const searchPage = Effect.fnUntraced(function* (
+  // One page of Gmail's own search of this mailbox, newest first as Gmail orders it.
+  const gmailSearch = Effect.fnUntraced(function* (
     scope: MailboxScope,
-    reading: number,
     { query, pageToken }: Readonly<{ query: string; pageToken?: string }>,
   ) {
     const page = yield* gmail(scope)(
@@ -3646,6 +3648,21 @@ export function createGmailInbox(
       (id) => metadata(scope, id, true),
       { concurrency: 4 },
     )).flatMap(([, message]) => (message === undefined ? [] : [message]));
+    return { messages, next: page.nextPageToken };
+  });
+
+  // One page of the provider's search of this mailbox: Gmail's, or Graph's across every folder.
+  // Results are held for the reader; a reply for an Inbox that closed or changed owner meanwhile
+  // is dropped.
+  const searchPage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    reading: number,
+    request: Readonly<{ query: string; pageToken?: string }>,
+  ) {
+    const page = yield* graph === undefined
+      ? gmailSearch(scope, request)
+      : graph.search(scope, request, searchPageSize);
+    const { messages } = page;
     if (owner !== reading || state.kind !== 'ready') {
       return undefined;
     }
@@ -3656,7 +3673,7 @@ export function createGmailInbox(
     const result: GmailSearchPage = {
       kind: 'found',
       messages,
-      ...(page.nextPageToken === undefined ? {} : { next: page.nextPageToken }),
+      ...(page.next === undefined ? {} : { next: page.next }),
     };
     return result;
   });
@@ -3772,7 +3789,7 @@ export function createGmailInbox(
         forgotten ||
         shown === undefined ||
         !shown.organize ||
-        !canOrganize(message)
+        !offered(message, action)
       ) {
         return Promise.resolve();
       }
@@ -4044,13 +4061,9 @@ export function createGmailInbox(
     },
     // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
     savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),
-    // Searches this mailbox in Gmail; undefined when the Inbox closed or changed meanwhile.
-    // Microsoft mail has no online search yet; only its saved messages are searched.
-    searchGmail:
-      graph === undefined
-        ? (query: string, pageToken?: string) =>
-            runLogged(searchGmail(query, pageToken))
-        : undefined,
+    // Searches this mailbox at its provider; undefined when the Inbox closed or changed meanwhile.
+    searchGmail: (query: string, pageToken?: string) =>
+      runLogged(searchGmail(query, pageToken)),
     // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,
     // and with `network` also through the isolated native fetch, which only an authorized
     // presentation asks for. Six requests run per message and twelve account-wide; the readers

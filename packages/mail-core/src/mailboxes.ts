@@ -39,6 +39,10 @@ export interface NativeGmailMailboxes {
     change: Parameters<NativeGmailMailbox['gmailModify']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
+  readonly graphModify: (
+    change: Parameters<NativeGmailMailbox['graphModify']>[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
   readonly gmailSend: (
     message: Parameters<NativeGmailMailbox['gmailSend']>[0],
     mailbox: Scope,
@@ -129,6 +133,8 @@ const bound = (
       }),
     gmailModify: (change, mailbox) =>
       native.gmailModify(change, scope(mailbox)),
+    graphModify: (change, mailbox) =>
+      native.graphModify(change, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>
@@ -501,7 +507,7 @@ export async function savedMessageBodies(results: readonly BodyResult[]) {
   return new Map(answers.flat());
 }
 
-// A mailbox whose store may search Gmail; preview stores and Microsoft mail have no online search.
+// A mailbox whose store may search its provider online; preview stores have no online search.
 type Searchable = Readonly<{
   id: string;
   address?: string | undefined;
@@ -530,7 +536,7 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   >;
 }>;
 
-// Searches every given mailbox that has online search in Gmail at once. With `previous`, asks each mailbox that has
+// Searches every given mailbox that has online search at its provider at once. With `previous`, asks each mailbox that has
 // another page for it and adds the results; a mailbox that fails keeps its page to try again. Each
 // mailbox's failure stays its own, and a mailbox whose Inbox closed meanwhile adds nothing.
 export async function searchGmail<M extends Searchable>(

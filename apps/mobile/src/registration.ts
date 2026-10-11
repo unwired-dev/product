@@ -153,6 +153,7 @@ export const gmailMailboxes = createMailboxes(
         return native().graphRequest(url, scope);
       }),
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
+    graphModify: (change, mailbox) => native().graphModify(change, mailbox),
     gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>

@@ -4,13 +4,15 @@ import * as Base64 from 'effect/encoding/Base64';
 import * as Order from 'effect/Order';
 
 import type { NativeGmailMailbox } from '../gmail-inbox.ts';
+import type { GraphChange } from '../microsoft-graph.ts';
 
 import { createSyntheticGmail } from './gmail-mailbox.ts';
 
-// A controlled Microsoft Graph mailbox for tests. It answers the Graph reads a Microsoft Inbox
+// A controlled Microsoft Graph mailbox for tests. It answers the Graph requests a Microsoft Inbox
 // makes with Graph's response shapes: the Inbox list, delta rounds with page and delta links,
-// messages and their attachments. The native mailbox cache, bodies and files are the synthetic
-// Gmail mailbox's, which follow the same native rules for every provider.
+// messages and their attachments, folders, search, and read-state and move changes. The native
+// mailbox cache, bodies and files are the synthetic Gmail mailbox's, which follow the same native
+// rules for every provider.
 export interface SyntheticGraphAttachment {
   readonly name: string;
   readonly contentType: string;
@@ -27,7 +29,8 @@ interface SyntheticGraphMessage {
   readonly bodyPreview: string;
   readonly from: Readonly<{ name: string; address: string }>;
   isRead: boolean;
-  inbox: boolean;
+  // A well-known folder's name, or a folder's ID.
+  folder: string;
   readonly body: Readonly<{ contentType: 'html' | 'text'; content: string }>;
   readonly attachments: readonly SyntheticGraphAttachment[];
   readonly headers: ReadonlyArray<Readonly<{ name: string; value: string }>>;
@@ -36,6 +39,21 @@ interface SyntheticGraphMessage {
 type Failure =
   | { readonly status: number; readonly body?: string }
   | { readonly code: string };
+// A change Graph applies but whose reply never arrives.
+type ModifyFailure = Failure | { readonly lost: true };
+
+const wellKnown: Readonly<Record<string, string>> = {
+  inbox: 'Inbox',
+  archive: 'Archive',
+  deleteditems: 'Deleted Items',
+  junkemail: 'Junk Email',
+  drafts: 'Drafts',
+  sentitems: 'Sent Items',
+  outbox: 'Outbox',
+};
+// Graph names a well-known folder by its own ID in parentFolderId.
+const folderId = (folder: string) =>
+  folder in wellKnown ? `AQMkFolder-${folder}=` : folder;
 
 const graph = 'https://graph.microsoft.com/v1.0';
 
@@ -76,7 +94,15 @@ export function createSyntheticGraph({
   let rounds = 0;
   let nextId = 0;
   const failures: Failure[] = [];
+  const modifyFailures: ModifyFailure[] = [];
   const requests: URL[] = [];
+  // Changes Graph received, in order, and the search texts it was asked for.
+  const modifies: Array<Readonly<{ message: string } & GraphChange>> = [];
+  const searches: string[] = [];
+  // The mailbox's own folders by ID, and well-known folders this mailbox lacks.
+  const folders = new Map<string, string>();
+  const missingFolders = new Set<string>();
+  let nextFolder = 0;
 
   const deliver = ({
     from = { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -108,7 +134,7 @@ export function createSyntheticGraph({
       bodyPreview: preview,
       from,
       isRead,
-      inbox: true,
+      folder: 'inbox',
       body,
       attachments,
       headers,
@@ -148,9 +174,12 @@ export function createSyntheticGraph({
     isRead,
     from: { emailAddress: from },
   });
+  const inInbox = (
+    message: SyntheticGraphMessage | undefined,
+  ): message is SyntheticGraphMessage => message?.folder === 'inbox';
   const newest = () =>
     Arr.sort(
-      [...messages.values()].filter(({ inbox }) => inbox),
+      [...messages.values()].filter(inInbox),
       Order.flip(
         Order.mapInput(
           Order.String,
@@ -175,7 +204,7 @@ export function createSyntheticGraph({
       return respond({
         value: changed.flatMap((id): unknown[] => {
           const message = messages.get(id);
-          return message?.inbox === true
+          return inInbox(message)
             ? [listed(message)]
             : [{ id, '@removed': { reason: 'changed' } }];
         }),
@@ -202,6 +231,11 @@ export function createSyntheticGraph({
     });
   };
 
+  const placement = ({ id, folder, isRead }: SyntheticGraphMessage) => ({
+    id,
+    parentFolderId: folderId(folder),
+    isRead,
+  });
   const message = (id: string, path: readonly string[], offset: number) => {
     const found = messages.get(id);
     if (found === undefined) {
@@ -278,6 +312,95 @@ export function createSyntheticGraph({
     });
   };
 
+  // A well-known folder's ID, or every top-level folder; a removed folder is gone from both.
+  const folderRead = (url: URL) => {
+    const path = /^\/v1\.0\/me\/mailfolders(?:\/(?<name>[^/]+))?$/u.exec(
+      url.pathname.toLowerCase(),
+    );
+    if (path === null) {
+      return undefined;
+    }
+    const name = path.groups?.name;
+    if (name !== undefined) {
+      return name in wellKnown && !missingFolders.has(name)
+        ? respond({ id: folderId(name) })
+        : notFound();
+    }
+    return respond({
+      value: [
+        ...Object.entries(wellKnown)
+          .filter(([known]) => !missingFolders.has(known))
+          .map(([known, displayName]) => ({
+            id: folderId(known),
+            displayName,
+          })),
+        ...[...folders].map(([id, displayName]) => ({ id, displayName })),
+      ],
+    });
+  };
+  // One Inbox message, as a delta change is read; one that left the Inbox is not found there.
+  const inboxMessage = (url: URL) => {
+    if (
+      !url.pathname
+        .toLowerCase()
+        .startsWith('/v1.0/me/mailfolders/inbox/messages/')
+    ) {
+      return undefined;
+    }
+    const found = messages.get(
+      decodeURIComponent(url.pathname.split('/').at(-1) ?? ''),
+    );
+    return inInbox(found) ? respond(listed(found)) : notFound();
+  };
+  // Where a message is, as organizing reads it back.
+  const placementRead = (url: URL) => {
+    if (url.searchParams.get('$select')?.includes('parentFolderId') !== true) {
+      return undefined;
+    }
+    const found = messages.get(
+      decodeURIComponent(url.pathname.split('/').at(-1) ?? ''),
+    );
+    return found === undefined ? notFound() : respond(placement(found));
+  };
+  // Graph's search of every folder: each quoted word must appear in the sender, subject or preview.
+  const searchPage = (url: URL) => {
+    const search = url.searchParams.get('$search');
+    if (url.pathname !== '/v1.0/me/messages' || search === null) {
+      return undefined;
+    }
+    searches.push(search);
+    const words = search.replaceAll(/^"|"$/gu, '').toLowerCase().split(/\s+/u);
+    const matching = Arr.sort(
+      [...messages.values()].filter((each) =>
+        words.every((word) =>
+          [each.from.name, each.from.address, each.subject, each.bodyPreview]
+            .join(' ')
+            .toLowerCase()
+            .includes(word),
+        ),
+      ),
+      Order.flip(
+        Order.mapInput(
+          Order.String,
+          (each: SyntheticGraphMessage) => each.receivedDateTime,
+        ),
+      ),
+    );
+    const offset = Number(url.searchParams.get('$skiptoken') ?? 0);
+    const end = offset + pageSize;
+    return respond({
+      value: matching.slice(offset, end).map((each) => ({
+        ...listed(each),
+        parentFolderId: folderId(each.folder),
+      })),
+      ...(end < matching.length
+        ? {
+            '@odata.nextLink': `${graph}/me/messages?$search=${encodeURIComponent(search)}&$skiptoken=${end}`,
+          }
+        : {}),
+    });
+  };
+
   const messageAt = (url: URL) => {
     const groups =
       /^\/v1\.0\/me\/messages\/(?<id>[^/]+)(?:\/(?<list>attachments)(?:\/(?<attachment>[^/]+))?)?$/u.exec(
@@ -303,16 +426,43 @@ export function createSyntheticGraph({
     if (url.pathname.endsWith('/messages/delta')) {
       return delta(url);
     }
-    if (
-      url.pathname
-        .toLowerCase()
-        .startsWith('/v1.0/me/mailfolders/inbox/messages/')
-    ) {
-      const id = decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
-      const found = messages.get(id);
-      return found?.inbox === true ? respond(listed(found)) : notFound();
+    return (
+      inboxMessage(url) ??
+      folderRead(url) ??
+      searchPage(url) ??
+      placementRead(url) ??
+      messageAt(url)
+    );
+  };
+
+  // Applies one change as Graph does, answering with the message afterwards. A move to a folder
+  // that does not exist is refused; a missing message is not found.
+  const apply = (request: Readonly<{ message: string } & GraphChange>) => {
+    const found = messages.get(request.message);
+    if (found === undefined) {
+      return notFound();
     }
-    return messageAt(url);
+    if ('read' in request) {
+      found.isRead = request.read;
+      changes.push(found.id);
+      return respond(placement(found));
+    }
+    const destination =
+      request.folder in wellKnown && !missingFolders.has(request.folder)
+        ? request.folder
+        : [...folders.keys()].find((id) => id === request.folder);
+    if (destination === undefined) {
+      return Promise.resolve({
+        status: 400,
+        body: JSON.stringify({ error: { code: 'ErrorInvalidIdMalformed' } }),
+      });
+    }
+    found.folder = destination;
+    changes.push(found.id);
+    return Promise.resolve({
+      status: 201,
+      body: JSON.stringify(placement(found)),
+    });
   };
 
   const native = {
@@ -320,6 +470,18 @@ export function createSyntheticGraph({
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
+    graphModify: async (request) => {
+      modifies.push(request);
+      const failure = modifyFailures.shift();
+      if (failure === undefined) {
+        return apply(request);
+      }
+      if ('lost' in failure) {
+        await apply(request);
+        return rejection('unavailable');
+      }
+      return fail(failure);
+    },
     graphRequest: (url, owner) => {
       if (owner.signal?.aborted === true) {
         throw new Error('The Graph request was cancelled.');
@@ -337,6 +499,8 @@ export function createSyntheticGraph({
     savedFiles: storage.savedFiles,
     cachedBodies: storage.cachedBodies,
     deliver,
+    modifies,
+    searches,
     markRead: (id: string) => {
       change(id, (found) => {
         found.isRead = true;
@@ -345,8 +509,33 @@ export function createSyntheticGraph({
     // The message leaves the Inbox, as when moved or deleted in Outlook.
     remove: (id: string) => {
       change(id, (found) => {
-        found.inbox = false;
+        found.folder = 'deleteditems';
       });
+    },
+    // The message is deleted for good, as when emptied from Deleted Items in Outlook.
+    purge: (id: string) => {
+      if (messages.delete(id)) {
+        changes.push(id);
+      }
+    },
+    // Where a message is now: a well-known folder's name or a folder's ID.
+    folderOf: (id: string) => messages.get(id)?.folder,
+    // A folder of the mailbox's own; resolves its ID.
+    createFolder: (name: string) => {
+      nextFolder += 1;
+      const id = `AQMkUserFolder-${nextFolder}_${name.length}=`;
+      folders.set(id, name);
+      return id;
+    },
+    deleteFolder: (id: string) => {
+      folders.delete(id);
+    },
+    // A mailbox without this well-known folder, as one without Archive.
+    withoutFolder: (name: string) => {
+      missingFolders.add(name);
+    },
+    failModify: (...next: readonly ModifyFailure[]) => {
+      modifyFailures.push(...next);
     },
     // Later delta rounds return a fresh link, even when nothing changed.
     rotateDelta: () => {

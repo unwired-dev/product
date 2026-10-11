@@ -638,6 +638,7 @@ export function createSyntheticGmail({
     },
     // A Gmail connection reaches no Microsoft mail.
     graphRequest: () => rejection('unavailable'),
+    graphModify: () => rejection('unavailable'),
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||
@@ -952,6 +953,8 @@ export function syntheticConnections(
       of(mailbox.connection)?.graphRequest(url, mailbox) ?? missing(),
     gmailModify: (change, mailbox) =>
       of(mailbox.connection)?.gmailModify(change, mailbox) ?? missing(),
+    graphModify: (change, mailbox) =>
+      of(mailbox.connection)?.graphModify(change, mailbox) ?? missing(),
     gmailSend: (message, mailbox) =>
       of(mailbox.connection)?.gmailSend(message, mailbox) ?? missing(),
     openMailbox: (connection) => of(connection)?.openMailbox() ?? missing(),
