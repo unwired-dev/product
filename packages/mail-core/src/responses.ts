@@ -111,7 +111,7 @@ const forwardedBody = (
             image,
           ]),
         ),
-        true,
+        { preserveImages: true },
       );
       if (sanitized.renderable) {
         return sanitized.readable.paragraphs.flatMap((spans) =>

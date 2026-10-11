@@ -13,6 +13,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.openRemoteContent` refreshing remote-cache recency on read.
+  Reads can be rejected later by TypeScript's display admission; update recency
+  only through the owning reader's explicit shown-content operation, under the
+  same file lock and mailbox/protected-data fences. Otherwise undisplayed entries
+  displace genuinely used images during least-recently-used eviction.
+
 - `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
   of a stronger guarantee as permission to succeed through a weaker fallback.
   Restrict fallback to the platform's documented unsupported-operation errors,
@@ -335,6 +341,22 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   APNs token. Pending proof does not establish push coverage. Keep the pending
   opaque route available for a late wake, retry proof at a later verification,
   and suppress fallback polling only for registered, proven, current routes.
+#### Remote content retrieval
+
+- `RemoteContent.swift` classifying a NAT64 destination only by its globally
+  routable IPv6 prefix or the prefixes discovered through `ipv4only.arpa`.
+  RFC 7050 discovery cannot learn destination-specific prefixes for private IPv4.
+  Apply ADR 0029's 2026-10-10 amendment: check every RFC 6052 layout for globally
+  formatted IPv6, including the reserved-byte split and nonzero suffixes, and
+  preserve the well-known prefix's embedded-IPv4 guard for every literal,
+  resolved answer and redirect. Definitely non-public answers refuse the whole
+  name; ambiguous globally formatted IPv6 answers are discarded and never connected
+  to. Pin the first remaining admitted answer and refuse if none remains. Trace
+  the numeric transport endpoint: it must never re-resolve or fall back to an
+  unchecked answer. Cover both answer orders, mixed definitely non-public answers,
+  redirects and IPv6-only refusal, and keep the remaining compatibility cost
+  documented. Otherwise discovery or unchecked fallback permits private access,
+  or ambiguous AAAA records unnecessarily block admitted dual-stack destinations.
 
 #### Mock sessions stay out of production
 

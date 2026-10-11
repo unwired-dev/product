@@ -11,8 +11,8 @@ import type {
   RemovalFailure,
   TrustedDevice,
 } from '@private-email/mail-core/registration';
+import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 import type { ReactNode } from 'react';
-import type { StyleProp, TextStyle } from 'react-native';
 
 import {
   approvesDevices,
@@ -50,9 +50,16 @@ import {
   View,
 } from 'react-native';
 
+import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import { registration } from './registration.ts';
+import {
+  MailboxRemoteContent,
+  RemoteContentSettings,
+  remoteContent as deviceRemoteContent,
+  RemoteContentContext,
+} from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -143,6 +150,7 @@ function Mailboxes({
                 store.authorizeGmail(mailbox.id),
               )
             : null}
+          <MailboxRemoteContent {...mailbox} />
           {confirming === mailbox.id ? (
             <>
               <Label style={[styles.text, { color: colors.foreground }]}>
@@ -170,27 +178,8 @@ function Mailboxes({
         </View>
       ))}
       {button(t('mailboxes.add'), () => store.addMailbox(true))}
+      <RemoteContentSettings button={button} />
     </>
-  );
-}
-
-// React Native macOS exposes plain Text to accessibility only through an accessible parent.
-function Label({
-  children,
-  accessibilityRole = 'text',
-  style,
-}: {
-  readonly children: string;
-  readonly accessibilityRole?: 'alert' | 'header' | 'text';
-  readonly style: StyleProp<TextStyle>;
-}) {
-  return (
-    <View
-      accessible
-      accessibilityRole={accessibilityRole}
-      accessibilityLabel={children}>
-      <Text style={style}>{children}</Text>
-    </View>
   );
 }
 
@@ -710,10 +699,13 @@ export function RegistrationGate({
   children,
   store = registration,
   preview = previewInbox,
+  remoteContent = deviceRemoteContent,
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
   readonly preview?: boolean;
+  // The device's remote content policies, for the Inbox's readers and the account page.
+  readonly remoteContent?: RemoteContentSettingsStore;
 }) {
   const { snapshot, busy, locked } = useSyncExternalStore(
     store.subscribe,
@@ -750,6 +742,7 @@ export function RegistrationGate({
       return;
     }
     void store.restoreOnce();
+    void remoteContent.load();
     // Like the Inbox, restore on every activation, including after protected storage unlocks.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
@@ -759,30 +752,36 @@ export function RegistrationGate({
     return () => {
       subscription.remove();
     };
-  }, [preview, store]);
+  }, [preview, store, remoteContent]);
   if (preview) {
     return children;
   }
   const inbox = landing.destination === 'inbox';
   if (!locked && inbox) {
-    return <AccountContext value={actions}>{children}</AccountContext>;
+    return (
+      <RemoteContentContext value={remoteContent}>
+        <AccountContext value={actions}>{children}</AccountContext>
+      </RemoteContentContext>
+    );
   }
   if (!locked) {
     return (
-      <RegistrationPage
-        store={store}
-        onInbox={
-          inboxAccount === undefined
-            ? undefined
-            : () => {
-                setChoice({
-                  account: inboxAccount,
-                  destination: 'inbox',
-                  setup,
-                });
-              }
-        }
-      />
+      <RemoteContentContext value={remoteContent}>
+        <RegistrationPage
+          store={store}
+          onInbox={
+            inboxAccount === undefined
+              ? undefined
+              : () => {
+                  setChoice({
+                    account: inboxAccount,
+                    destination: 'inbox',
+                    setup,
+                  });
+                }
+          }
+        />
+      </RemoteContentContext>
     );
   }
   return (

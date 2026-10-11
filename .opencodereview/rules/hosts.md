@@ -310,6 +310,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Keep only a small failed-document identity in mounted state, not the discarded
   rich object; otherwise its expanded HTML/data-image strings remain retained
   after the view and reservation have been released.
+- `message-body.tsx.GmailMessageBody` retaining presentation-scoped Ask consent
+  through a policy transition or reader-owner replacement that revokes it. Never must discard that consent,
+  including when another Mac window changes the policy and returns to Ask while
+  this reader stays mounted. Check every identity the consent belongs to against
+  the actual component key: a message-ID-only key does not remount when another
+  Inbox shows the same Gmail ID. Discard consent on that owner change so returning
+  to the original Inbox cannot restore it; otherwise later viewport input resumes network
+  loading without another Load images action. Preserve Always Load and the
+  fail-closed unresolved-policy state, and exercise the transition through the
+  real settings store and reader rather than only checking the button.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
 - `composer.tsx.DraftRowView` or a message row flattening an entire body before
   native `numberOfLines` truncation. Bound preview traversal and intermediate
