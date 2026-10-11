@@ -332,6 +332,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var mailboxGenerations: [String: UUID] = [:]
   // Connections whose Gmail access verified in this process, and those open from cache only.
   var verifiedMailboxes: Set<String> = []
+  // Token callbacks must not restart watches between the shared flow's removal steps.
+  var pushRoutingPaused = false
   var cacheOnlyMailboxes: Set<String> = []
   // Only the current explicit consent can recreate a tombstone it encounters for the first time.
   var newlyAuthorizedMailboxes: Set<String> = []

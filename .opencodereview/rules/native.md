@@ -316,6 +316,20 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Gmail push lifecycle
 
+- `UnwiredPushWakes.registerDeviceToken` retaining a new or rotated APNs token only
+  in memory after routing already ran. Queue authenticated registration under
+  `RegistrationOperationGate` when the token arrives, including first-launch
+  arrival after restore and rotation with no process-verified mailboxes but saved
+  routes. Otherwise the relay continues targeting an old or absent token until
+  another activation and background mail loses its wake.
+- Native-initiated token routing in `RegistrationStore.pushDeviceChanged`
+  restarting watches after `stopMailboxWatches` or during durable account removal.
+  The native gate serializes individual operations, not the shared flow's entire
+  removal sequence; fence callbacks from the start of watch stopping until a later
+  verified routing resumes. Handle structured revocation/deletion through the same
+  local purge before releasing custody. Otherwise a callback recreates a watch
+  whose credential teardown discards or retains access after definitive rejection.
+
 - `RegistrationStore.watch` or `stopWatch` using a refreshed Gmail credential
   without matching its subject to the connection's saved receipt. Check identity
   before the provider request; otherwise a mismatched saved credential can create

@@ -614,13 +614,19 @@ extension UnwiredRegistration {
 
   // Routes with this process's APNs registration and the build's Cloud Pub/Sub topic; without a
   // fully qualified topic this build registers no routes.
-  @MainActor private static func route(_ store: RegistrationStore) async throws {
+  @MainActor private static func route(_ store: RegistrationStore, deviceChanged: Bool = false)
+    async throws
+  {
     let topic = (Bundle.main.object(forInfoDictionaryKey: "UnwiredGmailTopic") as? String)
       .flatMap { topic in
         topic.range(of: topicPattern, options: .regularExpression) == nil ? nil : topic
       }
-    try await store.routeMailboxes(
-      device: PushWakes.shared.device, topic: topic, now: Date().timeIntervalSince1970 * 1_000)
+    let now = Date().timeIntervalSince1970 * 1_000
+    if deviceChanged {
+      try await store.pushDeviceChanged(device: PushWakes.shared.device, topic: topic, now: now)
+    } else {
+      try await store.routeMailboxes(device: PushWakes.shared.device, topic: topic, now: now)
+    }
   }
 
   // A token that arrives or rotates after this process routed reaches the relay at once, rather
@@ -628,7 +634,7 @@ extension UnwiredRegistration {
   @MainActor static func pushDeviceChanged() {
     guard let store = sharedStore else { return }
     Task { @MainActor in
-      do { try await operations.perform { try await route(store) } } catch {
+      do { try await operations.perform { try await route(store, deviceChanged: true) } } catch {
         logger.error("Gmail push rerouting failed")
       }
     }

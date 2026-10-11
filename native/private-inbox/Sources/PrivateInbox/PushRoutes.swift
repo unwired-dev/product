@@ -159,6 +159,7 @@ extension RegistrationStore {
   // A connection that cannot be routed now retries at the next verification; only the end of this
   // device's access fails. Without a configured topic or an APNs registration nothing is routed.
   func routeMailboxes(device: PushDevice?, topic: String?, now: Double) async throws {
+    pushRoutingPaused = false
     try await removeQueuedPushRoutes()
     guard let topic, let saved = try load(), let product = saved.product, product.pending != true,
       let device = device ?? saved.pushDevice
@@ -190,6 +191,18 @@ extension RegistrationStore {
         }
         try self.save(next)
       }
+    }
+  }
+
+  // APNs callbacks share native custody, but cannot enter the shared flow's removal sequence.
+  func pushDeviceChanged(device: PushDevice?, topic: String?, now: Double) async throws {
+    guard !pushRoutingPaused, (try load())?.accountRemoval == nil else { return }
+    do {
+      try await routeMailboxes(device: device, topic: topic, now: now)
+    } catch RegistrationError.revoked {
+      try await purge(notice: "revoked")
+    } catch RegistrationError.deleted {
+      try await purge(notice: "deleted")
     }
   }
 
@@ -317,6 +330,7 @@ extension RegistrationStore {
 
   // Before sign-out or deletion, whose backend step removes this device's routes.
   func stopMailboxWatches() async throws {
+    pushRoutingPaused = true
     guard let saved = try load(), let product = saved.product else { return }
     for connection in saved.connections {
       try await attempt { try await self.stopWatch(connection, product) }

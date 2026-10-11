@@ -13,3 +13,7 @@ it and removes its route; sign-out and deletion stop watches first. While the Ma
 app is active, its five-minute interval supplements wakes; otherwise it remains a
 fallback until every usable mailbox has a verified route outside the renewal
 window, and resumes when that coverage is lost.
+
+Register a newly received or rotated APNs token as soon as it arrives after
+restoring the account. Token changes cannot restart watches during sign-out or
+deletion, and a rejected device or deleted account clears its local access.

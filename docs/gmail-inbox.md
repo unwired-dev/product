@@ -853,6 +853,13 @@ build without a topic or an APNs registration registers nothing. A failed step
 waits for the next verification, so routing never fails opening the Inbox; only a
 revoked or deleted device ends it, with the usual purge.
 
+A newly received or rotated APNs token registers as soon as it arrives after
+account restoration, including when restoration finished before the first token
+arrived. Token changes leave stopped watches stopped during sign-out or deletion;
+a later successful verification can resume them if removal was refused. A
+revoked-device or deleted-account response to token registration clears local
+access through the usual purge.
+
 APNs hands each background notification to a native queue, which keeps only a
 Gmail hint's route. JavaScript reads one wake at a time, looks its route up
 natively and passes it to the handler above. The system's fetch handler then
@@ -1256,6 +1263,13 @@ deadline and replacing a reloaded reader. They also cover pending proofs retaini
 polling, partial registration teardown, renewal after a refused destructive operation,
 offline removal deferring relay deletion until Product Sync acknowledgement, and a
 synchronized removal stopping the watch before discarding its credential.
+The routing and removal scenarios also cover first-token arrival after an earlier
+unrouted attempt, rotation with saved routes before process-local mailbox
+verification, unchanged-token routing, token callbacks during watch stopping or
+pending account removal, and local purge after revoked/deleted token registration.
+These exercise the native store with real Keychain persistence and synthetic
+relay/Gmail responses. The hosted target does not compile the React Native bridge;
+APNs callback dispatch through that bridge remains a native pre-release check.
 All 50 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
 Xcode 27.0 for #781 before integration with #763.
 #763 adds six native tests for destination and NAT64 admission, redirect and

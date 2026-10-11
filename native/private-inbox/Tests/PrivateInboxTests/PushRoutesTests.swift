@@ -84,7 +84,8 @@ extension PrivateInboxTests {
     #expect(relay.requests.isEmpty)
     #expect(google.gmailRequests.isEmpty)
 
-    try await store.routeMailboxes(device: device, topic: topic, now: 0)
+    // First-launch routing already ran without a device; the later token must create its routes.
+    try await store.pushDeviceChanged(device: device, topic: topic, now: 0)
     #expect(
       relay.requests.map(\.path) == [
         "pushRelay:registerDevice", "pushRelay:registerGmailConnection",
@@ -157,6 +158,40 @@ extension PrivateInboxTests {
     await #expect(throws: RegistrationError.revoked) {
       try await store.routeMailboxes(device: device, topic: topic, now: due)
     }
+
+    // Rotation updates existing routes even before this process verifies any mailbox.
+    relay.refusal = nil
+    relay.requests = []
+    google.gmailRequests = []
+    store.verifiedMailboxes = []
+    let rotated = PushDevice(token: "4d5e6f", environment: "sandbox")
+    store.wakes.device = rotated
+    #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == false)
+    try await store.pushDeviceChanged(device: rotated, topic: topic, now: 0)
+    #expect(relay.requests.map(\.path) == ["pushRelay:registerDevice"])
+    #expect(relay.requests[0].args["apnsToken"] as? String == rotated.token)
+    #expect(try store.saved().pushDevice == rotated)
+    #expect(google.gmailRequests.isEmpty)
+    #expect(try store.mailboxRoutes(now: 0)["routes"] as? [String: String] == [route: id])
+    #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == true)
+    try await store.pushDeviceChanged(device: rotated, topic: topic, now: 0)
+    #expect(relay.requests.count == 1)
+
+    // Native-initiated rejection has no JS caller to purge: it must end local access itself.
+    for refusal in ["TRUSTED_DEVICE_REVOKED", "PRODUCT_ACCOUNT_DELETED"] {
+      relay.refusal = refusal
+      try await store.pushDeviceChanged(device: device, topic: topic, now: 0)
+      #expect(try keys.read("registration") == nil)
+      #expect(store.session == nil)
+      #expect(store.verifiedMailboxes.isEmpty)
+      #expect(try store.mailboxRoutes(now: 0)["routes"] as? [String: String] == [:])
+      if refusal == "TRUSTED_DEVICE_REVOKED" {
+        relay.refusal = nil
+        _ = try await store.signIn()
+        _ = try await store.authorizeGmail()
+        try await store.routeMailboxes(device: rotated, topic: topic, now: 0)
+      }
+    }
   }
 
   @Test @MainActor func removingAMailboxStopsItsWatchRemovesItsRouteAndDropsItsWakes() async throws {
@@ -212,10 +247,26 @@ extension PrivateInboxTests {
     _ = try await store.authorizeGmail()
     try await store.routeMailboxes(device: device, topic: topic, now: 0)
     relay.stopsWatch = true
+    // Pending removal after relaunch also fences callbacks without an in-memory stop marker.
+    let rotated = PushDevice(token: "4d5e6f", environment: "sandbox")
+    try store.recordRemoval(.signOut)
+    relay.requests = []
+    google.gmailRequests = []
+    try await store.pushDeviceChanged(device: rotated, topic: topic, now: 0)
+    #expect(relay.requests.isEmpty)
+    #expect(google.gmailRequests.isEmpty)
+    try store.recordRemoval(nil)
     google.gmailRequests = []
     google.gmailResponse = (204, Data())
     try await store.stopMailboxWatches()
     #expect(google.gmailRequests == [URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/stop")!])
+    // The callback cannot restart that watch between the flow's stop and removal-intent calls.
+    relay.requests = []
+    google.gmailRequests = []
+    try await store.pushDeviceChanged(device: rotated, topic: topic, now: 0)
+    #expect(relay.requests.isEmpty)
+    #expect(google.gmailRequests.isEmpty)
+    #expect(try store.saved().pushDevice == device)
     // A refused sign-out or deletion retains this account: stopped watches must renew immediately.
     #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == false)
     google.gmailResponse = watch(historyId: "3", expiration: 1_000_000_000)
