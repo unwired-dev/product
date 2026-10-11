@@ -13,6 +13,17 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `trusted-devices.tsx.TrustedDevices` or registration/account routing hiding a
+  native-retained actionable proposal behind a coarse capability gate such as
+  `approvesDevices(privateSync)`. Read `revocationProposal` before that gate:
+  device-key loss can leave `privateSync: enrollment-needed` with a submitted
+  removal whose exact replay and receipt reconciliation remain authorized.
+  Keep its replacement key and Confirm/Cancel reachable without restoring device
+  approval or new-removal entry points. Trace settings, Inbox landing and store
+  actions through the native custody checks; Cancel without a receipt must keep
+  the proposal, and a settled proposal may require fresh enrollment. Otherwise
+  an unanswered removal and its Recovery Key become stranded behind the UI.
+
 - `composer.tsx.Editor` accepting edits while Send freezes an immutable Draft for
   admission. Disable text, keyboard, pointer and accessibility editing controls,
   and fence their callbacks synchronously before awaiting admission: render props

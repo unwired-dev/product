@@ -262,36 +262,64 @@ enum KeyRingEnvelope {
     return ring
   }
 
-  // A removal's new key ring, sealed to the committed epoch's key so only the account's remaining
-  // devices open it; the removed device can no longer fetch it.
-  static let rotationSchemaVersion = 1
+  // A removal's complete new key ring, sealed separately to each remaining Trusted Device's
+  // long-lived encryption key. Nothing the removed device held, not its own keys, earlier rings or
+  // Recovery Keys, opens it.
+  struct Rotation: Codable, Equatable {
+    let keyEpoch: Int
+    let encapsulatedKey: Data
+    let ciphertext: Data
+  }
 
-  static func rotation(
-    _ ring: ProductSyncKeyRing, sealedWith current: ProductSyncKeyRing, epoch: Int,
-    account: String
-  ) throws -> EncryptedPayload {
-    try ProductSyncSeal.seal(
-      JSONEncoder().encode(ring), using: current.key(epoch), purpose: "rotation",
-      context: [account], keyVersion: epoch, schemaVersion: rotationSchemaVersion)
+  // Binds an envelope to its account, recipient device and key, epoch and protocol version.
+  struct RotationRecipient {
+    let account: String
+    let device: String
+    let publicKey: Curve25519.KeyAgreement.PublicKey
+
+    func context(keyEpoch: Int) -> Data {
+      ProductSyncSeal.binding(
+        "device-rotation-v2",
+        [account, device, publicKey.rawRepresentation.base64EncodedString(), String(keyEpoch)])
+    }
+  }
+
+  static func rotation(_ ring: ProductSyncKeyRing, to recipient: RotationRecipient) throws
+    -> Rotation
+  {
+    let context = recipient.context(keyEpoch: ring.current)
+    var sender = try HPKE.Sender(
+      recipientKey: recipient.publicKey, ciphersuite: enrollmentSuite, info: context)
+    let ciphertext = try sender.seal(JSONEncoder().encode(ring), authenticating: context)
+    return Rotation(
+      keyEpoch: ring.current, encapsulatedKey: sender.encapsulatedKey, ciphertext: ciphertext)
   }
 
   // The new ring must keep every key this device holds, so no record becomes unreadable.
   static func openRotation(
-    _ payload: EncryptedPayload, with current: ProductSyncKeyRing, keyEpoch: Int, account: String
+    _ envelope: Rotation, with key: Curve25519.KeyAgreement.PrivateKey,
+    recipient: RotationRecipient, current: ProductSyncKeyRing
   ) throws -> ProductSyncKeyRing {
-    guard payload.schemaVersion == rotationSchemaVersion else { throw ProductSyncError.rejected }
-    let ring = try JSONDecoder().decode(
-      ProductSyncKeyRing.self,
-      from: ProductSyncSeal.open(
-        payload, using: current.key(payload.keyVersion), purpose: "rotation",
-        context: [account]))
-    guard ring.current == keyEpoch, ring.keys.contains(where: { $0.version == keyEpoch }),
+    let context = recipient.context(keyEpoch: envelope.keyEpoch)
+    let ring: ProductSyncKeyRing
+    do {
+      var opener = try HPKE.Recipient(
+        privateKey: key, ciphersuite: enrollmentSuite, info: context,
+        encapsulatedKey: envelope.encapsulatedKey)
+      ring = try JSONDecoder().decode(
+        ProductSyncKeyRing.self, from: opener.open(envelope.ciphertext, authenticating: context))
+    } catch {
+      throw ProductSyncError.rejected
+    }
+    guard ring.current == envelope.keyEpoch,
+      ring.keys.contains(where: { $0.version == envelope.keyEpoch }),
       ring.keys.allSatisfy({ $0.key.count == 32 }), current.keys.allSatisfy(ring.keys.contains)
     else { throw ProductSyncError.rejected }
     return ring
   }
 
-  // Sealed to one Pending Device's current key and bound to its account, device and key epoch.
+  // Sealed to one Pending Device's current key and bound to its account, device, long-lived
+  // encryption key and key epoch.
   struct Enrollment: Codable, Equatable {
     let encapsulatedKey: Data
     let ciphertext: Data
@@ -300,9 +328,13 @@ enum KeyRingEnvelope {
   struct EnrollmentBinding {
     let account: String
     let device: String
+    // The encryption key the device binds at admission; an approval opens only with the same one.
+    let deviceKey: Curve25519.KeyAgreement.PublicKey
 
     func context(keyVersion: Int) -> Data {
-      ProductSyncSeal.binding("enrollment", [account, device, String(keyVersion)])
+      ProductSyncSeal.binding(
+        "enrollment",
+        [account, device, deviceKey.rawRepresentation.base64EncodedString(), String(keyVersion)])
     }
   }
 

@@ -75,6 +75,43 @@ describe('registration flow', () => {
     });
   });
 
+  it('renews an aged sign-in once before confirming a prepared removal again', async () => {
+    expect.hasAssertions();
+    const { vault } = createSyntheticVault();
+    await createRegistrationFlow(vault).signIn('google');
+    const signInIdentity = vi.fn<NativeRegistrationVault['signInIdentity']>(
+      (provider, hint) => vault.signInIdentity(provider, hint),
+    );
+    // The first activation finds the sign-in from preparing no longer recent.
+    const confirmRevocation = vi
+      .fn<NativeRegistrationVault['confirmRevocation']>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('stale'), { code: 'stale-authentication' }),
+      )
+      .mockResolvedValueOnce({ notice: 'removed' });
+    const flow = createRegistrationFlow({
+      ...vault,
+      signInIdentity,
+      revokeTrustedDevice: () => Promise.resolve({}),
+      confirmRevocation,
+      cancelRevocation: () => Promise.resolve({ notice: 'unconfirmed' }),
+    });
+    // Preparing asks for a fresh sign-in first and reports no removal yet.
+    await expect(
+      flow.revokeTrustedDevice('device-ipad'),
+    ).resolves.not.toHaveProperty('revocationNotice');
+    await expect(flow.confirmRevocation('ABCD')).resolves.toMatchObject({
+      revocationNotice: 'removed',
+    });
+    await expect(flow.cancelRevocation()).resolves.toMatchObject({
+      revocationNotice: 'unconfirmed',
+    });
+    expect({
+      signIns: signInIdentity.mock.calls.length,
+      confirmations: confirmRevocation.mock.calls,
+    }).toStrictEqual({ signIns: 2, confirmations: [['ABCD'], ['ABCD']] });
+  });
+
   it('logs a recovered malformed native reply without logging its input', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();

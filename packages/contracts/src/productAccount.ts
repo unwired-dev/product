@@ -46,6 +46,8 @@ export type ProductAccountDeletionResponse = Infer<
 >;
 
 export const trustedDeviceSummaryValidator = v.object({
+  // Absent until setup, enrollment or the Recovery Key binds it; never replaced afterwards.
+  deviceEncryptionPublicKey: v.optional(v.string()),
   displayName: v.string(),
   id: v.string(),
   lastSeenAt: v.number(),

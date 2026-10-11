@@ -1,93 +1,285 @@
+import CryptoKit
 import Foundation
 
+// The fresh roster no longer lists the selected row: it may have signed out, or enrolled again
+// under a new row that is still trusted, so nothing proves it was removed.
+private struct RevocationTargetUnlisted: Error {}
+
 extension RegistrationStore {
-  // Removes another Trusted Device with the fresh interactive Product Sign-In the flow just
-  // collected, and reports whether its new Recovery Key applied. A new key epoch
-  // reaches the remaining devices sealed to the account key they already hold, and a new Recovery
-  // Key wraps it. Backend authorization withholds the transition from the removed device; sealing
-  // it to secrets that device never held is tracked in #753.
-  // Temporary until #758.
+  // Prepares removing another Trusted Device with the fresh interactive Product Sign-In the flow
+  // just collected. The new key epoch is sealed separately to every remaining device's encryption
+  // key and to a replacement Recovery Key, which is shown first; nothing reaches the backend until
+  // the person confirms it. Returns no notice: the snapshot shows the proposal. Temporary until #758.
   func revoke(_ trustedDeviceId: String) async throws -> String? {
     guard let backend = productSync, let saved = try load(), let product = saved.product,
-      trustedDeviceId != product.trustedDeviceId,
-      var vault = try loadVault(product.productAccountId), vault.published, let identity
+      product.pending != true, trustedDeviceId != product.trustedDeviceId,
+      var vault = try loadVault(product.productAccountId), vault.published,
+      // Never replace a Recovery Key the person has not backed up yet.
+      vault.recoveryKeyConfirmed, let identity
     else { throw RegistrationError.unavailable }
     guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
+    _ = try deviceKey(product.productAccountId)
     session = identity
-    let account = product.productAccountId
-    // An epoch another removal started joins this ring first, so the new ring carries it too.
-    let unanswered = vault.revocation
+    // An earlier activation without a reply may have applied; adopting settles it first.
     vault = try await adoptRotation(vault, backend: backend, session: identity, product)
-    // Never replace a Recovery Key the person has not backed up yet. When this attempt finds that
-    // an earlier removal without a reply applied after all, it shows that removal's new key instead.
-    guard vault.recoveryKeyConfirmed else {
-      let adopted =
-        unanswered.map {
-          vault.recoveryKey == $0.recoveryKey && $0.trustedDeviceId == trustedDeviceId
-        } ?? false
-      _ = try await synchronize(saved)
-      return adopted ? "removed" : nil
+    if vault.revocation != nil { return nil }
+    do {
+      vault.revocation = try await proposal(
+        removing: trustedDeviceId, vault: vault, backend: backend, session: identity, product)
+    } catch is RevocationTargetUnlisted {
+      return try await refreshRevocationTarget(saved, removing: trustedDeviceId)
     }
-    let recovery = try await backend.recoveryEnvelope(identity, product)
-    let committed = recovery.encryptedPayload.keyVersion
-    let epoch = (vault.ring.keys.map(\.version).max() ?? committed) + 1
+    try saveVault(vault)
+    return nil
+  }
+
+  // Activates the prepared removal once the entry matches the end of its replacement Recovery Key,
+  // and returns its notice. A sign-in that is no longer recent rejects as stale authentication, so
+  // the flow renews it and confirms again. Temporary until #758.
+  func confirmRevocation(_ entry: String) async throws -> String? {
+    guard let backend = productSync, let saved = try load(), let product = saved.product
+    else { throw RegistrationError.unavailable }
+    // A failed status refresh can leave the host showing a proposal already settled here.
+    guard var vault = try loadVault(product.productAccountId), var pending = vault.revocation
+    else { return nil }
+    guard try RecoveryKey(bytes: pending.recoveryKey).confirms(entry) else {
+      throw RegistrationError.recoveryKeyMismatch
+    }
+    let missingDeviceKey = try keys.read(deviceKeyAccount(product.productAccountId)) == nil
+    // A lost key permits only replay of intent that was already confirmed and submitted.
+    if missingDeviceKey, !pending.submitted { throw RegistrationError.unavailable }
+    let target = pending.request.trustedDeviceId
+    guard let identity = self.identity ?? session else {
+      throw RegistrationError.staleAuthentication
+    }
+    guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
+    session = identity
+    let wasSubmitted = pending.submitted
+    // Kept before sending: a lost reply is settled by sending this same request again.
+    pending.submitted = true
+    vault.revocation = pending
+    try saveVault(vault)
+    do {
+      _ = try await backend.activateRevocation(identity, product, pending.request)
+    } catch RevocationFailure.conflict {
+      // The account changed since preparing, so this proposal never applied. A fresh proposal and
+      // key are confirmed again.
+      // Keep the rejected proposal cancellable if preparing its replacement fails.
+      pending.submitted = false
+      vault.revocation = missingDeviceKey ? nil : pending
+      try saveVault(vault)
+      if missingDeviceKey {
+        _ = try await synchronize(saved)
+        return nil
+      }
+      vault = try await adoptRotation(vault, backend: backend, session: identity, product)
+      do {
+        vault.revocation = try await proposal(
+          removing: target, vault: vault, backend: backend, session: identity, product)
+      } catch is RevocationTargetUnlisted {
+        vault.revocation = nil
+        try saveVault(vault)
+        return try await refreshRevocationTarget(saved, removing: target)
+      }
+      try saveVault(vault)
+      return "renewed"
+    } catch RevocationFailure.targetRemoved {
+      // Another device removed it first; this proposal and its key never applied.
+      vault.revocation = nil
+      try saveVault(vault)
+      _ = try await refreshRevocationTarget(saved, removing: target)
+      return "superseded"
+    } catch let error where error is URLError || error is CancellationError {
+      // The outcome is unknown; the proposal stays, and confirming again repeats it safely.
+      return "unconfirmed"
+    } catch {
+      // A definite refusal, including a sign-in that is no longer recent, settles this attempt but
+      // not an earlier unanswered submission.
+      pending.submitted = wasSubmitted
+      vault.revocation = pending
+      try saveVault(vault)
+      throw error
+    }
+    // Read before adopting: a failed read then leaves the proposal to settle on the next attempt.
+    guard try await backend.revocationOutcome(identity, product, pending.request.proposalId) != nil
+    else { return "unconfirmed" }
+    // Keep the receipt locator until this device durably adopts the committed ring.
+    let adoption = try await adoptRotationWithOutcome(
+      vault, backend: backend, session: identity, product)
+    trustedDevices[product.productAccountId]?.removeAll { $0.id == target }
+    return try await revocationStatus(saved, vault: adoption.vault, outcome: adoption.outcome)
+  }
+
+  // Forget the stale selection and refresh the list without inferring why the row disappeared.
+  func refreshRevocationTarget(
+    _ saved: SavedRegistration, removing target: String
+  ) async throws -> String? {
+    if let account = saved.product?.productAccountId {
+      trustedDevices[account]?.removeAll { $0.id == target }
+    }
+    _ = try await synchronize(saved)
+    return nil
+  }
+
+  // Discards the prepared removal and returns its notice; an activation sent without a reply is
+  // settled first. Temporary until #758.
+  func cancelRevocation() async throws -> String? {
+    guard let saved = try load(), let product = saved.product
+    else { throw RegistrationError.unavailable }
+    guard var vault = try loadVault(product.productAccountId), let pending = vault.revocation
+    else { return nil }
+    if pending.submitted {
+      // Read before adopting, so a failed read leaves the proposal in place.
+      if let backend = productSync, let session = identity ?? session,
+        try await backend.revocationOutcome(session, product, pending.request.proposalId) != nil
+      {
+        let adoption = try await adoptRotationWithOutcome(
+          vault, backend: backend, session: session, product)
+        if adoption.vault.revocation == nil {
+          return try await revocationStatus(saved, vault: adoption.vault, outcome: adoption.outcome)
+        }
+      }
+      // An absent receipt cannot rule out a request that is still reaching the backend.
+      return "unconfirmed"
+    }
+    vault.revocation = nil
+    try saveVault(vault)
+    return nil
+  }
+
+  // Synchronization may adopt a later rotation; unreadable state must not reject settled removal.
+  func revocationStatus(
+    _ saved: SavedRegistration, vault: ProductSyncVault,
+    outcome: (keyEpoch: Int, recoveryKeyCurrent: Bool)?
+  ) async throws -> String? {
+    let saved = try await synchronize(saved)
+    let epoch: Int
+    do {
+      if let current = try loadVault(vault.productAccountId) {
+        epoch = current.ring.current
+      } else if saved.product?.pending == true {
+        // Lost-key reenrollment intentionally removes the just-settled vault.
+        epoch = vault.ring.current
+      } else {
+        return nil
+      }
+    } catch {
+      Self.logProductSyncFailure("Product Sync state unreadable", error)
+      return nil
+    }
+    let recoveryKeyCurrent = outcome?.recoveryKeyCurrent == true && outcome?.keyEpoch == epoch
+    return recoveryKeyCurrent ? "removed" : "superseded"
+  }
+
+  // Seals a new epoch to every remaining device's bound encryption key, including this
+  // one, and to a new Recovery Key, against the epoch and recovery record read now.
+  func proposal(
+    removing trustedDeviceId: String, vault: ProductSyncVault, backend: ProductSyncBackend,
+    session: ProductSignInIdentity, _ product: ProductRegistrationReceipt
+  ) async throws -> PendingRevocation {
+    let account = product.productAccountId
+    let recovery = try await backend.recoveryEnvelope(session, product)
+    let roster = try await backend.trustedDevices(session, product)
+    guard roster.contains(where: { $0.id == trustedDeviceId }) else {
+      throw RevocationTargetUnlisted()
+    }
+    // Every survivor's key comes from the roster; this device's must be the one it holds.
+    guard
+      roster.first(where: { $0.id == product.trustedDeviceId })?.encryptionKey
+        == (try deviceKey(account).publicKey.rawRepresentation)
+    else { throw RegistrationError.unavailable }
+    let epoch = (vault.ring.keys.map(\.version).max() ?? vault.ring.current) + 1
     let ring = ProductSyncKeyRing(
       current: epoch,
       keys: vault.ring.keys + [.init(version: epoch, key: ProductSyncSeal.randomKey())])
     let recoveryKey = RecoveryKey.generate()
-    let transition = try KeyRingEnvelope.rotation(
-      ring, sealedWith: vault.ring, epoch: committed, account: account)
-    // Kept before sending: if the reply is lost, the next synchronization learns whether it applied.
-    vault.revocation = PendingRevocation(
-      recoveryKey: recoveryKey.bytes, transition: transition, trustedDeviceId: trustedDeviceId)
-    try saveVault(vault)
-    do {
-      try await backend.revoke(
-        identity, product, trustedDeviceId, transition,
-        KeyRingEnvelope.recovery(ring, key: recoveryKey, account: account),
-        KeyRingEnvelope.recoveryVerifier(recoveryKey, account: account), recovery.updatedAt)
-    } catch {
-      // Only a lost connection leaves the outcome unknown; a refusal changed nothing.
-      if !(error is URLError || error is CancellationError) {
-        vault.revocation = nil
-        try saveVault(vault)
-      }
-      throw error
+    let envelopes = try roster.filter { $0.id != trustedDeviceId }.map { device in
+      guard let key = device.encryptionKey else { throw RegistrationError.unavailable }
+      let recipient = KeyRingEnvelope.RotationRecipient(
+        account: account, device: device.id,
+        publicKey: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: key))
+      return RevocationRequest.Envelope(
+        trustedDeviceId: device.id, publicKey: key,
+        envelope: try KeyRingEnvelope.rotation(ring, to: recipient))
     }
-    trustedDevices[account]?.removeAll { $0.id == trustedDeviceId }
-    _ = try await synchronize(saved)
-    // Only this removal's own transition, once adopted, makes its new Recovery Key current. A removal
-    // another device completed first, or a synchronization that failed just now, leaves it unconfirmed.
-    return try loadVault(account)?.recoveryKey == recoveryKey.bytes ? "removed" : "unconfirmed"
+    let proposalId = ProductSyncSeal.randomKey().prefix(16).map { String(format: "%02x", $0) }
+      .joined()
+    return PendingRevocation(
+      request: RevocationRequest(
+        proposalId: proposalId, trustedDeviceId: trustedDeviceId,
+        expectedKeyEpoch: vault.ring.current, expectedRecoveryUpdatedAt: recovery.updatedAt,
+        envelopes: envelopes,
+        recovery: try KeyRingEnvelope.recovery(ring, key: recoveryKey, account: account),
+        recoveryVerifier: KeyRingEnvelope.recoveryVerifier(recoveryKey, account: account)),
+      recoveryKey: recoveryKey.bytes)
   }
 
-  // Adopts the epoch a removal started, sealed to a key this device holds, and reports it so the
-  // rotation completes once every remaining device has. A removal this device sent without a reply
-  // is confirmed by the account's pending transition: only then does its new Recovery Key apply.
+  // Adopts this device's latest key ring, sealed to its encryption key, however many removals it
+  // missed, saves it and only then acknowledges it. An activation this device sent without a reply
+  // is settled here: once the account recorded it, the device's own envelope carries its ring.
   func adoptRotation(
     _ vault: ProductSyncVault, backend: ProductSyncBackend, session: ProductSignInIdentity,
     _ product: ProductRegistrationReceipt
   ) async throws -> ProductSyncVault {
-    let rotation = try await backend.keyRotation(session, product)
+    try await adoptRotationWithOutcome(vault, backend: backend, session: session, product).vault
+  }
+
+  // Settlement uses the freshest receipt observed during adoption, even without a device key.
+  func adoptRotationWithOutcome(
+    _ vault: ProductSyncVault, backend: ProductSyncBackend, session: ProductSignInIdentity,
+    _ product: ProductRegistrationReceipt
+  ) async throws -> (
+    vault: ProductSyncVault, outcome: (keyEpoch: Int, recoveryKeyCurrent: Bool)?
+  ) {
+    let account = product.productAccountId
     var next = vault
-    if let pending = vault.revocation {
+    var changed = false
+    let outcome =
+      if let pending = vault.revocation, pending.submitted {
+        try await backend.revocationOutcome(session, product, pending.request.proposalId)
+      } else {
+        nil as (keyEpoch: Int, recoveryKeyCurrent: Bool)?
+      }
+    if try keys.read(deviceKeyAccount(account)) == nil {
+      if let outcome, let pending = vault.revocation {
+        // The receipt commits this exact proposal; its confirmed backup opens only that ring.
+        let ring = try KeyRingEnvelope.openRecovery(
+          pending.request.recovery, key: RecoveryKey(bytes: pending.recoveryKey), account: account)
+        guard ring.current == outcome.keyEpoch, vault.ring.keys.allSatisfy(ring.keys.contains) else {
+          throw ProductSyncError.rejected
+        }
+        next.ring = ring
+        next.revocation = nil
+        try saveVault(next)
+      }
+      // No rotation acknowledgement or ordinary synchronization without fresh device admission.
+      return (next, outcome)
+    }
+    let rotation = try await backend.keyRotation(session, product)
+    if let rotation, !next.ring.keys.contains(where: { $0.version == rotation.keyEpoch }) {
+      let key = try deviceKey(account)
+      next.ring = try KeyRingEnvelope.openRotation(
+        rotation, with: key,
+        recipient: .init(
+          account: account, device: product.trustedDeviceId, publicKey: key.publicKey),
+        current: next.ring)
+      changed = true
+    }
+    if let outcome, next.ring.current >= outcome.keyEpoch {
       next.revocation = nil
-      if rotation?.transition == pending.transition {
-        next.recoveryKey = pending.recoveryKey
-        next.recoveryKeyConfirmed = false
+      changed = true
+    }
+    if changed { try saveVault(next) }
+    if let rotation {
+      do {
+        try await backend.acknowledgeRotation(session, product, rotation.keyEpoch)
+      } catch let error as RegistrationError where error.endsAccess {
+        throw error
+      } catch {
+        // Adoption is durable; later synchronization retries this tracking-only acknowledgement.
+        Self.logProductSyncFailure("Product Sync rotation acknowledgement failed", error)
       }
     }
-    if let rotation, !vault.ring.keys.contains(where: { $0.version == rotation.keyEpoch }) {
-      next.ring = try KeyRingEnvelope.openRotation(
-        rotation.transition, with: vault.ring, keyEpoch: rotation.keyEpoch,
-        account: product.productAccountId)
-    }
-    if vault.revocation != nil || next.ring != vault.ring {
-      try saveVault(next)
-    }
-    if let rotation {
-      try await backend.acknowledgeRotation(session, product, rotation.keyEpoch)
-    }
-    return next
+    return (next, outcome)
   }
 }

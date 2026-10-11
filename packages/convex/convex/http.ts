@@ -8,6 +8,7 @@ import type { ActionCtx } from './_generated/server.js';
 import { internal } from './_generated/api.js';
 import { env, httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
+import { keyRotationErrorCodes } from './productAccount.js';
 import {
   pendingDeviceUnavailableErrorCode,
   trustedDeviceReconnectRequiredErrorCode,
@@ -53,8 +54,19 @@ const decodeRecoveryMaterialRequest = Schema.decodeUnknownOption(
 );
 const decodeTrustedDeviceRevocationRequest = Schema.decodeUnknownOption(
   Schema.Struct({
-    encryptedTransition: EncryptedPayloadSchema,
+    expectedKeyEpoch: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
     expectedRecoveryUpdatedAt: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+    keyEnvelopes: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          ciphertextBase64: Schema.String,
+          deviceEncryptionPublicKey: Schema.String,
+          encapsulatedKeyBase64: Schema.String,
+          trustedDeviceId: Schema.String,
+        }),
+      ),
+    ),
+    proposalId: Schema.String,
     recoveryVerifier: Schema.String,
     recoveryWrappedAccountKey: EncryptedPayloadSchema,
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
@@ -101,6 +113,18 @@ const isTrustedDeviceAccessFailure = Schema.is(
       trustedDeviceReconnectRequiredErrorCode,
     ]),
   }),
+);
+
+const isKeyRotationConflict = Schema.is(
+  Schema.Struct({
+    code: Schema.Literals([
+      keyRotationErrorCodes.alreadyRemoved,
+      keyRotationErrorCodes.conflict,
+    ]),
+  }),
+);
+const isKeyRotationInvalid = Schema.is(
+  Schema.Struct({ code: Schema.Literal(keyRotationErrorCodes.invalid) }),
 );
 
 const MicrosoftGraphNotificationSchema = Schema.Struct({
@@ -229,6 +253,15 @@ async function revokeTrustedDeviceResponse(
     const trustedDeviceFailure = trustedDeviceFailureResponse(error);
     if (trustedDeviceFailure !== null) {
       return trustedDeviceFailure;
+    }
+    // A stale proposal is prepared again; material that can never activate is refused outright.
+    const failure: unknown =
+      error instanceof ConvexError ? error.data : undefined;
+    if (isKeyRotationConflict(failure)) {
+      return Response.json({ code: failure.code }, { status: 409 });
+    }
+    if (isKeyRotationInvalid(failure)) {
+      return new Response('Invalid Trusted Device revocation', { status: 400 });
     }
     throw error;
   }

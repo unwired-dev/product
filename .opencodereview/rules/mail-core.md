@@ -71,6 +71,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `registration-flow.ts.confirmRevocation` consuming stale authentication without renewing the saved identity and retrying the same confirmation at most once, or skipping the `guarded` preflight for preparation, confirmation or cancellation. Trace the native fixed rejection code and Schema-decoded notice/projection together; renewal must not submit a different proposal or bypass saved-key confirmation. Otherwise a form left open cannot activate its confirmed removal, or retries authorize new material without consent.
 - `remote-content.ts.createRemoteContentSettings` or another privacy-relevant
   settings store publishing permissive defaults before persisted choices load.
   Keep readers closed while the policy is unresolved, including cache-only

@@ -1,0 +1,383 @@
+{
+  "schema_version": "1",
+  "mode": "workspace",
+  "repository": "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261010-1731",
+  "total_files": 60,
+  "reviewable_count": 51,
+  "excluded_count": 9,
+  "total_insertions": 1799,
+  "total_deletions": 284,
+  "reviewable_files": [
+    {
+      "path": ".opencodereview/rules/common.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": ".opencodereview/rules/convex.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": ".opencodereview/rules/docs.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0
+    },
+    {
+      "path": ".opencodereview/rules/native.md",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 2
+    },
+    {
+      "path": "GLOSSARY.md",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 2
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 2
+    },
+    {
+      "path": "docs/README.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/adr/0001-end-to-end-encrypted-product-sync.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "docs/adr/0006-local-metadata-search-provider-full-text-search.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0012-bounded-encrypted-body-cache.md",
+      "status": "modified",
+      "insertions": 9,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0020-revoke-devices-with-sync-key-rotation.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "docs/adr/0030-gate-incoming-attachment-downloads.md",
+      "status": "modified",
+      "insertions": 9,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0061-separate-product-identity-from-registration-mailbox-authorization.md",
+      "status": "modified",
+      "insertions": 9,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0062-keep-queued-delivery-on-its-originating-device.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0063-notify-for-new-inbox-mail-without-categorization.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0066-admit-devices-only-through-authorized-enrollment.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2
+    },
+    {
+      "path": "docs/adr/0067-keep-native-code-to-a-minimal-vault.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "docs/adr/0069-expand-the-apple-launch-to-power-user-mail.md",
+      "status": "added",
+      "insertions": 110,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/README.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/apple-registration.md",
+      "status": "modified",
+      "insertions": 27,
+      "deletions": 3
+    },
+    {
+      "path": "docs/architecture/README.md",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 3
+    },
+    {
+      "path": "docs/architecture/account-removal.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "docs/architecture/open-code-review.md",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 2
+    },
+    {
+      "path": "docs/architecture/private-product-sync.md",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 4
+    },
+    {
+      "path": "docs/architecture/product/assistance.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/architecture/product/identity.md",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 4
+    },
+    {
+      "path": "docs/architecture/product/mailboxes.md",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 4
+    },
+    {
+      "path": "docs/architecture/product/messages-and-delivery.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/architecture/product/organization.md",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 3
+    },
+    {
+      "path": "docs/architecture/product/privacy-and-sync.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/architecture/repository.md",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 1
+    },
+    {
+      "path": "docs/domain/assistance.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/domain/identity.md",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 4
+    },
+    {
+      "path": "docs/domain/mailboxes.md",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 5
+    },
+    {
+      "path": "docs/domain/messages-and-delivery.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/domain/organization.md",
+      "status": "modified",
+      "insertions": 13,
+      "deletions": 3
+    },
+    {
+      "path": "docs/domain/privacy-and-sync.md",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 1
+    },
+    {
+      "path": "docs/domain/testing.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/google-registration.md",
+      "status": "modified",
+      "insertions": 26,
+      "deletions": 0
+    },
+    {
+      "path": "docs/private-product-sync.md",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 0
+    },
+    {
+      "path": "docs/product/identity.md",
+      "status": "modified",
+      "insertions": 5,
+      "deletions": 4
+    },
+    {
+      "path": "docs/product/mailboxes.md",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 4
+    },
+    {
+      "path": "docs/product/organization.md",
+      "status": "modified",
+      "insertions": 3,
+      "deletions": 2
+    },
+    {
+      "path": "docs/product/power-user-launch.md",
+      "status": "added",
+      "insertions": 216,
+      "deletions": 0
+    },
+    {
+      "path": "docs/qualification/expo-rewrite-ticket-coverage.md",
+      "status": "modified",
+      "insertions": 12,
+      "deletions": 0
+    },
+    {
+      "path": "docs/research/expo-react-native-rewrite.md",
+      "status": "modified",
+      "insertions": 12,
+      "deletions": 0
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/DeviceRevocation.swift",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 4
+    },
+    {
+      "path": "native/private-inbox/Tests/PrivateInboxTests/ProductSyncTests.swift",
+      "status": "modified",
+      "insertions": 18,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md",
+      "status": "added",
+      "insertions": 211,
+      "deletions": 0
+    }
+  ],
+  "excluded_files": [
+    {
+      "path": "docs/adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md",
+      "status": "deleted",
+      "insertions": 0,
+      "deletions": 211,
+      "exclude_reason": "deleted"
+    },
+    {
+      "path": "scratchpad/review-753-round8/check-links.py",
+      "status": "added",
+      "insertions": 38,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/final-preview.json",
+      "status": "added",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/new-adr-rule.json",
+      "status": "added",
+      "insertions": 14,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/ocr",
+      "status": "binary",
+      "insertions": 0,
+      "deletions": 0,
+      "exclude_reason": "binary"
+    },
+    {
+      "path": "scratchpad/review-753-round8/range-preview.json",
+      "status": "added",
+      "insertions": 430,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/range-rules.json",
+      "status": "added",
+      "insertions": 172,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/workspace-preview.json",
+      "status": "added",
+      "insertions": 262,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    },
+    {
+      "path": "scratchpad/review-753-round8/workspace-rules.json",
+      "status": "added",
+      "insertions": 60,
+      "deletions": 0,
+      "exclude_reason": "user_exclude"
+    }
+  ]
+}

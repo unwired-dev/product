@@ -36,6 +36,8 @@ RCT_EXTERN_METHOD(recoverWithRecoveryKey:(NSString *)entry resolver:(RCTPromiseR
 RCT_EXTERN_METHOD(approveEnrollment:(NSString *)requestId code:(NSString *)code resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(declineEnrollment:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(revokeTrustedDevice:(NSString *)trustedDeviceId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(confirmRevocation:(NSString *)entry resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(cancelRevocation:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailRequest:(NSString *)path query:(NSArray *)query mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(cancelGmailRequest:(NSString *)request)
 RCT_EXTERN_METHOD(gmailModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

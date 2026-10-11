@@ -148,6 +148,11 @@ export interface NativeRegistrationVault {
     code: string,
   ) => Promise<unknown>;
   readonly declineEnrollment: (requestId: string) => Promise<unknown>;
-  // Temporary until #758: removes another Trusted Device with the latest sign-in.
+  // Temporary until #758: prepares removing another Trusted Device with the latest sign-in.
   readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
+  // Temporary until #758: activates the prepared removal once its replacement Recovery Key's final
+  // group matches; a sign-in that is no longer recent rejects as stale authentication.
+  readonly confirmRevocation: (entry: string) => Promise<unknown>;
+  // Temporary until #758: discards the prepared removal, settling an unanswered one first.
+  readonly cancelRevocation: () => Promise<unknown>;
 }
