@@ -2,11 +2,14 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
+import { singleMailbox } from '@private-email/mail-core/mailboxes';
+import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import {
   createRegistration,
   defaultProfile,
 } from '@private-email/mail-core/registration';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
+import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import {
   createMockRegistrationSession,
   syntheticRecoveryKey,
@@ -20,6 +23,8 @@ import {
   MailAssistanceGate,
   MailAssistanceSettings,
 } from '../src/mail-assistance.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
+import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageSummary } from '../src/message-summary.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { DraftTranslation, MessageTranslation } from '../src/translation.tsx';
@@ -157,6 +162,78 @@ describe('account settings availability', () => {
       expect(assistance.calls).toStrictEqual(['availability']);
     },
   );
+
+  /* oxlint-disable vitest/max-expects -- One reader journey protects consent, revocation and Profile replacement. */
+  it('uses the reader’s Profile consent and cancels when that consent is revoked', async () => {
+    expect.hasAssertions();
+    const owner = 'synthetic-product-account';
+    const enablement = createMailAssistanceEnablement({
+      mailAssistance: () =>
+        Promise.resolve({ owner, profiles: [defaultProfile] }),
+      setMailAssistance: (account, profiles) =>
+        Promise.resolve({ owner: account, profiles }),
+    });
+    await enablement.load(owner);
+    const assistance = scriptedAssistance();
+    const session = createMockMailSession('open-read-relaunch');
+    const fixture = createPersistentInbox(
+      makeMockInboxStorage(),
+      session.mail.list,
+    );
+    await fixture.load();
+    const original = singleMailbox(fixture, 'work-mailbox');
+    const snapshot = original
+      .getSnapshot()
+      .map((mailbox) => ({ ...mailbox, profile: 'work' }));
+    const mailboxes = { ...original, getSnapshot: () => snapshot };
+    const { translation } = session;
+    const view = (profile: string) => (
+      <MailAssistanceContext value={enablement}>
+        <MailAssistanceGate
+          account={owner}
+          assistance={assistance.native}
+          translation={translation}>
+          <ProfileScope profile={profile}>
+            <InboxProvider mailboxes={mailboxes}>
+              <MessageDetail
+                mailbox="work-mailbox"
+                id="weekend-walk"
+              />
+            </InboxProvider>
+          </ProfileScope>
+        </MailAssistanceGate>
+      </MailAssistanceContext>
+    );
+    const app = await render(view('work'));
+    expect(
+      screen.queryByRole('button', { name: 'Summarize this message' }),
+    ).toBeNull();
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', true);
+      await enablement.setEnabled(owner, defaultProfile, false);
+    });
+    await press('Summarize this message');
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', false);
+    });
+    expect(assistance.cancelled).toHaveLength(1);
+    await act(() => assistance.answers[0]?.('Retired Work preview'));
+    expect(screen.queryByText('Retired Work preview')).toBeNull();
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', true);
+      await enablement.setEnabled(owner, defaultProfile, true);
+    });
+    await press('Summarize this message');
+    await app.rerender(view(defaultProfile));
+    expect(assistance.cancelled).toHaveLength(2);
+    await act(() => assistance.answers[1]?.('Retired Profile preview'));
+    expect(screen.queryByText('Retired Profile preview')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Summarize this message' }),
+    ).toBeNull();
+  });
+
+  /* oxlint-enable vitest/max-expects */
 
   it('reports an unsaved Off choice and retries it without reopening assistance', async () => {
     expect.hasAssertions();

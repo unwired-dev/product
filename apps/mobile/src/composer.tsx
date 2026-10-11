@@ -103,6 +103,7 @@ import {
   useDraftStore,
   useLeaveComposer,
   useOutbox,
+  useProfile,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
@@ -409,14 +410,16 @@ export function DraftList({
   const colors = usePalette();
   const { t } = useLocalization();
   const navigation = useComposerNavigation();
+  const windowProfile = useProfile();
   const creating = useRef(false);
   const [creatingShown, setCreatingShown] = useState(false);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
+  // The unified Inbox sends from the window's Profile.
   const senders = sendingMailboxes(
     account.mailboxes,
-    profileOf(scope, account.mailboxes),
+    scope === undefined ? windowProfile : profileOf(scope, account.mailboxes),
   );
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
   // One new Draft at a time: a second press while one is being created does nothing.

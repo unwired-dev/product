@@ -103,18 +103,26 @@ its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile stays unavailable until both migration batches below finish and
 [#647](https://github.com/unwired-dev/product/issues/647) enables it.
 
-Callers that still read or act without an explicit Profile, by migration batch:
-
-- Reading and search, [#645](https://github.com/unwired-dev/product/issues/645):
-  - `packages/mail-core`: `mailboxes.ts` (`createMailboxes`, `inboxMessages`,
-    `searchMessages`, `savedMessageBodies`, `createGmailSearch`),
-    `registration.ts` (`mailboxesOf`, `canOpenInbox`, `inboxLanding`),
-    `gmail-inbox.ts`, `graph-inbox.ts`, `freshness.ts` and `remote-content.ts`.
-  - Both Apple hosts: `inbox.tsx`, `mailbox.tsx`, `message-detail.tsx`,
-    `message-body.tsx`, `remote-content.tsx`, `organize.tsx`,
-    `registration-gate.tsx`, and the Mac `window.tsx`.
-  - Convex: the Gmail provider connection list, connection and removal in
-    `productAccount.ts`.
+Reading and search name their Profile explicitly
+([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and
+the iPhone/iPad window shows one Mail Profile. Native Mac windows currently open
+the Default Profile. On iPhone/iPad, a message link with a `profileId` parameter
+opens only in that Profile; an old-form link without one, from before Profiles,
+opens in the Default Profile. Closing a targeted reader returns to the same
+Profile's Inbox. Malformed Profile selectors, including repeated link parameters,
+remain unavailable.
+Changing a window's Profile retires its previous reader presentation and clears
+its search and mailbox choice.
+The unified and single-mailbox Inbox, local and online search, the reader
+with its body and remote-content caches, organizing, and provider-authorization notices
+read only the window's Profile's connections. A connection owned by another
+Profile, or a Profile owning nothing on this device, shows nothing: such a link reads
+as an unavailable message. Background synchronization, body prefetch and freshness
+keep running for every connection whatever Profile a window shows. A connection
+moved to another Profile keeps its Inbox and cached mail. The account page still
+lists every connection of the Product Account for review and removal. Convex learns
+no Profile ownership: its connection list and connection/removal operations for
+Gmail and Microsoft stay scoped to the Product Account and trusted device.
 
 The Drafts, delivery and notifications batch,
 [#646](https://github.com/unwired-dev/product/issues/646), scopes shared Draft and
@@ -128,8 +136,8 @@ Profile, which every Draft and Outbox entry sending from it shares, and
 - The Draft store refuses a sender change into another Profile and a received
   attachment from another Profile's connection.
 - **Reply All** leaves out only the sending Profile's own addresses.
-- A connection that is no longer listed, and the unified Inbox, fall back to the
-  Default Profile.
+- A new message from the unified Inbox sends from the window's Profile. A
+  connection that is no longer listed falls back to the Default Profile.
 
 Storage, Product Sync records, Delivery Owners, Outbox claims and their payloads
 are unchanged. Push wakes carry no content and synchronize every connection. The
@@ -145,7 +153,9 @@ the [architecture companion](architecture/private-inbox-storage.md#drafts-delive
 records the staging decision and its rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
-compatibility path through substituted provider and storage boundaries. Before
+compatibility path through substituted provider and storage boundaries. Deterministic
+isolation checks substitute a second Profile, which no host can create yet, to show
+that windows, links and searches never reach another Profile's mail. Before
 release, verify Default Profile read/compose/relaunch on each maintained Apple
 host with real provider credentials, encrypted private state and queued work
 preserved. Mock tests and earlier native journeys do not qualify this combination.
@@ -154,6 +164,11 @@ No setup or data reset is required for this slice.
 [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is a
 device-only Keychain item per Product Account listing its enabled Profiles. Every
 account purge removes it with the account's keys.
+
+Reader Mail Assistance uses the reading Profile’s device-local consent, including
+Translation, and cancels retained work when that consent is revoked or the reading
+Profile changes. Account settings and Draft consent retain their staged Default
+Profile paths until #647 supplies their ownership and lifecycle.
 
 ## Message body cache
 

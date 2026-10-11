@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SavedAttachment } from './message-body.tsx';
 
 import { useLocalization, useMessageDateFormat } from './localization.ts';
+import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
   MailboxScope,
   useComposerNavigation,
@@ -34,6 +35,7 @@ import {
   useInbox,
   useInboxActions,
   useMailbox,
+  useProfile,
 } from './mailbox.tsx';
 import {
   AttachContext,
@@ -252,6 +254,7 @@ export function MessageDetail({
   // Opens a Draft the reader started, such as one with a received attachment.
   readonly onCompose?: ((id: string) => void) | undefined;
 }) {
+  const profile = useProfile();
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
@@ -266,15 +269,17 @@ export function MessageDetail({
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      {onCompose === undefined ? (
-        message
-      ) : (
-        <AttachToNewMessage
-          key={`${mailbox}/${id}`}
-          onCompose={onCompose}>
-          {message}
-        </AttachToNewMessage>
-      )}
+      <ReaderMailAssistanceGate profile={profile}>
+        {onCompose === undefined ? (
+          message
+        ) : (
+          <AttachToNewMessage
+            key={`${mailbox}/${id}`}
+            onCompose={onCompose}>
+            {message}
+          </AttachToNewMessage>
+        )}
+      </ReaderMailAssistanceGate>
     </MailboxScope>
   );
 }
@@ -611,6 +616,7 @@ export function ThreadView({
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
 }) {
+  const profile = useProfile();
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
@@ -618,10 +624,12 @@ export function ThreadView({
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      <ThreadMessages
-        key={`${mailbox}/${id}`}
-        id={id}
-      />
+      <ReaderMailAssistanceGate profile={profile}>
+        <ThreadMessages
+          key={`${mailbox}/${id}`}
+          id={id}
+        />
+      </ReaderMailAssistanceGate>
     </MailboxScope>
   );
 }

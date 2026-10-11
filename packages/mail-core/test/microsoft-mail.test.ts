@@ -684,68 +684,115 @@ describe('reading Microsoft mail through Graph', () => {
     });
   });
 
-  it('shows Gmail and Microsoft mail together while only Gmail searches online and sends', async () => {
-    expect.hasAssertions();
-    const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
-    const graph = createSyntheticGraph();
-    gmail.deliver({ subject: 'From Gmail', at: Date.UTC(2026, 8, 1, 9) });
-    graph.deliver({ subject: 'From Outlook', at: Date.UTC(2026, 8, 1, 10) });
-    const session = createMockRegistrationSession('registration-success');
-    const registration = createRegistration(session.native);
-    await registration.register('apple');
-    // Microsoft mail can be the first mailbox, without any Gmail grant.
-    await registration.addMailbox('microsoft-graph');
-    expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
-      {
-        id: syntheticMailboxes['casey@example.invalid'],
-        provider: 'microsoft-graph',
-        address: 'casey@example.invalid',
-        state: 'connected',
+  it.each([
+    {
+      graphProfile: defaultProfile,
+      subjects: ['From Outlook', 'From Gmail'],
+    },
+    { graphProfile: 'work', subjects: ['From Gmail'] },
+  ])(
+    'reads Microsoft mail in $graphProfile while only Gmail searches online and sends',
+    async ({ graphProfile, subjects }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
+      const graph = createSyntheticGraph();
+      gmail.deliver({ subject: 'From Gmail', at: Date.UTC(2026, 8, 1, 9) });
+      graph.deliver({ subject: 'From Outlook', at: Date.UTC(2026, 8, 1, 10) });
+      const session = createMockRegistrationSession('registration-success');
+      const registration = createRegistration(session.native);
+      await registration.register('apple');
+      // Microsoft mail can be the first mailbox, without any Gmail grant.
+      await registration.addMailbox('microsoft-graph');
+      expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
+        {
+          id: syntheticMailboxes['casey@example.invalid'],
+          provider: 'microsoft-graph',
+          address: 'casey@example.invalid',
+          state: 'connected',
+          profile: defaultProfile,
+        },
+      ]);
+      expect(
+        registrationCopy(english, registration.getSnapshot().snapshot).title,
+      ).toBe('Mail connected');
+      await registration.addMailbox('gmail', true);
+      const mailboxes = createMailboxes(
+        syntheticConnections({
+          [syntheticMailboxes['other@example.invalid']]: gmail,
+          [syntheticMailboxes['casey@example.invalid']]: graph,
+        }),
+        {
+          ...registration,
+          getSnapshot: () => {
+            const current = registration.getSnapshot();
+            const profiles = {
+              gmail: defaultProfile,
+              'microsoft-graph': graphProfile,
+            };
+            return {
+              ...current,
+              snapshot: {
+                ...current.snapshot,
+                mailboxes: JSON.stringify(
+                  mailboxesOf(current.snapshot).map((connection) => ({
+                    ...connection,
+                    profile: profiles[connection.provider],
+                  })),
+                ),
+              },
+            };
+          },
+        },
+      );
+      await mailboxes.load();
+
+      const shown = mailboxes.getSnapshot();
+      expect(
+        shown.map(({ provider, address }) => [provider, address]),
+      ).toStrictEqual([
+        ['microsoft-graph', 'casey@example.invalid'],
+        ['gmail', 'other@example.invalid'],
+      ]);
+      expect(
+        inboxMessages(shown, { profile: defaultProfile }).map(
+          ({ message }) => message.subject,
+        ),
+      ).toStrictEqual(subjects);
+      expect(
+        inboxMessages(shown, {
+          profile: graphProfile,
+          mailbox: syntheticMailboxes['casey@example.invalid'],
+        }).map(({ message }) => message.subject),
+      ).toStrictEqual(['From Outlook']);
+      expect(inboxMessages(shown, { profile: 'unknown' })).toStrictEqual([]);
+      const workSearch = createGmailSearch(shown, 'From', { profile: 'work' });
+      expect(workSearch.available).toBe(false);
+      await workSearch.search();
+      expect(workSearch.getSnapshot().found?.results).toStrictEqual([]);
+
+      const search = createGmailSearch(shown, 'From', {
         profile: defaultProfile,
-      },
-    ]);
-    expect(
-      registrationCopy(english, registration.getSnapshot().snapshot).title,
-    ).toBe('Mail connected');
-    await registration.addMailbox('gmail', true);
-    const mailboxes = createMailboxes(
-      syntheticConnections({
-        [syntheticMailboxes['other@example.invalid']]: gmail,
-        [syntheticMailboxes['casey@example.invalid']]: graph,
-      }),
-      registration,
-    );
-    await mailboxes.load();
+      });
+      await search.search();
+      expect(search.getSnapshot().found?.failures).toStrictEqual([]);
+      expect(
+        search
+          .getSnapshot()
+          .found?.results.map(({ mailbox }) => mailbox.provider),
+      ).toStrictEqual(['gmail']);
+      expect(reads(graph).filter((kind) => kind === 'message')).toStrictEqual(
+        [],
+      );
 
-    const shown = mailboxes.getSnapshot();
-    expect(
-      shown.map(({ provider, address }) => [provider, address]),
-    ).toStrictEqual([
-      ['microsoft-graph', 'casey@example.invalid'],
-      ['gmail', 'other@example.invalid'],
-    ]);
-    expect(
-      inboxMessages(shown, undefined).map(({ message }) => message.subject),
-    ).toStrictEqual(['From Outlook', 'From Gmail']);
-
-    const search = createGmailSearch(shown, 'From', undefined);
-    await search.search();
-    expect(search.getSnapshot().found?.failures).toStrictEqual([]);
-    expect(
-      search
-        .getSnapshot()
-        .found?.results.map(({ mailbox }) => mailbox.provider),
-    ).toStrictEqual(['gmail']);
-    expect(reads(graph).filter((kind) => kind === 'message')).toStrictEqual([]);
-
-    expect(
-      sendingMailboxes(
-        mailboxesOf(registration.getSnapshot().snapshot),
-        defaultProfile,
-      ).map(({ address }) => address),
-    ).toStrictEqual(['other@example.invalid']);
-    await expect(
-      shown[0]?.inbox.send({ segments: [{ text: 'Hello' }] }),
-    ).resolves.toStrictEqual({ kind: 'failed', problem: 'mailbox' });
-  });
+      expect(
+        sendingMailboxes(
+          mailboxesOf(registration.getSnapshot().snapshot),
+          defaultProfile,
+        ).map(({ address }) => address),
+      ).toStrictEqual(['other@example.invalid']);
+      await expect(
+        shown[0]?.inbox.send({ segments: [{ text: 'Hello' }] }),
+      ).resolves.toStrictEqual({ kind: 'failed', problem: 'mailbox' });
+    },
+  );
 });

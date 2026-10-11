@@ -166,6 +166,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   change retires the previous request's controls. Otherwise stale input starts
   hidden inference or replaces, cancels or closes a later translation.
 
+- `MessageDetail` or `ThreadView` inheriting the Account/Draft gate’s Default
+  Profile consent for a reader of another Profile. Check the reader gate and
+  `useMailAssistanceLifetime` against the same explicit reading Profile, including
+  revocation and Profile replacement; otherwise Default consent exposes another
+  Profile’s mail to assistance or queued input revives a discarded preview.
+  Preserve staged Account settings and Draft consent until their ownership lands.
+
 - `mail-assistance.tsx.MailAssistanceSettings` presenting an Off choice as saved
   after `setEnabled` catches a Keychain rejection. Keep the gate immediately off,
   but show unsaved status and retry the desired choice with account ownership
@@ -427,6 +434,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   caching separately from native row construction; bounded descriptor projection
   alone is not evidence that every descriptor needs a native row.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
+- `window.tsx` or another reused reading host keeping selection or presentation
+  state above the keyed `ProfileScope` boundary. A provider key retires only its
+  descendants; place that state within the decoded Profile lifetime and exercise
+  leaving and returning to the same Profile. Otherwise an old reader selection
+  can reappear despite the Inbox clearing its query and mailbox choice. Preserve
+  connection-owned stores and #646’s staged connection-Profile Draft/delivery
+  boundaries.
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
 
@@ -502,6 +516,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
+- A mobile Profile selector whose parameter name disagrees with ADR 0050’s
+  `profileId` route contract. Trace targeted entry, in-app message selection,
+  composing and reader/composer close through the layout’s decoded selector;
+  absent values use Default, while malformed or repeated values fail closed.
+  Exercise a non-Default target through real reading stores and route replacement
+  so a renamed or dropped parameter cannot silently open Default.
 - A deployment target, entitlement, Info.plist privacy string or App Transport Security setting lowered or broadened in `app.config.ts`, a config plugin or the Mac project.
 - A Metro, Babel or config-plugin change that lets mock-session code (`UNWIRED_MOCK_SCENARIO`, `UNWIRED_REGISTRATION_MOCK`) into a build that did not select a scenario.
 

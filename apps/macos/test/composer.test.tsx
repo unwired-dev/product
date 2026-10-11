@@ -35,7 +35,7 @@ import {
   MailAssistanceContext,
   MailAssistanceGate,
 } from '../src/mail-assistance.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
@@ -169,12 +169,14 @@ function App({
   openAccount = ignore,
   onRebind = ignore,
   initialDraft,
+  profile,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: () => void;
   readonly onRebind?: (id: string) => void;
   readonly initialDraft?: string;
+  readonly profile?: string;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -207,24 +209,26 @@ function App({
       <InboxProvider
         drafts={drafts}
         mailboxes={mailboxes}>
-        <Inbox
-          composing={composing}
-          onCompose={setComposing}
-          onSelect={setSelected}
-          selected={selected}
-        />
-        {composing === undefined ? null : (
-          <Composer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={(id) => {
-              setComposing(id);
-              onRebind(id);
-            }}
+        <ProfileScope profile={profile}>
+          <Inbox
+            composing={composing}
+            onCompose={setComposing}
+            onSelect={setSelected}
+            selected={selected}
           />
-        )}
+          {composing === undefined ? null : (
+            <Composer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+              onRebind={(id) => {
+                setComposing(id);
+                onRebind(id);
+              }}
+            />
+          )}
+        </ProfileScope>
       </InboxProvider>
     </AccountContext>
   );
@@ -239,6 +243,50 @@ const press = async (name: string) => {
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
+  it('creates a unified Inbox Draft only from the window’s Profile', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const view = (profile: string) => (
+      <App
+        drafts={drafts}
+        registration={registration}
+        profile={profile}
+      />
+    );
+    const app = await render(view('work'));
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', { name: 'Send from other@example.invalid' }),
+    ).resolves.toHaveProp('accessibilityState', {
+      selected: true,
+      disabled: false,
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
+    await press('Close');
+    await app.rerender(view('unknown'));
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+  });
+
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

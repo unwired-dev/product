@@ -24,6 +24,8 @@ export type InboxMailbox = Readonly<{
   id: string;
   provider?: MailProvider;
   address?: string;
+  // The owning Mail Profile.
+  profile: string;
   inbox: InboxStore;
   state: InboxState;
 }>;

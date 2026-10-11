@@ -50,6 +50,9 @@ const onlineAnswer = <T>(answer: T | undefined): T => {
 
 const at = (day: number) => Date.UTC(2026, 8, day);
 
+// Every connection of the Default Profile, which owns every connection listed before Profiles.
+const everything = { profile: defaultProfile };
+
 // Whether a Gmail request from `connection` is an online search of `mailbox`.
 const searchesIn = (
   mailbox: string,
@@ -176,7 +179,7 @@ describe('mailbox connections and the unified Inbox', () => {
       [alex, 'alex@example.invalid'],
       [other, 'other@example.invalid'],
     ]);
-    const unified = inboxMessages(current, undefined);
+    const unified = inboxMessages(current, everything);
     expect(
       unified.map(({ mailbox: { address }, message }) => [
         address,
@@ -190,11 +193,13 @@ describe('mailbox connections and the unified Inbox', () => {
       ['alex@example.invalid', 'Alex, oldest'],
     ]);
     // The same order holds on every render, and each connection can be shown alone.
-    expect(inboxMessages(mailboxes.getSnapshot(), undefined)).toStrictEqual(
+    expect(inboxMessages(mailboxes.getSnapshot(), everything)).toStrictEqual(
       unified,
     );
     expect(
-      inboxMessages(current, other).map(({ message }) => message.subject),
+      inboxMessages(current, { ...everything, mailbox: other }).map(
+        ({ message }) => message.subject,
+      ),
     ).toStrictEqual(['Other, tied', 'Other, middle']);
     // Registration lists each connection once, in the order it was added. Native storage records
     // no Profile, so every connection belongs to the Default Profile.
@@ -278,10 +283,11 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(ready(mailbox(offline.getSnapshot(), alex).state).sync).toBe(
       'retry',
     );
-    const search = (scope: string | undefined, query: string) =>
-      searchMessages(inboxMessages(offline.getSnapshot(), scope), query).map(
-        ({ mailbox: { address }, message }) => [address, message.subject],
-      );
+    const search = (mailbox: string | undefined, query: string) =>
+      searchMessages(
+        inboxMessages(offline.getSnapshot(), { ...everything, mailbox }),
+        query,
+      ).map(({ mailbox: { address }, message }) => [address, message.subject]);
     expect(search(undefined, 'maya')).toStrictEqual([
       ['other@example.invalid', 'Invoice'],
       ['alex@example.invalid', 'Studio review'],
@@ -332,7 +338,10 @@ describe('mailbox connections and the unified Inbox', () => {
       ['alex@example.invalid', 'Studio review'],
     ]);
     expect(
-      searchMessages(inboxMessages(mailboxes.getSnapshot(), undefined), 'maya'),
+      searchMessages(
+        inboxMessages(mailboxes.getSnapshot(), everything),
+        'maya',
+      ),
     ).toHaveLength(1);
     await expect(otherInbox.savedBodies([studio])).resolves.toStrictEqual(
       new Set(),
@@ -401,7 +410,7 @@ describe('mailbox connections and the unified Inbox', () => {
       ]);
 
     // The first page from each mailbox, newest first across them.
-    const online = createGmailSearch(shown, 'QUARTERLY', undefined);
+    const online = createGmailSearch(shown, 'QUARTERLY', everything);
     await online.search();
     const first = onlineAnswer(online.getSnapshot().found);
     expect(first.failures).toStrictEqual([]);
@@ -474,7 +483,7 @@ describe('mailbox connections and the unified Inbox', () => {
     const protectedSearch = await searchGmail(shown, 'quarterly');
     expect(protectedInbox.getSnapshot().kind).toBe('locked');
     expect(
-      online.matches(mailboxes.getSnapshot(), 'QUARTERLY', undefined),
+      online.matches(mailboxes.getSnapshot(), 'QUARTERLY', everything),
     ).toBe(false);
     expect(
       protectedSearch.results.every(({ mailbox: { id } }) => id === alex),
@@ -613,7 +622,7 @@ describe('mailbox connections and the unified Inbox', () => {
     // The late result cannot bring Other's mail back into memory or the unified Inbox.
     expect(removed.getSnapshot()).toStrictEqual({ kind: 'loading' });
     expect(
-      inboxMessages(mailboxes.getSnapshot(), undefined).map(
+      inboxMessages(mailboxes.getSnapshot(), everything).map(
         ({ message }) => message.subject,
       ),
     ).toStrictEqual(['Stays']);
@@ -911,6 +920,7 @@ describe('searching saved metadata', () => {
     const listing = [
       {
         id: 'saved',
+        profile: defaultProfile,
         state: {
           kind: 'ready',
           messages: [
@@ -961,7 +971,7 @@ describe('searching saved metadata', () => {
       },
     ] as const;
     const search = (query: string) =>
-      searchMessages(inboxMessages(listing, undefined), query).map(
+      searchMessages(inboxMessages(listing, everything), query).map(
         ({ message }) => message.id,
       );
     expect(
