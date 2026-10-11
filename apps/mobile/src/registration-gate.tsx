@@ -95,13 +95,14 @@ const styles = StyleSheet.create({
   device: { gap: 8 },
 });
 
-// The connected Inbox opens the account page and asks for Gmail permission again through this.
+// The connected Inbox opens the account page and asks a mailbox's provider for permission again
+// through this.
 export const AccountContext = createContext<
   | Readonly<{
-      // Every Mailbox Connection, including those waiting for Gmail authorization again.
+      // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
       openAccount: () => void;
-      authorizeGmail: (connection: string) => Promise<void>;
+      authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
     }>
   | undefined
@@ -134,49 +135,59 @@ function Mailboxes({
       <Text style={[styles.text, { color: colors.secondary }]}>
         {t('mailboxes.description')}
       </Text>
-      {mailboxes.map((mailbox) => (
-        <View
-          key={mailbox.id}
-          style={styles.device}>
-          <Text style={[styles.text, { color: colors.foreground }]}>
-            {mailbox.address}
-          </Text>
-          <Text style={[styles.text, { color: colors.secondary }]}>
-            {t(`mailboxes.states.${mailbox.state}`)}
-          </Text>
-          {mailbox.state === 'authorization'
-            ? button(t('mailboxes.allow', { address: mailbox.address }), () =>
-                store.authorizeGmail(mailbox.id),
-              )
-            : null}
-          <MailboxRemoteContent {...mailbox} />
-          {confirming === mailbox.id ? (
-            <>
-              <Text style={[styles.text, { color: colors.foreground }]}>
-                {t('mailboxes.confirm', { address: mailbox.address })}
-              </Text>
-              {button(
+      {mailboxes.map((mailbox) => {
+        const provider = t(`mailProviders.${mailbox.provider}`);
+        return (
+          <View
+            key={mailbox.id}
+            style={styles.device}>
+            <Text style={[styles.text, { color: colors.foreground }]}>
+              {mailbox.address}
+            </Text>
+            <Text style={[styles.text, { color: colors.secondary }]}>
+              {t(`mailboxes.states.${mailbox.state}`, { provider })}
+            </Text>
+            {mailbox.state === 'authorization'
+              ? button(
+                  t('mailboxes.allow', { address: mailbox.address, provider }),
+                  () => store.authorizeMailbox(mailbox.id),
+                )
+              : null}
+            <MailboxRemoteContent {...mailbox} />
+            {confirming === mailbox.id ? (
+              <>
+                <Text style={[styles.text, { color: colors.foreground }]}>
+                  {t('mailboxes.confirm', {
+                    address: mailbox.address,
+                    provider,
+                  })}
+                </Text>
+                {button(
+                  t('mailboxes.remove', { address: mailbox.address }),
+                  async () => {
+                    setConfirming(undefined);
+                    await store.removeMailbox(mailbox.id);
+                  },
+                )}
+                {button(t('mailboxes.cancel'), async () => {
+                  setConfirming(undefined);
+                })}
+              </>
+            ) : (
+              button(
                 t('mailboxes.remove', { address: mailbox.address }),
                 async () => {
-                  setConfirming(undefined);
-                  await store.removeMailbox(mailbox.id);
+                  setConfirming(mailbox.id);
                 },
-              )}
-              {button(t('mailboxes.cancel'), async () => {
-                setConfirming(undefined);
-              })}
-            </>
-          ) : (
-            button(
-              t('mailboxes.remove', { address: mailbox.address }),
-              async () => {
-                setConfirming(mailbox.id);
-              },
-            )
-          )}
-        </View>
-      ))}
-      {button(t('mailboxes.add'), () => store.addMailbox(true))}
+              )
+            )}
+          </View>
+        );
+      })}
+      {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
+      {button(t('mailboxes.addMicrosoft'), () =>
+        store.addMailbox('microsoft-graph'),
+      )}
       <RemoteContentSettings button={button} />
     </>
   );
@@ -731,7 +742,7 @@ export function RegistrationGate({
           });
         }
       },
-      authorizeGmail: store.authorizeGmail,
+      authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
     }),
     [store, snapshot, inboxAccount, setup],
@@ -873,10 +884,13 @@ function RegistrationPage({
         {actions.firstMailbox ? (
           <>
             {button(t('registration.authorizeGmail'), () =>
-              store.addMailbox(false),
+              store.addMailbox('gmail'),
             )}
             {button(t('registration.chooseMailbox'), () =>
-              store.addMailbox(true),
+              store.addMailbox('gmail', true),
+            )}
+            {button(t('registration.connectMicrosoft'), () =>
+              store.addMailbox('microsoft-graph'),
             )}
           </>
         ) : null}

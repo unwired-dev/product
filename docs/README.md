@@ -17,6 +17,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
 - [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
+- [Microsoft mail connection and Graph Inbox](microsoft-mail.md)
 - [On-device message summaries](message-summaries.md)
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)

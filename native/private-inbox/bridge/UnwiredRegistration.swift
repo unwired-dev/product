@@ -150,11 +150,20 @@ final class UnwiredRegistration: NSObject {
         let base = URL(string: deployment), base.scheme == "https", base.host != nil,
         base.user == nil, base.password == nil, base.query == nil, base.fragment == nil
       else { throw RegistrationError.unavailable }
+      // Microsoft mail needs the public-client application registered for this redirect scheme.
+      let microsoftClientID =
+        Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
+      let authentication = MicrosoftAuthentication()
       let store = RegistrationStore(
         keys: DeviceKeychain(service: bundle + ".google-registration"),
         deployment: deployment, clientID: clientID,
         provider: NativeGoogleRegistrationProvider(clientID: clientID),
         apple: NativeAppleRegistrationProvider(audience: bundle),
+        microsoft: microsoftClientID.isEmpty
+          ? nil
+          : GraphMailProvider(
+            clientID: microsoftClientID, callbackScheme: "msauth." + bundle,
+            authenticate: { try await authentication.authenticate($0, callbackScheme: $1) }),
         productSync: Self.productSync(base: base),
         deviceRevoked: { product in
           try await Self.mutation(
@@ -439,20 +448,23 @@ final class UnwiredRegistration: NSObject {
       try await $0.refreshMailbox(connection)
     }
   }
-  @objc(signInMailbox:suggest:resolver:rejecter:)
+  @objc(signInMailbox:suggest:provider:resolver:rejecter:)
   func signInMailbox(
-    _ connection: String?, suggest: Bool, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
+    _ connection: String?, suggest: Bool, provider: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("signInMailbox", resolve, reject: reject) {
-      try await $0.signInMailbox(connection, suggest: suggest)
+      guard let provider = MailProvider(rawValue: provider) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.signInMailbox(connection, suggest: suggest, provider: provider)
     }
   }
-  @objc(verifyGmail:rejecter:)
-  func verifyGmail(
+  @objc(verifyMailbox:rejecter:)
+  func verifyMailbox(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("verifyGmail", resolve, reject: reject) { try await $0.verifyGmail() }
+    perform("verifyMailbox", resolve, reject: reject) { try await $0.verifyMailbox() }
   }
   @objc(confirmMailbox:resolver:rejecter:)
   func confirmMailbox(
@@ -768,6 +780,28 @@ extension UnwiredRegistration {
   @objc(cancelGmailRequest:)
   func cancelGmailRequest(_ request: String) {
     DispatchQueue.main.async { Self.reads[request]?.cancel() }
+  }
+
+  // A Graph read shares Gmail reads' cancellation by request name.
+  @objc(graphRequest:mailbox:resolver:rejecter:)
+  func graphRequest(
+    _ url: String, mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let request = scope["request"] as? String
+    if let request,
+      request.count > 200
+        || request.range(of: "^[0-9A-Za-z:-]+$", options: .regularExpression) == nil
+    {
+      reject("unavailable", "Microsoft mail could not be reached.", nil)
+      return
+    }
+    mailbox("graphRequest", resolve, reject: reject, request: request) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.graph(
+        url: url, connection: connection, address: address, generation: generation)
+    }
   }
 
   @objc(gmailRequest:query:mailbox:resolver:rejecter:)

@@ -44,6 +44,7 @@ describe('headless Gmail freshness', () => {
     const { vault } = createSyntheticVault();
     const flow = createRegistration(createRegistrationFlow(vault));
     await flow.register('google');
+    await flow.addMailbox();
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
     const id = syntheticMailboxes['alex@example.invalid'];

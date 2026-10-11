@@ -9,7 +9,11 @@ import type {
   NativeGmailMailbox,
   RemoteResource,
 } from './gmail-inbox.ts';
-import type { Registration, RegistrationSnapshot } from './registration.ts';
+import type {
+  MailProvider,
+  Registration,
+  RegistrationSnapshot,
+} from './registration.ts';
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
@@ -25,6 +29,10 @@ export interface NativeGmailMailboxes {
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
+    mailbox: Scope & Readonly<{ signal?: Readonly<AbortSignal> }>,
+  ) => Promise<unknown>;
+  readonly graphRequest: (
+    url: string,
     mailbox: Scope & Readonly<{ signal?: Readonly<AbortSignal> }>,
   ) => Promise<unknown>;
   readonly gmailModify: (
@@ -114,6 +122,11 @@ const bound = (
         ...scope(mailbox),
         ...(mailbox.signal === undefined ? {} : { signal: mailbox.signal }),
       }),
+    graphRequest: (url, mailbox) =>
+      native.graphRequest(url, {
+        ...scope(mailbox),
+        ...(mailbox.signal === undefined ? {} : { signal: mailbox.signal }),
+      }),
     gmailModify: (change, mailbox) =>
       native.gmailModify(change, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
@@ -153,6 +166,7 @@ const bound = (
 
 export type Mailbox = Readonly<{
   id: string;
+  provider: MailProvider;
   address: string;
   inbox: GmailInbox;
   state: GmailInboxState;
@@ -160,7 +174,12 @@ export type Mailbox = Readonly<{
 
 const loading: GmailInboxState = { kind: 'loading' };
 
-type OpenMailbox = Readonly<{ id: string; address: string; owner: string }>;
+type OpenMailbox = Readonly<{
+  id: string;
+  provider: MailProvider;
+  address: string;
+  owner: string;
+}>;
 
 // The connections whose Inbox can open, each owned by its Product Account, connection and address.
 const openMailboxes = (
@@ -169,8 +188,9 @@ const openMailboxes = (
   canOpenInbox(account) && account.kind !== 'signed-out'
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')
-        .map(({ id, address, epoch }) => ({
+        .map(({ id, provider, address, epoch }) => ({
           id,
+          provider,
           address,
           owner: [
             account.productAccountId,
@@ -181,10 +201,10 @@ const openMailboxes = (
         }))
     : [];
 
-// One Gmail Inbox per Mailbox Connection that can open, in the order the connections were added.
-// Each keeps its own cache, changes, synchronization and authorization; a connection that needs
-// Gmail again, is removed, or changes Product Account or address loses its Inbox and the mail it
-// held in memory.
+// One Inbox per Mailbox Connection that can open, in the order the connections were added, read
+// from Gmail or Microsoft Graph. Each keeps its own cache, changes, synchronization and
+// authorization; a connection that needs authorization again, is removed, or changes Product
+// Account or address loses its Inbox and the mail it held in memory.
 export function createMailboxes(
   native: NativeGmailMailboxes,
   registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
@@ -195,6 +215,7 @@ export function createMailboxes(
     string,
     {
       readonly owner: string;
+      readonly provider: MailProvider;
       readonly address: string;
       readonly inbox: GmailInbox;
       readonly unsubscribe: () => void;
@@ -220,7 +241,15 @@ export function createMailboxes(
       const previous = snapshot.find((mailbox) => mailbox.id === id);
       return previous?.inbox === entry.inbox && previous.state === shown
         ? [previous]
-        : [{ id, address: entry.address, inbox: entry.inbox, state: shown }];
+        : [
+            {
+              id,
+              provider: entry.provider,
+              address: entry.address,
+              inbox: entry.inbox,
+              state: shown,
+            },
+          ];
     });
     for (const listener of listeners) {
       listener();
@@ -244,14 +273,16 @@ export function createMailboxes(
     mailboxLoading: 'automatic' | 'explicit',
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
-    for (const { id, address, owner } of added) {
+    for (const { id, provider, address, owner } of added) {
       const inbox = createGmailInbox(bound(native, id), {
         removed,
         shared,
         connection: id,
+        provider,
       });
       inboxes.set(id, {
         owner,
+        provider,
         address,
         inbox,
         unsubscribe: inbox.subscribe(notify),
@@ -470,15 +501,17 @@ export async function savedMessageBodies(results: readonly BodyResult[]) {
   return new Map(answers.flat());
 }
 
-// A mailbox whose store searches Gmail; preview stores have no online search.
+// A mailbox whose store may search Gmail; preview stores and Microsoft mail have no online search.
 type Searchable = Readonly<{
   id: string;
   address?: string | undefined;
   inbox: Readonly<{
-    searchGmail: (
-      query: string,
-      pageToken?: string,
-    ) => Promise<GmailSearchPage | undefined>;
+    searchGmail?:
+      | ((
+          query: string,
+          pageToken?: string,
+        ) => Promise<GmailSearchPage | undefined>)
+      | undefined;
   }>;
 }>;
 
@@ -497,7 +530,7 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   >;
 }>;
 
-// Searches every given mailbox in Gmail at once. With `previous`, asks each mailbox that has
+// Searches every given mailbox that has online search in Gmail at once. With `previous`, asks each mailbox that has
 // another page for it and adds the results; a mailbox that fails keeps its page to try again. Each
 // mailbox's failure stays its own, and a mailbox whose Inbox closed meanwhile adds nothing.
 export async function searchGmail<M extends Searchable>(
@@ -506,14 +539,16 @@ export async function searchGmail<M extends Searchable>(
   previous?: OnlineSearch<M>,
 ): Promise<OnlineSearch<M>> {
   const asked = mailboxes.filter(
-    ({ id }) => previous === undefined || previous.next.has(id),
+    ({ id, inbox }) =>
+      inbox.searchGmail !== undefined &&
+      (previous === undefined || previous.next.has(id)),
   );
   const pages = await Promise.all(
     asked.map(
       async (mailbox) =>
         [
           mailbox,
-          await mailbox.inbox.searchGmail(
+          await mailbox.inbox.searchGmail?.(
             query,
             previous?.next.get(mailbox.id),
           ),

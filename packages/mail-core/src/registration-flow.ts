@@ -18,12 +18,19 @@ import type {
   SetupReason,
 } from './registration-vault.ts';
 import type {
+  MailProvider,
   RegistrationPrograms,
   RegistrationSnapshot,
   SignInProvider,
 } from './registration.ts';
 
 import { decodeDiagnostic, rejectionCode } from './diagnostics.ts';
+import {
+  grantsMail,
+  setupReason,
+  suggestsSignIn,
+  unavailableReason,
+} from './mailbox-authorization.ts';
 import {
   BackendReply,
   Identity,
@@ -127,11 +134,6 @@ const rejected = (code: Code, cause?: unknown) =>
   });
 const isCode = Schema.is(CodeSchema);
 
-const gmailScopes = new Set([
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://mail.google.com/',
-]);
-
 // Convex error codes the flow distinguishes; others are unavailable.
 const backendCodes: Readonly<Record<string, Code>> = {
   SIGN_IN_IDENTITY_OWNED: 'identity-owned',
@@ -191,6 +193,7 @@ const mailboxList = (value: RegistrationRecord) =>
     ? undefined
     : JSON.stringify(
         value.mailboxes.map((mailbox) => ({
+          provider: mailbox.provider,
           address: mailbox.address,
           ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
           id: mailbox.id,
@@ -224,10 +227,12 @@ const pending = Effect.fnUntraced(function* (value: RegistrationRecord) {
   if (value.product?.pending === true) {
     return { kind: 'device-pending', ...fields } satisfies RegistrationSnapshot;
   }
-  // Saved mailboxes that all need authorization again read as Gmail being unavailable.
+  // Saved mailboxes that all need authorization again read as the first one's provider being
+  // unavailable.
+  const [first] = value.mailboxes;
   const reason =
     value.mailboxSetupReason ??
-    (value.mailboxes.length === 0 ? undefined : 'gmail-unavailable');
+    (first === undefined ? undefined : unavailableReason(first.provider));
   // Without a verified Product Account no connection's state is known, so none is listed.
   const mailboxes =
     reason === 'unavailable' || reason === 'interrupted'
@@ -374,15 +379,19 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
   });
 
-  const checkedGmail = Effect.fnUntraced(function* (scopes: readonly string[]) {
-    if (!scopes.some((scope) => gmailScopes.has(scope))) {
+  const checkedMailbox = Effect.fnUntraced(function* (
+    provider: MailProvider,
+    scopes: readonly string[],
+  ) {
+    if (!scopes.some((scope) => grantsMail(provider, scope))) {
       return yield* failWith('declined');
     }
-    return yield* native(vault.verifyGmail, MailboxReceipt);
+    return yield* native(vault.verifyMailbox, MailboxReceipt);
   });
 
-  // Reports each retained connection as connected only after its Gmail access verifies again,
-  // including one Gmail refused before. One connection's failure never changes another's state.
+  // Reports each retained connection as connected only after its provider access verifies again,
+  // including one its provider refused before. One connection's failure never changes another's
+  // state.
   const mailboxStatus = Effect.gen(function* () {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
@@ -393,14 +402,16 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         () => vault.refreshMailbox(mailbox.id),
         MailboxIdentity,
       ).pipe(
-        Effect.flatMap(({ scopes }) => checkedGmail(scopes)),
+        Effect.flatMap(({ scopes }) =>
+          checkedMailbox(mailbox.provider, scopes),
+        ),
         Effect.andThen(step(() => vault.confirmMailbox(mailbox.id))),
-        // Cached consent is never proof of usable Gmail access; a refused grant never opens its
+        // Cached consent is never proof of usable mail access; a refused grant never opens its
         // saved mail.
         Effect.catchIf(
           (error) => !endsAccess.has(error.code),
           ({ code }) => {
-            // Offline keeps the saved Inbox open unless Gmail already refused this grant.
+            // Offline keeps the saved Inbox open unless its provider already refused this grant.
             const offline = mailbox.authorizationNeeded
               ? 'unverified'
               : 'cached';
@@ -561,15 +572,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
-  // Authorizes Gmail for the named connection again, or adds a mailbox when none is named. Adding
-  // a mailbox that is already connected repairs that connection instead of duplicating it. The
-  // first mailbox suggests the Google sign-in unless the person chooses another account.
-  const authorizeGmail = Effect.fnUntraced(function* (
+  // Authorizes the named connection's provider again, or adds a mailbox of `added` when none is
+  // named. Adding a mailbox that is already connected repairs that connection instead of
+  // duplicating it. The first Gmail mailbox suggests the Google sign-in unless the person chooses
+  // another account.
+  const authorizeMailbox = Effect.fnUntraced(function* (
     connection: string | null,
+    added: MailProvider,
     chooseAccount: boolean,
   ) {
     const value = yield* saved;
-    // Gmail authorization follows admission; a Pending Device holds no mailbox.
+    // Mailbox authorization follows admission; a Pending Device holds no mailbox.
     if (value.product === undefined || value.product.pending) {
       return yield* failWith('unavailable');
     }
@@ -578,6 +591,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     if (connection !== null && existing === undefined) {
       return yield* failWith('unavailable');
     }
+    const provider = existing?.provider ?? added;
     // A failure leaves other usable mailboxes as they are; the host reports it.
     const keepsMailboxes = value.mailboxes.some(
       ({ id, authorizationNeeded }) =>
@@ -596,19 +610,14 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         value.signInProvider === 'apple' ? 'unavailable' : 'interrupted',
       );
     }
-    // An Apple identity or its relay address is never a Google account hint. Another mailbox is
-    // chosen without one.
-    const suggest =
-      !chooseAccount &&
-      value.mailboxes.length === 0 &&
-      value.signInProvider === 'google';
+    const suggest = suggestsSignIn(value, provider, chooseAccount);
     return yield* Effect.gen(function* () {
       const { scopes } = yield* native(
-        () => vault.signInMailbox(connection, suggest),
+        () => vault.signInMailbox(connection, suggest, provider),
         MailboxIdentity,
       );
-      const receipt = yield* checkedGmail(scopes);
-      // Reauthorization repairs this connection; another Google account is added separately.
+      const receipt = yield* checkedMailbox(provider, scopes);
+      // Reauthorization repairs this connection; another account is added separately.
       if (existing !== undefined && existing.id !== receipt.connection) {
         return yield* failWith('gmail-unavailable');
       }
@@ -619,14 +628,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }).pipe(
       Effect.catchIf(
         (error) => !endsAccess.has(error.code) && !keepsMailboxes,
-        ({ code }) =>
-          failure(
-            code === 'cancelled' ||
-              code === 'declined' ||
-              code === 'gmail-unavailable'
-              ? code
-              : 'interrupted',
-          ),
+        ({ code }) => failure(setupReason(provider, code)),
       ),
     );
   });
@@ -887,8 +889,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   return {
     restore: () => program(restore),
     signIn: (provider) => program(signIn(provider)),
-    addMailbox: (chooseAccount) => program(authorizeGmail(null, chooseAccount)),
-    authorizeGmail: (connection) => program(authorizeGmail(connection, false)),
+    addMailbox: (provider, chooseAccount) =>
+      program(authorizeMailbox(null, provider, chooseAccount)),
+    authorizeMailbox: (connection) =>
+      program(authorizeMailbox(connection, 'gmail', false)),
     removeMailbox: (connection) =>
       program(thenStatus(() => vault.removeMailbox(connection))),
     link: (provider) => program(link(provider)),

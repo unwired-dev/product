@@ -95,6 +95,7 @@ describe('attachment transfer cancellation bridge', () => {
     let close: () => void = () => undefined;
     try {
       await registration.register('google');
+      await registration.addMailbox();
       await gmailMailboxes.load();
       const inbox = required(gmailMailboxes.getSnapshot()[0]?.inbox);
       close = inbox.retainMessage(id);

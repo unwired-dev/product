@@ -255,3 +255,13 @@ a record that already received a Product Account, and it ignores a record for
 another deployment or client. Purging removes every connection's cache, then the
 Product Sync and enrollment items, and the registration record last, so a failed
 purge is retried.
+
+## Microsoft mailbox cache
+
+Microsoft mail uses the same encrypted mailbox/body and protected attachment
+formats and budgets as Gmail. Its provider-scoped connection ID gives it a distinct
+directory even if another provider issues the same subject or message ID. The
+cache owner still binds Product Account, verified subject, address and incarnation;
+every operation retains the native generation and protected-data fences. Existing
+Gmail directory/record IDs and legacy adoption remain unchanged. See
+[the Graph companion](microsoft-mail.md) for transport and synchronization.

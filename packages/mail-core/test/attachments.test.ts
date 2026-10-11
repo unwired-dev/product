@@ -85,7 +85,7 @@ describe('received attachments', () => {
     gmail.setLabel(id, 'INBOX', false);
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
-    await inbox.searchGmail('Archived attachment');
+    await inbox.searchGmail?.('Archived attachment');
     const close = inbox.retainMessage(id);
     await inbox.readMessage(id);
     const notes = locatorOf(inbox, id, 'notes.txt');
@@ -331,7 +331,7 @@ describe('received attachments', () => {
     const { gmail, id, inbox, close } = await opened({
       subject: 'Cancellation',
     });
-    await inbox.searchGmail('Cancellation');
+    await inbox.searchGmail?.('Cancellation');
     gmail.setLabel(id, 'INBOX', false);
     await inbox.load();
     const notes = locatorOf(inbox, id, 'notes.txt');

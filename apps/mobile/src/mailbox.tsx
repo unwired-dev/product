@@ -23,6 +23,7 @@ import type {
   MailboxList,
 } from './private-storage.ts';
 
+import { useLocalization } from './localization.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
@@ -159,6 +160,12 @@ export function MailboxScope({
 
 export function useMailbox() {
   return use(MailboxContext);
+}
+
+// The scoped mailbox's provider name, which copy about it uses; the preview fixture reads as Gmail.
+export function useProviderName() {
+  const { t } = useLocalization();
+  return t(`mailProviders.${use(MailboxContext)?.provider ?? 'gmail'}`);
 }
 
 // The scoped mailbox's Inbox state.

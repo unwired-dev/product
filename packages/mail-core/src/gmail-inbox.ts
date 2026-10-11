@@ -14,29 +14,57 @@ import * as Semaphore from 'effect/Semaphore';
 
 import type { DeliveryProblem } from './draft-model.ts';
 import type { GmailAction, GmailLabel } from './gmail-actions.ts';
+import type { ProviderPayload } from './graph-inbox.ts';
 import type { RemoteImage } from './html-sanitizer.ts';
+import type {
+  Cache,
+  GmailMessage,
+  MailboxDocument,
+  MailboxScope,
+  PendingAction,
+} from './mailbox-document.ts';
+import type { GmailInvalidPage } from './mailbox-read.ts';
 import type {
   BodyDocument,
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
 import type { MessageSegment } from './outgoing-message.ts';
+import type { MailProvider } from './registration.ts';
 
-import {
-  decodeDiagnostic,
-  rejectionCode,
-  rejectionDiagnostic,
-  runLogged,
-} from './diagnostics.ts';
+import { rejectionCode, runLogged } from './diagnostics.ts';
 import {
   canOrganize,
-  GmailActionSchema,
   GmailLabelSchema,
   inInbox,
   relabel,
 } from './gmail-actions.ts';
+import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { inlineImageLimits, inspectImage } from './inline-images.ts';
+import {
+  cacheLimit,
+  decodeCache,
+  decodeDocument,
+  encodeDocument,
+  GmailId,
+  HistoryId,
+  merge,
+  newestFirst,
+  sameMailbox,
+} from './mailbox-document.ts';
+import {
+  decodeResponse,
+  GmailNotFound,
+  gmailResponse,
+  httpFailure,
+  malformed,
+  providerRead,
+  rateLimited,
+  rejected,
+  rejectedGrant,
+  SyncFailure,
+} from './mailbox-read.ts';
 import {
   attachmentLimit,
   bodyParts,
@@ -58,6 +86,8 @@ import {
   unescapeHtml,
 } from './message-body.ts';
 
+export type { GmailMessage } from './mailbox-document.ts';
+
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
 // and keeps the cache encrypted; this module chooses the Gmail requests and owns the cached document.
 export interface NativeGmailMailbox {
@@ -65,6 +95,16 @@ export interface NativeGmailMailbox {
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      signal?: Readonly<AbortSignal>;
+    }>,
+  ) => Promise<unknown>;
+  // Resolves `{ status, body }` for a Microsoft Graph read of the signed-in person's own mail at
+  // `url`; native code refuses any other URL.
+  readonly graphRequest: (
+    url: string,
     mailbox: Readonly<{
       address: string;
       generation: string;
@@ -221,99 +261,12 @@ const admittedRemote = (data: string): RemoteImage | undefined => {
 
 type BodyTier = 'opened' | 'prefetched' | 'excluded';
 
-// ponytail: the newest Inbox messages kept on this device; older ones stay in Gmail. Each commit
-// rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
-const cacheLimit = 200;
 const pageSize = 50;
 // Online search results per page and mailbox.
 const searchPageSize = 20;
 // The newest Sent messages read for a message whose handoff had no answer.
 const sentPageSize = 20;
 
-const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));
-const HistoryId = Schema.String.check(Schema.isPattern(/^\d+$/u));
-
-const GmailMessageSchema = Schema.Struct({
-  id: GmailId,
-  threadId: Schema.String,
-  sender: Schema.String,
-  address: Schema.String,
-  subject: Schema.String,
-  preview: Schema.String,
-  receivedAt: Schema.String,
-  unread: Schema.Boolean,
-  // Gmail's label IDs; absent in caches written before organizing, which are listed again.
-  labels: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-export type GmailMessage = typeof GmailMessageSchema.Type;
-
-// A requested change Gmail has not confirmed, with the message as it was shown, so restoring a
-// message that already left the cache can show it again.
-const PendingActionSchema = Schema.Struct({
-  id: Schema.optionalKey(Schema.NonEmptyString),
-  attempts: Schema.optionalKey(
-    Schema.Array(
-      Schema.Struct({ id: Schema.NonEmptyString, at: Schema.Finite }),
-    ),
-  ),
-  retryFrom: Schema.optionalKey(
-    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  // Gmail refused this change for good; only its current labels remain to be read.
-  refused: Schema.optionalKey(Schema.Literal(true)),
-  action: GmailActionSchema,
-  message: GmailMessageSchema,
-});
-type PendingAction = typeof PendingActionSchema.Type;
-
-// The checkpoint is committed with the messages it produced, so a restart repeats no step twice.
-const MailboxDocumentSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  messages: Schema.Array(GmailMessageSchema),
-  // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
-  pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
-  // The mailbox's own labels, for labeling and moving.
-  labels: Schema.optionalKey(Schema.Array(GmailLabelSchema)),
-  checkpoint: Schema.Union([
-    // Listing the Inbox from the history ID read before the first page; `seen` survives an
-    // interruption so a replacement listing can drop messages that left the Inbox.
-    Schema.Struct({
-      kind: Schema.Literal('backfill'),
-      historyId: HistoryId,
-      pageToken: Schema.optionalKey(Schema.String),
-      seen: Schema.Array(GmailId),
-    }),
-    Schema.Struct({ kind: Schema.Literal('current'), historyId: HistoryId }),
-  ]),
-});
-type MailboxDocument = typeof MailboxDocumentSchema.Type;
-const decodeDocument = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(MailboxDocumentSchema),
-);
-const encodeDocument = Schema.encodeEffect(
-  Schema.fromJsonString(MailboxDocumentSchema),
-);
-
-const CacheSchema = Schema.Struct({
-  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  address: Schema.NonEmptyString,
-  generation: Schema.NonEmptyString,
-  owner: Schema.optionalKey(Schema.NonEmptyString),
-  document: Schema.NullOr(Schema.String),
-  availability: Schema.optionalKey(Schema.Literal('retry')),
-});
-type Cache = typeof CacheSchema.Type;
-type MailboxScope = Pick<Cache, 'address' | 'generation' | 'owner'>;
-const decodeCache = Schema.decodeUnknownEffect(CacheSchema);
-const sameMailbox = (left: MailboxScope, right: MailboxScope) =>
-  left.address === right.address &&
-  (left.owner !== undefined && right.owner !== undefined
-    ? left.owner === right.owner
-    : left.generation === right.generation);
-
-const decodeResponse = Schema.decodeUnknownEffect(
-  Schema.Struct({ status: Schema.Int, body: Schema.String }),
-);
 const json = <S extends Schema.Top>(schema: S) =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(schema));
 const decodeProfile = json(
@@ -379,82 +332,6 @@ const decodeModified = json(
     labelIds: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
 );
-// Gmail's documented 403 usage limits; authorizing Gmail again cannot resolve them.
-const rateLimited = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      error: Schema.Struct({
-        errors: Schema.Array(
-          Schema.Struct({
-            reason: Schema.Literals([
-              'dailyLimitExceeded',
-              'rateLimitExceeded',
-              'userRateLimitExceeded',
-            ]),
-          }),
-        ),
-      }),
-    }),
-  ),
-);
-
-// 'authentication' needs Gmail authorized again; 'retry' may succeed on a later synchronization.
-class SyncFailure extends Schema.TaggedError<SyncFailure>()('SyncFailure', {
-  kind: Schema.Literals([
-    'authentication',
-    'retry',
-    'locked',
-    'conflict',
-    // Native work started before a registration change; a new synchronization opens the cache again.
-    'invalidated',
-    'revoked',
-    'failed',
-  ]),
-  cause: Schema.Defect(),
-  // Logged instead of the cause; see rejectionDiagnostic.
-  diagnostic: Schema.String,
-}) {}
-
-// A message or history that Gmail no longer has.
-class GmailNotFound extends Schema.TaggedError<GmailNotFound>()(
-  'GmailNotFound',
-  {},
-) {}
-
-// Gmail refused the mailbox's grant; authorizing Gmail again is the only remedy.
-const rejectedGrant = (error: unknown) =>
-  error instanceof SyncFailure && error.kind === 'authentication';
-
-class GmailInvalidPage extends Schema.TaggedError<GmailInvalidPage>()(
-  'GmailInvalidPage',
-  {},
-) {}
-
-const rejected = (
-  cause: unknown,
-  otherwise: 'retry' | 'failed',
-): SyncFailure => {
-  const code = rejectionCode(cause);
-  let kind: SyncFailure['kind'] = otherwise;
-  if (code === 'gmail-unavailable') {
-    kind = 'authentication';
-  } else if (code === 'locked' || code === 'conflict') {
-    kind = code;
-  } else if (code === 'mailbox-revoked') {
-    kind = 'revoked';
-  } else if (code === 'mailbox-invalidated') {
-    kind = 'invalidated';
-  }
-  return new SyncFailure({
-    kind,
-    cause,
-    diagnostic: rejectionDiagnostic(cause),
-  });
-};
-
-const malformed = (error: Schema.SchemaError, kind: 'retry' | 'failed') =>
-  new SyncFailure({ kind, cause: error, diagnostic: decodeDiagnostic(error) });
-
 // The latest organizing outcome, until the next one; unsaved batches also report their size.
 export type OrganizeNotice = Readonly<
   {
@@ -628,34 +505,6 @@ const sender = (from: string) => {
   return { sender: name === '' ? address : name, address };
 };
 
-const newestFirst = Order.flip(
-  Order.combine(
-    Order.mapInput(Order.String, (message: GmailMessage) => message.receivedAt),
-    Order.mapInput(Order.String, (message: GmailMessage) => message.id),
-  ),
-);
-
-// Applies changes by message ID, so repeating a step never duplicates a message.
-const merge = (
-  messages: readonly GmailMessage[],
-  // Messages no longer in the Inbox are undefined.
-  found: ReadonlyArray<readonly [string, GmailMessage | undefined]>,
-  deleted: ReadonlySet<string> = new Set(),
-) => {
-  const byId = new Map(messages.map((message) => [message.id, message]));
-  for (const id of deleted) {
-    byId.delete(id);
-  }
-  for (const [id, message] of found) {
-    if (message === undefined) {
-      byId.delete(id);
-    } else {
-      byId.set(id, message);
-    }
-  }
-  return Arr.sort(byId.values(), newestFirst);
-};
-
 const labelsOf = (message: GmailMessage) =>
   message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
 
@@ -739,20 +588,6 @@ const storage = (operation: () => Promise<unknown>) =>
     Effect.flatMap(decodeCache),
     Effect.mapError((failure) =>
       Schema.isSchemaError(failure) ? malformed(failure, 'failed') : failure,
-    ),
-  );
-
-// One Gmail request's `{ status, body }`; a rejected or malformed reply may pass on a later try.
-const gmailResponse = (
-  request: (signal: Readonly<AbortSignal>) => Promise<unknown>,
-) =>
-  Effect.tryPromise({
-    try: request,
-    catch: (cause) => rejected(cause, 'retry'),
-  }).pipe(
-    Effect.flatMap(decodeResponse),
-    Effect.mapError((failure) =>
-      Schema.isSchemaError(failure) ? malformed(failure, 'retry') : failure,
     ),
   );
 
@@ -943,15 +778,21 @@ const historyChanges = (records: ReadonlyArray<typeof HistoryRecord.Type>) => {
   return { deleted, changed };
 };
 
-// A listing that started again from its first page after Gmail rejected a saved page token.
+// A listing that started again from its first page after Gmail rejected a saved page token, or
+// after Graph expired a delta link.
 const restartedListing = (
   previous: MailboxDocument | undefined,
   next: MailboxDocument,
 ) =>
-  previous?.checkpoint.kind === 'backfill' &&
-  previous.checkpoint.pageToken !== undefined &&
-  next.checkpoint.kind === 'backfill' &&
-  next.checkpoint.pageToken === undefined;
+  (previous?.checkpoint.kind === 'backfill' &&
+    previous.checkpoint.pageToken !== undefined &&
+    next.checkpoint.kind === 'backfill' &&
+    next.checkpoint.pageToken === undefined) ||
+  ((previous?.checkpoint.kind === 'graph-current' ||
+    (previous?.checkpoint.kind === 'graph-listing' &&
+      previous.checkpoint.link !== undefined)) &&
+    next.checkpoint.kind === 'graph-listing' &&
+    next.checkpoint.link === undefined);
 
 // Within a history page, the last record is a valid start for the next one.
 const nextHistoryId = (
@@ -973,17 +814,6 @@ const restartLimit = (restarts: number) =>
         }),
       )
     : Effect.void;
-
-// Gmail refusing the grant needs authorization again; other HTTP failures may pass on a later try.
-const httpFailure = (status: number, body: string) =>
-  new SyncFailure({
-    kind:
-      status === 401 || (status === 403 && Option.isNone(rateLimited(body)))
-        ? 'authentication'
-        : 'retry',
-    cause: status,
-    diagnostic: `status ${status}`,
-  });
 
 export type OutgoingSend = Readonly<{
   segments: readonly MessageSegment[];
@@ -1116,21 +946,37 @@ export function createBodyLoads() {
 }
 type BodyLoads = ReturnType<typeof createBodyLoads>;
 
+const requireAttachments = (payload: ProviderPayload) =>
+  payload.attachmentsPending === true
+    ? Effect.fail(
+        new SyncFailure({
+          kind: payload.authentication === true ? 'authentication' : 'retry',
+          cause: 'attachments',
+          diagnostic: 'attachment metadata unavailable',
+        }),
+      )
+    : Effect.succeed(payload);
+
 export function createGmailInbox(
   native: NativeGmailMailbox,
   {
     removed,
     shared = createBodyLoads(),
     connection = '',
+    provider = 'gmail',
   }: Readonly<{
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
+    // Microsoft mail is read through Graph; organizing, online search and sending stay Gmail's.
+    provider?: MailProvider;
   }> = {},
 ) {
-  // One Gmail read; a missing resource is GmailNotFound and other HTTP failures are classified.
+  const graph =
+    provider === 'microsoft-graph' ? createGraphReader(native) : undefined;
+  // One Gmail read; Gmail refusing a listing's page token is GmailInvalidPage.
   const gmail =
     (scope: MailboxScope) =>
     <A>(
@@ -1138,27 +984,14 @@ export function createGmailInbox(
       query: ReadonlyArray<readonly [string, string]>,
       decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
     ) =>
-      Effect.gen(function* () {
-        const { status, body } = yield* gmailResponse((signal) =>
-          native.gmailRequest(path, query, { ...scope, signal }),
-        );
-        if (status === 404) {
-          return yield* new GmailNotFound();
-        }
-        if (
+      providerRead(
+        (signal) => native.gmailRequest(path, query, { ...scope, signal }),
+        (status) =>
           status === 400 &&
           path === 'messages' &&
-          query.some(([name]) => name === 'pageToken')
-        ) {
-          return yield* new GmailInvalidPage();
-        }
-        if (status !== 200) {
-          return yield* httpFailure(status, body);
-        }
-        return yield* decode(body).pipe(
-          Effect.mapError((error) => malformed(error, 'retry')),
-        );
-      });
+          query.some(([name]) => name === 'pageToken'),
+        decode,
+      );
 
   // Search results keep a message `anywhere` in Gmail; the Inbox keeps only its own.
   const metadata = (scope: MailboxScope, id: string, anywhere = false) =>
@@ -1327,6 +1160,9 @@ export function createGmailInbox(
     scope: MailboxScope,
     document: MailboxDocument | undefined,
   ) => {
+    if (graph !== undefined) {
+      return graph.advance(scope, document);
+    }
     if (document === undefined) {
       return startListing(scope, undefined, []).pipe(Effect.asSome);
     }
@@ -1335,7 +1171,8 @@ export function createGmailInbox(
       return continueListing(scope, document, checkpoint);
     }
     // A cache written before messages kept their labels is listed again to read them.
-    return document.messages.some(({ labels }) => labels === undefined)
+    return checkpoint.kind !== 'current' ||
+      document.messages.some(({ labels }) => labels === undefined)
       ? startListing(scope, document, document.messages).pipe(Effect.asSome)
       : applyHistory(scope, document, checkpoint);
   };
@@ -2311,9 +2148,9 @@ export function createGmailInbox(
         Effect.catchTag('GmailInvalidPage', Effect.die),
       );
 
-  // A part's bytes: inline in the message, or served separately when Gmail splits a large part.
-  // Only complete data matching Gmail's declared size is returned.
-  const partData = Effect.fnUntraced(function* (
+  // A part's bytes and their exact size: inline in the message, or served separately when Gmail
+  // splits a large part. Only complete data matching Gmail's declared size is returned.
+  const gmailPartData = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
     part: GmailPart,
@@ -2334,15 +2171,24 @@ export function createGmailInbox(
         diagnostic: 'incomplete body',
       });
     }
-    return downloaded.data;
+    return { data: downloaded.data, size: downloaded.size };
   });
+
+  // Graph serves only attachments separately; its body parts are inline, as Gmail's small ones.
+  const partData = (scope: MailboxScope, id: string, part: GmailPart) => {
+    const attachmentId =
+      graph === undefined ? undefined : part.body?.attachmentId;
+    return graph === undefined || attachmentId === undefined
+      ? gmailPartData(scope, id, part)
+      : graph.partData(scope, id, attachmentId);
+  };
 
   const fetchPart = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
     part: GmailPart,
   ) {
-    const data = yield* partData(scope, id, part);
+    const { data } = yield* partData(scope, id, part);
     return yield* partText(part, data, part.body?.size).pipe(
       Effect.mapError(
         (cause) =>
@@ -2355,11 +2201,15 @@ export function createGmailInbox(
     );
   });
 
+  // Graph reads inline images only for a full read, as Gmail returns part data only then.
   const fullMessage = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
     query: ReadonlyArray<readonly [string, string]>,
-  ) {
+  ): Effect.fn.Return<ProviderPayload, SyncFailure | GmailNotFound> {
+    if (graph !== undefined) {
+      return yield* graph.fullMessage(scope, id);
+    }
     const message = yield* gmailRead(scope)(
       `messages/${id}`,
       query,
@@ -2394,16 +2244,23 @@ export function createGmailInbox(
       } else {
         // A rejected grant stops resolution: later images would meet the same rejection.
         const attempt = yield* partData(scope, id, part).pipe(
-          Effect.map((data) => ({ data })),
           Effect.catchIf(rejectedGrant, () =>
             Effect.succeed('authentication' as const),
           ),
-          Effect.orElseSucceed(() => ({ data: undefined })),
+          Effect.orElseSucceed(() => ({ data: undefined, size: undefined })),
         );
         if (attempt === 'authentication') {
           return { ...tally.result(), complete: false, authentication: true };
         }
-        tally.receive(contentId, part, attempt.data);
+        // Graph's listed size includes overhead. Actual bytes must fit the reservation, then
+        // image decoding checks their exact size instead of the approximate metadata size.
+        const reserved = part.body?.size ?? 0;
+        const received = attempt.size ?? reserved;
+        tally.receive(
+          contentId,
+          { ...part, body: { ...part.body, size: received } },
+          received <= reserved ? attempt.data : undefined,
+        );
       }
     }
     return { ...tally.result(), authentication: false };
@@ -2422,7 +2279,9 @@ export function createGmailInbox(
     const document: BodyDocument = {
       version: 2,
       id,
-      attachments: attachmentMetadata(payload),
+      ...(payload.attachmentsPending === true
+        ? {}
+        : { attachments: attachmentMetadata(payload) }),
       headers: responseHeadersOf(payload),
       ...(text === undefined
         ? {}
@@ -2431,6 +2290,9 @@ export function createGmailInbox(
         ? {}
         : { html: yield* fetchPart(scope, id, html) }),
     };
+    if (payload.attachmentsPending === true) {
+      return { document, authentication: payload.authentication === true };
+    }
     const references = contentIdsOf(document);
     if (references.length === 0) {
       return {
@@ -2464,7 +2326,7 @@ export function createGmailInbox(
     }
     const payload = yield* fullMessage(scope, document.id, [
       ['format', 'full'],
-    ]);
+    ]).pipe(Effect.flatMap(requireAttachments));
     const withList = needsAttachments
       ? {
           ...document,
@@ -2665,29 +2527,36 @@ export function createGmailInbox(
 
   // A received attachment's bytes from Gmail, read again from the current message so a changed
   // or removed attachment is never mistaken for the listed one. Only base64url data decoding to
-  // exactly the declared size is returned.
+  // exactly its size is returned: Gmail's declared size, or the decoded size of Graph's bytes.
   const fetchAttachment = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
     listedAttachment: NonNullable<BodyDocument['attachments']>[number],
   ) {
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    // Locating the attachment needs no inline images from Graph.
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]).pipe(
+      Effect.flatMap(requireAttachments),
+    );
     const current = receivedAttachments(payload).find((candidate) =>
       sameAttachment(candidate, listedAttachment),
     );
     if (current === undefined) {
       return yield* new GmailNotFound();
     }
-    const data = yield* partData(scope, id, current.part).pipe(
+    const downloaded = yield* partData(scope, id, current.part).pipe(
       Effect.catchIf(
         (failure) => failure.cause === 'body size',
         () => Effect.fail(new AttachmentDamaged()),
       ),
     );
-    if (partBytes(data, current.size) === undefined) {
+    if (
+      downloaded.size === undefined ||
+      downloaded.size > attachmentLimit ||
+      partBytes(downloaded.data, downloaded.size) === undefined
+    ) {
       return yield* new AttachmentDamaged();
     }
-    return data;
+    return { data: downloaded.data, size: downloaded.size };
   });
 
   // Downloads one listed attachment into private temporary storage. Cancelling, closing the
@@ -2715,13 +2584,13 @@ export function createGmailInbox(
       owner === reading &&
       downloads.get(attachmentKey(id, locator))?.abort === abort;
     // Saving and recording the file cannot be interrupted, so a cancelled download still deletes it.
-    const save = (data: string) =>
+    const save = ({ data, size }: Readonly<{ data: string; size: number }>) =>
       Effect.tryPromise({
         try: () =>
           native.saveAttachment(scope, {
             name: listedAttachment.name,
             data,
-            size: listedAttachment.size,
+            size,
           }),
         catch: (cause) => rejected(cause, 'failed'),
       }).pipe(
@@ -2909,11 +2778,14 @@ export function createGmailInbox(
       ['format', 'metadata'],
       ['metadataHeaders', 'Content-Type'],
       ['metadataHeaders', 'Content-Disposition'],
-    ]);
+    ]).pipe(Effect.flatMap(requireAttachments));
     if (!singleReadablePart(preflight)) {
       return yield* exclude();
     }
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const payload =
+      graph === undefined
+        ? yield* fullMessage(scope, id, [['format', 'full']])
+        : preflight;
     if (!singleReadablePart(payload)) {
       return yield* exclude();
     }
@@ -3531,7 +3403,7 @@ export function createGmailInbox(
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }
-    if (document !== undefined) {
+    if (document !== undefined && graph === undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
     }
     yield* finishSynchronization(cache, document);
@@ -4053,6 +3925,13 @@ export function createGmailInbox(
     // provider, so the message waits.
     send: (message: OutgoingSend) => {
       const scope = opened;
+      // Microsoft mail cannot send yet; nothing reaches a provider.
+      if (graph !== undefined) {
+        return Promise.resolve<SendOutcome>({
+          kind: 'failed',
+          problem: 'mailbox',
+        });
+      }
       if (scope === undefined || forgotten) {
         return Promise.resolve<SendOutcome>({
           kind: 'queued',
@@ -4087,6 +3966,9 @@ export function createGmailInbox(
       if (scope === undefined || forgotten) {
         return Promise.resolve(undefined);
       }
+      if (graph !== undefined) {
+        return Promise.resolve<SendOutcome>({ kind: 'unknown' });
+      }
       const reading = owner;
       return runLogged(
         sentWith(scope, boundary).pipe(
@@ -4119,8 +4001,12 @@ export function createGmailInbox(
     // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
     savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),
     // Searches this mailbox in Gmail; undefined when the Inbox closed or changed meanwhile.
-    searchGmail: (query: string, pageToken?: string) =>
-      runLogged(searchGmail(query, pageToken)),
+    // Microsoft mail has no online search yet; only its saved messages are searched.
+    searchGmail:
+      graph === undefined
+        ? (query: string, pageToken?: string) =>
+            runLogged(searchGmail(query, pageToken))
+        : undefined,
     // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,
     // and with `network` also through the isolated native fetch, which only an authorized
     // presentation asks for. Six requests run per message and twelve account-wide; the readers

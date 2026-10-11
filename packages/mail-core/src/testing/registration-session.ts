@@ -4,6 +4,7 @@ import * as Schema from 'effect/Schema';
 
 import type {
   MailboxConnection,
+  MailProvider,
   NativeRegistration,
   RegistrationSnapshot,
   SignInProvider,
@@ -99,11 +100,27 @@ const account = (snapshot: SignedIn) => ({
     : { mailboxes: snapshot.mailboxes }),
 });
 
-// The synthetic Google mailboxes and the opaque connection IDs native code would give them.
+// The synthetic Google mailboxes and the Microsoft one, with the opaque connection IDs native code
+// would give them.
 export const syntheticMailboxes = {
   'alex@example.invalid': 'synthetic-connection-alex',
   'other@example.invalid': 'synthetic-connection-other',
+  'casey@example.invalid': 'synthetic-connection-casey',
 } as const;
+const microsoftAddress = 'casey@example.invalid';
+
+// The mailbox an authorization reaches: the Microsoft one, the Google sign-in's suggested Gmail,
+// or the Google account the person chose.
+const authorizedAddress = (
+  provider: MailProvider,
+  suggested: boolean,
+  chosen: SyntheticAddress,
+): SyntheticAddress => {
+  if (provider === 'microsoft-graph') {
+    return microsoftAddress;
+  }
+  return suggested ? 'alex@example.invalid' : chosen;
+};
 export type SyntheticAddress = keyof typeof syntheticMailboxes;
 
 // Scenarios whose first Gmail session grants access; the others need another mailbox.
@@ -183,6 +200,7 @@ const connecting = (
 ): readonly MailboxConnection[] => {
   const mailbox = {
     id: syntheticMailboxes[address],
+    provider: address === microsoftAddress ? 'microsoft-graph' : 'gmail',
     address,
     state: 'connected',
   } as const;
@@ -301,7 +319,7 @@ export function createMockRegistrationSession(
       };
       return Promise.resolve(snapshot);
     },
-    addMailbox: (chooseAccount) => {
+    addMailbox: (provider, chooseAccount) => {
       if (snapshot.kind === 'signed-out') {
         return Promise.reject(new Error('Synthetic Product Account required'));
       }
@@ -314,16 +332,17 @@ export function createMockRegistrationSession(
         return Promise.reject(new Error('Synthetic authorization interrupted'));
       }
       const current = mailboxesOf(snapshot);
-      const suggested = !chooseAccount && current.length === 0;
+      const suggested =
+        provider === 'gmail' && !chooseAccount && current.length === 0;
       if (suggested && !grantsFirstMailbox.has(scenario)) {
         return Promise.resolve(snapshot);
       }
-      const address = suggested ? 'alex@example.invalid' : chosen;
+      const address = authorizedAddress(provider, suggested, chosen);
       syncAccount(snapshot.productAccountId).mailboxes.add(address);
       snapshot = withMailboxes(snapshot, connecting(current, address));
       return Promise.resolve(snapshot);
     },
-    authorizeGmail: (connection) => {
+    authorizeMailbox: (connection) => {
       if (
         snapshot.kind === 'signed-out' ||
         snapshot.kind === 'device-pending'

@@ -13,65 +13,11 @@ import {
   RegistrationSnapshotSchema,
 } from '../src/registration.ts';
 import { syntheticRecoveryKey } from '../src/testing/registration-session.ts';
-import {
-  createSyntheticDevice,
-  createSyntheticVault,
-} from '../src/testing/registration-vault.ts';
+import { createSyntheticVault } from '../src/testing/registration-vault.ts';
+import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
 
 const { it } = Vitest;
 
-// Promise adapter for the flow journeys; production composes these programs in the store.
-const createRegistrationFlow = (
-  vault: NativeRegistrationVault,
-): NativeRegistration => {
-  const flow = registrationPrograms(vault);
-  return {
-    restore: () => Effect.runPromise(flow.restore()),
-    signIn: (provider) => Effect.runPromise(flow.signIn(provider)),
-    addMailbox: (chooseAccount) =>
-      Effect.runPromise(flow.addMailbox(chooseAccount)),
-    authorizeGmail: (connection) =>
-      Effect.runPromise(flow.authorizeGmail(connection)),
-    removeMailbox: (connection) =>
-      Effect.runPromise(flow.removeMailbox(connection)),
-    link: (provider) => Effect.runPromise(flow.link(provider)),
-    confirmRecoveryKey: (entry) =>
-      Effect.runPromise(flow.confirmRecoveryKey(entry)),
-    recoverWithRecoveryKey: (entry) =>
-      Effect.runPromise(flow.recoverWithRecoveryKey(entry)),
-    approveEnrollment: (requestId, code) =>
-      Effect.runPromise(flow.approveEnrollment(requestId, code)),
-    declineEnrollment: (requestId) =>
-      Effect.runPromise(flow.declineEnrollment(requestId)),
-    revokeTrustedDevice: (trustedDeviceId) =>
-      Effect.runPromise(flow.revokeTrustedDevice(trustedDeviceId)),
-    refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
-    signOut: () => Effect.runPromise(flow.signOut()),
-    deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),
-  };
-};
-
-// The registration flow over the synthetic native vault. Each relaunch is a new process over the
-// same device Keychain, providers and backend.
-const launch = () => {
-  const synthetic = createSyntheticVault();
-  return {
-    ...synthetic,
-    flow: createRegistrationFlow(synthetic.vault),
-    relaunch: () =>
-      createRegistrationFlow(createSyntheticVault(synthetic).vault),
-    // Another installation signing in to the same backend with the same providers.
-    otherDevice: () => {
-      const other = createSyntheticVault({
-        ...createSyntheticDevice(),
-        google: synthetic.google,
-        apple: synthetic.apple,
-        backend: synthetic.backend,
-      });
-      return { ...other, flow: createRegistrationFlow(other.vault) };
-    },
-  };
-};
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 const snapshot = Schema.decodeUnknownSync(RegistrationSnapshotSchema);
 type Registration = NativeRegistration;
@@ -110,6 +56,12 @@ describe('registration flow', () => {
     const store = createRegistration(registrationPrograms(vault));
     await store.restore();
     await store.register('google');
+    // Product Sign-In connects no mailbox until the person chooses one.
+    expect(store.getSnapshot().snapshot).toMatchObject({
+      kind: 'mailbox-needed',
+    });
+    expect(store.getSnapshot().snapshot).not.toHaveProperty('reason');
+    await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'connected', signInProvider: 'google' },
       failed: false,
@@ -170,7 +122,7 @@ describe('registration flow', () => {
     });
     for (const failure of ['cancelled', 'declined', 'gmail-unavailable']) {
       google.outcome = failure;
-      await expect(first.addMailbox(false)).resolves.toMatchObject({
+      await expect(first.addMailbox('gmail', false)).resolves.toMatchObject({
         kind: 'mailbox-needed',
         productAccountId: 'account-synthetic-product-subject',
         reason: failure,
@@ -181,20 +133,20 @@ describe('registration flow', () => {
     }
     google.outcome = undefined;
     // A signed-in Google identity with missing mail scopes cannot connect Gmail.
-    await expect(first.addMailbox(false)).resolves.toMatchObject({
+    await expect(first.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'mailbox-needed',
       reason: 'declined',
     });
     google.scopes = [gmailScope];
     google.gmailAvailable = false;
-    await expect(first.addMailbox(false)).resolves.toMatchObject({
+    await expect(first.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'mailbox-needed',
       reason: 'gmail-unavailable',
     });
     google.gmailAvailable = true;
     google.subject = 'synthetic-mailbox-subject';
     google.address = 'same@example.invalid';
-    const connected = snapshot(await relaunch().addMailbox(true));
+    const connected = snapshot(await relaunch().addMailbox('gmail', true));
     expect(connected).toMatchObject({
       kind: 'connected',
       productAccountId: 'account-synthetic-product-subject',
@@ -207,7 +159,7 @@ describe('registration flow', () => {
     // A failed addition of another mailbox is reported without dropping the connected one.
     for (const failure of ['cancelled', 'declined', 'gmail-unavailable']) {
       google.outcome = failure;
-      await expect(first.addMailbox(true)).rejects.toMatchObject({
+      await expect(first.addMailbox('gmail', true)).rejects.toMatchObject({
         code: failure,
       });
       await expect(relaunch().restore()).resolves.toStrictEqual(connected);
@@ -219,6 +171,74 @@ describe('registration flow', () => {
       reason: 'gmail-unavailable',
     });
   });
+
+  it.each(['google', 'apple'] as const)(
+    'connects Microsoft mail first after %s sign-in without Gmail and retains the account on refusal',
+    async (provider) => {
+      /* oxlint-disable vitest/max-expects -- One journey proves each Microsoft consent outcome and reauthorization. */
+      expect.hasAssertions();
+      const { flow, relaunch, google, microsoft } = launch();
+      await expect(flow.signIn(provider)).resolves.toMatchObject({
+        kind: 'mailbox-needed',
+        signInProvider: provider,
+      });
+      const productHints = [...google.hints];
+      for (const outcome of ['cancelled', 'declined']) {
+        microsoft.outcome = outcome;
+        await expect(
+          flow.addMailbox('microsoft-graph', false),
+        ).resolves.toMatchObject({ kind: 'mailbox-needed', reason: outcome });
+      }
+      microsoft.outcome = undefined;
+      // A Microsoft grant without mail access cannot connect a mailbox.
+      microsoft.scopes = ['User.Read', 'offline_access'];
+      await expect(
+        flow.addMailbox('microsoft-graph', false),
+      ).resolves.toMatchObject({ reason: 'declined' });
+      // Graph names its scopes in full; an account or tenant without an Outlook mailbox is refused.
+      microsoft.scopes = ['https://graph.microsoft.com/Mail.Read'];
+      microsoft.mailboxAvailable = false;
+      await expect(
+        flow.addMailbox('microsoft-graph', false),
+      ).resolves.toMatchObject({
+        kind: 'mailbox-needed',
+        reason: 'microsoft-unavailable',
+      });
+      microsoft.mailboxAvailable = true;
+      const connected = snapshot(
+        await relaunch().addMailbox('microsoft-graph', false),
+      );
+      expect(connected).toMatchObject({
+        kind: 'connected',
+        signInProvider: provider,
+      });
+      expect(mailboxesOf(connected)).toStrictEqual([
+        {
+          id: 'synthetic-connection-casey',
+          provider: 'microsoft-graph',
+          address: 'casey@example.invalid',
+          state: 'connected',
+          epoch: expect.any(String),
+        },
+      ]);
+      // Google was never asked for Gmail.
+      expect(google.hints).toStrictEqual(productHints);
+      await expect(relaunch().restore()).resolves.toStrictEqual(connected);
+
+      // Microsoft refusing the saved grant asks for Microsoft again, never for Gmail.
+      microsoft.refreshFailure = 'gmail-unavailable';
+      await expect(relaunch().restore()).resolves.toMatchObject({
+        kind: 'mailbox-needed',
+        reason: 'microsoft-unavailable',
+      });
+      microsoft.refreshFailure = undefined;
+      await expect(
+        relaunch().authorizeMailbox('synthetic-connection-casey'),
+      ).resolves.toMatchObject({ kind: 'connected' });
+      expect(microsoft.hints.at(-1)).toBe('synthetic-microsoft-subject');
+      expect(google.hints).toStrictEqual(productHints);
+    },
+  );
 
   // Replaces RegistrationTests.interruptedGoogleRegistrationResumesWithoutReplacingIdentityOrExistingInbox.
   it('resumes an interrupted Google registration without replacing its Product identity', async () => {
@@ -249,7 +269,7 @@ describe('registration flow', () => {
     });
     expect(device.record?.credential).not.toBe(renewed);
     // A Product identity failure before mailbox selection reports the retained account.
-    await expect(relaunch().addMailbox(true)).resolves.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', true)).resolves.toMatchObject({
       kind: 'mailbox-needed',
       reason: 'interrupted',
     });
@@ -294,7 +314,7 @@ describe('registration flow', () => {
     });
     // Apple sign-in grants no mail scope; the first Gmail session is declined here.
     google.scopes = [];
-    const declined = snapshot(await relaunch().addMailbox(false));
+    const declined = snapshot(await relaunch().addMailbox('gmail', false));
     expect(declined).toStrictEqual({
       kind: 'mailbox-needed',
       ...account,
@@ -306,7 +326,7 @@ describe('registration flow', () => {
     google.scopes = [gmailScope];
     google.subject = 'synthetic-mailbox-subject';
     google.address = 'relay@privaterelay.example.invalid';
-    const connected = snapshot(await relaunch().addMailbox(false));
+    const connected = snapshot(await relaunch().addMailbox('gmail', false));
     expect(connected).toMatchObject({ kind: 'connected', ...account });
     expect(addresses(connected)).toStrictEqual([
       { address: 'relay@privaterelay.example.invalid', state: 'connected' },
@@ -325,7 +345,7 @@ describe('registration flow', () => {
     await expect(relaunch().signIn('apple')).resolves.toMatchObject({
       contactEmail: account.contactEmail,
     });
-    await expect(relaunch().addMailbox(false)).resolves.toStrictEqual(
+    await expect(relaunch().addMailbox('gmail', false)).resolves.toStrictEqual(
       connected,
     );
     apple.state = 'revoked';
@@ -334,7 +354,7 @@ describe('registration flow', () => {
       ...account,
       reason: 'unavailable',
     });
-    await expect(relaunch().addMailbox(false)).resolves.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', false)).resolves.toMatchObject({
       reason: 'unavailable',
     });
     expect(device.record?.product?.productAccountId).toBe(
@@ -356,7 +376,7 @@ describe('registration flow', () => {
     await expect(relaunch().restore()).resolves.toStrictEqual({
       kind: 'signed-out',
     });
-    await expect(relaunch().addMailbox(false)).rejects.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', false)).rejects.toMatchObject({
       code: 'unavailable',
     });
     backend.offline = false;
@@ -375,7 +395,7 @@ describe('registration flow', () => {
     const { flow, relaunch, otherDevice, google, apple, backend } = launch();
     await flow.signIn('apple');
     google.subject = 'synthetic-mailbox-subject';
-    const connected = snapshot(await relaunch().addMailbox(false));
+    const connected = snapshot(await relaunch().addMailbox('gmail', false));
     expect(connected.kind).toBe('connected');
     // The Gmail grant is a Mailbox Connection, never a Linked Sign-In.
     expect(connected).not.toHaveProperty('alternateSignIn');
@@ -598,7 +618,7 @@ describe('registration flow', () => {
     expect.hasAssertions();
     const { flow, relaunch, otherDevice, device, backend } = launch();
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const installation = device.record?.deviceIdentifier;
     // Signing out cannot discard the only Recovery Key before its backup is confirmed.
     device.recoveryKeyConfirmed = false;

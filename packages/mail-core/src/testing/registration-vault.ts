@@ -1,10 +1,10 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
 import type { NativeRegistrationVault } from '../registration-flow.ts';
-import type { SignInProvider } from '../registration.ts';
+import type { MailProvider, SignInProvider } from '../registration.ts';
 
 import { syntheticMailboxes } from './registration-session.ts';
 
-// An in-memory native vault with synthetic Google, Apple and Convex behavior, for the TypeScript
+// An in-memory native vault with synthetic Google, Apple, Microsoft and Convex behavior, for the TypeScript
 // registration flow. It keeps what native code keeps from TypeScript: credentials, tokens and
 // provider subjects stay here, and every operation behaves as its native counterpart does.
 
@@ -23,6 +23,7 @@ interface Receipt {
   signInProviders?: SignInProvider[];
 }
 interface Connection {
+  provider: MailProvider;
   subject: string;
   address: string;
   // Renewed with each live.authorization, as native credentials are.
@@ -95,6 +96,17 @@ export function createSyntheticDevice() {
     hints: [] as Array<string | undefined>,
     refreshes: 0,
   };
+  // Microsoft's sign-in and Graph mailbox, for Microsoft mail only.
+  const microsoft = {
+    subject: 'synthetic-microsoft-subject',
+    outcome: undefined as string | undefined,
+    scopes: ['Mail.Read', 'User.Read', 'offline_access'] as string[],
+    // Graph serves no mailbox, as for an account without Exchange Online or a refusing tenant.
+    mailboxAvailable: true,
+    address: 'casey@example.invalid',
+    refreshFailure: undefined as string | undefined,
+    hints: [] as Array<string | undefined>,
+  };
   const apple = {
     subject: 'synthetic-apple-subject',
     outcome: undefined as string | undefined,
@@ -131,22 +143,27 @@ export function createSyntheticDevice() {
     deletions: [] as Identity[],
     calls: [] as Call[],
   };
-  return { device, google, apple, backend };
+  return { device, google, microsoft, apple, backend };
 }
 
 // One process of the host over a synthetic device; a relaunch is another vault over the same one.
+type SyntheticDevice = ReturnType<typeof createSyntheticDevice>;
 export function createSyntheticVault(
+  // Devices shared without Microsoft get their own.
   shared: Readonly<
-    ReturnType<typeof createSyntheticDevice>
+    Omit<SyntheticDevice, 'microsoft'> &
+      Partial<Pick<SyntheticDevice, 'microsoft'>>
   > = createSyntheticDevice(),
 ) {
   const { device, google, apple, backend } = shared;
+  const microsoft = shared.microsoft ?? createSyntheticDevice().microsoft;
   // This process's latest sign-in, verified sign-in and Gmail live.authorization.
   const live = {
     identity: undefined as Identity | undefined,
     session: undefined as Identity | undefined,
     authorization: undefined as
       | {
+          provider: MailProvider;
           subject: string;
           scopes: readonly string[];
           receipt?: { address: string };
@@ -410,6 +427,7 @@ export function createSyntheticVault(
             const id = connectionId(connection.subject, connection.address);
             return {
               id,
+              provider: connection.provider,
               address: connection.address,
               epoch: connection.epoch,
               authorizationNeeded: connection.authorizationNeeded === true,
@@ -543,46 +561,61 @@ export function createSyntheticVault(
         if (connection === undefined) {
           throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
         }
-        if (google.refreshFailure !== undefined) {
+        const source = connection.provider === 'gmail' ? google : microsoft;
+        if (source.refreshFailure !== undefined) {
           throw Object.assign(new Error('Synthetic'), {
-            code: google.refreshFailure,
+            code: source.refreshFailure,
           });
         }
         live.authorization = {
+          provider: connection.provider,
           subject: connection.subject,
-          scopes: google.scopes,
+          scopes: source.scopes,
         };
-        return { scopes: google.scopes };
+        return { scopes: source.scopes };
       }),
-    signInMailbox: async (id, suggest) => {
+    signInMailbox: async (id, suggest, provider) => {
       const record = saved();
-      const hint =
-        record.connections.find(
-          ({ subject, address }) => connectionId(subject, address) === id,
-        )?.subject ??
-        (suggest && record.provider === 'google' ? record.subject : undefined);
-      google.hints.push(hint);
-      if (google.outcome !== undefined) {
-        return reject(google.outcome);
+      const existing = record.connections.find(
+        ({ subject, address }) => connectionId(subject, address) === id,
+      );
+      const source = provider === 'gmail' ? google : microsoft;
+      source.hints.push(
+        existing?.subject ??
+          (suggest && record.provider === 'google'
+            ? record.subject
+            : undefined),
+      );
+      if (source.outcome !== undefined) {
+        return reject(source.outcome);
       }
-      live.authorization = { subject: google.subject, scopes: google.scopes };
-      return { scopes: google.scopes };
+      live.authorization = {
+        provider,
+        subject: source.subject,
+        scopes: source.scopes,
+      };
+      return { scopes: source.scopes };
     },
-    verifyGmail: () =>
+    verifyMailbox: () =>
       attempt(() => {
         if (live.authorization === undefined) {
           throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
         }
+        const gmail = live.authorization.provider === 'gmail';
         if (
-          !google.gmailAvailable ||
-          google.refused.has(live.authorization.subject)
+          gmail
+            ? !google.gmailAvailable ||
+              google.refused.has(live.authorization.subject)
+            : !microsoft.mailboxAvailable
         ) {
+          // Native code reports any provider refusing the mailbox with this code.
           throw Object.assign(new Error('Synthetic'), {
             code: 'gmail-unavailable',
           });
         }
-        const address =
-          google.addresses[live.authorization.subject] ?? google.address;
+        const address = gmail
+          ? (google.addresses[live.authorization.subject] ?? google.address)
+          : microsoft.address;
         live.authorization.receipt = { address };
         return {
           connection: connectionId(live.authorization.subject, address),
@@ -631,6 +664,7 @@ export function createSyntheticVault(
         if (existing === undefined) {
           device.epochs += 1;
           record.connections.push({
+            provider: pending.provider,
             subject: pending.subject,
             address: pending.receipt.address,
             credential: 1,
@@ -748,7 +782,7 @@ export function createSyntheticVault(
     declineEnrollment: () => reject('enrollment-unavailable'),
     revokeTrustedDevice: () => reject('unavailable'),
   };
-  return { vault, device, google, apple, backend };
+  return { vault, device, google, microsoft, apple, backend };
 }
 
 export type SyntheticVault = ReturnType<typeof createSyntheticVault>;

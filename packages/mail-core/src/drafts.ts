@@ -328,8 +328,11 @@ export const threadOf = ({ connection, response }: Draft) =>
     : undefined;
 
 // The connections a Draft may send from: every one whose Gmail access is usable on this device.
+// Microsoft mail cannot send yet, so only Gmail connections send.
 export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
-  mailboxes.filter(({ state }) => state !== 'authorization');
+  mailboxes.filter(
+    ({ state, provider }) => state !== 'authorization' && provider === 'gmail',
+  );
 
 // Files and images ------------------------------------------------------------------------------
 

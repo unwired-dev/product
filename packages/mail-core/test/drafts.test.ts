@@ -2192,7 +2192,7 @@ describe('adding files and images to Drafts', () => {
     };
     const creating = navigation.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [{ ...alex, provider: 'gmail', state: 'connected' as const }],
       saved,
     });
     await prepared;
@@ -2209,7 +2209,7 @@ describe('adding files and images to Drafts', () => {
     const replacement = createComposerNavigation();
     const preparing = replacement.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [{ ...alex, provider: 'gmail', state: 'connected' as const }],
       saved,
     });
     await secondPrepared;

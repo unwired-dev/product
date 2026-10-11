@@ -11,6 +11,7 @@
     "./mailboxes": "./src/mailboxes.ts",
     "./freshness": "./src/freshness.ts",
     "./testing/gmail-mailbox": "./src/testing/gmail-mailbox.ts",
+    "./testing/graph-mailbox": "./src/testing/graph-mailbox.ts",
     "./testing/mock-storage": "./src/testing/mock-storage.ts",
     "./theme": "./src/theme.ts",
     "./inbox-seed": "./src/inbox-seed.ts",

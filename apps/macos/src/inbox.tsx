@@ -3,6 +3,7 @@ import type { Message } from '@private-email/mail-core';
 import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
+import type { MailProvider } from '@private-email/mail-core/registration';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
@@ -44,6 +45,7 @@ import {
   useInboxActions,
   useLeaveComposer,
   useMailbox,
+  useProviderName,
   useMailboxes,
   useOutboxEntries,
   useReloadMailboxes,
@@ -270,6 +272,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   const account = use(AccountContext);
   const colors = usePalette();
   const { t } = useLocalization();
+  const provider = useProviderName();
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
@@ -277,12 +280,12 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   ) {
     return null;
   }
-  // Synchronizes again once Gmail access for this mailbox is authorized.
+  // Synchronizes again once access for this mailbox is authorized.
   const handleAllowGmail = async (authorize: () => Promise<void>) => {
     await authorize();
     await actions.load();
   };
-  const notice = about(t, address, t(`gmailSync.${state.sync}`));
+  const notice = about(t, address, t(`gmailSync.${state.sync}`, { provider }));
   return (
     <>
       <View
@@ -297,13 +300,13 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
       account !== undefined &&
       mailbox !== undefined ? (
         <Pressable
-          accessibilityLabel={t('common.allowGmail')}
+          accessibilityLabel={t('common.allowAccess', { provider })}
           accessibilityRole="button"
           onPress={() => {
-            void handleAllowGmail(() => account.authorizeGmail(mailbox.id));
+            void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
-            {t('common.allowGmail')}
+            {t('common.allowAccess', { provider })}
           </Text>
         </Pressable>
       ) : null}
@@ -364,17 +367,20 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
-// A connection whose Gmail grant was refused has no Inbox until Gmail is authorized again.
+// A connection whose grant its provider refused has no Inbox until it is authorized again.
 function AuthorizationNeeded({
   address,
+  provider: mailProvider,
   onAllow,
 }: {
   readonly address: string;
+  readonly provider: MailProvider;
   readonly onAllow: () => Promise<void>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const notice = about(t, address, t('gmailSync.authentication'));
+  const provider = t(`mailProviders.${mailProvider}`);
+  const notice = about(t, address, t('gmailSync.authentication', { provider }));
   return (
     <View>
       <View
@@ -386,13 +392,13 @@ function AuthorizationNeeded({
         </Text>
       </View>
       <Pressable
-        accessibilityLabel={t('mailboxes.allow', { address })}
+        accessibilityLabel={t('mailboxes.allow', { address, provider })}
         accessibilityRole="button"
         onPress={() => {
           void onAllow();
         }}>
         <Text style={[styles.notice, { color: colors.accent }]}>
-          {t('mailboxes.allow', { address })}
+          {t('mailboxes.allow', { address, provider })}
         </Text>
       </Pressable>
     </View>
@@ -791,8 +797,9 @@ export function Inbox({
           <AuthorizationNeeded
             key={mailbox.id}
             address={mailbox.address}
+            provider={mailbox.provider}
             onAllow={async () => {
-              await account?.authorizeGmail(mailbox.id);
+              await account?.authorizeMailbox(mailbox.id);
               await reload();
             }}
           />

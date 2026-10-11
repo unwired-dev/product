@@ -20,9 +20,21 @@ if (
 }
 
 const googleClientID: unknown = env.UNWIRED_GOOGLE_CLIENT_ID ?? '';
+const microsoftClientID: unknown = env.UNWIRED_MICROSOFT_CLIENT_ID ?? '';
 const convexURL: unknown = env.UNWIRED_CONVEX_URL ?? '';
-if (typeof googleClientID !== 'string' || typeof convexURL !== 'string') {
+if (
+  typeof googleClientID !== 'string' ||
+  typeof microsoftClientID !== 'string' ||
+  typeof convexURL !== 'string'
+) {
   throw new TypeError('Invalid native registration configuration');
+}
+// The public-client application ID; without it, Microsoft mail cannot be connected.
+if (
+  microsoftClientID &&
+  !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u.test(microsoftClientID)
+) {
+  throw new Error('Invalid Microsoft application client ID');
 }
 const googleScheme = googleClientID.split('.').toReversed().join('.');
 if (
@@ -61,6 +73,7 @@ const config: ExpoConfig = {
     infoPlist: {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,
+      UnwiredMicrosoftClientID: microsoftClientID,
       UnwiredConvexURL: convexURL,
       ...(commit ? { UnwiredCommit: commit } : {}),
     },

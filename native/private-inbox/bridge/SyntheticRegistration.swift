@@ -6,8 +6,6 @@
   @MainActor final class MockGoogleRegistrationProvider: GoogleRegistrationProvider {
     let scenario: String
     private let messages: [String: [String: Any]]
-    // The Gmail session that follows Apple sign-in in the same launch is declined.
-    var declineNextMailbox = false
     init(scenario: String, messages: [String: [String: Any]]? = nil) {
       self.scenario = scenario
       self.messages = messages ?? Self.syntheticMessages
@@ -21,10 +19,6 @@
     }
     func signIn(mail: Bool, hint: String?) async throws -> GoogleRegistrationIdentity {
       if !mail { return identity("synthetic-product-subject", granted: false) }
-      if declineNextMailbox {
-        declineNextMailbox = false
-        return identity("synthetic-alternate-mailbox", granted: false)
-      }
       if hint == nil { return identity("synthetic-alternate-mailbox", granted: true) }
       switch scenario {
       case "registration-cancelled": throw RegistrationError.cancelled
@@ -169,17 +163,56 @@
   }
 
   @MainActor final class MockAppleRegistrationProvider: AppleRegistrationProvider {
-    let google: MockGoogleRegistrationProvider
-    init(google: MockGoogleRegistrationProvider) { self.google = google }
-
     func signIn() async throws -> AppleRegistrationIdentity {
-      google.declineNextMailbox = google.scenario == "registration-apple"
-      return AppleRegistrationIdentity(
+      AppleRegistrationIdentity(
         subject: "synthetic-apple-subject", idToken: "synthetic-apple-identity",
         email: "relay@privaterelay.example.invalid")
     }
     func credentialState(_ subject: String) async -> AppleCredentialState {
       subject == "synthetic-apple-subject" ? .authorized : .revoked
+    }
+  }
+
+  // A synthetic Microsoft mailbox read through Graph: one Inbox message, a delta round that
+  // finds no later changes, and its text body.
+  @MainActor final class MockMicrosoftMailProvider: MicrosoftMailProvider {
+    static let message = "AAMkAGI2-synthetic-outlook="
+    private let identity = MicrosoftMailIdentity(
+      credential: Data("synthetic-microsoft".utf8), accessToken: "synthetic-graph-access",
+      scopes: ["Mail.Read", "User.Read", "offline_access"])
+
+    func signIn(hint: String?) async throws -> MicrosoftMailIdentity { identity }
+    func refresh(_ credential: Data) async throws -> MicrosoftMailIdentity { identity }
+    func verify(_ identity: MicrosoftMailIdentity) async throws -> GmailRegistrationReceipt {
+      GmailRegistrationReceipt(
+        subject: "synthetic-microsoft-account", address: "casey@example.invalid",
+        provider: .microsoftGraph)
+    }
+    func graph(_ identity: MicrosoftMailIdentity, url: URL) async throws -> (Int, Data) {
+      let delta = "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta"
+      let listed: [String: Any] = [
+        "id": Self.message, "conversationId": "synthetic-outlook-conversation",
+        "receivedDateTime": "2025-10-01T09:00:00Z", "subject": "Quarterly planning",
+        "bodyPreview": "Agenda for Thursday.", "isRead": false,
+        "from": ["emailAddress": ["name": "Jordan Lee", "address": "jordan@example.invalid"]],
+      ]
+      let body: [String: Any]
+      if url.path.hasSuffix("/attachments") {
+        body = ["value": []]
+      } else if url.path.hasPrefix("/v1.0/me/messages/") {
+        body = [
+          "id": Self.message, "hasAttachments": false,
+          "body": ["contentType": "text", "content": "Agenda for Thursday.\n\nJordan"],
+          "from": listed["from"] ?? [:],
+          "toRecipients": [["emailAddress": ["address": "casey@example.invalid"]]],
+        ]
+      } else if url.path.hasSuffix("/delta") {
+        let first = url.query?.contains("deltatoken") != true
+        body = ["value": first ? [listed] : [], "@odata.deltaLink": delta + "?$deltatoken=1"]
+      } else {
+        body = ["value": [listed]]
+      }
+      return (200, try JSONSerialization.data(withJSONObject: body))
     }
   }
 
@@ -485,7 +518,8 @@
     return RegistrationStore(
       keys: keys,
       deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: google, apple: MockAppleRegistrationProvider(google: google),
+      provider: google, apple: MockAppleRegistrationProvider(),
+      microsoft: MockMicrosoftMailProvider(),
       productSync: productSync.backend,
       // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
       // removals so the packaged journeys reach the synthetic Gmail mailbox.

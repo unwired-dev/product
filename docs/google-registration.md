@@ -25,10 +25,11 @@ evidence below describe the current Gmail path.
 
 [#596](https://github.com/unwired-dev/product/issues/596) adds the replacement
 registration path to both native hosts. Product Sign-In creates or reconnects the
-Product Account through Convex before a separate Gmail authorization session.
-Cancelled or declined Gmail consent and Google identities without Gmail retain
-the Product Account. Retry can use the original account (**Authorize Gmail**) or
-another Google mailbox (**Choose another Google mailbox**). Once a mailbox is
+Product Account through Convex and then offers the first mailbox: **Authorize Gmail**
+with the original account, **Choose another Google mailbox**, or **Connect Microsoft
+mail** ([Microsoft mail](microsoft-mail.md)). Sign-in alone starts no mailbox
+authorization. Cancelled or declined Gmail consent and Google identities without
+Gmail retain the Product Account, and both Gmail actions retry. Once a mailbox is
 connected, the account page adds others with **Add another Gmail mailbox**; see
 [Gmail mailboxes](gmail-inbox.md#gmail-mailboxes). A failed or cancelled addition
 keeps every connected mailbox connected. Adding a mailbox does not link its Google
@@ -42,7 +43,7 @@ saved Inbox with a retry notice, while provider access stays closed until
 verification succeeds. Rejected grants and unknown verification errors retain
 resumable account setup. No synthetic message is presented as mail from the connected account.
 [Apple registration](apple-registration.md) offers the other Product Sign-In and
-continues into this Gmail authorization flow.
+the same mailbox choice.
 
 ## Native credentials and verification
 

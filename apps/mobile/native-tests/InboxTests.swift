@@ -20,7 +20,7 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 final class InboxTests: XCTestCase {
   private func registrationJourney(_ app: XCUIApplication) throws {
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
     // A new Product Account presents its Recovery Key until setup is confirmed.
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -29,7 +29,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
@@ -100,10 +100,11 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // Apple identifies the Product Account; Gmail access still needs its own Google grant.
+  // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
+  // the first one, without Gmail; Gmail is added beside it with a Google grant.
   private func appleRegistrationJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Apple"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
     let contact = app.staticTexts.matching(
       NSPredicate(format: "label CONTAINS %@", "relay@privaterelay.example.invalid")
@@ -111,18 +112,20 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(contact.exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
-    app.buttons["Authorize Gmail"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
-    XCTAssertTrue(
-      app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
-        .firstMatch.exists)
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
+    app.buttons["Connect Microsoft mail"].tap()
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
+    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].exists)
+    app.buttons["Add another Gmail mailbox"].tap()
+    XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "Apple registration with Gmail"
+    shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
   }
@@ -130,6 +133,9 @@ final class InboxTests: XCTestCase {
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Apple"].tap()
+    // Sign-in connects no mailbox; Gmail is chosen explicitly.
+    XCTAssertTrue(app.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Authorize Gmail"].tap()
     XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(
@@ -168,7 +174,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].exists)
+    XCTAssertTrue(app.staticTexts["Connect your mail"].exists)
     XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
     app.terminate()
     app.launch()
@@ -251,7 +257,7 @@ final class InboxTests: XCTestCase {
   // Another device removed this one: the relaunch purges the account and explains it.
   private func revokedJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["This device was removed"].waitForExistence(timeout: 20))

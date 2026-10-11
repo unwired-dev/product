@@ -68,6 +68,8 @@ ASC_KEY_PATH='/absolute/path/outside/this/repository/AuthKey_<key ID>.p8'
 APPLE_DEVELOPMENT_TEAM='<team ID>'
 UNWIRED_GOOGLE_CLIENT_ID='<native client ID for dev.unwired.mail>'
 UNWIRED_CONVEX_URL='https://<deployment>.convex.cloud'
+# Optional: the Microsoft Entra application for Microsoft mail.
+UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>'
 ```
 
 The loader reads these release fields and any selected `UNWIRED_MOCK_SCENARIO`

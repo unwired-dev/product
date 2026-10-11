@@ -319,12 +319,13 @@ import Testing
   }
 
   // Each installation is its own device of the account its sign-in reaches.
-  func store(keys: DeviceKeychain, google: SyntheticGoogleRegistrationProvider)
-    -> RegistrationStore
-  {
+  func store(
+    keys: DeviceKeychain, google: SyntheticGoogleRegistrationProvider,
+    microsoft: (any MicrosoftMailProvider)? = nil
+  ) -> RegistrationStore {
     RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: google, productSync: backend,
+      provider: google, microsoft: microsoft, productSync: backend,
       deviceRevoked: { [self] product in revoked.contains(product.trustedDeviceId) },
       connect: { [self] identity, device, _ in
         try connect("account-" + identity.subject, device: device)

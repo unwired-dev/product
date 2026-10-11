@@ -90,13 +90,26 @@ struct ProductSignInIdentity {
   var authorizationCode: String? = nil
 }
 
+// The Mail Provider a Mailbox Connection reads, named as TypeScript and Product Sync name it.
+enum MailProvider: String, Codable {
+  case gmail
+  case microsoftGraph = "microsoft-graph"
+}
+
+// A verified mailbox: its provider account and address. Receipts written before Microsoft mail
+// carry no provider and are Gmail.
 struct GmailRegistrationReceipt: Codable {
   let subject: String
   let address: String
+  var provider: MailProvider? = nil
+
+  var mailProvider: MailProvider { provider ?? .gmail }
+  // The provider account, unique across providers; Product Sync names the descriptor by it.
+  var account: String { mailProvider.rawValue + ":" + subject }
 }
 
-// One authorized Gmail mailbox on this device. Each keeps its own credential, verification and
-// cache; the Google account identifies it, so adding the same mailbox again repairs it.
+// One authorized mailbox on this device. Each keeps its own credential, verification and cache;
+// its provider account identifies it, so adding the same mailbox again repairs it.
 struct MailboxConnection: Codable {
   var credential: Data
   var receipt: GmailRegistrationReceipt
@@ -115,7 +128,11 @@ struct MailboxConnection: Codable {
   var observedEpoch: String?
 
   // The opaque identifier JavaScript names this connection by.
-  var id: String { Self.id(subject: receipt.subject) }
+  var id: String { Self.id(receipt) }
+  // A Gmail connection keeps the identifier of connections from before other providers.
+  static func id(_ receipt: GmailRegistrationReceipt) -> String {
+    id(subject: receipt.mailProvider == .gmail ? receipt.subject : receipt.account)
+  }
   static func id(subject: String) -> String {
     SHA256.hash(data: Data(("dev.unwired.mailbox-connection\n" + subject).utf8)).prefix(16)
       .map { String(format: "%02x", $0) }.joined()
@@ -127,6 +144,11 @@ struct MailboxRemoval: Codable {
   let subject: String
   let address: String
   let epoch: String?
+  var provider: MailProvider? = nil
+
+  var receipt: GmailRegistrationReceipt {
+    GmailRegistrationReceipt(subject: subject, address: address, provider: provider)
+  }
 }
 
 struct ProductRegistrationReceipt: Codable {
@@ -207,6 +229,25 @@ extension GoogleRegistrationProvider {
     Int, Data
   ) {
     try await gmail(identity, url: url, body: body, contentType: "application/json")
+  }
+}
+
+// A mailbox authorization from its provider, waiting for a connection to store it.
+enum MailboxGrant {
+  case google(GoogleRegistrationIdentity)
+  case microsoft(MicrosoftMailIdentity)
+
+  var credential: Data {
+    switch self {
+    case .google(let identity): identity.credential
+    case .microsoft(let identity): identity.credential
+    }
+  }
+  var scopes: Set<String> {
+    switch self {
+    case .google(let identity): identity.scopes
+    case .microsoft(let identity): identity.scopes
+    }
   }
 }
 
@@ -307,6 +348,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   let clientID: String
   let provider: any GoogleRegistrationProvider
   let apple: (any AppleRegistrationProvider)?
+  // Absent where the host has no Microsoft client configured.
+  let microsoft: (any MicrosoftMailProvider)?
   // Receives the device's previous receipt, whose Product Account a reconnect must reach.
   let connect:
     (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
@@ -330,8 +373,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var session: ProductSignInIdentity?
   // The latest Product Sign-In in this process, verified or not; the next step presents it.
   var identity: ProductSignInIdentity?
-  // The latest Gmail authorization, and its verified receipt, until a connection stores it.
-  var mailboxAuthorization: (identity: GoogleRegistrationIdentity, receipt: GmailRegistrationReceipt?)?
+  // The latest mailbox authorization, and its verified receipt, until a connection stores it.
+  var mailboxAuthorization: (grant: MailboxGrant, receipt: GmailRegistrationReceipt?)?
   // Other devices' enrollment requests by Product Account, as last listed in this process.
   var enrollmentRequests: [String: [PendingEnrollment]] = [:]
   // The account's other Trusted Devices by Product Account, as last listed in this process.
@@ -340,6 +383,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
+    microsoft: (any MicrosoftMailProvider)? = nil,
     productSync: ProductSyncBackend? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
     transport: BackendTransport? = nil, mailCache: PrivateInboxStore? = nil,
@@ -352,6 +396,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     self.clientID = clientID
     self.provider = provider
     self.apple = apple
+    self.microsoft = microsoft
     self.productSync = productSync
     self.deviceRevoked = deviceRevoked
     self.transport = transport
@@ -385,7 +430,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
       "signInProvider": saved.provider.rawValue,
       "mailboxes": saved.connections.map { connection in
         var entry: [String: Any] = [
-          "id": connection.id, "address": connection.receipt.address,
+          "id": connection.id, "provider": connection.receipt.mailProvider.rawValue,
+          "address": connection.receipt.address,
           "authorizationNeeded": connection.authorizationNeeded == true,
           "access": verifiedMailboxes.contains(connection.id)
             ? "verified" : cacheOnlyMailboxes.contains(connection.id) ? "cached" : "unverified",
@@ -424,6 +470,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   func appleProvider() throws -> any AppleRegistrationProvider {
     guard let apple else { throw RegistrationError.unavailable }
     return apple
+  }
+
+  func microsoftProvider() throws -> any MicrosoftMailProvider {
+    guard let microsoft else { throw RegistrationError.unavailable }
+    return microsoft
   }
 
   func productIdentity(_ signInProvider: SignInProvider, hint: String?) async throws
@@ -566,57 +617,89 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     _ = try await retryMailboxCleanup(saved())
   }
 
-  // Renews a connection's Gmail authorization without a prompt; it must stay the same account.
+  // Renews a connection's authorization without a prompt. A Google one must stay the same
+  // account; a Microsoft refresh token belongs to its account, which verification reads again.
   func refreshMailbox(_ id: String) async throws -> [String: Any] {
     guard let connection = try saved().connection(id) else { throw RegistrationError.unavailable }
-    let gmail = try await provider.refresh(connection.credential)
-    guard gmail.subject == connection.receipt.subject else {
-      throw RegistrationError.invalidIdentity
+    let grant: MailboxGrant
+    switch connection.receipt.mailProvider {
+    case .gmail:
+      let gmail = try await provider.refresh(connection.credential)
+      guard gmail.subject == connection.receipt.subject else {
+        throw RegistrationError.invalidIdentity
+      }
+      grant = .google(gmail)
+    case .microsoftGraph:
+      grant = .microsoft(try await microsoftProvider().refresh(connection.credential))
     }
-    mailboxAuthorization = (gmail, nil)
-    return ["scopes": gmail.scopes.sorted()]
+    mailboxAuthorization = (grant, nil)
+    return ["scopes": grant.scopes.sorted()]
   }
 
-  // An interactive Gmail authorization. A named connection suggests its own account; otherwise
-  // `suggest` offers the Google sign-in. An Apple identity is never a Google account hint.
-  func signInMailbox(_ id: String?, suggest: Bool) async throws -> [String: Any] {
+  // An interactive authorization with the mailbox's provider. A named connection suggests its
+  // own account and keeps its provider; otherwise `suggest` offers the Google sign-in to Gmail.
+  // An Apple identity is never a Google account hint.
+  func signInMailbox(_ id: String?, suggest: Bool, provider added: MailProvider = .gmail)
+    async throws -> [String: Any]
+  {
     let saved = try saved()
-    let hint =
-      id.flatMap(saved.connection)?.receipt.subject
-      ?? (suggest && saved.provider == .google ? saved.subject : nil)
-    let gmail = try await provider.signIn(mail: true, hint: hint)
-    mailboxAuthorization = (gmail, nil)
-    return ["scopes": gmail.scopes.sorted()]
+    let existing = id.flatMap(saved.connection)?.receipt
+    let grant: MailboxGrant
+    switch existing?.mailProvider ?? added {
+    case .gmail:
+      let hint = existing?.subject ?? (suggest && saved.provider == .google ? saved.subject : nil)
+      grant = .google(try await provider.signIn(mail: true, hint: hint))
+    case .microsoftGraph:
+      grant = .microsoft(try await microsoftProvider().signIn(hint: existing?.address))
+    }
+    mailboxAuthorization = (grant, nil)
+    return ["scopes": grant.scopes.sorted()]
+  }
+
+  // Reads the authorized mailbox's account and address from its provider.
+  func verifyMailbox() async throws -> [String: Any] {
+    guard let grant = mailboxAuthorization?.grant else { throw RegistrationError.unavailable }
+    guard case .microsoft(let identity) = grant else { return try await verifyGmail() }
+    let receipt = try await microsoftProvider().verify(identity)
+    guard receipt.mailProvider == .microsoftGraph, !receipt.subject.isEmpty,
+      !receipt.address.isEmpty
+    else { throw RegistrationError.invalidIdentity }
+    mailboxAuthorization = (grant, receipt)
+    return ["connection": MailboxConnection.id(receipt), "address": receipt.address]
   }
 
   // Reads the authorized mailbox's address; it names the same Google account.
   func verifyGmail() async throws -> [String: Any] {
-    guard let gmail = mailboxAuthorization?.identity else { throw RegistrationError.unavailable }
+    guard case .google(let gmail)? = mailboxAuthorization?.grant else {
+      throw RegistrationError.unavailable
+    }
     let receipt = try await provider.verifyGmail(gmail)
-    guard receipt.subject == gmail.subject, !receipt.address.isEmpty else {
+    guard receipt.subject == gmail.subject, receipt.mailProvider == .gmail,
+      !receipt.address.isEmpty
+    else {
       throw RegistrationError.invalidIdentity
     }
-    mailboxAuthorization = (gmail, receipt)
-    return ["connection": MailboxConnection.id(subject: receipt.subject), "address": receipt.address]
+    mailboxAuthorization = (.google(gmail), receipt)
+    return ["connection": MailboxConnection.id(receipt), "address": receipt.address]
   }
 
   // The verified authorization, consumed by the connection that stores it.
-  func verifiedAuthorization() throws -> (GoogleRegistrationIdentity, GmailRegistrationReceipt) {
-    guard let gmail = mailboxAuthorization?.identity, let receipt = mailboxAuthorization?.receipt
+  func verifiedAuthorization() throws -> (MailboxGrant, GmailRegistrationReceipt) {
+    guard let grant = mailboxAuthorization?.grant, let receipt = mailboxAuthorization?.receipt
     else { throw RegistrationError.unavailable }
     mailboxAuthorization = nil
-    return (gmail, receipt)
+    return (grant, receipt)
   }
 
   // Saves a renewed authorization to the connection it verified for.
   func confirmMailbox(_ id: String) throws {
-    let (gmail, receipt) = try verifiedAuthorization()
+    let (grant, receipt) = try verifiedAuthorization()
     var saved = try saved()
-    guard MailboxConnection.id(subject: receipt.subject) == id, saved.connection(id) != nil else {
+    guard MailboxConnection.id(receipt) == id, saved.connection(id) != nil else {
       throw RegistrationError.unavailable
     }
     saved.update(id) {
-      $0.credential = gmail.credential
+      $0.credential = grant.credential
       $0.receipt = receipt
       $0.authorizationNeeded = nil
     }
@@ -628,13 +711,13 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
 
   // Adds the verified authorization as a connection, or repairs the existing one for its account.
   func storeMailbox() throws {
-    let (gmail, receipt) = try verifiedAuthorization()
+    let (grant, receipt) = try verifiedAuthorization()
     var next = try saved()
-    // Gmail authorization follows admission; a Pending Device holds no mailbox.
+    // Mailbox authorization follows admission; a Pending Device holds no mailbox.
     guard let product = next.product, product.pending != true else {
       throw RegistrationError.unavailable
     }
-    let id = MailboxConnection.id(subject: receipt.subject)
+    let id = MailboxConnection.id(receipt)
     // Never reuse a directory whose previous removal has not finished.
     guard !(next.mailboxCacheRemovals ?? []).contains(id) else {
       throw RegistrationError.unavailable
@@ -642,18 +725,18 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     // The descriptors this device last read; absent before it ever read them.
     let vault = try? loadVault(product.productAccountId)
     let observedEpoch = try? vault.flatMap {
-      try $0.descriptorEpochs?[$0.ring.identifier("mailbox", "gmail:" + receipt.subject)]
+      try $0.descriptorEpochs?[$0.ring.identifier("mailbox", receipt.account)]
     }
     if next.connection(id) == nil {
       next.connections += [
         MailboxConnection(
-          credential: gmail.credential, receipt: receipt,
+          credential: grant.credential, receipt: receipt,
           epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
           observedEpoch: observedEpoch)
       ]
     } else {
       next.update(id) {
-        $0.credential = gmail.credential
+        $0.credential = grant.credential
         $0.receipt = receipt
         $0.authorizationNeeded = nil
       }
@@ -686,7 +769,10 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // Why the latest mailbox authorization ended without a usable mailbox.
   func recordMailboxSetup(_ reason: String) throws {
     guard
-      ["cancelled", "declined", "gmail-unavailable", "interrupted", "unavailable"].contains(reason)
+      [
+        "cancelled", "declined", "gmail-unavailable", "microsoft-unavailable", "interrupted",
+        "unavailable",
+      ].contains(reason)
     else { throw RegistrationError.unavailable }
     var saved = try saved()
     saved.mailboxSetupReason = reason
@@ -711,10 +797,10 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     }
     saved.connections = saved.connections.filter { $0.id != id }
     saved.mailboxRemovals =
-      (saved.mailboxRemovals ?? []).filter { $0.subject != connection.receipt.subject } + [
+      (saved.mailboxRemovals ?? []).filter { $0.receipt.account != connection.receipt.account } + [
         MailboxRemoval(
           subject: connection.receipt.subject, address: connection.receipt.address,
-          epoch: connection.epoch)
+          epoch: connection.epoch, provider: connection.receipt.provider)
       ]
     saved.mailboxCacheRemovals = Array(Set((saved.mailboxCacheRemovals ?? []) + [id])).sorted()
     // Credentials leave the durable record before cleanup suspends; its locator stays retryable.

@@ -383,8 +383,8 @@ extension RegistrationStore {
     epochs: [String: String]
   ) {
     guard let product = saved.product else { return (saved, [], [:], [:]) }
-    func identifier(_ subject: String) throws -> String {
-      try vault.ring.identifier("mailbox", "gmail:" + subject)
+    func identifier(_ receipt: GmailRegistrationReceipt) throws -> String {
+      try vault.ring.identifier("mailbox", receipt.account)
     }
     var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
     @discardableResult
@@ -409,23 +409,23 @@ extension RegistrationStore {
     }
     // A removal marks only the epoch it removed; a later addition from another device stays.
     func removes(_ removal: MailboxRemoval) throws -> MailboxDescriptor? {
-      guard let live = stored[try identifier(removal.subject)]?.descriptor, live.removed != true,
+      guard let live = stored[try identifier(removal.receipt)]?.descriptor, live.removed != true,
         matches(removal, live)
       else { return nil }
       return live
     }
     var next = saved
     for removal in saved.mailboxRemovals ?? [] {
-      let key = try identifier(removal.subject)
+      let key = try identifier(removal.receipt)
       if stored[key] == nil {
         try await put(
           key, MailboxDescriptor(
-            provider: "gmail", address: removal.address, epoch: removal.epoch ?? Self.legacyMailboxEpoch,
-            removed: true))
+            provider: removal.receipt.mailProvider.rawValue, address: removal.address,
+            epoch: removal.epoch ?? Self.legacyMailboxEpoch, removed: true))
       } else if let live = try removes(removal) {
         var removed = live
         removed.removed = true
-        try await put(try identifier(removal.subject), removed)
+        try await put(key, removed)
       }
     }
     if !(saved.mailboxRemovals ?? []).isEmpty {
@@ -467,7 +467,7 @@ extension RegistrationStore {
     for connection in saved.connections {
       // A later connection's failed write must not discard a removal already learned.
       try await purgeConnections()
-      let key = try identifier(connection.receipt.subject)
+      let key = try identifier(connection.receipt)
       let usable = connection.authorizationNeeded != true
       guard let record = stored[key] else {
         if usable {
@@ -475,7 +475,7 @@ extension RegistrationStore {
           try await publish(
             connection, key: key,
             descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch),
+              provider: connection.receipt.mailProvider.rawValue, address: connection.receipt.address, epoch: epoch),
             canAdopt: connection.published != true && newlyAuthorizedMailboxes.contains(connection.id))
         }
         continue
@@ -498,7 +498,7 @@ extension RegistrationStore {
         || (connection.epoch == nil
           && (descriptor.epoch == Self.legacyMailboxEpoch || unchanged))
       let recreation = saved.mailboxRemovals?.contains {
-          $0.subject == connection.receipt.subject
+          $0.receipt.account == connection.receipt.account
             && matches($0, descriptor)
         } == true
       if descriptor.removed == true {
@@ -511,7 +511,7 @@ extension RegistrationStore {
           try await publish(
             connection, key: key,
             descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch), canAdopt: true)
+              provider: connection.receipt.mailProvider.rawValue, address: connection.receipt.address, epoch: epoch), canAdopt: true)
         }
       } else if !compatible {
         // An authorization from before a removal and a later addition is not carried over.
@@ -523,7 +523,7 @@ extension RegistrationStore {
           try await publish(
             connection, key: key,
             descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: connection.epoch),
+              provider: connection.receipt.mailProvider.rawValue, address: connection.receipt.address, epoch: connection.epoch),
             canAdopt: true)
         } else {
           next.update(connection.id) { $0.epoch = descriptor.epoch }
@@ -540,7 +540,7 @@ extension RegistrationStore {
           try await publish(
             connection, key: key,
             descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch),
+              provider: connection.receipt.mailProvider.rawValue, address: connection.receipt.address, epoch: epoch),
             canAdopt: false)
         }
       }
@@ -552,14 +552,14 @@ extension RegistrationStore {
     // A removal that is marked, or overtaken by another addition, is done.
     next.mailboxRemovals = try (saved.mailboxRemovals ?? []).filter {
       // Missing or unreadable is no evidence that this removal committed.
-      guard let descriptor = stored[try identifier($0.subject)]?.descriptor else { return true }
+      guard let descriptor = stored[try identifier($0.receipt)]?.descriptor else { return true }
       if descriptor.removed == true { return false }
       return try removes($0) != nil
     }
     if next.mailboxRemovals?.isEmpty == true { next.mailboxRemovals = nil }
     var confirmed: [String: String] = [:]
     for connection in next.connections {
-      let key = try identifier(connection.receipt.subject)
+      let key = try identifier(connection.receipt)
       guard let descriptor = stored[key]?.descriptor else { continue }
       // An older client may rewrite the descriptor without an epoch; that keeps the incarnation.
       if descriptor.removed == true
@@ -653,7 +653,7 @@ extension RegistrationStore {
     // A usable mailbox not yet read back needs a backend session, such as after an Apple relaunch.
     if vault.published,
       try saved.usableConnections.contains(where: {
-        try vault.savedMailboxes?[vault.ring.identifier("mailbox", "gmail:" + $0.receipt.subject)]
+        try vault.savedMailboxes?[vault.ring.identifier("mailbox", $0.receipt.account)]
           != $0.receipt.address
       })
     {

@@ -14,18 +14,21 @@ sign-in and its contact or relay address grant no mailbox access.
 Cancelling or failing mailbox setup retains the Product Account and offers retry
 or another provider. An Inbox requires a verified connection to the selected
 provider and completed setup; it does not require Gmail. Keep pending setup
-resumable across relaunch. These are launch requirements, not implemented or
-qualified behavior claimed by the evidence below.
+resumable across relaunch. Gmail and Microsoft mail have current entry paths;
+other providers remain launch work. The evidence below does not claim live-provider
+qualification.
 
 ## Current Gmail implementation
 
 [#597](https://github.com/unwired-dev/product/issues/597) adds Sign in with Apple
 as a second Product Sign-In choice on iPhone, iPad and Mac. It follows
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
-Apple identifies the Product Account only. The current Gmail implementation continues straight into the
-existing [resumable Gmail authorization](google-registration.md). The onboarding
-copy says Apple sign-in does not give access to mail. No connected Inbox appears
-until a Google account grants Gmail access and passes Gmail verification.
+Apple identifies the Product Account only. After device admission, setup offers
+Gmail or [Microsoft mail](microsoft-mail.md). Selecting Gmail starts the existing
+[resumable Gmail authorization](google-registration.md); selecting Microsoft mail
+requires no Google account. The onboarding copy says Apple sign-in does not give
+access to mail. No connected Inbox appears until the selected mailbox passes its
+provider's grant and Inbox verification.
 
 ## Identity boundaries
 
@@ -65,9 +68,9 @@ Cancelling the Apple sheet returns to the previous status without an error.
 If Convex does not confirm a new Apple registration, the record keeps the
 subject and installation ID. Restore reports Product Sign-In as the remaining
 step, and signing in with the same Apple ID resumes it. A record that never received a Product Account may
-be replaced by another Sign-In Provider. Once registration completes, Gmail
-cancellation, decline, missing Gmail and interruption keep it. The host reports
-the Gmail step as remaining, exactly as for Google registration.
+be replaced by another Sign-In Provider. Once registration completes, mailbox
+cancellation, decline, unavailable mail and interruption keep it. The host reports
+mailbox setup as remaining, exactly as for Google registration.
 
 ## Configure the hosts
 
@@ -83,8 +86,8 @@ Native Apple authorization uses the system sheet and has no redirect URL or URL
 scheme. Google still needs its reversed client-ID URL scheme and configured
 `UNWIRED_GOOGLE_CLIENT_ID` for the Gmail step. The current Apple-first Gmail path therefore
 needs the same [Google host configuration](google-registration.md#configure-the-hosts).
-At launch, authorizing a non-Gmail mailbox after Apple sign-in must not require
-a Google account or Gmail consent from the person.
+Connecting [Microsoft mail](microsoft-mail.md) after Apple sign-in requires no
+Google account or Gmail consent; other non-Gmail providers must keep that property.
 
 `APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience,
 `dev.unwired.mail`, which the Swift prototype shares. It has no default: a
