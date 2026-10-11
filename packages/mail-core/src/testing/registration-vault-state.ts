@@ -1,4 +1,4 @@
-import type { SignInProvider } from '../registration.ts';
+import type { MailProvider, SignInProvider } from '../registration.ts';
 
 export interface Identity {
   provider: SignInProvider;
@@ -15,6 +15,7 @@ export interface Receipt {
   materialInitialized?: boolean;
 }
 export interface Connection {
+  provider: MailProvider;
   subject: string;
   address: string;
   // Renewed with each live.authorization, as native credentials are.
@@ -27,6 +28,7 @@ export interface Connection {
 }
 // A removed connection whose descriptor is still to be marked removed.
 export interface Removal {
+  provider: MailProvider;
   subject: string;
   address: string;
   epoch?: string;

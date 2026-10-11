@@ -44,7 +44,8 @@ or recovering device receives only the key ring.
   to another identifier or account, or relabelling its epoch fails authentication;
   row metadata is not authenticated. Records with an unexpected schema are rejected.
 - **Record identifiers.** `mailbox.` followed by a truncated HMAC-SHA-256 of the
-  provider subject. The HMAC key is derived from the first epoch key. Identifiers
+  provider-scoped subject (`microsoft-graph:<Graph subject>` for Microsoft,
+  `gmail:<Google subject>` for Gmail, unchanged from existing records). The HMAC key is derived from the first epoch key. Identifiers
   are stable across devices and epochs. They reveal no address or subject, and
   they differ between Product Accounts.
 - **Recovery envelope.** The key ring encrypted with a key derived by HKDF from the
@@ -398,7 +399,9 @@ these migrations do not establish live-provider qualification.
 
 Each connection's descriptor remains schema 1 and adds optional `epoch` and
 `removed` fields, retaining older readable records. Its HMAC-derived record
-identifier deduplicates the Google subject within the Product Account. A
+identifier deduplicates the provider-scoped subject within the Product Account;
+Microsoft descriptors carry `provider: microsoft-graph`, and absent provider fields
+retain Gmail interpretation. Existing Gmail record identifiers stay unchanged. A
 connection epoch binds local authorization to one incarnation; new incarnations
 use random epochs, while pre-epoch records converge on the reserved `legacy`
 epoch. A first authorization on a new device also gives an epochless descriptor
@@ -408,8 +411,8 @@ retained removal/recreation intent still advances the epoch. Provider
 credentials and subjects never enter the descriptor. A new explicit authorization
 may adopt a live descriptor's epoch or recreate a tombstone at a new epoch.
 
-`SavedRegistration.mailboxRemovals` durably queues subject, address and removed
-epoch; reconciliation writes a tombstone even for an absent record, and never
+`SavedRegistration.mailboxRemovals` durably queues provider, subject, address and
+removed epoch; reconciliation writes a tombstone even for an absent record, and never
 replaces an unreadable one. Epochless removal intent names the legacy incarnation,
 including after another device upgrades it, and cannot tombstone a later random
 epoch. An absent legacy descriptor receives a legacy tombstone. Retained explicit

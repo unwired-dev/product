@@ -109,7 +109,7 @@ Callers that still read or act without an explicit Profile, by migration batch:
   - `packages/mail-core`: `mailboxes.ts` (`createMailboxes`, `inboxMessages`,
     `searchMessages`, `savedMessageBodies`, `createGmailSearch`),
     `registration.ts` (`mailboxesOf`, `canOpenInbox`, `inboxLanding`),
-    `gmail-inbox.ts`, `freshness.ts` and `remote-content.ts`.
+    `gmail-inbox.ts`, `graph-inbox.ts`, `freshness.ts` and `remote-content.ts`.
   - Both Apple hosts: `inbox.tsx`, `mailbox.tsx`, `message-detail.tsx`,
     `message-body.tsx`, `remote-content.tsx`, `organize.tsx`,
     `registration-gate.tsx`, and the Mac `window.tsx`.

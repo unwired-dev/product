@@ -47,17 +47,31 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
+// The Mail Provider a Mailbox Connection reads: Gmail, or Outlook.com and Microsoft 365 mail
+// through Microsoft Graph.
+export const MailProviderSchema = Schema.Literals(['gmail', 'microsoft-graph']);
+export type MailProvider = typeof MailProviderSchema.Type;
+
+// A malformed native capability cannot offer an authorization action.
+export const microsoftMailAvailable = Schema.is(
+  Schema.Struct({ microsoftMail: Schema.Literal(true) }),
+);
+
 // The lossless migrated Mail Profile. It owns every Mailbox Connection recorded before Profiles,
 // and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
 // connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
 export const defaultProfile = 'default';
 
 // This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
-// Inbox until Gmail verifies again; 'authorization' needs Gmail authorized again first.
+// Inbox until its provider verifies again; 'authorization' needs it authorized again first.
 const MailboxesSchema = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
       id: Schema.NonEmptyString,
+      // Connections listed before Microsoft mail are Gmail.
+      provider: MailProviderSchema.pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed('gmail')),
+      ),
       address: Schema.NonEmptyString,
       state: Schema.Literals(['connected', 'cached', 'authorization']),
       // A removal/recreation changes this owner lifetime; ordinary verification does not.
@@ -160,6 +174,7 @@ export const RegistrationSnapshotSchema = Schema.Union([
         'cancelled',
         'declined',
         'gmail-unavailable',
+        'microsoft-unavailable',
         'interrupted',
         'unavailable',
       ]),
@@ -242,12 +257,15 @@ export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
-  // Adds a Gmail mailbox; the first one suggests the Google sign-in unless `chooseAccount`.
-  // Adding a mailbox that is already connected authorizes it again instead.
-  readonly addMailbox: (chooseAccount: boolean) => Promise<unknown>;
-  // Authorizes Gmail again for one Mailbox Connection, with the same Google account.
-  readonly authorizeGmail: (connection: string) => Promise<unknown>;
-  // Removes a Mailbox Connection from this Product Account; its Gmail mail is untouched.
+  // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless
+  // `chooseAccount`. Adding a mailbox that is already connected authorizes it again instead.
+  readonly addMailbox: (
+    provider: MailProvider,
+    chooseAccount: boolean,
+  ) => Promise<unknown>;
+  // Authorizes one Mailbox Connection's provider again, with the same account.
+  readonly authorizeMailbox: (connection: string) => Promise<unknown>;
+  // Removes a Mailbox Connection from this Product Account; its provider's mail is untouched.
   readonly removeMailbox: (connection: string) => Promise<unknown>;
   // Verifies the current Product Account and the identity being linked, interactively.
   readonly link: (provider: SignInProvider) => Promise<unknown>;
@@ -660,27 +678,25 @@ export function createRegistration(
     register: (provider: SignInProvider) =>
       execute(
         Effect.gen(function* () {
-          // Commit Product Sign-In before starting the separate Gmail consent session.
+          // Product Sign-In never starts a mailbox authorization: the person chooses the first
+          // mailbox's provider.
           const snapshot = yield* request(() => native.signIn(provider));
           publish({ snapshot, busy: true, failed: false });
-          if (snapshot.kind !== 'mailbox-needed') {
+          const [saved] = mailboxesOf(snapshot);
+          if (snapshot.kind !== 'mailbox-needed' || saved === undefined) {
             return snapshot;
           }
-          // Saved mailboxes that all need Gmail again are authorized again, starting with the first.
-          const [saved] = mailboxesOf(snapshot);
-          return yield* request(() =>
-            saved === undefined
-              ? native.addMailbox(false)
-              : native.authorizeGmail(saved.id),
-          );
+          // Saved mailboxes that all need authorization again are authorized again, starting with
+          // the first.
+          return yield* request(() => native.authorizeMailbox(saved.id));
         }),
         undefined,
         { accountChange: 'sign-in' },
       ),
-    addMailbox: (chooseAccount = false) =>
-      execute(request(() => native.addMailbox(chooseAccount))),
-    authorizeGmail: (connection: string) =>
-      execute(request(() => native.authorizeGmail(connection))),
+    addMailbox: (provider: MailProvider = 'gmail', chooseAccount = false) =>
+      execute(request(() => native.addMailbox(provider, chooseAccount))),
+    authorizeMailbox: (connection: string) =>
+      execute(request(() => native.authorizeMailbox(connection))),
     removeMailbox: (connection: string) =>
       execute(request(() => native.removeMailbox(connection))),
     link: (provider: SignInProvider) =>
@@ -898,8 +914,14 @@ export function registrationCopy(t: Translate, snapshot: RegistrationSnapshot) {
     case 'connected':
     case 'cached': {
       const addresses = addressesIn(snapshot, snapshot.kind);
+      // Gmail-only accounts keep naming Gmail; any other provider makes it mail in general.
+      const gmailOnly = mailboxesOf(snapshot).every(
+        ({ provider }) => provider === 'gmail',
+      );
       return {
-        title: t(`registration.${snapshot.kind}.title`),
+        title: gmailOnly
+          ? t(`registration.${snapshot.kind}.title`)
+          : t(`registration.${snapshot.kind}.titleMail`),
         description: t(`registration.${snapshot.kind}.description`, {
           addresses: addresses.join(', '),
           count: addresses.length,

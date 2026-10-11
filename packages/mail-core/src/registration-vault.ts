@@ -1,13 +1,17 @@
+import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
-import type { SignInProvider } from './registration.ts';
+import type { MailProvider, SignInProvider } from './registration.ts';
+
+import { MailProviderSchema } from './registration.ts';
 
 const Provider = Schema.Literals(['google', 'apple']);
 const SetupReasonSchema = Schema.Literals([
   'cancelled',
   'declined',
   'gmail-unavailable',
+  'microsoft-unavailable',
   'interrupted',
   'unavailable',
 ]);
@@ -82,6 +86,10 @@ const ProductSyncStateSchema = Schema.Struct({
         Schema.Struct({
           id: Schema.NonEmptyString,
           record: Schema.NonEmptyString,
+          // Removals recorded before Microsoft mail are Gmail.
+          provider: MailProviderSchema.pipe(
+            Schema.withDecodingDefaultKey(Effect.succeed('gmail')),
+          ),
           address: Schema.NonEmptyString,
           epoch: Schema.optionalKey(Schema.NonEmptyString),
         }),
@@ -107,6 +115,7 @@ export const RegistrationRecordSchema = Schema.Struct({
   mailboxes: Schema.Array(
     Schema.Struct({
       id: Schema.NonEmptyString,
+      provider: MailProviderSchema,
       address: Schema.NonEmptyString,
       epoch: Schema.optionalKey(Schema.NonEmptyString),
       authorizationNeeded: Schema.Boolean,
@@ -237,12 +246,15 @@ export interface NativeRegistrationVault {
   readonly forgetMailboxAccess: () => Promise<unknown>;
   readonly retryMailboxCleanup: () => Promise<unknown>;
   readonly refreshMailbox: (connection: string) => Promise<unknown>;
-  // An interactive Gmail authorization, for a connection or a new mailbox.
+  // An interactive authorization with the provider, for a connection or a new mailbox; `suggest`
+  // offers the Google Product Sign-In's account to Gmail.
   readonly signInMailbox: (
     connection: string | null,
     suggest: boolean,
+    provider: MailProvider,
   ) => Promise<unknown>;
-  readonly verifyGmail: () => Promise<unknown>;
+  // Reads the authorized mailbox's address from its provider, which proves the mail grant.
+  readonly verifyMailbox: () => Promise<unknown>;
   // Saves the verified authorization to its existing connection.
   readonly confirmMailbox: (connection: string) => Promise<unknown>;
   // Adds the verified authorization as a connection, or repairs the existing one.

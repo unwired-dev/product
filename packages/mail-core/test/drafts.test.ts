@@ -2364,7 +2364,12 @@ describe('adding files and images to Drafts', () => {
     const creating = navigation.attachReceived(controlled, {
       mailbox: alex.id,
       mailboxes: [
-        { ...alex, state: 'connected' as const, profile: defaultProfile },
+        {
+          ...alex,
+          provider: 'gmail',
+          state: 'connected' as const,
+          profile: defaultProfile,
+        },
       ],
       saved,
     });
@@ -2383,7 +2388,12 @@ describe('adding files and images to Drafts', () => {
     const preparing = replacement.attachReceived(controlled, {
       mailbox: alex.id,
       mailboxes: [
-        { ...alex, state: 'connected' as const, profile: defaultProfile },
+        {
+          ...alex,
+          provider: 'gmail',
+          state: 'connected' as const,
+          profile: defaultProfile,
+        },
       ],
       saved,
     });

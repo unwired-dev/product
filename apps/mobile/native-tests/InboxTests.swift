@@ -20,7 +20,7 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 final class InboxTests: XCTestCase {
   private func registrationJourney(_ app: XCUIApplication) throws {
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
     // A new Product Account presents its Recovery Key until setup is confirmed.
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -29,7 +29,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
@@ -100,10 +100,11 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // Apple identifies the Product Account; Gmail access still needs its own Google grant.
+  // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
+  // the first one, without Gmail; Gmail is added beside it with a Google grant.
   private func appleRegistrationJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Apple"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
     let contact = app.staticTexts.matching(
       NSPredicate(format: "label CONTAINS %@", "relay@privaterelay.example.invalid")
@@ -111,18 +112,60 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(contact.exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
-    app.buttons["Authorize Gmail"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
+    app.buttons["Connect Microsoft mail"].tap()
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
+    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].exists)
+    app.buttons["Add another Gmail mailbox"].tap()
+    XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
+    // beside Gmail's.
+    let entry = app.textFields["Last four characters"]
+    entry.tap()
+    // Confirm each character reached the controlled field before sending the next one.
+    var confirmation = ""
+    for character in app.staticTexts["recovery-key"].label.suffix(4) {
+      entry.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
+        .completed)
+    }
+    entry.typeText("\n")
+    app.buttons["Confirm Recovery Key"].tap()
+    // The account page stays open until the person chooses the Inbox.
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    app.buttons["Open Inbox"].tap()
+    // The unified Inbox names each message's mailbox.
+    let jordan = app.buttons.matching(
+      NSPredicate(
+        format: "label CONTAINS %@", "Jordan Lee. Quarterly planning. In casey@example.invalid")
+    ).firstMatch
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     XCTAssertTrue(
-      app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
-        .firstMatch.exists)
+      app.buttons.matching(
+        NSPredicate(
+          format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
+      ).firstMatch.waitForExistence(timeout: 15))
+    jordan.tap()
+    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 20))
+    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
+    app.buttons["Open Inbox"].tap()
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    jordan.tap()
+    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "Apple registration with Gmail"
+    shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
   }
@@ -130,6 +173,9 @@ final class InboxTests: XCTestCase {
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Apple"].tap()
+    // Sign-in connects no mailbox; Gmail is chosen explicitly.
+    XCTAssertTrue(app.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Authorize Gmail"].tap()
     XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(
@@ -168,7 +214,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].exists)
+    XCTAssertTrue(app.staticTexts["Connect your mail"].exists)
     XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
     app.terminate()
     app.launch()
@@ -261,7 +307,7 @@ final class InboxTests: XCTestCase {
   // Another device removed this one: the relaunch purges the account and explains it.
   private func revokedJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["This device was removed"].waitForExistence(timeout: 20))
@@ -361,7 +407,9 @@ final class InboxTests: XCTestCase {
     let body = app.webViews.textViews["Message body"]
     XCTAssertTrue(body.waitForExistence(timeout: 15))
     // Focus: typing reaches the page only once its editable body holds keyboard focus.
-    body.tap()
+    // The empty editor fills the page; focus its first paragraph rather than the blank center.
+    body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24)).tap()
     body.typeText("Evaluation paragraph")
     let typed = app.webViews.staticTexts["Evaluation paragraph"]
     XCTAssertTrue(typed.waitForExistence(timeout: 10))
@@ -384,6 +432,11 @@ final class InboxTests: XCTestCase {
     landscape.lifetime = .keepAlways
     add(landscape)
     XCUIDevice.shared.orientation = .portrait
+    let restored = NSPredicate { _, _ in app.webViews.firstMatch.frame.width == portrait.width }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: restored, object: nil)], timeout: 10),
+      .completed)
     // Teardown: Close saves and removes the page's web view.
     app.buttons["Close"].tap()
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))

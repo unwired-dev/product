@@ -33,7 +33,9 @@ describe('application-scoped Gmail freshness', () => {
   it('polls while active, relies on push wakes in the background while every mailbox is routed, and polls again when one is not', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
-    await createRegistration(createRegistrationFlow(vault)).register('google');
+    const flow = createRegistration(createRegistrationFlow(vault));
+    await flow.register('google');
+    await flow.addMailbox();
     const gmail = createSyntheticGmail();
     const id = syntheticMailboxes['alex@example.invalid'];
     // The host's APNs queue holds one wake, then reports that a reloaded context replaced it.

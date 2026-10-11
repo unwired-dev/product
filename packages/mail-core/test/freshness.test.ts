@@ -63,8 +63,9 @@ async function twoMailboxes(messages = 0, connectOther = true) {
     restore: () => nativeRegistration.restore(),
   });
   await registration.register('google');
+  await registration.addMailbox();
   if (connectOther) {
-    await registration.addMailbox(true);
+    await registration.addMailbox('gmail', true);
   }
   const native = syntheticConnections({
     [alex]: {
@@ -240,7 +241,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(
         async () => {
           // Verification learns another eligible connection that was absent from this store.
-          await nativeRegistration.addMailbox(true);
+          await nativeRegistration.addMailbox('gmail', true);
           invalidate(routes);
           return restore();
         },

@@ -3,6 +3,7 @@ import type {
   NativeInboxStorage,
   PersistentInbox,
 } from '@private-email/mail-core/persistent-inbox';
+import type { MailProvider } from '@private-email/mail-core/registration';
 import type { TurboModule } from 'react-native';
 
 import { loadInitialMessages } from '@private-email/mail-core/inbox-seed';
@@ -21,6 +22,7 @@ type InboxState = ReturnType<InboxStore['getSnapshot']>;
 // A mailbox the Inbox shows: a Mailbox Connection, or the preview fixture, which has no address.
 export type InboxMailbox = Readonly<{
   id: string;
+  provider?: MailProvider;
   address?: string;
   inbox: InboxStore;
   state: InboxState;

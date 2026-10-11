@@ -13,9 +13,9 @@ system language model. There is no cloud or product-backend model fallback.
   [Mail Assistance Enablement](#mail-assistance-enablement) is on. Nothing
   runs until the person chooses it, and opening a message never starts inference.
 - The summary reads only the subject and the readable text already shown in the
-  reader: the plain-text presentation of a Gmail body from the encrypted cache, or
+  reader: the plain-text presentation of a Gmail or Microsoft body from the encrypted cache, or
   the preview fixture's body. It never fetches a missing body, more of a Thread,
-  attachments, Inline Images or remote content, and it makes no Gmail request.
+  attachments, Inline Images or remote content, and it makes no provider request.
 - Subject and body text are shortened so the complete JSON request, including framing and escaping, fits within 6,000 characters (never cutting a surrogate pair). A cut summary
   says that only the beginning of the long message was summarized.
 - While the model works, the reader shows progress and **Cancel**. Cancelling

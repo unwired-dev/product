@@ -324,11 +324,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
       privateSync: 'ready',
       mailboxes: connectedMailboxes,
     } as const;
-    const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+    const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
     const registration = createRegistration({
       restore: () => Promise.resolve(connected),
       addMailbox: () => Promise.reject(new Error('Not adding')),
-      authorizeGmail,
+      authorizeMailbox,
       removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),
@@ -496,7 +496,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       await Promise.resolve();
     });
-    expect(authorizeGmail).toHaveBeenCalledWith(alex);
+    expect(authorizeMailbox).toHaveBeenCalledWith(alex);
     gmail.fail({ code: 'unavailable' });
     await act(list.load);
     expect(
@@ -545,7 +545,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const registration = createRegistration({
       restore: () => Promise.resolve(restored.at(-1)),
       addMailbox: () => Promise.resolve(connected),
-      authorizeGmail: () => Promise.resolve(connected),
+      authorizeMailbox: () => Promise.resolve(connected),
       removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),

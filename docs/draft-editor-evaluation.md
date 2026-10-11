@@ -157,6 +157,16 @@ sending the next one. The subsequent full iPhone and iPad journeys passed. Earli
 implementer runs also passed but preceded the final corrections and are historical
 evidence (`artifacts/expo-bootstrap/native-1Ak7aW/`).
 
+The merge with Microsoft mail was checked again on the same date for PR #861,
+review round 7. The first iPhone run could not type after tapping the blank center
+of the empty editor (`artifacts/expo-bootstrap/native-rS07Qy/`). Focusing the first
+paragraph passed on iPhone; the next iPad run missed Close immediately after
+returning to portrait (`artifacts/expo-bootstrap/native-4EcpYd/`). The journey now
+focuses the first paragraph and waits for the portrait editor width before Close.
+Both final packaged journeys passed with zero failures
+(`artifacts/expo-bootstrap/native-wcrkAl/`), including encrypted saving and reopening.
+The final app build log is `artifacts/review-634-r7/native-build-final.log`.
+
 | Host                            | Open, type, save, close, relaunch, reopen | Focus                                                                  | Resize                                                         | Teardown                                                     |
 | ------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
 | iPhone 18 Pro Simulator         | Passed with the encrypted Draft store     | Tapping the body showed the software keyboard; typing reached the page | Landscape rotation kept the page and its text without a reload | Close removed the web view; relaunch reopened the saved body |
@@ -172,6 +182,13 @@ with `pathname contains null byte`; the infrastructure retry built successfully.
 journey was not run: this host has no `Apple Development` identity or mock
 provisioning profile, and an ad-hoc Mac app cannot open the Data Protection
 Keychain, so its encrypted Draft storage would be unavailable.
+
+For that merge review, the Mac XCTest source type-checked and both production and
+evaluation bundle checks passed. A fresh native build could not start: CocoaPods
+failed with `pathname contains null byte` on both setup attempts
+(`artifacts/review-634-r7/mac-pods.log` and `artifacts/review-634-r7/mac-pods-retry.log`). The
+host still has no development signing identity, so the signed Mac journey remains
+outstanding.
 
 Outstanding before any adoption decision: the Mac native journey with a signed
 mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,

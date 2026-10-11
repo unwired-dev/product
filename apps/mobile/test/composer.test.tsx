@@ -208,7 +208,7 @@ function App({
       value={{
         mailboxes: mailboxesOf(snapshot),
         openAccount,
-        authorizeGmail: () => Promise.resolve(),
+        authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
       }}>
       <InboxProvider
@@ -2266,7 +2266,7 @@ function ReaderApp({
       value={{
         mailboxes: senders ?? mailboxesOf(snapshot),
         openAccount: ignore,
-        authorizeGmail: () => Promise.resolve(),
+        authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
       }}>
       <InboxProvider

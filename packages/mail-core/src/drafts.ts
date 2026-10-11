@@ -337,14 +337,17 @@ export const profileOf = (
 ) => mailboxes.find(({ id }) => id === connection)?.profile ?? defaultProfile;
 
 // The connections a Draft in `profile` may send from: that Mail Profile's connections whose Gmail
-// access is usable on this device. A Draft never sends from another Profile's connection.
+// access is usable on this device. A Draft never sends from another Profile's connection, and
+// Microsoft mail cannot send yet, so only Gmail connections send.
 export const sendingMailboxes = (
   mailboxes: readonly MailboxConnection[],
   profile: string,
 ) =>
   mailboxes.filter(
     (mailbox) =>
-      mailbox.profile === profile && mailbox.state !== 'authorization',
+      mailbox.profile === profile &&
+      mailbox.state !== 'authorization' &&
+      mailbox.provider === 'gmail',
   );
 
 // Files and images ------------------------------------------------------------------------------

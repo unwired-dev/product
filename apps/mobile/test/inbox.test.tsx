@@ -205,14 +205,14 @@ function renderConnected(
       { id: alex, address: 'alex@example.invalid', state: 'connected' },
     ]),
   } as const;
-  const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+  const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
   const registration = createRegistration({
     restore: () =>
       Promise.resolve(
         removed?.current === true ? { kind: 'signed-out' } : connected,
       ),
     addMailbox: () => Promise.reject(new Error('Not adding')),
-    authorizeGmail,
+    authorizeMailbox,
     removeMailbox: () => Promise.reject(new Error('Not removing')),
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),
@@ -264,7 +264,7 @@ function renderConnected(
   }
   const rendered = render(<Connected />);
   return {
-    authorizeGmail,
+    authorizeMailbox,
     rendered,
     // The connected mailbox's Gmail Inbox, once registration has opened it.
     store: () => {
@@ -318,7 +318,7 @@ describe('connected Gmail Inbox', () => {
       snippet: 'Coffee first, then the long way home?',
     });
     const connected = renderConnected(gmail.native);
-    const { authorizeGmail } = connected;
+    const { authorizeMailbox } = connected;
     await connected.rendered;
     const store = connected.store();
     await fireEvent.press(
@@ -346,7 +346,7 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Allow Gmail access' }),
       );
     });
-    expect(authorizeGmail).toHaveBeenCalledWith(alex);
+    expect(authorizeMailbox).toHaveBeenCalledWith(alex);
     await expect(
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();

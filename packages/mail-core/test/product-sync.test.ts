@@ -1,153 +1,15 @@
-import * as Schema from 'effect/Schema';
-
-import type { MailboxDescriptor } from '../src/registration-vault.ts';
-
-import { RegistrationRecordSchema } from '../src/registration-vault.ts';
 import {
-  createSyntheticProductSyncBackend,
   mailboxRecord,
   storeDescriptor,
   storedDescriptor,
 } from '../src/testing/registration-vault.ts';
-import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
-
-const decodeRecord = Schema.decodeUnknownSync(RegistrationRecordSchema);
-const account = 'account-synthetic-product-subject';
-const productSubject = 'synthetic-product-subject';
-
-// The registration flow on a host with Product Sync, over the synthetic native vault and Convex.
-const setup = () => {
-  const launched = launch();
-  const sync = createSyntheticProductSyncBackend();
-  launched.backend.productSync = sync;
-  const keysOf = (name = account) => {
-    const entry = sync.accounts.get(name);
-    if (entry === undefined) {
-      throw new Error('No Product Sync account');
-    }
-    return entry;
-  };
-  const ring = () => {
-    const keys = keysOf().ring;
-    if (keys === undefined) {
-      throw new Error('No account keys');
-    }
-    return keys;
-  };
-  const records = (name = account) => keysOf(name).records;
-  const record = (subject = productSubject) =>
-    mailboxRecord(sync, ring().id, subject);
-  // Another device's write of the mailbox descriptor, or of one this device cannot open.
-  const put = (
-    descriptor: Partial<MailboxDescriptor> | undefined,
-    subject = productSubject,
-  ) =>
-    storeDescriptor(sync, {
-      account,
-      record: record(subject),
-      descriptor:
-        descriptor === undefined
-          ? undefined
-          : {
-              provider: 'gmail',
-              address: 'alex@example.invalid',
-              ...descriptor,
-            },
-    });
-  const descriptor = (subject = productSubject) =>
-    storedDescriptor(sync, account, record(subject));
-  // Runs `written` just before this device's `times`-th write of the subject's descriptor.
-  const beforeWrite = (
-    written: () => void,
-    { subject = productSubject, times = 1 } = {},
-  ) => {
-    let writes = 0;
-    sync.beforePut = (target) => {
-      writes += target === record(subject) ? 1 : 0;
-      if (writes === times) {
-        sync.beforePut = undefined;
-        written();
-      }
-    };
-  };
-  const failWrites = (subject: string) => {
-    sync.beforePut = (target) => {
-      if (target === record(subject)) {
-        throw new Error('Synthetic write failure');
-      }
-    };
-  };
-  const failNextList = () => {
-    sync.beforeList = () => {
-      sync.beforeList = undefined;
-      throw new Error('Synthetic list failure');
-    };
-  };
-  // Another device's removal that moves the account to a newer key epoch.
-  const rotate = (epoch: number) => {
-    const keys = ring();
-    keys.epochs.push(epoch);
-    keys.current = epoch;
-  };
-  const connections = () => launched.device.record?.connections ?? [];
-  const connection = () => {
-    const [first] = connections();
-    if (first === undefined) {
-      throw new Error('No connection');
-    }
-    return first;
-  };
-  // This device's connections as a build from before epochs left them.
-  const makeLegacy = () => {
-    for (const entry of connections()) {
-      delete entry.epoch;
-      delete entry.published;
-      delete entry.observed;
-      delete entry.observedEpoch;
-    }
-  };
-  const forgetConnections = () => {
-    const { record: saved } = launched.device;
-    if (saved !== undefined) {
-      saved.connections = [];
-    }
-  };
-  const confirmHeldKey = () => {
-    const held = launched.device.productSync.vault;
-    if (held === undefined) {
-      throw new Error('No key ring');
-    }
-    held.recoveryKeyConfirmed = true;
-  };
-  const mailboxId = async () => {
-    const state = decodeRecord(await launched.vault.registration());
-    const [mailbox] = state.mailboxes;
-    if (mailbox === undefined) {
-      throw new Error('No mailbox');
-    }
-    return mailbox.id;
-  };
-  return {
-    ...launched,
-    sync,
-    keysOf,
-    ring,
-    records,
-    record,
-    put,
-    descriptor,
-    beforeWrite,
-    failWrites,
-    failNextList,
-    rotate,
-    connections,
-    connection,
-    makeLegacy,
-    forgetConnections,
-    confirmHeldKey,
-    mailboxId,
-  };
-};
+import {
+  account,
+  decodeRecord,
+  productSubject,
+  setup,
+} from './product-sync-fixture.ts';
+import { createRegistrationFlow } from './registration-flow-fixture.ts';
 
 describe('product sync', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one synchronization path end to end. */
@@ -182,7 +44,7 @@ describe('product sync', () => {
     ]);
 
     google.subject = 'synthetic-mailbox-subject';
-    const connected = await flow.addMailbox(false);
+    const connected = await flow.addMailbox('gmail', false);
     expect(connected).toMatchObject({
       kind: 'connected',
       privateSyncMailboxes: 'alex@example.invalid',
@@ -223,12 +85,78 @@ describe('product sync', () => {
     expect(device.productSync.vault?.ring).toStrictEqual(ring());
   });
 
+  it.each([
+    ['gmail@example.invalid', 'graph@example.invalid'],
+    ['alex@example.invalid', 'alex@example.invalid'],
+  ])(
+    'publishes and removes provider-scoped mailboxes of the same subject (%s, %s)',
+    async (gmailAddress, graphAddress) => {
+      expect.hasAssertions();
+      const { flow, vault, google, microsoft, sync, ring, relaunch } = setup();
+      await flow.signIn('google');
+      google.subject = 'shared-mailbox-subject';
+      microsoft.subject = 'shared-mailbox-subject';
+      google.address = gmailAddress;
+      microsoft.address = graphAddress;
+      await flow.addMailbox('gmail', false);
+      await flow.addMailbox('microsoft-graph', false);
+      const stored = (provider: string) =>
+        storedDescriptor(
+          sync,
+          account,
+          mailboxRecord(sync, ring().id, `${provider}:shared-mailbox-subject`),
+        );
+      expect([stored('gmail'), stored('microsoft-graph')]).toStrictEqual([
+        expect.objectContaining({
+          provider: 'gmail',
+          address: gmailAddress,
+        }),
+        expect.objectContaining({
+          provider: 'microsoft-graph',
+          address: graphAddress,
+        }),
+      ]);
+      const [gmail, graph] = decodeRecord(await vault.registration()).mailboxes;
+      expect(gmail?.id).not.toBe(graph?.id);
+      // Another device's Graph removal purges only Graph, and explicit consent recreates it.
+      storeDescriptor(sync, {
+        account,
+        record: mailboxRecord(
+          sync,
+          ring().id,
+          'microsoft-graph:shared-mailbox-subject',
+        ),
+        descriptor: {
+          provider: 'microsoft-graph',
+          address: graphAddress,
+          removed: true,
+        },
+      });
+      await relaunch().restore();
+      expect(decodeRecord(await vault.registration()).mailboxes).toStrictEqual([
+        expect.objectContaining({ id: gmail?.id, provider: 'gmail' }),
+      ]);
+      await flow.addMailbox('microsoft-graph', false);
+      expect(stored('microsoft-graph')?.removed).toBeUndefined();
+      // Removing the Microsoft connection locally marks only its own descriptor removed.
+      expect(graph?.provider).toBe('microsoft-graph');
+      await flow.removeMailbox(String(graph?.id));
+      expect([
+        stored('gmail')?.removed,
+        stored('microsoft-graph'),
+      ]).toStrictEqual([
+        undefined,
+        expect.objectContaining({ provider: 'microsoft-graph', removed: true }),
+      ]);
+    },
+  );
+
   // Replaces ProductSyncTests.mailboxDescriptorsThisDeviceCannotOpenAreNeverReplaced.
   it('never shows or replaces a descriptor this device cannot open', async () => {
     expect.hasAssertions();
     const { flow, put, record, records } = setup();
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const stored = () => records().get(record());
     // A newer client's schema, an epoch or ring this device lacks, or a payload failing
     // authentication all read the same here: never shown, never replaced.
@@ -306,7 +234,7 @@ describe('product sync', () => {
     expect(keysOf().recovery).toBe('recovery-elsewhere');
     expect(sync.initializations).toBe(0);
     // Gmail stays authorizable, but no record is written without the account's keys.
-    await expect(relaunch().addMailbox(false)).resolves.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
       privateSync: 'enrollment-needed',
     });
@@ -342,7 +270,7 @@ describe('product sync', () => {
     const keys = device.productSync.vault;
     device.productSync.unreadable = true;
     google.subject = 'synthetic-mailbox-subject';
-    const connected = await flow.addMailbox(false);
+    const connected = await flow.addMailbox('gmail', false);
     expect(connected).toMatchObject({
       kind: 'connected',
       privateSync: 'unavailable',
@@ -363,7 +291,7 @@ describe('product sync', () => {
     const appleAccount = 'account-synthetic-apple-subject';
     await flow.signIn('apple');
     google.subject = 'synthetic-mailbox-subject';
-    await expect(flow.addMailbox(false)).resolves.not.toHaveProperty(
+    await expect(flow.addMailbox('gmail', false)).resolves.not.toHaveProperty(
       'privateSyncPending',
     );
     // An Apple relaunch cannot reach Convex but still shows the list it last decrypted.
@@ -373,7 +301,7 @@ describe('product sync', () => {
     // Without a session, a newly chosen mailbox waits for sign-in.
     google.subject = 'synthetic-other-mailbox';
     google.addresses = { 'synthetic-other-mailbox': 'other@example.invalid' };
-    await expect(relaunch().addMailbox(true)).resolves.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', true)).resolves.toMatchObject({
       kind: 'connected',
       privateSyncPending: 'mailbox',
     });
@@ -425,7 +353,7 @@ describe('product sync', () => {
     // Another device's removal commits epoch 2 just before this device's descriptor write lands.
     beforeWrite(() => rotate(2), { subject: 'synthetic-mailbox-subject' });
     google.subject = 'synthetic-mailbox-subject';
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       privateSyncMailboxes: 'alex@example.invalid',
     });
     expect(
@@ -449,7 +377,7 @@ describe('product sync', () => {
       mailboxId,
     } = setup();
     await flow.signIn('google');
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       privateSyncMailboxes: 'alex@example.invalid',
     });
     const published = descriptor();
@@ -471,7 +399,7 @@ describe('product sync', () => {
     });
 
     // Adding the mailbox again starts a new epoch.
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       privateSyncMailboxes: 'alex@example.invalid',
     });
     const renewed = descriptor();
@@ -485,11 +413,11 @@ describe('product sync', () => {
     expect(sync.steps).toContain(`purgeMailbox:${id}`);
 
     // An authorization from before a removal and another device's addition is purged too.
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     put({ epoch: 'added-on-another-device' });
     await expect(relaunch().restore()).resolves.not.toHaveProperty('mailboxes');
     // Authorizing a mailbox another device already published adopts that device's epoch.
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     expect(connection()).toMatchObject({
@@ -501,7 +429,7 @@ describe('product sync', () => {
     // Removing while offline and adding back cannot inherit the pre-removal epoch.
     sync.offline = true;
     await flow.removeMailbox(id);
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     sync.offline = false;
     await relaunch().restore();
     const recreated = descriptor();
@@ -529,7 +457,7 @@ describe('product sync', () => {
       records,
     } = setup();
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const id = await mailboxId();
     const added = descriptor();
 
@@ -548,31 +476,31 @@ describe('product sync', () => {
     expect(descriptor()?.removed).toBe(true);
 
     // An absent descriptor also needs a tombstone; absence never acknowledges publication.
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     records().clear();
     await flow.removeMailbox(id);
     expect(descriptor()?.removed).toBe(true);
 
     // An offline authorization cannot resurrect a removal during ordinary restore.
     sync.offline = true;
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     expect(connections()).toHaveLength(1);
     sync.offline = false;
     await expect(relaunch().restore()).resolves.not.toHaveProperty('mailboxes');
     expect(connections()).toHaveLength(0);
     // Fresh explicit consent after learning the tombstone can recreate it.
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     expect(descriptor()?.removed).toBeUndefined();
     await flow.removeMailbox(id);
     sync.offline = true;
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     put({ epoch: 'another-device-recreated' });
     sync.offline = false;
     // A later live incarnation also cannot inherit the earlier unpublished authorization.
     await expect(relaunch().restore()).resolves.not.toHaveProperty('mailboxes');
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     expect(connection().epoch).toBe('another-device-recreated');
@@ -599,7 +527,7 @@ describe('product sync', () => {
     await flow.signIn('google');
     // Another device publishes the same mailbox between this device's read and its write.
     beforeWrite(() => put({ epoch: 'added-on-another-device' }));
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     // The stored record is the winner's, and this device adopts its epoch.
@@ -623,7 +551,7 @@ describe('product sync', () => {
       put({ epoch: 'concurrent-recreation' });
       failNextList();
     });
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     expect(connection()).toMatchObject({
       epoch: 'concurrent-recreation',
       published: true,
@@ -635,7 +563,7 @@ describe('product sync', () => {
     // The durable remove/re-add intent stays eligible after relaunch, only for its tombstone.
     sync.offline = true;
     await flow.removeMailbox(id);
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     sync.offline = false;
     beforeWrite(() => put({ epoch: 'concurrent-retained-recreation' }), {
       times: 2,
@@ -651,7 +579,7 @@ describe('product sync', () => {
     await flow.removeMailbox(id);
     records().delete(record());
     sync.offline = true;
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     sync.offline = false;
     beforeWrite(() => {
       put({ epoch: 'offline-grant-was-removed', removed: true });
@@ -663,7 +591,7 @@ describe('product sync', () => {
     // A tombstone winning a fresh addition's compare-and-set is removal, not consent.
     records().delete(record());
     beforeWrite(() => put({ epoch: 'removal-winner', removed: true }));
-    await expect(flow.addMailbox(false)).resolves.not.toHaveProperty(
+    await expect(flow.addMailbox('gmail', false)).resolves.not.toHaveProperty(
       'mailboxes',
     );
     expect(connections()).toHaveLength(0);
@@ -676,13 +604,13 @@ describe('product sync', () => {
         put({ epoch: 'recreated-after-success' });
       };
     });
-    await expect(flow.addMailbox(false)).resolves.not.toHaveProperty(
+    await expect(flow.addMailbox('gmail', false)).resolves.not.toHaveProperty(
       'mailboxes',
     );
     expect(connections()).toHaveLength(0);
 
     // An address update's losing compare-and-set cannot move a published grant to a new epoch.
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     connection().address = 'renamed@example.invalid';
     beforeWrite(() => {
       put({ epoch: 'recreated-during-address-update' });
@@ -706,7 +634,7 @@ describe('product sync', () => {
       'synthetic-failing-mailbox': 'failing@example.invalid',
     };
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     // Another device's descriptors, read once by this device.
     put(
       { address: 'other@example.invalid', epoch: 'published-elsewhere' },
@@ -726,7 +654,7 @@ describe('product sync', () => {
       'synthetic-failing-mailbox',
     ]) {
       google.subject = subject;
-      await flow.addMailbox(true);
+      await flow.addMailbox('gmail', true);
     }
     google.subject = productSubject;
     expect(connections()).toHaveLength(5);
@@ -778,7 +706,7 @@ describe('product sync', () => {
       forgetConnections,
     } = setup();
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     makeLegacy();
     put({});
     // A concurrent legacy upgrade wins the compare-and-set; both devices choose one incarnation.
@@ -797,7 +725,7 @@ describe('product sync', () => {
     // A device authorizing the pre-epoch mailbox for the first time upgrades it to legacy too.
     forgetConnections();
     put({});
-    await expect(relaunch().addMailbox(false)).resolves.toMatchObject({
+    await expect(relaunch().addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     expect(descriptor()?.epoch).toBe('legacy');
@@ -812,7 +740,7 @@ describe('product sync', () => {
     expect(connections()).toHaveLength(0);
 
     // A queued removal of the pre-epoch incarnation cannot remove a newer remote incarnation.
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const id = await mailboxId();
     makeLegacy();
     put({});
@@ -829,12 +757,12 @@ describe('product sync', () => {
     });
 
     // A retained explicit offline recreation still matches its removal after a legacy upgrade.
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     makeLegacy();
     put({});
     sync.offline = true;
     await flow.removeMailbox(id);
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const recreatedEpoch = connection().epoch;
     put({ epoch: 'legacy' });
     sync.offline = false;
@@ -848,7 +776,7 @@ describe('product sync', () => {
     makeLegacy();
     put({ epoch: 'legacy', removed: true });
     await expect(relaunch().restore()).resolves.not.toHaveProperty('mailboxes');
-    await expect(flow.addMailbox(false)).resolves.toMatchObject({
+    await expect(flow.addMailbox('gmail', false)).resolves.toMatchObject({
       kind: 'connected',
     });
     expect(descriptor()?.epoch).not.toBe('legacy');
@@ -862,7 +790,7 @@ describe('product sync', () => {
       setup();
     await flow.signIn('google');
     google.subject = 'synthetic-mailbox-subject';
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     google.subject = productSubject;
     const installation = device.record?.deviceIdentifier;
     // The only copy of an unconfirmed Recovery Key stays, whatever else is lost.

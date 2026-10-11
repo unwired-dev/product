@@ -18,7 +18,7 @@ async function signedIn(
   session = createMockRegistrationSession('registration-success'),
 ) {
   await session.native.signIn('google');
-  await session.native.addMailbox(false);
+  await session.native.addMailbox('gmail', false);
   await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
   return session;
 }

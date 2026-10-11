@@ -48,9 +48,10 @@ operation per call:
   no credential, token, device identifier or provider subject. Connections appear
   only by their opaque IDs, with this process's verification state. A record for
   another deployment or Google client is never projected.
-- **Provider sign-ins.** Google Sign-In, Gmail authorization and Sign in with Apple
-  report only whether the identity is the saved account and which scopes Gmail
-  granted. The latest identity stays native for the next step to present.
+- **Provider sign-ins.** Google Sign-In, Sign in with Apple, and independent Gmail
+  or Microsoft mailbox authorization report only whether the identity is the saved
+  account and the granted mailbox scopes. After device admission, first use shows
+  provider choice rather than automatically requesting Gmail consent. The latest identity stays native for the next step to present.
 - **Connecting.** `productAccount:connect` issues the device credential, so native
   sends it, validates and stores the receipt before returning, and refuses a
   reconnect that reaches another Product Account.

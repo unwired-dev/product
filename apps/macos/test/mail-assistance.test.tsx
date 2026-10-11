@@ -415,7 +415,7 @@ describe('mail Assistance Enablement on Mac', () => {
     const signIn = async () => {
       await act(async () => {
         await store.register('google');
-        await store.addMailbox(false);
+        await store.addMailbox('gmail', false);
         await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
       });
     };
