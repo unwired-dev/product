@@ -2,30 +2,19 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
+import type { GmailMessage } from './mailbox-message.ts';
+
 import { GmailActionSchema, GmailLabelSchema } from './gmail-actions.ts';
-import { GraphDeltaLink, GraphId } from './microsoft-graph.ts';
+import { GmailMessageSchema } from './mailbox-message.ts';
+import { GraphDeltaLink } from './microsoft-graph.ts';
+
+export type { GmailMessage } from './mailbox-message.ts';
 
 // ponytail: the newest Inbox messages kept on this device; older ones stay at the provider. Each commit
 // rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
 export const cacheLimit = 200;
 export const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));
 export const HistoryId = Schema.String.check(Schema.isPattern(/^\d+$/u));
-
-const GmailMessageSchema = Schema.Struct({
-  // A Gmail or Microsoft Graph message ID, unique within its mailbox.
-  id: GraphId,
-  threadId: Schema.String,
-  sender: Schema.String,
-  address: Schema.String,
-  subject: Schema.String,
-  preview: Schema.String,
-  receivedAt: Schema.String,
-  unread: Schema.Boolean,
-  // Gmail's label IDs; absent in caches written before organizing, which are listed again, and
-  // for Microsoft mail, which offers no organizing actions yet.
-  labels: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-export type GmailMessage = typeof GmailMessageSchema.Type;
 
 // A requested change Gmail has not confirmed, with the message as it was shown, so restoring a
 // message that already left the cache can show it again.

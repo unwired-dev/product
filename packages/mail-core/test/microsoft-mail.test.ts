@@ -739,9 +739,10 @@ describe('reading Microsoft mail through Graph', () => {
     expect(reads(graph).filter((kind) => kind === 'message')).toStrictEqual([]);
 
     expect(
-      sendingMailboxes(mailboxesOf(registration.getSnapshot().snapshot)).map(
-        ({ address }) => address,
-      ),
+      sendingMailboxes(
+        mailboxesOf(registration.getSnapshot().snapshot),
+        defaultProfile,
+      ).map(({ address }) => address),
     ).toStrictEqual(['other@example.invalid']);
     await expect(
       shown[0]?.inbox.send({ segments: [{ text: 'Hello' }] }),

@@ -23,6 +23,9 @@ import {
   unavailable,
 } from './registration-vault-state.ts';
 
+export { RegistrationRecordSchema } from '../registration-vault.ts';
+export type { MailboxDescriptor } from '../registration-vault.ts';
+
 export {
   createSyntheticProductSyncBackend,
   mailboxRecord,

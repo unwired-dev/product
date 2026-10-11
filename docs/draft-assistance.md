@@ -60,8 +60,9 @@ system language model. There is no cloud or product-backend model fallback.
 
 Not in this slice: the three concise reply directions and the question check that
 [Response Assistance](domain/assistance.md) describes, subject suggestions,
-drafting from scratch and proofreading. Mail Assistance Enablement, the per-Profile
-opt-in, is [#788](https://github.com/unwired-dev/product/issues/788).
+drafting from scratch and proofreading. **Rewrite** and **Suggest reply** appear only
+while [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement)
+is on; turning it off cancels a pending request and closes its panel.
 
 ## Native binding
 

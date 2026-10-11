@@ -4,13 +4,12 @@ import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 
-import type { NativeGmailMailbox } from './gmail-inbox.ts';
 import type {
   GmailMessage,
   MailboxDocument,
   MailboxScope,
 } from './mailbox-document.ts';
-import type { GmailInvalidPage } from './mailbox-read.ts';
+import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
 import type { GraphAttachmentInfo } from './microsoft-graph.ts';
 
@@ -76,9 +75,7 @@ const isGraphCheckpoint = (
   checkpoint.kind === 'graph-listing' || checkpoint.kind === 'graph-current';
 
 // Graph's synchronization and body reads share the store's cache and presentation boundaries.
-export function createGraphReader(
-  native: Pick<NativeGmailMailbox, 'graphRequest'>,
-) {
+export function createGraphReader(native: NativeGraphMailbox) {
   // Documents that saved the link of an empty delta round; their synchronization is current.
   const quiet = new WeakSet<MailboxDocument>();
   // One Graph read; a delta link Graph no longer accepts is GmailInvalidPage.

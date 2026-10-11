@@ -133,7 +133,7 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 All workspace checks, including the locally retained legacy harness, run from the root:
 
 ```sh
-mise exec -- pnpm turbo run lint format check-types test
+mise exec -- pnpm turbo run lint lint:boundaries format check-types test
 mise exec -- pnpm fallow
 mise exec -- pnpm test:tooling
 ```

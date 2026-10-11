@@ -411,8 +411,8 @@ retained removal/recreation intent still advances the epoch. Provider
 credentials and subjects never enter the descriptor. A new explicit authorization
 may adopt a live descriptor's epoch or recreate a tombstone at a new epoch.
 
-`SavedRegistration.mailboxRemovals` durably queues subject, address and removed
-epoch; reconciliation writes a tombstone even for an absent record, and never
+`SavedRegistration.mailboxRemovals` durably queues provider, subject, address and
+removed epoch; reconciliation writes a tombstone even for an absent record, and never
 replaces an unreadable one. Epochless removal intent names the legacy incarnation,
 including after another device upgrades it, and cannot tombstone a later random
 epoch. An absent legacy descriptor receives a legacy tombstone. Retained explicit

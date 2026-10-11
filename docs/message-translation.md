@@ -17,9 +17,9 @@ fallback and nothing is downloaded by the app.
   supports. Nothing runs until the person picks one; picking another language
   replaces the pending or shown translation.
 - A reader translation reads only the readable text already shown: the plain-text
-  presentation of a Gmail body from the encrypted cache, or the preview fixture's
+  presentation of a Gmail or Microsoft body from the encrypted cache, or the preview fixture's
   body. It never fetches a missing body, attachments, Inline Images or remote
-  content, and makes no Gmail request. The body is read only up to the input limit, so
+  content, and makes no provider request. The body is read only up to the input limit, so
   rendering a long message never joins its whole text. Input is cut at 6,000 characters (never
   inside a surrogate pair), and a cut translation says so.
 - A reader translation is a read-only preview beside the unchanged message, naming
@@ -59,8 +59,9 @@ fallback and nothing is downloaded by the app.
   offered except for an unsupported pair or the same language. A device that
   reports no languages says that translation is unavailable.
 
-Mail Assistance Enablement, the per-Profile opt-in, is not part of this slice; see
-[#788](https://github.com/unwired-dev/product/issues/788).
+**Translate**, in the reader and the composer, appears only while
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is on;
+turning it off cancels a pending translation and forgets a shown one.
 
 ## Native binding
 

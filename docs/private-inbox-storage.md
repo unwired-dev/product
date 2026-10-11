@@ -115,14 +115,34 @@ Callers that still read or act without an explicit Profile, by migration batch:
     `registration-gate.tsx`, and the Mac `window.tsx`.
   - Convex: the Gmail provider connection list, connection and removal in
     `productAccount.ts`.
-- Drafts, delivery and notifications,
-  [#646](https://github.com/unwired-dev/product/issues/646):
-  - `packages/mail-core`: `drafts.ts`, `draft-sync.ts`, `outbox.ts`,
-    `responses.ts`, `outgoing-message.ts` and `composer-navigation.ts`.
-  - Both Apple hosts: `composer.tsx`, `message-detail.tsx` (attachment-to-Draft),
-    `outbox.tsx`, `freshness.ts`, and the push wake routes in `registration.ts`.
-  - Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
-  - Native: `PushRoutes.swift` and `DraftSync.swift`.
+
+The Drafts, delivery and notifications batch,
+[#646](https://github.com/unwired-dev/product/issues/646), scopes shared Draft and
+sending services to a connection's Profile. `profileOf` in `@private-email/mail-core/drafts` gives a connection's
+Profile, which every Draft and Outbox entry sending from it shares, and
+`sendingMailboxes` requires one:
+
+- The composer's **From** list, a new message, a reply and **Attach to New
+  Message** offer only senders in the Draft's or reader's Profile. A received
+  attachment never falls back to another Profile's sender.
+- The Draft store refuses a sender change into another Profile and a received
+  attachment from another Profile's connection.
+- **Reply All** leaves out only the sending Profile's own addresses.
+- A connection that is no longer listed, and the unified Inbox, fall back to the
+  Default Profile.
+
+Storage, Product Sync records, Delivery Owners, Outbox claims and their payloads
+are unchanged. Push wakes carry no content and synchronize every connection. The
+replacement has no recipient suggestions or visible notifications yet. Before another Profile can be created,
+[#647](https://github.com/unwired-dev/product/issues/647) must synchronize Profile
+assignment and route the remaining backend and native callers by Profile Record Scope:
+
+- Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
+- Native: `PushRoutes.swift` and `DraftSync.swift`.
+
+These callers require synchronized ownership before they can distinguish Profiles;
+the [architecture companion](architecture/private-inbox-storage.md#drafts-delivery-and-notifications-staging)
+records the staging decision and its rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
 compatibility path through substituted provider and storage boundaries. Before
@@ -130,6 +150,10 @@ release, verify Default Profile read/compose/relaunch on each maintained Apple
 host with real provider credentials, encrypted private state and queued work
 preserved. Mock tests and earlier native journeys do not qualify this combination.
 No setup or data reset is required for this slice.
+
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is a
+device-only Keychain item per Product Account listing its enabled Profiles. Every
+account purge removes it with the account's keys.
 
 ## Message body cache
 

@@ -23,7 +23,7 @@ import type {
   MailboxScope,
   PendingAction,
 } from './mailbox-document.ts';
-import type { GmailInvalidPage } from './mailbox-read.ts';
+import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -91,21 +91,11 @@ export type { GmailMessage } from './mailbox-document.ts';
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
 // and keeps the cache encrypted; this module chooses the Gmail requests and owns the cached document.
-export interface NativeGmailMailbox {
+export interface NativeGmailMailbox extends NativeGraphMailbox {
   // Resolves `{ status, body }` for a read of `gmail/v1/users/me/<path>`.
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
-    mailbox: Readonly<{
-      address: string;
-      generation: string;
-      signal?: Readonly<AbortSignal>;
-    }>,
-  ) => Promise<unknown>;
-  // Resolves `{ status, body }` for a Microsoft Graph read of the signed-in person's own mail at
-  // `url`; native code refuses any other URL.
-  readonly graphRequest: (
-    url: string,
     mailbox: Readonly<{
       address: string;
       generation: string;

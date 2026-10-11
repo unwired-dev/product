@@ -19,7 +19,11 @@ email domain. No provider contacts Gmail, Convex, a sign-in service or
 an assistance service, and mock scenario builds refuse every remote image fetch. There is no token or backend-authority representation.
 
 The factory offers `open-read-relaunch`, `identity-unavailable`,
-`mail-unavailable` and `assistance-unavailable`. Identity and mail failures use
+`mail-unavailable`, `assistance-unavailable` and `assistance-disabled`. Its
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement)
+reports the synthetic account's Default Profile as enabled, except in
+`assistance-disabled`. Native builds of the preview Inbox have no Product Account
+and always offer assistance. Identity and mail failures use
 the real application's unavailable-state path; assistance failure leaves mail
 available. The assistance provider follows the native
 [message summary](message-summaries.md#native-binding) contract: it reports the

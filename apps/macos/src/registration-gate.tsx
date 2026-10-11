@@ -1,3 +1,5 @@
+import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
 import type {
   AccountRemoval,
   InboxChoice,
@@ -11,6 +13,7 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
+import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
@@ -49,6 +52,13 @@ import {
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
+import {
+  MailAssistanceContext,
+  MailAssistanceGate,
+  MailAssistanceSettings,
+  mailAssistance as deviceMailAssistance,
+} from './mail-assistance.tsx';
+import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { microsoftMail, registration } from './registration.ts';
 import {
@@ -58,6 +68,7 @@ import {
   RemoteContentContext,
 } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
+import { TranslationContext, nativeTranslation } from './translation.tsx';
 import { TrustedDevices } from './trusted-devices.tsx';
 
 // The connected Inbox opens the account page and asks a mailbox's provider for permission again
@@ -508,10 +519,12 @@ function AccountActions({
 // A signed-in account's settings; until a trusted device or the Recovery Key admits this device,
 // it offers only that.
 function AccountSettings({
+  assistance,
   button,
   microsoft,
   store,
 }: {
+  readonly assistance: NativeAssistance;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
   readonly microsoft: boolean;
   readonly store: Registration;
@@ -561,6 +574,13 @@ function AccountSettings({
         microsoft={microsoft}
         store={store}
       />
+      {snapshot.removalPending === undefined ? (
+        <MailAssistanceSettings
+          account={snapshot.productAccountId}
+          assistance={assistance}
+          button={button}
+        />
+      ) : null}
       <PrivateSync
         key={snapshot.recoveryKey ?? 'confirmed'}
         account={snapshot}
@@ -599,6 +619,9 @@ export function RegistrationGate({
   microsoft = microsoftMail(),
   preview = previewInbox,
   remoteContent = deviceRemoteContent,
+  mailAssistance = deviceMailAssistance,
+  assistance = nativeAssistance,
+  translation = nativeTranslation,
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
@@ -607,6 +630,10 @@ export function RegistrationGate({
   readonly preview?: boolean;
   // The device's remote content policies, for the Inbox's readers and the account page.
   readonly remoteContent?: RemoteContentSettingsStore;
+  // The device's Mail Assistance Enablement, which permits the model and Translation below.
+  readonly mailAssistance?: MailAssistanceEnablementStore;
+  readonly assistance?: NativeAssistance;
+  readonly translation?: NativeTranslation;
 }) {
   const { snapshot, busy, locked } = useSyncExternalStore(
     store.subscribe,
@@ -621,6 +648,22 @@ export function RegistrationGate({
   if (choice !== undefined && !landing.valid) {
     setChoice(undefined);
   }
+  // Enablement belongs to an admitted Product Account that is not being removed; it is read again
+  // whenever that changes, or when locked storage may have become readable.
+  const assistanceAccount =
+    snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
+      ? undefined
+      : snapshot.productAccountId;
+  const assistanceScope = JSON.stringify([
+    assistanceAccount,
+    snapshot.kind === 'device-pending',
+    locked === true,
+  ]);
+  useEffect(() => {
+    if (!preview) {
+      void mailAssistance.load(assistanceScope);
+    }
+  }, [preview, mailAssistance, assistanceScope]);
   const actions = useMemo(
     () => ({
       mailboxes: mailboxesOf(snapshot),
@@ -654,35 +697,50 @@ export function RegistrationGate({
       subscription.remove();
     };
   }, [preview, store, remoteContent]);
+  // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
-    return children;
+    return (
+      <AssistanceContext value={assistance}>
+        <TranslationContext value={translation}>{children}</TranslationContext>
+      </AssistanceContext>
+    );
   }
   const inbox = landing.destination === 'inbox';
   if (!locked && inbox) {
     return (
       <RemoteContentContext value={remoteContent}>
-        <AccountContext value={actions}>{children}</AccountContext>
+        <MailAssistanceContext value={mailAssistance}>
+          <MailAssistanceGate
+            account={assistanceAccount}
+            assistance={assistance}
+            translation={translation}>
+            <AccountContext value={actions}>{children}</AccountContext>
+          </MailAssistanceGate>
+        </MailAssistanceContext>
       </RemoteContentContext>
     );
   }
   if (!locked) {
     return (
       <RemoteContentContext value={remoteContent}>
-        <RegistrationPage
-          microsoft={microsoft}
-          store={store}
-          onInbox={
-            inboxAccount === undefined
-              ? undefined
-              : () => {
-                  setChoice({
-                    account: inboxAccount,
-                    destination: 'inbox',
-                    setup,
-                  });
-                }
-          }
-        />
+        <MailAssistanceContext value={mailAssistance}>
+          <RegistrationPage
+            assistance={assistance}
+            microsoft={microsoft}
+            store={store}
+            onInbox={
+              inboxAccount === undefined
+                ? undefined
+                : () => {
+                    setChoice({
+                      account: inboxAccount,
+                      destination: 'inbox',
+                      setup,
+                    });
+                  }
+            }
+          />
+        </MailAssistanceContext>
       </RemoteContentContext>
     );
   }
@@ -710,10 +768,12 @@ export function RegistrationGate({
 }
 
 function RegistrationPage({
+  assistance,
   microsoft,
   store,
   onInbox,
 }: {
+  readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
@@ -803,6 +863,7 @@ function RegistrationPage({
         {actions.retry ? button(t('common.retry'), store.restore) : null}
         {actions.settings ? (
           <AccountSettings
+            assistance={assistance}
             button={button}
             microsoft={microsoft}
             store={store}

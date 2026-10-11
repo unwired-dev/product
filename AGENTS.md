@@ -102,6 +102,8 @@ constant clarification.
 
 - When changing product terminology or `GLOSSARY.md`, follow the
   [domain documentation policy](docs/agents/domain.md).
+- Packages are deep modules: read [packages/README.md](packages/README.md) before
+  adding a package, an entry point or a cross-package import.
 - Put temporary probes in `scratchpad/`, run TypeScript with plain Node 24,
   and remove task-owned probes afterward.
 - Invoke `task-observer` for task-oriented work and consult relevant open skill

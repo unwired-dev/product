@@ -57,8 +57,13 @@ own the privacy, replacement and qualification boundaries. This slice exposes
 explicit target-language selection and installed-only translation. It provides no
 source-language override or in-app language-download presentation;
 [#622](https://github.com/unwired-dev/product/issues/622) specifies explicit target
-selection and available on-device capabilities. Device-local assistance enablement
-is tracked separately by [#788](https://github.com/unwired-dev/product/issues/788).
+selection and available on-device capabilities. Device-local assistance enablement is implemented by
+[#788](https://github.com/unwired-dev/product/issues/788); both reader and Draft
+translation require its gate. Mounted request owners subscribe to enablement
+changes so disabling assistance cancels and discards before React commits, and
+queued controls check live enablement before starting or accepting work. The
+passive language-list effect uses that same predicate before querying the native
+Translation boundary, including when Off arrives between commit and passive effects.
 The broader prototype behavior notes are not passing evidence
 for this slice. Live Apple Translation and physical-device qualification remain
 required before release, separately from deterministic host journeys and build

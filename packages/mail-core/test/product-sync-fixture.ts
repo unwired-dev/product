@@ -1,14 +1,14 @@
-import * as Schema from 'effect/Schema';
+import type { MailboxDescriptor } from '@private-email/mail-core/testing/registration-vault';
 
-import type { MailboxDescriptor } from '../src/registration-vault.ts';
-
-import { RegistrationRecordSchema } from '../src/registration-vault.ts';
 import {
   createSyntheticProductSyncBackend,
   mailboxRecord,
+  RegistrationRecordSchema,
   storeDescriptor,
   storedDescriptor,
-} from '../src/testing/registration-vault.ts';
+} from '@private-email/mail-core/testing/registration-vault';
+import * as Schema from 'effect/Schema';
+
 import { launch } from './registration-flow-fixture.ts';
 
 // oxlint-disable-next-line node/no-sync -- Decodes synthetic vault replies without synchronous Node I/O.

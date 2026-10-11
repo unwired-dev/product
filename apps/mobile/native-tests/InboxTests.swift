@@ -119,11 +119,51 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Add another Gmail mailbox"].exists)
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
+    // beside Gmail's.
+    let entry = app.textFields["Last four characters"]
+    entry.tap()
+    // Confirm each character reached the controlled field before sending the next one.
+    var confirmation = ""
+    for character in app.staticTexts["recovery-key"].label.suffix(4) {
+      entry.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
+        .completed)
+    }
+    entry.typeText("\n")
+    app.buttons["Confirm Recovery Key"].tap()
+    // The account page stays open until the person chooses the Inbox.
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    app.buttons["Open Inbox"].tap()
+    // The unified Inbox names each message's mailbox.
+    let jordan = app.buttons.matching(
+      NSPredicate(
+        format: "label CONTAINS %@", "Jordan Lee. Quarterly planning. In casey@example.invalid")
+    ).firstMatch
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    XCTAssertTrue(
+      app.buttons.matching(
+        NSPredicate(
+          format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
+      ).firstMatch.waitForExistence(timeout: 15))
+    jordan.tap()
+    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 20))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
+    app.buttons["Open Inbox"].tap()
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    jordan.tap()
+    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways

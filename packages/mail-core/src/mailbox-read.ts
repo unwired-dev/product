@@ -8,6 +8,19 @@ import {
   rejectionDiagnostic,
 } from './diagnostics.ts';
 
+export interface NativeGraphMailbox {
+  // Resolves `{ status, body }` for a Microsoft Graph read of the signed-in person's own mail at
+  // `url`; native code refuses any other URL.
+  readonly graphRequest: (
+    url: string,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      signal?: Readonly<AbortSignal>;
+    }>,
+  ) => Promise<unknown>;
+}
+
 export const decodeResponse = Schema.decodeUnknownEffect(
   Schema.Struct({ status: Schema.Int, body: Schema.String }),
 );

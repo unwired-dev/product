@@ -32,6 +32,7 @@ import {
 
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -58,13 +59,19 @@ const native = () =>
   TurboModuleRegistry.getEnforcing<AssistanceModule>('UnwiredAssistance');
 
 // The host's on-device Apple model; Mock Mail Session tests substitute their own.
-export const AssistanceContext = createContext<NativeAssistance>({
+export const nativeAssistance: NativeAssistance = {
   availability: () => native().availability(),
   summarize: (request, input) => native().summarize(request, input),
   rewrite: (request, input) => native().rewrite(request, input),
   suggestReply: (request, input) => native().suggestReply(request, input),
   cancel: (request) => native().cancel(request),
-});
+};
+
+// The model while Mail Assistance Enablement permits On-Device Mail Assistance; without it every
+// assistance action is hidden and nothing reaches the model.
+export const AssistanceContext = createContext<NativeAssistance | undefined>(
+  undefined,
+);
 
 const idle: SummaryState = { kind: 'idle' };
 
@@ -153,23 +160,36 @@ function SummaryContent({
   );
 }
 
-// An explicitly requested on-device summary of the already-local message text in the reader.
-// Nothing runs until the person asks, and the preview is never saved or written to mail.
-export function MessageSummary({
-  source,
-  id,
-  subject,
-  body,
-}: {
+interface SummaryProps {
   // The mailbox store the message belongs to; with the id, it identifies the summarized message.
   readonly source: object;
   readonly id: string;
   readonly subject?: string | undefined;
   readonly body: ReadableBody | string;
-}) {
+}
+
+// An explicitly requested on-device summary of the already-local message text in the reader.
+// Nothing runs until the person asks, and the preview is never saved or written to mail. Turning
+// Mail Assistance Enablement off unmounts it, which cancels the request and forgets its preview.
+export function MessageSummary(props: SummaryProps) {
+  const assistance = use(AssistanceContext);
+  return assistance === undefined ? null : (
+    <Summary
+      assistance={assistance}
+      {...props}
+    />
+  );
+}
+
+function Summary({
+  assistance,
+  source,
+  id,
+  subject,
+  body,
+}: SummaryProps & { readonly assistance: NativeAssistance }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
   const input = useMemo(
     () =>
       summaryInput({
@@ -205,6 +225,9 @@ export function MessageSummary({
     setOwner(current);
   }
   const { summary } = current;
+  const enabled = useMailAssistanceLifetime(() => {
+    summary.discard();
+  });
   // Native input can be queued before the reader's message, mailbox, account or input changes and
   // be delivered afterward; only the committed summary may start inference. A replaced summary is
   // cancelled and forgotten as the new one commits, before passive effects, so a pending
@@ -224,7 +247,7 @@ export function MessageSummary({
     return null;
   }
   const start = () => {
-    if (committed.current === summary) {
+    if (committed.current === summary && enabled()) {
       void summary.summarize(input);
     }
   };

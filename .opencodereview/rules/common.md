@@ -60,6 +60,17 @@ Replacement new-Inbox notifications require permission and per-connection eligib
 
 For mobile/Mac hosts, shared packages, native modules, bundles or dependency configuration, read ADRs 0059 and 0064, docs/architecture/expo-client.md, docs/architecture/macos-client.md and affected native/storage companions. Keep one root pnpm workspace/lockfile and its named host catalogs at the documented toolchain versions; do not force incompatible native renderers together. Shared application logic must not import React, React Native, Expo or native modules; hosts own views and adapters. Check real Metro bundle and autolinking boundaries, not just version declarations. AppKit owns Mac window identities, menus, focus routing and application lifetime; windows retain independent selection, closing the last window keeps the app active and explicit Quit stops execution. Replacement deployment floors remain iOS/iPadOS/macOS 27; prototype targets keep their own scope. Do not turn unavailable native qualification into a passed check or lower deployment targets.
 
+- When changing `.dependency-cruiser.cjs` or its regression fixtures in
+  `scripts/dependency-boundaries.test.mjs`, check the import specifier as well as
+  the resolved destination against `packages/README.md`. An exported target must
+  not exempt cross-package relative imports from the import-by-name convention;
+  otherwise callers bypass export resolution and depend on the package's physical
+  layout. Exercise both rejection of a relative import to an exported target and
+  acceptance of a package-name import that actually resolves to that target,
+  preserving same-package source and test-fixture imports. Review the enforcement
+  configuration itself; a passing boundary lint cannot prove its rules implement
+  the documented convention.
+
 #### R9 — Effect and host execution (conditional)
 
 Before reviewing TypeScript, read docs/agents/effect.md and, for services, effect-services.md; before reviewing Effect code read the installed node_modules/effect/AGENTS.md completely and follow its links. Read ADR 0065 and docs/architecture/agents/effect.md for scope. Decode every untrusted boundary with Schema and fail closed while preserving native security checks. Shared mail-core application logic and Convex actions calling external services use Effect; Convex deterministic queries/mutations keep Convex validators and plain TypeScript, and host React consumes framework-independent stores. Run once at the host/handler boundary, preserve the Convex configuration/async/fetch contract, own and dispose runtimes/resources, and serialize shared mutable work. Retain tagged errors and foreign causes for recovery but log only allow-listed diagnostics, never raw mail, tokens, account identifiers or foreign errors. Apply the service-constructor/layer conventions where services are changed. Respect documented lint exemptions and the dependency-free legacy harness; do not expand Effect adoption beyond the accepted scope.
