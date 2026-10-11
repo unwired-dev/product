@@ -194,151 +194,6 @@ extension PrivateInboxTests {
     #expect(try relaunched.load()?.connections.first?.authorizationNeeded == true)
   }
 
-  // Removal marks the connection's synchronized descriptor removed. Every Trusted Device then
-  // purges that connection's credential and cache, including an authorization from before a
-  // removal and a later addition; adding the mailbox again starts a new epoch.
-  @Test @MainActor func removalsReachProductSyncAndEveryTrustedDevice() async throws {
-    let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
-    let account = "account-synthetic-product-subject"
-    defer {
-      try? keys.remove("registration")
-      try? keys.remove("product-sync." + account)
-      try? keys.remove("product-sync-enrollment." + account)
-    }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-    let registration = backend.store(keys: keys, google: google)
-    func store() -> RegistrationStore { registration }
-    _ = try await store().signIn()
-    let added = try await store().authorizeGmail()
-    #expect(added["privateSyncMailboxes"] == "same@example.invalid")
-    let ring = try #require(try store().loadVault(account)).ring
-    let subject = "synthetic-product-subject"
-    let identifier = try ring.identifier("mailbox", "gmail:" + subject)
-    func descriptor() throws -> MailboxDescriptor? {
-      guard let record = backend.records[account]?[identifier] else { return nil }
-      return try JSONDecoder().decode(
-        MailboxDescriptor.self,
-        from: ring.open(
-          record: record.encryptedPayload, account: account, identifier: identifier,
-          schemaVersion: MailboxDescriptor.schemaVersion))
-    }
-    func put(_ value: MailboxDescriptor) throws {
-      let sealed = try ring.seal(
-        record: JSONEncoder().encode(value), account: account, identifier: identifier,
-        schemaVersion: MailboxDescriptor.schemaVersion)
-      backend.records[account, default: [:]][identifier] = StoredPayload(
-        payloadIdentifier: identifier, encryptedPayload: sealed,
-        updatedAt: (backend.records[account]?[identifier]?.updatedAt ?? 0) + 1)
-    }
-    let published = try #require(try descriptor())
-    #expect(published.removed == nil)
-    #expect(published.epoch != nil)
-    #expect(try store().load()?.connections.first?.published == true)
-
-    // Removal marks the descriptor removed; credentials and mail never reach Product Sync.
-    let removed = try await store().flowRemoveMailbox(MailboxConnection.id(subject: subject))
-    #expect(removed["kind"] == "mailbox-needed")
-    #expect(removed["mailboxes"] == nil)
-    #expect(removed["privateSyncMailboxes"] == nil)
-    #expect(
-      try descriptor()
-        == MailboxDescriptor(
-          provider: "gmail", address: "same@example.invalid", epoch: published.epoch,
-          removed: true))
-    #expect(try store().load()?.mailboxRemovals == nil)
-
-    // Adding the mailbox again starts a new epoch.
-    let readded = try await store().authorizeGmail()
-    #expect(readded["privateSyncMailboxes"] == "same@example.invalid")
-    let renewed = try #require(try descriptor())
-    #expect(renewed.removed == nil)
-    #expect(renewed.epoch != published.epoch)
-
-    // Another device removes it: this device purges the connection on its next synchronization.
-    try put(
-      MailboxDescriptor(
-        provider: "gmail", address: "same@example.invalid", epoch: renewed.epoch, removed: true))
-    let purged = try await store().restore()
-    #expect(purged["kind"] == "mailbox-needed")
-    #expect(purged["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
-    // An authorization from before a removal and another device's addition is purged too.
-    _ = try await store().authorizeGmail()
-    try put(
-      MailboxDescriptor(
-        provider: "gmail", address: "same@example.invalid", epoch: "added-on-another-device"))
-    #expect(try await store().restore()["mailboxes"] == nil)
-    // Authorizing a mailbox another device already published adopts that device's epoch.
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == "added-on-another-device")
-    #expect(try store().load()?.connections.first?.published == true)
-    #expect(try descriptor()?.epoch == "added-on-another-device")
-
-    // Removing while offline and adding back cannot inherit the pre-removal epoch.
-    backend.offline = true
-    let id = MailboxConnection.id(subject: subject)
-    _ = try await store().flowRemoveMailbox(id)
-    _ = try await store().authorizeGmail()
-    #expect(try store().load()?.mailboxRemovals?.count == 1)
-    backend.offline = false
-    _ = try await store().restore()
-    let recreated = try #require(try descriptor())
-    #expect(recreated.epoch != "added-on-another-device")
-    #expect(recreated.removed != true)
-    #expect(try store().load()?.connections.first?.epoch == recreated.epoch)
-    let shown = try JSONDecoder().decode(
-      [[String: String]].self, from: Data(try #require(try await store().restore()["mailboxes"]).utf8))
-    #expect(shown.first?["epoch"] == recreated.epoch)
-    #expect(try store().load()?.mailboxRemovals == nil)
-
-    // A newer unreadable descriptor is read-only, but cannot acknowledge a removal.
-    let newer = try ring.seal(
-      record: JSONEncoder().encode(recreated), account: account, identifier: identifier,
-      schemaVersion: MailboxDescriptor.schemaVersion + 1)
-    backend.records[account]?[identifier] = StoredPayload(
-      payloadIdentifier: identifier, encryptedPayload: newer, updatedAt: 100)
-    let waiting = try await store().flowRemoveMailbox(id)
-    #expect(waiting["privateSyncPending"] == "mailbox")
-    #expect(try store().load()?.mailboxRemovals?.count == 1)
-    #expect(backend.records[account]?[identifier]?.encryptedPayload == newer)
-    // When it becomes readable, the retained removal publishes the matching tombstone.
-    try put(recreated)
-    _ = try await store().refreshPrivateSync()
-    #expect(try descriptor()?.removed == true)
-    #expect(try store().load()?.mailboxRemovals == nil)
-
-    // An absent descriptor also needs a tombstone; absence never acknowledges publication.
-    _ = try await store().authorizeGmail()
-    backend.records[account]?.removeValue(forKey: identifier)
-    _ = try await store().flowRemoveMailbox(id)
-    #expect(try descriptor()?.removed == true)
-    #expect(try store().load()?.mailboxRemovals == nil)
-
-    // An offline authorization cannot resurrect a removal during ordinary restore.
-    backend.offline = true
-    _ = try await store().authorizeGmail()
-    #expect(try store().load()?.connections.count == 1)
-    backend.offline = false
-    #expect(try await store().restore()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-    // Fresh explicit consent after learning the tombstone can recreate it.
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    #expect(try descriptor()?.removed != true)
-    _ = try await store().flowRemoveMailbox(id)
-    backend.offline = true
-    _ = try await store().authorizeGmail()
-    try put(MailboxDescriptor(
-      provider: "gmail", address: "same@example.invalid", epoch: "another-device-recreated"))
-    backend.offline = false
-    // A later live incarnation also cannot inherit the earlier unpublished authorization.
-    #expect(try await store().restore()["mailboxes"] == nil)
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == "another-device-recreated")
-  }
-
   // A failure deleting cache files cannot restore removed credentials or make the host retain
   // plaintext. Relaunch retries the recorded cleanup before any provider access.
   @Test @MainActor func removedConnectionsStayClosedWhileCacheCleanupRetries() async throws {
@@ -372,21 +227,13 @@ extension PrivateInboxTests {
     _ = try writer.commitMailbox(
       connection: id, address: "same@example.invalid", expectedRevision: 0,
       document: "private cached mail", generation: writer.generation(subject))
-    let ring = try #require(try writer.loadVault(account)).ring
-    let identifier = try ring.identifier("mailbox", "gmail:" + subject)
-    let connection = try #require(try writer.load()?.connections.first)
-    let removed = MailboxDescriptor(
-      provider: "gmail", address: connection.receipt.address, epoch: connection.epoch, removed: true)
-    backend.records[account]?[identifier] = StoredPayload(
-      payloadIdentifier: identifier,
-      encryptedPayload: try ring.seal(
-        record: JSONEncoder().encode(removed), account: account, identifier: identifier,
-        schemaVersion: MailboxDescriptor.schemaVersion), updatedAt: 100)
     // A directory at the lock-file path makes opening it for read/write fail deterministically.
     let lock = directory.appendingPathComponent("store.lock")
     try FileManager.default.removeItem(at: lock)
     try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
-    let blocked = try await store().restore()
+    // Another device removed it: synchronization purges the connection here.
+    try await writer.purgeMailbox(id)
+    let blocked = try writer.status()
     #expect(blocked["mailboxes"] == nil)
     #expect(blocked["privateSyncPending"] == "mailbox")
     #expect(try writer.load()?.connections.isEmpty == true)
@@ -402,158 +249,23 @@ extension PrivateInboxTests {
   }
 
 
-  // Two devices adding the same mailbox at once converge on one epoch: the device whose descriptor
-  // write loses adopts the winner's epoch and keeps its connection across relaunch. Bodies written
-  // before Mailbox Connections count toward the device-wide limit until adopted or removed.
-  @Test @MainActor func concurrentAdditionsConvergeAndLegacyBodiesCountTowardTheLimit()
-    async throws
-  {
-    let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
-    let account = "account-synthetic-product-subject"
+  // Mailbox descriptor synchronization moved to TypeScript
+  // (packages/mail-core/test/product-sync.test.ts). Each retired test names its replacement there:
+  // - removalsReachProductSyncAndEveryTrustedDevice: "marks removals in Product Sync and purges
+  //   connections another device removed"
+  // - offlineAuthorizationAdoptsAnUnchangedDescriptor: "adopts only an unchanged descriptor after an
+  //   offline authorization"
+
+  // Bodies written before Mailbox Connections count toward the device-wide limit until adopted or
+  // removed. How concurrent additions converge on one epoch moved to TypeScript: "converges
+  // concurrent additions on the compare-and-set winner" in packages/mail-core/test/product-sync.test.ts.
+  @Test func legacyBodiesCountTowardTheDeviceWideLimit() throws {
     let service = "dev.unwired.private-inbox.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer {
-      try? keys.remove("registration")
-      try? keys.remove("product-sync." + account)
-      try? keys.remove("product-sync-enrollment." + account)
       try? DeviceKeychain(service: service + ".database").remove("encryption-key")
       try? FileManager.default.removeItem(at: directory)
     }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-    defer {
-      backend.beforePut = nil
-      backend.beforeList = nil
-    }
-    let registration = backend.store(keys: keys, google: google)
-    func store() -> RegistrationStore { registration }
-    _ = try await store().signIn()
-    let ring = try #require(try store().loadVault(account)).ring
-    let identifier = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
-    let id = MailboxConnection.id(subject: "synthetic-product-subject")
-    func put(_ epoch: String, removed: Bool = false) throws {
-      let sealed = try ring.seal(
-        record: JSONEncoder().encode(
-          MailboxDescriptor(
-            provider: "gmail", address: "same@example.invalid", epoch: epoch,
-            removed: removed ? true : nil)),
-        account: account, identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-      backend.clock += 1
-      backend.records[account, default: [:]][identifier] = StoredPayload(
-        payloadIdentifier: identifier, encryptedPayload: sealed, updatedAt: backend.clock)
-    }
-    // Another device publishes the same mailbox between this device's read and its write.
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put("added-on-another-device")
-    }
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    let adopted = try #require(try store().load()?.connections.first)
-    #expect(adopted.epoch == "added-on-another-device")
-    #expect(adopted.published == true)
-    // A relaunch does not read the winning epoch as a removal and recreation.
-    let relaunched = try await backend.store(keys: keys, google: google).restore()
-    #expect(relaunched["kind"] == "connected")
-    #expect(try store().load()?.connections.map(\.epoch) == ["added-on-another-device"])
-
-    // Competing fresh recreations of the same tombstone converge too. Losing the later list
-    // cannot discard the CAS winner that this device already confirmed and saved.
-    _ = try await store().flowRemoveMailbox(id)
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put("concurrent-recreation")
-      backend.beforeList = { _, _ in
-        backend.beforeList = nil
-        throw RegistrationError.unavailable
-      }
-    }
-    _ = try await store().authorizeGmail()
-    #expect(try store().load()?.connections.first?.epoch == "concurrent-recreation")
-    #expect(try store().load()?.connections.first?.published == true)
-    #expect(try await backend.store(keys: keys, google: google).restore()["kind"] == "connected")
-
-    // The durable remove/re-add intent remains eligible after relaunch, but only for the
-    // tombstone it names. A concurrent recreation winning that CAS supplies the new epoch.
-    backend.offline = true
-    _ = try await store().flowRemoveMailbox(id)
-    _ = try await store().authorizeGmail()
-    backend.offline = false
-    var writes = 0
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      writes += 1
-      if writes == 2 {
-        backend.beforePut = nil
-        try put("concurrent-retained-recreation")
-      }
-    }
-    #expect(try await backend.store(keys: keys, google: google).restore()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == "concurrent-retained-recreation")
-    #expect(try store().load()?.mailboxRemovals == nil)
-
-    // An offline grant encountering absence may attempt publication on restore. It cannot
-    // inherit a later incarnation that another device publishes before that CAS.
-    _ = try await store().flowRemoveMailbox(id)
-    backend.records[account]?.removeValue(forKey: identifier)
-    backend.offline = true
-    _ = try await store().authorizeGmail()
-    backend.offline = false
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put("offline-grant-was-removed", removed: true)
-      try put("later-incarnation")
-    }
-    #expect(try await store().restore()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
-    // A tombstone winning a fresh addition's CAS is authoritative removal, not consent.
-    backend.records[account]?.removeValue(forKey: identifier)
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put("removal-winner", removed: true)
-    }
-    #expect(try await store().authorizeGmail()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
-    // A successful addition can be removed/recreated before read-back. The later list must
-    // not extend the grant bound to the successful CAS's epoch to that newer incarnation.
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      backend.beforeList = { _, _ in
-        backend.beforeList = nil
-        let epoch = try #require(try store().load()?.connections.first?.epoch)
-        try put(epoch, removed: true)
-        try put("recreated-after-success")
-      }
-    }
-    #expect(try await store().authorizeGmail()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
-    // An address update's losing CAS cannot move an already-published grant to a new epoch.
-    _ = try await store().authorizeGmail()
-    var renamed = try #require(try store().load())
-    renamed.update(id) { $0.receipt = GmailRegistrationReceipt(
-      subject: "synthetic-product-subject", address: "renamed@example.invalid") }
-    try store().save(renamed)
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put("recreated-during-address-update")
-      // The CAS already proved removal; a later unavailable list cannot preserve that grant.
-      backend.beforeList = { _, _ in
-        backend.beforeList = nil
-        throw RegistrationError.unavailable
-      }
-    }
-    #expect(try await store().refreshPrivateSync()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
     let cache = PrivateInboxStore(
       directory: directory, service: service, protectedDataAvailable: { true }, bodyLimit: 200)
     let legacy = MailboxConnection.id(subject: "synthetic-legacy-mailbox")
@@ -608,203 +320,16 @@ extension PrivateInboxTests {
       id: "new") == nil)
   }
 
-  // A mailbox another device published is authorized here while Product Sync is unreachable.
-  // Restoring against that unchanged descriptor adopts it rather than purging the new grant, while
-  // a descriptor that changed since this device last read it still fences the grant.
-  @Test @MainActor func offlineAuthorizationAdoptsAnUnchangedDescriptor() async throws {
-    let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
-    let account = "account-synthetic-product-subject"
-    defer {
-      try? keys.remove("registration")
-      try? keys.remove("product-sync." + account)
-      try? keys.remove("product-sync-enrollment." + account)
-    }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    google.mailboxAddresses = [
-      "synthetic-other-mailbox": "other@example.invalid",
-      "synthetic-third-mailbox": "third@example.invalid",
-      "synthetic-unobserved-mailbox": "unobserved@example.invalid",
-      "synthetic-failing-mailbox": "failing@example.invalid",
-    ]
-    let backend = SyntheticProductSyncBackend()
-    func store() -> RegistrationStore { backend.store(keys: keys, google: google) }
-    _ = try await store().signIn()
-    _ = try await store().authorizeGmail()
-    let ring = try #require(try store().loadVault(account)).ring
-    // Another device's descriptors, read once by this device.
-    func publish(_ subject: String, _ address: String, epoch: String) throws {
-      let identifier = try ring.identifier("mailbox", "gmail:" + subject)
-      let sealed = try ring.seal(
-        record: JSONEncoder().encode(
-          MailboxDescriptor(provider: "gmail", address: address, epoch: epoch)),
-        account: account, identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-      backend.clock += 1
-      backend.records[account, default: [:]][identifier] = StoredPayload(
-        payloadIdentifier: identifier, encryptedPayload: sealed, updatedAt: backend.clock)
-    }
-    try publish("synthetic-other-mailbox", "other@example.invalid", epoch: "published-elsewhere")
-    try publish("synthetic-third-mailbox", "third@example.invalid", epoch: "first-incarnation")
-    _ = try await store().restore()
-    // Both are authorized here offline; meanwhile the third is removed and added again elsewhere.
-    backend.offline = true
-    for subject in [
-      "synthetic-other-mailbox", "synthetic-third-mailbox", "synthetic-unobserved-mailbox",
-      "synthetic-failing-mailbox",
-    ] {
-      google.subject = subject
-      _ = try await store().authorizeGmail(chooseAccount: true)
-    }
-    google.subject = "synthetic-product-subject"
-    #expect(try store().load()?.connections.count == 5)
-    backend.offline = false
-    try publish("synthetic-third-mailbox", "third@example.invalid", epoch: "second-incarnation")
-    // Absence in the earlier snapshot is not evidence that an unseen add/remove/re-add did
-    // not happen while this grant was offline. Only the known unchanged epoch can be adopted.
-    try publish("synthetic-unobserved-mailbox", "unobserved@example.invalid", epoch: "later-incarnation")
-    let failing = try ring.identifier("mailbox", "gmail:synthetic-failing-mailbox")
-    backend.beforePut = { _, identifier in
-      if identifier == failing { throw RegistrationError.unavailable }
-    }
-    defer { backend.beforePut = nil }
-    // A later connection's failed publication cannot undo a removal already learned above.
-    _ = try await store().restore()
-    let afterFailure = try #require(try store().load()?.connections)
-    #expect(!afterFailure.contains { $0.receipt.subject == "synthetic-third-mailbox" })
-    #expect(!afterFailure.contains { $0.receipt.subject == "synthetic-unobserved-mailbox" })
-    backend.beforePut = nil
-    #expect(try await store().restore()["kind"] == "connected")
-    let connections = try #require(try store().load()?.connections)
-    let other = try #require(connections.first { $0.receipt.subject == "synthetic-other-mailbox" })
-    #expect(other.epoch == "published-elsewhere")
-    #expect(other.published == true)
-    #expect(!connections.contains { $0.receipt.subject == "synthetic-third-mailbox" })
-    #expect(!connections.contains { $0.receipt.subject == "synthetic-unobserved-mailbox" })
-  }
-
-  // Connections and descriptors from before epochs converge on one legacy epoch, so upgrades by
-  // different devices agree, while a connection from before epochs never inherits a mailbox that
-  // was removed and added again. Legacy adoption keeps bodies already saved for the connection.
-  @Test @MainActor func legacyConnectionsConvergeOnOneEpochAndStayFenced() async throws {
-    let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
-    let account = "account-synthetic-product-subject"
+  // Legacy adoption keeps bodies already saved for the connection. How connections from before
+  // epochs converge and stay fenced moved to TypeScript: "converges connections from before epochs
+  // on the legacy epoch and fences later incarnations" in packages/mail-core/test/product-sync.test.ts.
+  @Test func legacyAdoptionKeepsBodiesSavedBesideTheConnection() throws {
     let service = "dev.unwired.private-inbox.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer {
-      try? keys.remove("registration")
-      try? keys.remove("product-sync." + account)
-      try? keys.remove("product-sync-enrollment." + account)
       try? DeviceKeychain(service: service + ".database").remove("encryption-key")
       try? FileManager.default.removeItem(at: directory)
     }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-    func store() -> RegistrationStore { backend.store(keys: keys, google: google) }
-    _ = try await store().signIn()
-    _ = try await store().authorizeGmail()
-    let ring = try #require(try store().loadVault(account)).ring
-    let identifier = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
-    func put(epoch: String?, removed: Bool = false) throws {
-      let sealed = try ring.seal(
-        record: JSONEncoder().encode(
-          MailboxDescriptor(
-            provider: "gmail", address: "same@example.invalid", epoch: epoch,
-            removed: removed ? true : nil)),
-        account: account, identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-      backend.clock += 1
-      backend.records[account, default: [:]][identifier] = StoredPayload(
-        payloadIdentifier: identifier, encryptedPayload: sealed, updatedAt: backend.clock)
-    }
-    func descriptorEpoch() throws -> String? {
-      let record = try #require(backend.records[account]?[identifier])
-      return try JSONDecoder().decode(
-        MailboxDescriptor.self,
-        from: ring.open(
-          record: record.encryptedPayload, account: account, identifier: identifier,
-          schemaVersion: MailboxDescriptor.schemaVersion)
-      ).epoch
-    }
-    // This device's connection and its descriptor as a build from before epochs left them.
-    func makeLegacy() throws {
-      var saved = try #require(try store().load())
-      saved.update(MailboxConnection.id(subject: "synthetic-product-subject")) {
-        $0.epoch = nil
-        $0.published = nil
-        $0.observed = nil
-        $0.observedEpoch = nil
-      }
-      try store().save(saved)
-    }
-    try makeLegacy()
-    try put(epoch: nil)
-    // A concurrent legacy upgrade wins the CAS; both devices still choose the same incarnation.
-    backend.beforePut = { _, written in
-      guard written == identifier else { return }
-      backend.beforePut = nil
-      try put(epoch: RegistrationStore.legacyMailboxEpoch)
-    }
-    defer { backend.beforePut = nil }
-    #expect(try await store().restore()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == RegistrationStore.legacyMailboxEpoch)
-    #expect(try descriptorEpoch() == RegistrationStore.legacyMailboxEpoch)
-    // Another device from before epochs reads the upgraded descriptor as its own incarnation.
-    try makeLegacy()
-    #expect(try await store().restore()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == RegistrationStore.legacyMailboxEpoch)
-    // A device authorizing the pre-epoch mailbox for the first time must not give it a UUID
-    // that would make the existing legacy devices lose their valid grant on the next restore.
-    var freshDevice = try #require(try store().load())
-    freshDevice.connections = []
-    try store().save(freshDevice)
-    try put(epoch: nil)
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    #expect(try descriptorEpoch() == RegistrationStore.legacyMailboxEpoch)
-    try makeLegacy()
-    #expect(try await store().restore()["kind"] == "connected")
-    // A mailbox removed and added again elsewhere is not carried over from before epochs.
-    try makeLegacy()
-    try put(epoch: "added-again-elsewhere")
-    #expect(try await store().restore()["mailboxes"] == nil)
-    #expect(try store().load()?.connections.isEmpty == true)
-
-    // A queued removal of the pre-epoch incarnation cannot remove a newer remote incarnation.
-    _ = try await store().authorizeGmail()
-    try makeLegacy()
-    try put(epoch: nil)
-    backend.offline = true
-    let mailbox = MailboxConnection.id(subject: "synthetic-product-subject")
-    _ = try await store().flowRemoveMailbox(mailbox)
-    try put(epoch: "newer-than-legacy-removal")
-    backend.offline = false
-    _ = try await store().restore()
-    #expect(try descriptorEpoch() == "newer-than-legacy-removal")
-    #expect(try store().load()?.mailboxRemovals == nil)
-    // The remote live mailbox stays visible; it has not been tombstoned by the legacy removal.
-    #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
-
-    // Retained explicit offline recreation still matches its removal after another legacy upgrade.
-    _ = try await store().authorizeGmail()
-    try makeLegacy()
-    try put(epoch: nil)
-    backend.offline = true
-    let recreating = store()
-    _ = try await recreating.flowRemoveMailbox(mailbox)
-    _ = try await recreating.authorizeGmail()
-    let recreatedEpoch = try #require(try store().load()?.connections.first?.epoch)
-    try put(epoch: RegistrationStore.legacyMailboxEpoch)
-    backend.offline = false
-    #expect(try await store().restore()["kind"] == "connected")
-    #expect(try store().load()?.connections.first?.epoch == recreatedEpoch)
-    #expect(try descriptorEpoch() == recreatedEpoch)
-    #expect(try store().load()?.mailboxRemovals == nil)
-    // A legacy tombstone purges ordinary restore; explicit consent recreates it at a fresh epoch.
-    try makeLegacy()
-    try put(epoch: RegistrationStore.legacyMailboxEpoch, removed: true)
-    #expect(try await store().restore()["mailboxes"] == nil)
-    #expect(try await store().authorizeGmail()["kind"] == "connected")
-    #expect(try descriptorEpoch() != RegistrationStore.legacyMailboxEpoch)
-
     // A body saved for the connection before its legacy cache is adopted stays beside it.
     let cache = PrivateInboxStore(directory: directory, service: service)
     let id = MailboxConnection.id(subject: "synthetic-legacy-mailbox")

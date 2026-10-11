@@ -79,7 +79,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
 - Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
 - A new key generated when the expected one is missing on an initialized account. A missing account key requires trusted-device approval or the current Recovery Key. A missing bound device private key requires a fresh Pending Device installation and authorization, even when the old ring remains; never replace the immutable public key on its old registration. Otherwise sign-in fabricates usable key custody or reenrollment remains stranded.
-- `RegistrationStore.synchronize` or another destructive reenrollment/cleanup path
+- `RegistrationStore.reenroll` or another destructive reenrollment/cleanup path
   discarding a vault with an unconfirmed Recovery Key or a submitted removal
   before its exact outcome is reconciled. Preserve the sole backup and durable
   proposal locator, including after device-private-key loss; retaining them must
@@ -102,6 +102,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - Native `recordRemoval` or `purge` weakening durable removal intent or acknowledgement before cleanup. The TypeScript registration flow owns remote sequencing; native storage must retain the acknowledged operation and retry locator until every dependent item is removed. Sign-out preparation must reconcile rotation and protect any unconfirmed Recovery Key instead of discarding its sole backup.
 
 #### Bridge contract
+
+- `RegistrationStore.productSyncState` or another native projection retaining
+  sensitive presentation fields after their display state ends when status
+  derivation moves to TypeScript. Preserve the native field's state gate across
+  the move: a retained full Recovery Key crosses only while unconfirmed, even
+  when JavaScript hides it after confirmation. Trace the stored state, raw bridge
+  projection and synthetic vault together, and require a regression assertion
+  against the raw projection after the transition. Otherwise a hidden secret
+  still enters the JavaScript heap outside its permitted presentation window.
 
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
@@ -303,50 +312,18 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Mailbox Connection lifecycle
 
-- `synchronizeMailboxes` treating an epochless connection or queued removal as
-  compatible with every live epoch. Pre-epoch connections, descriptors and
-  removal intents name one fixed legacy incarnation; concurrent upgrades must
-  agree without purging other legacy devices. Preserve tombstones and fence
-  later re-adds, including retained offline recreation after another device's
-  legacy upgrade. Otherwise migration restores old authorization or removes a
-  later incarnation with stale intent.
 - `PrivateInboxStore.adoptLegacyMailbox` assuming the connection's body folder
   is absent, or merging by a tier-suffixed filename rather than body identity.
   A body may be saved before metadata adoption; preserve that destination body
   across every supported tier and keep interrupted migration
   retryable. Otherwise cache open repeatedly fails or an older legacy body
   becomes the preferred readable copy.
-- `synchronizeMailboxes` treating a missing entry in `descriptorEpochs` as an
-  unchanged incarnation for offline consent, or discarding an authenticated
-  removal/different epoch from an address-update CAS when its later list fails.
-  Adopt an offline grant only against a known observed live epoch that still
-  matches, and durably purge a known removal before another fallible read or
-  another connection's publication. A batch that waits until all writes finish
-  loses learned removals when a later connection fails.
-  Absence cannot rule out an unseen add/remove/re-add; either gap retains stale
-  provider authorization after a synchronized removal.
-- `synchronizeMailboxes` discarding the descriptor returned by a losing CAS or
-  adopting any different epoch from a later list merely because it attempted a
-  write. Bind eligible fresh consent or matching retained recreation to the
-  live CAS winner, persist that epoch before later fallible reads, and require
-  final read-back to match it. Tombstones, ordinary offline restore, published
-  address updates and subsequent removals cannot extend an old grant to another
-  incarnation; otherwise concurrent additions lose valid mail or resurrect
-  authorization after removal.
 - `PrivateInboxStore.bodies()` omitting unadopted root `bodies/` from device-wide
   admission and eviction totals. Count every supported layout until adoption or
   removal; moving legacy bodies under `mailboxes/<id>` must count them once.
   Keep `bodies(connection)` and list/membership pruning connection-scoped, and
   preserve legacy metadata during body eviction. Otherwise legacy mail adds a
   second cache quota or pruning destroys another connection's pending actions.
-- `synchronizeMailboxes` acknowledging a queued removal from absent or unreadable
-  ciphertext, or discarding removal intent on a pre-publication re-add. Require a
-  read-back tombstone or an authoritative superseding incarnation, preserve
-  read-only unknown records, and fence pre-removal authorization with a new epoch.
-  Ordinary restore of unpublished credentials cannot resurrect a tombstone or
-  adopt another incarnation; only current explicit consent or a retained matching
-  recreation intent may do so. Otherwise an offline device restores a removed
-  connection's provider access.
 - `removeMailbox` or synchronized descriptor purge deleting caches before durable
   credential removal and retry recording, returning a stale connection list after
   later failure, or omitting an unopened legacy root cache. Trace cleanup through

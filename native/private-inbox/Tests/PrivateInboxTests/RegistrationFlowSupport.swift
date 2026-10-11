@@ -4,9 +4,11 @@ import Foundation
 
 // Test support only. Native tests reach and observe registration states through the vault
 // operations in the order TypeScript's registration flow calls them, and read its status values.
-// The flow and its decisions live in packages/mail-core/src/registration-flow.ts, which is tested
-// there; this mirror exists so native Product Sync, Gmail and storage tests can set up the same
-// states and keeps only what those tests need.
+// The flow and its decisions live in packages/mail-core/src/registration-flow.ts and
+// product-sync.ts, which are tested there; this mirror exists so native Product Sync, Gmail and
+// storage tests can set up the same states and keeps only what those tests need. Mailbox
+// descriptor synchronization is not mirrored: packages/mail-core/test/product-sync.test.ts covers
+// it over the same vault operations.
 extension RegistrationStore {
   // MARK: Status values
 
@@ -30,8 +32,7 @@ extension RegistrationStore {
     if let alternate = product.signInProviders?.first(where: { $0 != saved.provider }) {
       result["alternateSignIn"] = alternate.rawValue
     }
-    let sync = (try? privateSync(saved)) ?? ["privateSync": "unavailable"]
-    result = result.merging(sync) { $1 }
+    result = result.merging(try privateSyncStatus(saved)) { $1 }
     if !(saved.mailboxRemovals ?? []).isEmpty || !(saved.mailboxCacheRemovals ?? []).isEmpty {
       result["privateSyncPending"] = "mailbox"
     }
@@ -68,6 +69,153 @@ extension RegistrationStore {
     let encoder = JSONEncoder()
     encoder.outputFormatting = .sortedKeys
     return String(decoding: try encoder.encode(entries), as: UTF8.self)
+  }
+
+  // The status values TypeScript derives from the Product Sync projection.
+  func privateSyncStatus(_ saved: SavedRegistration) throws -> [String: String] {
+    let state: [String: Any]
+    do {
+      guard let projected = try productSyncState(saved) else { return [:] }
+      state = projected
+    } catch {
+      return ["privateSync": "unavailable"]
+    }
+    if state["pending"] as? Bool == true {
+      guard state["materialInitialized"] as? Bool == true else {
+        return ["privateSync": "setup-pending"]
+      }
+      guard let enrollment = state["enrollment"] as? [String: Any],
+        let code = enrollment["code"] as? String
+      else { return ["privateSync": "enrollment-needed"] }
+      var result = ["privateSync": "enrollment-pending", "enrollmentCode": code]
+      if let notice = enrollment["notice"] as? String { result["enrollmentNotice"] = notice }
+      return result
+    }
+    guard let vault = state["vault"] as? [String: Any] else {
+      return [
+        "privateSync": state["materialInitialized"] as? Bool == true
+          ? "enrollment-needed" : "setup-pending"
+      ]
+    }
+    let holdsKey = state["deviceKey"] as? Bool == true
+    let published = vault["published"] as? Bool == true
+    let confirmed = vault["recoveryKeyConfirmed"] as? Bool == true
+    let recoveryKey = vault["recoveryKey"] as? String
+    let revocation = vault["revocation"] as? [String: Any]
+    let unsettled =
+      (recoveryKey != nil && !confirmed) || revocation?["submitted"] as? Bool == true
+    if published, !unsettled, !holdsKey { return ["privateSync": "enrollment-needed"] }
+    var result: [String: String] = [:]
+    if !published {
+      result["privateSync"] = "setup-pending"
+    } else if !confirmed, let recoveryKey {
+      result["privateSync"] = "recovery-key"
+      result["recoveryKey"] = recoveryKey
+    } else {
+      result["privateSync"] = holdsKey ? "ready" : "enrollment-needed"
+    }
+    if published, holdsKey,
+      let request = (state["requests"] as? [[String: Any]])?.max(by: {
+        ($0["expiresAt"] as? Double ?? 0) < ($1["expiresAt"] as? Double ?? 0)
+      })
+    {
+      result["enrollmentRequest"] = request["id"] as? String
+      result["enrollmentDevice"] = request["device"] as? String
+    }
+    if published, holdsKey, let devices = state["trustedDevices"] as? [[String: Any]],
+      !devices.isEmpty
+    {
+      result["trustedDevices"] = String(
+        decoding: try JSONSerialization.data(withJSONObject: devices), as: UTF8.self)
+    }
+    if let revocation {
+      result["revocationDevice"] = revocation["device"] as? String
+      result["revocationRecoveryKey"] = revocation["recoveryKey"] as? String
+    }
+    if let mailboxes = vault["readMailboxes"] as? [String], !mailboxes.isEmpty {
+      result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
+    }
+    var records: [String: String] = [:]
+    for entry in vault["mailboxes"] as? [[String: Any]] ?? [] {
+      if let id = entry["id"] as? String { records[id] = entry["record"] as? String }
+    }
+    let confirmedMailboxes = vault["savedMailboxes"] as? [String: String] ?? [:]
+    if published,
+      saved.usableConnections.contains(where: {
+        confirmedMailboxes[records[$0.id] ?? ""] != $0.receipt.address
+      })
+    {
+      result["privateSyncPending"] = "mailbox"
+    }
+    return result
+  }
+
+  // MARK: Product Sync, in the order packages/mail-core/src/product-sync.ts calls the vault
+
+  // Synchronizes with this process's verified sign-in; only the end of access fails it.
+  func synchronizeRegistration() async throws {
+    defer { finishSynchronization() }
+    guard productSync != nil, session != nil, let saved = try load(), saved.product != nil else {
+      return
+    }
+    _ = try await retryMailboxCleanup(saved)
+    do {
+      try await settleProductSync()
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
+    } catch {}
+  }
+
+  func settleProductSync() async throws {
+    func current() throws -> (ProductRegistrationReceipt, ProductSyncVault?, Bool) {
+      let saved = try self.saved()
+      guard let product = saved.product else { throw RegistrationError.unavailable }
+      let account = product.productAccountId
+      let vault = try loadVault(account)
+      return (product, vault, try keys.read(deviceKeyAccount(account)) != nil)
+    }
+    var (product, vault, holdsKey) = try current()
+    if product.pending != true,
+      product.productSyncMaterialInitialized == true || vault?.published == true, !holdsKey
+    {
+      if vault?.revocation?.submitted == true {
+        try await adoptLatestRotation()
+        (product, vault, holdsKey) = try current()
+      }
+      if vault?.holdsUnsettledKeys == true { return }
+      try await reenroll()
+      (product, vault, holdsKey) = try current()
+    }
+    if product.pending == true {
+      guard product.productSyncMaterialInitialized == true, try await admitPendingDevice() else {
+        return
+      }
+      (product, vault, holdsKey) = try current()
+    }
+    if vault == nil, product.productSyncMaterialInitialized != false { return }
+    if vault?.published == true {
+      try await adoptLatestRotation()
+    } else {
+      let ring = try createKeyRing()
+      let reply = try await call([
+        "endpoint": "mutation", "path": "productSync:initialize",
+        "args": [
+          "encryptedPayload": ring["recoveryEnvelope"] as Any,
+          "recoveryVerifier": ring["recoveryVerifier"] as Any,
+          "deviceEncryptionPublicKey": ring["deviceKey"] as Any,
+        ],
+        "session": true, "device": true,
+      ])
+      struct Initialized: Decodable { let initialized: Bool }
+      guard reply["status"] as? Int == 200,
+        let body = (reply["body"] as? String).map({ Data($0.utf8) }),
+        let envelope = try? JSONDecoder().decode(ConvexEnvelope<Initialized>.self, from: body),
+        envelope.status == "success", let initialized = envelope.value?.initialized
+      else { throw RegistrationError.unavailable }
+      try recordInitialization(initialized)
+      guard initialized else { return }
+    }
+    try await refreshDevices()
   }
 
   func failure(_ reason: String) throws -> [String: String] {
@@ -275,6 +423,7 @@ extension RegistrationStore {
 
   func flowRemoveMailbox(_ id: String) async throws -> [String: String] {
     try await removeMailbox(id)
+    try await synchronizeRegistration()
     return try status()
   }
 
@@ -305,6 +454,7 @@ extension RegistrationStore {
       }
     }
     let rejected = try await readable ? recover(with: entry) : true
+    if !rejected { try await synchronizeRegistration() }
     var result = try status()
     if rejected { result["recoveryNotice"] = "rejected" }
     return result
@@ -316,34 +466,50 @@ extension RegistrationStore {
       try await signInIdentity(saved.provider, hint: saved.provider == .google)["matches"] as? Bool
         == true
     else { throw RegistrationError.invalidIdentity }
-    let notice = try await revoke(trustedDeviceId)
+    return try await revocationStatus(revoke(trustedDeviceId))
+  }
+
+  // A removal step's notice; a settled removal's depends on the epoch held after synchronizing.
+  func revocationStatus(_ reply: RevocationReply) async throws -> [String: String] {
+    if reply.synchronize { try await synchronizeRegistration() }
     var result = try status()
+    var notice = reply.notice
+    if let settlement = reply.settlement {
+      let saved = try saved()
+      let epoch: Int?
+      do {
+        epoch =
+          try saved.product.flatMap { try loadVault($0.productAccountId) }?.ring.current
+          ?? (saved.product?.pending == true ? settlement.settledEpoch : nil)
+      } catch {
+        epoch = nil
+      }
+      if let epoch {
+        notice =
+          settlement.recoveryKeyCurrent && settlement.keyEpoch == epoch ? "removed" : "superseded"
+      }
+    }
     if let notice { result["revocationNotice"] = notice }
     return result
   }
 
   // A sign-in that is no longer recent is renewed interactively, then the removal confirmed again.
   func flowConfirmRevocation(_ entry: String) async throws -> [String: String] {
-    let notice: String?
+    let reply: RevocationReply
     do {
-      notice = try await confirmRevocation(entry)
+      reply = try await confirmRevocation(entry)
     } catch RegistrationError.staleAuthentication {
       let saved = try saved()
       guard
         try await signInIdentity(saved.provider, hint: saved.provider == .google)["matches"]
           as? Bool == true
       else { throw RegistrationError.invalidIdentity }
-      notice = try await confirmRevocation(entry)
+      reply = try await confirmRevocation(entry)
     }
-    var result = try status()
-    if let notice { result["revocationNotice"] = notice }
-    return result
+    return try await revocationStatus(reply)
   }
 
   func flowCancelRevocation() async throws -> [String: String] {
-    let notice = try await cancelRevocation()
-    var result = try status()
-    if let notice { result["revocationNotice"] = notice }
-    return result
+    try await revocationStatus(cancelRevocation())
   }
 }
