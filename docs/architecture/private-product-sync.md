@@ -32,8 +32,10 @@ or recovering device receives only the key ring.
   Trusted Device with HPKE base mode, X25519/HKDF-SHA-256/ChaCha20-Poly1305.
   Length-prefixed info and authenticated data bind purpose, protocol version,
   account, recipient device, exact public key and epoch. No earlier shared key
-  protects the new ring. Each device retains its latest envelope for direct
-  catch-up, irrespective of acknowledgements.
+  protects the new ring. Convex retains each remaining Trusted Device's latest
+  complete ring envelope in `productSyncKeyEnvelopes` for direct catch-up until
+  a newer activation replaces it or that device is removed, irrespective of
+  acknowledgements.
 - **Records.** AES-GCM-256 with a fresh random 96-bit nonce for every seal.
   The authenticated data binds the Product Account ID, the opaque record
   identifier, the algorithm, the key epoch and the record schema. Convex stores

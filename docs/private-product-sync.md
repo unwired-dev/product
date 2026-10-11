@@ -318,9 +318,11 @@ is explicitly removed.
   or Cancel refreshes the current state without another activation or a claim that
   the earlier Recovery Key is still current.
 
-A device that was offline during one or more removals reads only its latest
-envelope when it reconnects. It adopts the newest key ring directly, keeps every
-earlier key for older data and needs no Recovery Key. It then acknowledges the
+Convex retains each remaining Trusted Device's latest complete ring envelope until
+a newer removal replaces it or that device is removed. A device that was offline
+during one or more removals reads only its latest envelope when it reconnects.
+It adopts the newest key ring directly, keeps every earlier key for older data
+and needs no Recovery Key. It then acknowledges the
 epoch. Acknowledgements only record adoption: they never hold back a removal or a
 replacement Recovery Key.
 

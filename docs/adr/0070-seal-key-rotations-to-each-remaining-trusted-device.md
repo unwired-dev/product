@@ -113,10 +113,11 @@ uncommitted or subsequently superseded Recovery Key as current.
 
 ## Offline adoption, writes and recovery
 
-Retain each remaining device's latest complete ring envelope until superseded or
-that device is removed. A survivor reaches the newest epoch directly after any
-number of missed rotations, without intermediate transitions or a Recovery Key,
-and retains historical access. Save adopted keys durably before acknowledging.
+Convex retains each remaining device's latest complete ring envelope until a newer
+activation replaces it or that device is removed. A survivor reaches the newest
+epoch directly after any number of missed rotations, without intermediate
+transitions or a Recovery Key, and retains historical access. Save adopted keys
+durably before acknowledging.
 Acknowledgements track adoption only: they never delay activation, later removals
 or recovery replacement, and never discard another offline device's only catch-up
 path. Stale or duplicate acknowledgements cannot regress state.
