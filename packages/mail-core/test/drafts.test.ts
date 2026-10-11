@@ -387,6 +387,49 @@ describe('editing a Semantic Message Document', () => {
     30_000,
   );
 
+  it('edits one long paragraph as cheaply as the same body split into paragraphs', () => {
+    expect.hasAssertions();
+    // Comparing the two shapes on one machine keeps this independent of runner speed. Expanding
+    // the edited block per code unit made the single paragraph about 100 times slower.
+    const fastestEdit = (start: SemanticDocument) => {
+      let document = start;
+      const times: number[] = [];
+      for (let i = 0; i < 25; i += 1) {
+        const { text } = displayOf(document);
+        const at = Math.floor(text.length / 2);
+        const began = performance.now();
+        ({ document } = applyText(
+          document,
+          `${text.slice(0, at)}y${text.slice(at)}`,
+          {
+            selection: { start: at, end: at },
+          },
+        ));
+        document = toggleMark(
+          document,
+          { start: at - 50, end: at + 50 },
+          'bold',
+        );
+        marksAt(document, { start: at, end: at });
+        times.push(performance.now() - began);
+      }
+      // The first edits warm up the JIT; the fastest of the rest ignores collector pauses.
+      return Math.min(...times.slice(5));
+    };
+    const paragraph: Block = {
+      kind: 'paragraph',
+      spans: [{ text: 'x'.repeat(999) }],
+    };
+    const split = fastestEdit([
+      paragraph,
+      ...Array.from({ length: 999 }, () => paragraph),
+    ]);
+    const single = fastestEdit([
+      { kind: 'paragraph', spans: [{ text: 'x'.repeat(1_000_000) }] },
+    ]);
+    expect(single).toBeLessThan(split * 4 + 1);
+  });
+
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
     expect.hasAssertions();
     const document: SemanticDocument = [
