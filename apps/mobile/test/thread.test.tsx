@@ -110,6 +110,9 @@ describe('thread view', () => {
     expect(screen.getByText('Sam Lee')).not.toHaveProp('accessibilityState', {
       selected: true,
     });
+    // A bar marks it without relying on its background color.
+    expect(opened).toHaveStyle({ borderLeftWidth: 4 });
+    expect(messageBy('Sam Lee')).not.toHaveStyle({ borderLeftWidth: 4 });
     await act(() => {
       fireEvent(opened, 'layout', {
         nativeEvent: { layout: { x: 0, y: 480, width: 320, height: 300 } },

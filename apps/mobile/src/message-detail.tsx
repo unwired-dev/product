@@ -95,6 +95,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
   },
+  // A bar beside the opened message, so it stands out without relying on color.
+  openedMessage: { borderLeftWidth: 4 },
 });
 
 // Keeps the message being read in place while bodies above it load.
@@ -715,7 +717,15 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderTopColor: colors.separator },
-        highlighted ? { backgroundColor: colors.selected } : null,
+        highlighted
+          ? [
+              styles.openedMessage,
+              {
+                backgroundColor: colors.selected,
+                borderLeftColor: colors.accent,
+              },
+            ]
+          : null,
       ]}>
       <Text
         accessibilityState={highlighted ? { selected: true } : undefined}
