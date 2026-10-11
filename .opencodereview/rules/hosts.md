@@ -362,6 +362,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   caching separately from native row construction; bounded descriptor projection
   alone is not evidence that every descriptor needs a native row.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
+- `window.tsx` or another reused reading host keeping selection or presentation
+  state above the keyed `ProfileScope` boundary. A provider key retires only its
+  descendants; place that state within the decoded Profile lifetime and exercise
+  leaving and returning to the same Profile. Otherwise an old reader selection
+  can reappear despite the Inbox clearing its query and mailbox choice. Preserve
+  connection-owned stores and the staged unscoped Draft/delivery APIs.
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
 

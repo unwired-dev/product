@@ -53,6 +53,32 @@ The [caller inventory and release evidence requirements](../private-inbox-storag
 remain implementer-readable. Multiple-Profile creation stays unavailable through
 #645 and #646; #647 owns synchronized assignments and incompatible-client fencing.
 
+## Profile-scoped reading
+
+Issue #645 carries decoded ownership into `createMailboxes` snapshots and scopes
+`inboxMessages` and `createGmailSearch` with an explicit `{ profile, mailbox? }`.
+Both hosts filter reader access through their `ProfileScope` and `MailboxScope`;
+unknown or mismatched ownership has no readable mailbox. `readingProfile` decodes
+URL/native selectors: absent legacy values mean Default, malformed values use an
+empty selector that cannot match a decoded nonempty connection owner. Mobile
+message selection and reader close carry that selector through their routes.
+Mac initial props can name a Profile while native windows still open Default.
+The Profile provider is keyed by its decoded selector so reused host views retire
+their previous reader, query, mailbox choice and presentation consent on replacement.
+
+Connection movement replaces the listing's ownership projection without changing
+the connection-owned Inbox or encrypted cache layout. Background synchronization
+continues account-wide. Reader/cache access and search remain confined to the
+currently projected owner. Account management and opaque Convex connection APIs
+remain Product Account-wide; Convex receives no Profile assignments. Drafts,
+delivery and notifications retain their compatibility paths until #646. Profile
+creation, durable assignments, restoration preferences and older-client fencing
+remain #647 work; this is not qualification of that lifecycle protocol.
+
+The host tests exercise substituted ownership and routing with real shared
+stores. Native version-27 and real provider/Profile journeys remain required
+release evidence, independent of these deterministic checks.
+
 ## Gmail mailbox cache
 
 Issue #604 added a separate encrypted `mailbox.enc` document; #606 gives each
@@ -216,10 +242,12 @@ identity binds Product Account, connection, provider subject, mailbox address,
 message ID and source URL into both the digest filename and AES-GCM associated
 data. Gmail message content is immutable: the normalized request reference within that
 stable message identifies the resource revision. The Default Profile foundation
-leaves this cache layout intact. Optional Profiles are launch work under
-[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md); their
-remaining migration must add Profile isolation without reusing another Profile's
-entries.
+leaves this cache layout intact. [Profile-scoped reading](#profile-scoped-reading)
+gates access through the connection's current projected owner. Optional Profiles
+are launch work under
+[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md); #647 still
+owns durable assignments and lifecycle qualification. Another Profile's entries
+remain unavailable through the scoped reader.
 
 The native file-locked vault counts all connection remote directories toward a
 separate 250 MB stored-byte limit. It plans LRU eviction before deleting files

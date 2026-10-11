@@ -11,6 +11,7 @@ import {
 } from '@private-email/mail-core/gmail-actions';
 import {
   inboxMessages,
+  profileMailboxes,
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
@@ -47,6 +48,7 @@ import {
   useMailbox,
   useMailboxes,
   useOutboxEntries,
+  useProfile,
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
@@ -630,28 +632,29 @@ export function Inbox({
   const account = use(AccountContext);
   const colors = usePalette();
   const { t } = useLocalization();
+  const profile = useProfile();
   const [chosen, setChosen] = useState<string>();
-  // A removed mailbox's view falls back to every mailbox.
+  // A removed mailbox's view falls back to every mailbox of the Profile.
   const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
+  const view = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
+  const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for Gmail authorization have no Inbox until it is given again.
   const waiting =
     scope === undefined
-      ? (account?.mailboxes ?? []).filter(
-          ({ state }) => state === 'authorization',
-        )
+      ? connections.filter(({ state }) => state === 'authorization')
       : [];
   // With more than one mailbox, every row and notice names its own.
-  const several = (account?.mailboxes.length ?? mailboxes.length) > 1;
+  const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
   const [query, setQuery] = useState('');
   // Typing stays responsive while the list catches up with the latest query.
   const searched = useDeferredValue(query.trim());
   const listed = useMemo(
-    () => inboxMessages(mailboxes, scope),
-    [mailboxes, scope],
+    () => inboxMessages(mailboxes, view),
+    [mailboxes, view],
   );
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
@@ -663,7 +666,7 @@ export function Inbox({
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
-  const online = useGmailSearch(shown, searched, scope);
+  const online = useGmailSearch(shown, searched, view);
   const messages = results ?? listed;
   const sections = inboxSections({
     outbox,

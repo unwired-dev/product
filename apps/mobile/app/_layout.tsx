@@ -1,5 +1,6 @@
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
+import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
@@ -12,7 +13,7 @@ import {
   scheduleGmailFreshness,
 } from '../src/freshness.ts';
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
 void scheduleGmailFreshness();
@@ -20,11 +21,16 @@ pollGmailWhileActive();
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);
-  const { id, mailbox, draft } = useGlobalSearchParams<{
+  const { id, mailbox, draft, profile } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
     draft?: string;
+    profile?: string | string[];
   }>();
+  // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
+  // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
+  // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
+  const shownProfile = readingProfile(profile);
   const detail = Boolean(id) || Boolean(draft);
 
   useEffect(() => {
@@ -34,7 +40,10 @@ export default function RootLayout() {
   }, [detail]);
 
   function selectMessage(selection: Selection) {
-    router.replace({ pathname: '/message/[id]', params: selection });
+    router.replace({
+      pathname: '/message/[id]',
+      params: { ...selection, profile: shownProfile },
+    });
     splitView.current?.show('secondary');
   }
 
@@ -47,28 +56,33 @@ export default function RootLayout() {
   return (
     <RegistrationGate>
       <InboxProvider>
-        <StatusBar style="auto" />
-        <SplitView
-          ref={splitView}
-          preferredDisplayMode="oneBesideSecondary"
-          preferredSplitBehavior="tile"
-          topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
-          <SplitView.Column>
-            <Inbox
-              composing={draft}
-              onClose={() => {
-                router.replace('/');
-              }}
-              onCompose={compose}
-              onSelect={selectMessage}
-              selected={
-                id === undefined || mailbox === undefined
-                  ? undefined
-                  : { mailbox, id }
-              }
-            />
-          </SplitView.Column>
-        </SplitView>
+        <ProfileScope profile={shownProfile}>
+          <StatusBar style="auto" />
+          <SplitView
+            ref={splitView}
+            preferredDisplayMode="oneBesideSecondary"
+            preferredSplitBehavior="tile"
+            topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
+            <SplitView.Column>
+              <Inbox
+                composing={draft}
+                onClose={() => {
+                  router.replace({
+                    pathname: '/',
+                    params: { profile: shownProfile },
+                  });
+                }}
+                onCompose={compose}
+                onSelect={selectMessage}
+                selected={
+                  id === undefined || mailbox === undefined
+                    ? undefined
+                    : { mailbox, id }
+                }
+              />
+            </SplitView.Column>
+          </SplitView>
+        </ProfileScope>
       </InboxProvider>
     </RegistrationGate>
   );

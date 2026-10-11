@@ -22,6 +22,8 @@ type InboxState = ReturnType<InboxStore['getSnapshot']>;
 export type InboxMailbox = Readonly<{
   id: string;
   address?: string;
+  // The owning Mail Profile.
+  profile: string;
   inbox: InboxStore;
   state: InboxState;
 }>;

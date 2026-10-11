@@ -1,8 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { useProfile } from '../../src/mailbox.tsx';
 import { MessageDetail } from '../../src/message-detail.tsx';
 
 export default function MessageRoute() {
+  const profile = useProfile();
   const { id, mailbox } = useLocalSearchParams<{
     id: string;
     mailbox?: string;
@@ -12,7 +14,7 @@ export default function MessageRoute() {
       id={id}
       mailbox={mailbox}
       onClose={() => {
-        router.replace('/');
+        router.replace({ pathname: '/', params: { profile } });
       }}
       onCompose={(draft) => {
         router.replace({ pathname: '/compose/[draft]', params: { draft } });
