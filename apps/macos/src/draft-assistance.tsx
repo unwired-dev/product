@@ -3,6 +3,7 @@ import type {
   DraftAssistance as DraftAssistanceStore,
   DraftAssistanceInput,
   DraftAssistanceState,
+  NativeAssistance,
 } from '@private-email/mail-core/assistance';
 
 import {
@@ -10,18 +11,12 @@ import {
   createDraftAssistance,
 } from '@private-email/mail-core/assistance';
 import { spacing } from '@private-email/mail-core/theme';
-import {
-  use,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
-import { AssistanceContext } from './message-summary.tsx';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -52,8 +47,10 @@ const finished = (state: DraftAssistanceState) =>
 // The panel's own request for its captured input. It starts once committed; unmounting, or a
 // replaced store, cancels the request and forgets its preview before passive effects. `act` runs
 // only for the state it was rendered with, so queued input cannot affect a replaced request.
-function useDraftAssistance(input: DraftAssistanceInput | undefined) {
-  const native = use(AssistanceContext);
+function useDraftAssistance(
+  native: NativeAssistance,
+  input: DraftAssistanceInput | undefined,
+) {
   const [owner, setOwner] = useState(() => ({
     native,
     store: createDraftAssistance(native),
@@ -63,17 +60,20 @@ function useDraftAssistance(input: DraftAssistanceInput | undefined) {
     store = createDraftAssistance(native);
     setOwner({ native, store });
   }
+  const enabled = useMailAssistanceLifetime(() => {
+    store.discard();
+  });
   const committed = useRef<DraftAssistanceStore>(undefined);
   useLayoutEffect(() => {
     committed.current = store;
-    if (input !== undefined) {
+    if (input !== undefined && enabled()) {
       void store.start(input);
     }
     return () => {
       committed.current = undefined;
       store.discard();
     };
-  }, [store, input]);
+  }, [store, input, enabled]);
   const state = useSyncExternalStore(store.subscribe, () =>
     input === undefined ? idle : store.getSnapshot(input),
   );
@@ -82,6 +82,7 @@ function useDraftAssistance(input: DraftAssistanceInput | undefined) {
   ) => {
     if (
       committed.current === store &&
+      enabled() &&
       input !== undefined &&
       store.getSnapshot(input) === state
     ) {
@@ -189,12 +190,14 @@ function Status({
 // is the request. The Draft changes only when the person applies the result; the owner then
 // replaces exactly the captured text as one undoable edit. Nothing is saved or sent.
 export function DraftAssistance({
+  native,
   purpose,
   issue,
   input,
   onApply,
   onClose,
 }: {
+  readonly native: NativeAssistance;
   readonly purpose: Purpose;
   // Why the captured text was refused, when the person can act on it.
   readonly issue: CapturedDraftText['issue'];
@@ -204,7 +207,7 @@ export function DraftAssistance({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const { store, state, act } = useDraftAssistance(input);
+  const { store, state, act } = useDraftAssistance(native, input);
   const apply = purpose === 'rewrite' ? 'replace' : 'useReply';
   return (
     <View

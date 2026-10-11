@@ -131,6 +131,10 @@ host with real provider credentials, encrypted private state and queued work
 preserved. Mock tests and earlier native journeys do not qualify this combination.
 No setup or data reset is required for this slice.
 
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is a
+device-only Keychain item per Product Account listing its enabled Profiles. Every
+account purge removes it with the account's keys.
+
 ## Message body cache
 
 Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the

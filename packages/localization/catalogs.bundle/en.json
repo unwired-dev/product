@@ -180,6 +180,14 @@
     "cleared": "Remote content saved on this device was removed.",
     "clearFailed": "Remote content could not be removed. Try again."
   },
+  "mailAssistance": {
+    "title": "On-device assistance",
+    "description": "Summaries, rewrites, reply suggestions and translations use Apple's on-device models, and run only when you ask. This choice applies to this device and this account only. Signing out turns it off.",
+    "on": "On-device assistance is on.",
+    "off": "On-device assistance is off.",
+    "turnOn": "Turn on on-device assistance",
+    "turnOff": "Turn off on-device assistance"
+  },
   "privateSync": {
     "setup-pending": {
       "title": "Private sync",

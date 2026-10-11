@@ -2,6 +2,7 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
+import type { NativeMailAssistance } from '../assistance-enablement.ts';
 import type {
   MailboxConnection,
   NativeRegistration,
@@ -243,12 +244,40 @@ export function createMockRegistrationSession(
     return created;
   };
   const deleted = (id: string) => installations.get(id)?.deleted === true;
+  // Mail Assistance Enablement by Product Account; like native storage, every purge removes it.
+  const assistance = new Map<string, readonly string[]>();
+  const purge = () => {
+    assistance.clear();
+  };
+  const assistanceOwner = () =>
+    snapshot.kind === 'signed-out' ||
+    snapshot.kind === 'device-pending' ||
+    snapshot.removalPending !== undefined
+      ? null
+      : snapshot.productAccountId;
+  const mailAssistance: NativeMailAssistance = {
+    mailAssistance: () => {
+      const owner = assistanceOwner();
+      return Promise.resolve({
+        owner,
+        profiles: owner === null ? [] : (assistance.get(owner) ?? []),
+      });
+    },
+    setMailAssistance: (owner, profiles) => {
+      if (owner !== assistanceOwner()) {
+        return rejection('Synthetic account changed', 'mailbox-invalidated');
+      }
+      assistance.set(owner, profiles);
+      return Promise.resolve({ owner, profiles });
+    },
+  };
   const native: NativeRegistration = {
     restore: () => {
       if (
         snapshot.kind !== 'signed-out' &&
         deleted(snapshot.productAccountId)
       ) {
+        purge();
         snapshot = { kind: 'signed-out', notice: 'deleted' };
       }
       // The other device's removal reaches this one on its next verification.
@@ -258,6 +287,7 @@ export function createMockRegistrationSession(
         snapshot.kind !== 'signed-out'
       ) {
         removed = true;
+        purge();
         snapshot = { kind: 'signed-out', notice: 'revoked' };
       }
       return Promise.resolve(snapshot);
@@ -265,6 +295,7 @@ export function createMockRegistrationSession(
     // fallow-ignore-next-line complexity -- One fixed scenario table decides each synthetic sign-in outcome.
     signIn: (provider) => {
       if (deleted(accounts[provider].productAccountId)) {
+        purge();
         snapshot = { kind: 'signed-out', notice: 'deleted' };
         return Promise.resolve(snapshot);
       }
@@ -548,6 +579,7 @@ export function createMockRegistrationSession(
       ) {
         return Promise.resolve(snapshot);
       }
+      purge();
       snapshot = { kind: 'signed-out' };
       return Promise.resolve(snapshot);
     },
@@ -556,6 +588,7 @@ export function createMockRegistrationSession(
         return rejection('Synthetic Product Account required', 'unavailable');
       }
       syncAccount(snapshot.productAccountId).deleted = true;
+      purge();
       snapshot = { kind: 'signed-out', notice: 'deleted' };
       return Promise.resolve(snapshot);
     },
@@ -586,6 +619,7 @@ export function createMockRegistrationSession(
   };
   return Object.freeze({
     native,
+    mailAssistance,
     // Fixed synthetic controls for successive-removal and same-installation key-loss journeys.
     addSecondTrustedDevice: () => {
       removableDevices.push(syntheticSecondTrustedDevice);

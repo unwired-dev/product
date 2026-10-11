@@ -42,6 +42,7 @@ import {
 
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -76,12 +77,18 @@ const native = () =>
   TurboModuleRegistry.getEnforcing<TranslationModule>('UnwiredAssistance');
 
 // The host's on-device Apple Translation; Mock Mail Session tests substitute their own.
-export const TranslationContext = createContext<NativeTranslation>({
+export const nativeTranslation: NativeTranslation = {
   translationLanguages: () => native().translationLanguages(),
   translate: (request, input, target) =>
     native().translate(request, input, target),
   cancel: (request) => native().cancel(request),
-});
+};
+
+// Translation while Mail Assistance Enablement permits On-Device Mail Assistance; without it
+// translation is hidden and nothing reaches Apple Translation.
+export const TranslationContext = createContext<NativeTranslation | undefined>(
+  undefined,
+);
 
 // Languages are a device property, not mail, so one successful list serves every reader.
 const languageLists = new WeakMap<
@@ -89,11 +96,14 @@ const languageLists = new WeakMap<
   Promise<readonly TranslationLanguage[] | undefined>
 >();
 
-function useLanguages(translation: NativeTranslation) {
+function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
   const [languages, setLanguages] = useState<
     readonly TranslationLanguage[] | 'loading' | 'unavailable'
   >('loading');
   useEffect(() => {
+    if (!enabled()) {
+      return;
+    }
     let current = true;
     let list = languageLists.get(translation);
     if (list === undefined) {
@@ -115,7 +125,7 @@ function useLanguages(translation: NativeTranslation) {
     return () => {
       current = false;
     };
-  }, [translation]);
+  }, [translation, enabled]);
   return languages;
 }
 
@@ -184,10 +194,10 @@ const idle: TranslationState = { kind: 'idle' };
 // One mounted owner's translation store. Unmounting cancels it and forgets its result before
 // passive effects, and only the committed store may start the native request.
 function useTranslation(
+  translation: NativeTranslation,
   input: TranslationInput | undefined,
   isCurrent: () => boolean = () => true,
 ) {
-  const translation = use(TranslationContext);
   const [owner, setOwner] = useState(() => ({
     translation,
     store: createTranslation(translation),
@@ -197,6 +207,9 @@ function useTranslation(
     store = createTranslation(translation);
     setOwner({ translation, store });
   }
+  const enabled = useMailAssistanceLifetime(() => {
+    store.discard();
+  });
   const committed = useRef<TranslationStore>(undefined);
   useLayoutEffect(() => {
     committed.current = store;
@@ -208,7 +221,7 @@ function useTranslation(
   const state = useSyncExternalStore(store.subscribe, () =>
     input === undefined ? idle : store.getSnapshot(input),
   );
-  const current = () => committed.current === store && isCurrent();
+  const current = () => committed.current === store && enabled() && isCurrent();
   const start = (next: TranslationInput | undefined) => {
     if (next !== undefined && current()) {
       void store.start(next);
@@ -231,7 +244,16 @@ function useTranslation(
       apply(state.text);
     }
   };
-  return { store, state, start, retry, cancel, accept };
+  return {
+    native: translation,
+    enabled,
+    store,
+    state,
+    start,
+    retry,
+    cancel,
+    accept,
+  };
 }
 
 // The language named by its code, as the device lists it.
@@ -313,7 +335,7 @@ function TranslationPanel({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const languages = useLanguages(use(TranslationContext));
+  const languages = useLanguages(translation.native, translation.enabled);
   const { state, retry, cancel } = translation;
   return (
     <View
@@ -369,7 +391,13 @@ function TranslationPanel({
   );
 }
 
-function ReaderTranslation({ body }: { readonly body: ReaderText }) {
+function ReaderTranslation({
+  translator,
+  body,
+}: {
+  readonly translator: NativeTranslation;
+  readonly body: ReaderText;
+}) {
   const { t } = useLocalization();
   // Each open panel owns its queued native input; dismissal retires it before rendering.
   const session = useRef(0);
@@ -381,7 +409,7 @@ function ReaderTranslation({ body }: { readonly body: ReaderText }) {
       ? undefined
       : messageTranslationInput(body, target.code);
   const current = () => open !== undefined && open === session.current;
-  const translation = useTranslation(input, current);
+  const translation = useTranslation(translator, input, current);
   if (open === undefined) {
     return (
       <View style={styles.row}>
@@ -461,12 +489,14 @@ export function MessageTranslation({
   // Another message, mailbox, account or text replaces the translation before rendering, so a
   // result for the previous one is never shown; unmounting cancels and forgets it.
   const generation = useGeneration([translation, source, id, text.text]);
-  if (!hasTranslatableText(text.text)) {
+  // Turning Mail Assistance Enablement off unmounts it, which cancels and forgets the translation.
+  if (translation === undefined || !hasTranslatableText(text.text)) {
     return null;
   }
   return (
     <ReaderTranslation
       key={generation}
+      translator={translation}
       body={text}
     />
   );
@@ -475,10 +505,12 @@ export function MessageTranslation({
 // Review of a translation of captured Draft text. The Draft changes only when the person applies
 // it; the owner then replaces exactly the captured selection as one undoable edit.
 export function DraftTranslation({
+  translator,
   text,
   onApply,
   onClose,
 }: {
+  readonly translator: NativeTranslation;
   readonly text: string;
   readonly onApply: (translated: string) => void;
   readonly onClose: () => void;
@@ -488,7 +520,7 @@ export function DraftTranslation({
   const [target, setTarget] = useState<TranslationLanguage>();
   const input =
     target === undefined ? undefined : draftTranslationInput(text, target.code);
-  const translation = useTranslation(input);
+  const translation = useTranslation(translator, input);
   const { state } = translation;
   const keep = (
     <Action

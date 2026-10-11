@@ -29,12 +29,14 @@ private func removeItems(_ keys: DeviceKeychain, accounts: [String]) {
   for account in accounts {
     try? keys.remove("product-sync." + account)
     try? keys.remove("product-sync-enrollment." + account)
+    try? keys.remove("mail-assistance." + account)
   }
 }
 
 private func holdsNothing(_ keys: DeviceKeychain, account: String) throws -> Bool {
   try keys.read("registration") == nil && keys.read("product-sync." + account) == nil
     && keys.read("product-sync-enrollment." + account) == nil
+    && keys.read("mail-assistance." + account) == nil
 }
 
 extension PrivateInboxTests {
@@ -50,8 +52,17 @@ extension PrivateInboxTests {
     #expect(try await store.authorizeGmail()["kind"] == "connected")
     try keys.save(Data("pending approval".utf8), account: store.enrollmentAccount(account))
     #expect(try keys.read("product-sync." + account) != nil)
+    // Mail Assistance Enablement belongs to this Product Account alone.
+    #expect(try store.mailAssistance()["profiles"] as? [String] == [])
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      try store.setMailAssistance(owner: "account-other", profiles: ["default"])
+    }
+    _ = try store.setMailAssistance(owner: account, profiles: ["default"])
+    #expect(try store.mailAssistance()["owner"] as? String == account)
+    #expect(try store.mailAssistance()["profiles"] as? [String] == ["default"])
     try await store.purge(notice: notice)
     #expect(try holdsNothing(keys, account: account))
+    #expect(try store.mailAssistance()["owner"] is NSNull)
     #expect(store.session == nil)
     #expect(store.identity == nil)
     #expect(store.mailboxAuthorization == nil)
@@ -83,6 +94,11 @@ extension PrivateInboxTests {
     #expect(
       (try store.registration()?["removal"] as? [String: Any])?["operation"] as? String
         == "signOut")
+    // An account being removed permits no assistance.
+    #expect(try store.mailAssistance()["owner"] is NSNull)
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      try store.setMailAssistance(owner: account, profiles: ["default"])
+    }
     try store.recordRemoval(nil)
     #expect(try store.load()?.accountRemoval == nil)
     #expect(try keys.read("product-sync." + account) != nil)

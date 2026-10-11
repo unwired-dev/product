@@ -9,7 +9,8 @@ system language model. There is no cloud or product-backend model fallback.
 
 ## Behavior
 
-- The reader shows **Summarize** once the message body is on this device. Nothing
+- The reader shows **Summarize** once the message body is on this device and
+  [Mail Assistance Enablement](#mail-assistance-enablement) is on. Nothing
   runs until the person chooses it, and opening a message never starts inference.
 - The summary reads only the subject and the readable text already shown in the
   reader: the plain-text presentation of a Gmail body from the encrypted cache, or
@@ -32,8 +33,33 @@ system language model. There is no cloud or product-backend model fallback.
   A refusal and other failures have their own messages. **Try again** is offered
   except on an ineligible device or after a refusal.
 
-Mail Assistance Enablement, the per-Profile opt-in, is not part of this slice;
-Mail Profiles do not exist yet.
+## Mail Assistance Enablement
+
+[#788](https://github.com/unwired-dev/product/issues/788) puts every explicit
+On-Device Mail Assistance action, **Summarize**, Draft
+[**Rewrite** and **Suggest reply**](draft-assistance.md) and
+[**Translate**](message-translation.md), behind
+[Mail Assistance Enablement](domain/assistance.md):
+
+- It is off by default on every device. While it is off, none of those actions
+  appears and nothing reaches Apple's model or Translation.
+- **On-device assistance** on the account page turns it on or off for the
+  signed-in Product Account's Mail Profile on this device. Only the
+  [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
+  choice. Turning it on starts nothing; each action is still an explicit request.
+- Turning it off, in any window, cancels in-flight assistance and forgets every
+  shown preview. A captured Draft request is retired, so turning it on again does
+  not restart it.
+- It is stored only in this device's Keychain, never synchronized or restored to another device.
+  A Pending Device, or an account whose sign-out or deletion is under way, has
+  none. Sign-out, Product Account deletion and removal of this device by another
+  Trusted Device purge it, so signing in again starts with it off.
+- Until the device's choice is read, after every account change, assistance stays
+  off. A failed read leaves it off.
+- Turning it off takes effect before saving finishes, including when an earlier
+  save is still pending. Queued actions and replies from an earlier account
+  cannot enable a replacement account or restore a discarded preview. Turning it
+  off also prevents pending language lookups from reaching Apple Translation.
 
 Planned [Catch Up](catch-up.md#summaries) background summaries reuse this binding
 but run without a per-message request; they are not part of this slice.
@@ -83,6 +109,20 @@ allow-listed native code or decode path, never mail or summary text.
   assistance outcomes, and every selected native mock build answers with the
   same fixed synthetic summary instead of running the model.
 
+- `packages/mail-core/test/assistance-enablement.test.ts` covers the default, the
+  Product Account and Profile scope, persistence, immediate turn-off, removal by
+  sign-out and deletion, stale and malformed reads, and the Mock Mail Session
+  outcomes, including same-account re-entry and queued-save races.
+  `apps/mobile/test/mail-assistance.test.tsx` and
+  `apps/macos/test/mail-assistance.test.tsx` drive the real registration gate and
+  reader over the synthetic registration session: actions stay hidden and nothing
+  reaches either framework until the account page turns assistance on, turning it
+  off cancels an in-flight summary and drops its late result, and signing out and
+  in again leaves it off. Both composer suites check that Draft assistance and
+  translation appear only while enabled and that turning it off retires a pending
+  request before React commits, refusing queued controls. The hosted native storage suite checks that the Keychain item belongs to
+  its account and that every purge removes it.
+
 These are mocked journeys. They do not show that Apple's model runs or what it
 writes.
 
@@ -92,3 +132,5 @@ Running the binding on iOS, iPadOS and macOS 27 with Apple Intelligence enabled
 on eligible hardware is deferred until that environment is available, together
 with each unavailable reason on real devices. It remains required before release.
 Compilation of the bridge in both host builds is not evidence of model behavior.
+Turning Mail Assistance Enablement on and off, and its removal by sign-out, on
+signed iOS, iPadOS and Mac builds with a real Product Account is deferred with them.

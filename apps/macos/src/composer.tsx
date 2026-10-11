@@ -1,5 +1,8 @@
 import type { Translate } from '@private-email/localization';
-import type { CapturedDraftText } from '@private-email/mail-core/assistance';
+import type {
+  CapturedDraftText,
+  NativeAssistance,
+} from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
   Draft,
@@ -17,6 +20,7 @@ import type {
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
+import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type {
   KeyEvent,
   StyleProp,
@@ -96,6 +100,7 @@ import {
 
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -104,9 +109,10 @@ import {
   useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
+import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
-import { DraftTranslation } from './translation.tsx';
+import { DraftTranslation, TranslationContext } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -1070,6 +1076,58 @@ function SendRefusalNotice({
   );
 }
 
+// A body or admitted reply-context revision retires the captured input. So does Mail Assistance
+// Enablement turning off, so turning it on again never restarts the request by itself.
+const retires = (
+  captured: CapturedDraftText,
+  draft: CapturedDraftText['draft'],
+  {
+    assistance,
+    translation,
+  }: Readonly<{
+    assistance: NativeAssistance | undefined;
+    translation: NativeTranslation | undefined;
+  }>,
+) =>
+  !sameDraftAssistanceSource(captured.draft, draft, captured.purpose) ||
+  (captured.purpose === 'translate' ? translation : assistance) === undefined;
+
+// The review panel for captured Draft text, while its framework is enabled.
+function CapturedAssistance({
+  captured,
+  assistance,
+  translation,
+  onApply,
+  onClose,
+}: {
+  readonly captured: CapturedDraftText;
+  readonly assistance: NativeAssistance | undefined;
+  readonly translation: NativeTranslation | undefined;
+  readonly onApply: (text: string) => void;
+  readonly onClose: () => void;
+}) {
+  if (captured.purpose === 'translate') {
+    return translation === undefined ? null : (
+      <DraftTranslation
+        translator={translation}
+        text={captured.text}
+        onApply={onApply}
+        onClose={onClose}
+      />
+    );
+  }
+  return assistance === undefined ? null : (
+    <DraftAssistance
+      native={assistance}
+      purpose={captured.purpose}
+      issue={captured.issue}
+      input={captured.input}
+      onApply={onApply}
+      onClose={onClose}
+    />
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -1160,6 +1218,12 @@ function Editor({
     CapturedDraftText & { readonly id: number }
   >();
   const captureNow = useRef<typeof captured>(undefined);
+  const assistanceEnabled = useMailAssistanceLifetime(
+    useCallback(() => {
+      captureNow.current = undefined;
+      setCaptured(undefined);
+    }, []),
+  );
   const captureGeneration = useRef(0);
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
@@ -1190,10 +1254,11 @@ function Editor({
   const subjectCaret = useRef<number | undefined>(undefined);
   const deletion = useRef<'backward' | 'forward' | undefined>(undefined);
   const draft = history.present;
-  // A body or admitted reply-context revision retires the captured input.
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
   if (
     captured !== undefined &&
-    !sameDraftAssistanceSource(captured.draft, draft, captured.purpose)
+    retires(captured, draft, { assistance, translation })
   ) {
     setCaptured(undefined);
   }
@@ -1425,7 +1490,11 @@ function Editor({
   };
   // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
   const capture = (purpose: CapturedDraftText['purpose'], at: Selection) => {
-    if (sendingNow.current || !lifetime.current.mounted) {
+    if (
+      sendingNow.current ||
+      !lifetime.current.mounted ||
+      !assistanceEnabled()
+    ) {
       return;
     }
     captureGeneration.current += 1;
@@ -1880,54 +1949,64 @@ function Editor({
               <Text style={{ color: colors.foreground }}>{label}</Text>
             </Pressable>
           ))}
-          <Action
-            disabled={lockedUnless(
-              hasTranslatableText(
-                selectedText(draft.body, selection, translationInputLimit + 1),
-              ),
-            )}
-            label={t('translation.translate')}
-            accessibilityLabel={t('translation.translateSelectionLabel')}
-            onPress={() => {
-              const at = selectionNow.current;
-              const { body } = authored.current;
-              const text = selectedText(body, at, translationInputLimit + 1);
-              if (
-                sendingNow.current ||
-                !lifetime.current.mounted ||
-                !hasTranslatableText(text)
-              ) {
-                return;
-              }
-              capture('translate', at);
-            }}
-          />
-          <Action
-            disabled={lockedUnless(canRewrite(draft.body, selection))}
-            label={t('assistance.rewrite')}
-            accessibilityLabel={t(rewriteLabel(selection))}
-            onPress={() => {
-              const at = selectionNow.current;
-              if (
-                lifetime.current.mounted &&
-                canRewrite(authored.current.body, at)
-              ) {
-                capture('rewrite', at);
-              }
-            }}
-          />
-          {canSuggestReply(draft) ? (
+          {translation === undefined ? null : (
             <Action
-              disabled={sending}
-              label={t('assistance.suggestReply')}
-              accessibilityLabel={t('assistance.suggestReplyLabel')}
+              disabled={lockedUnless(
+                hasTranslatableText(
+                  selectedText(
+                    draft.body,
+                    selection,
+                    translationInputLimit + 1,
+                  ),
+                ),
+              )}
+              label={t('translation.translate')}
+              accessibilityLabel={t('translation.translateSelectionLabel')}
               onPress={() => {
-                if (lifetime.current.mounted) {
-                  capture('reply', selectionNow.current);
+                const at = selectionNow.current;
+                const { body } = authored.current;
+                const text = selectedText(body, at, translationInputLimit + 1);
+                if (
+                  sendingNow.current ||
+                  !lifetime.current.mounted ||
+                  !hasTranslatableText(text)
+                ) {
+                  return;
                 }
+                capture('translate', at);
               }}
             />
-          ) : null}
+          )}
+          {assistance === undefined ? null : (
+            <>
+              <Action
+                disabled={lockedUnless(canRewrite(draft.body, selection))}
+                label={t('assistance.rewrite')}
+                accessibilityLabel={t(rewriteLabel(selection))}
+                onPress={() => {
+                  const at = selectionNow.current;
+                  if (
+                    lifetime.current.mounted &&
+                    canRewrite(authored.current.body, at)
+                  ) {
+                    capture('rewrite', at);
+                  }
+                }}
+              />
+              {canSuggestReply(draft) ? (
+                <Action
+                  disabled={sending}
+                  label={t('assistance.suggestReply')}
+                  accessibilityLabel={t('assistance.suggestReplyLabel')}
+                  onPress={() => {
+                    if (lifetime.current.mounted) {
+                      capture('reply', selectionNow.current);
+                    }
+                  }}
+                />
+              ) : null}
+            </>
+          )}
         </View>
         <View
           accessibilityLabel={t('drafts.assets.toolbar')}
@@ -1948,20 +2027,12 @@ function Editor({
             }}
           />
         </View>
-        {captured?.purpose === 'translate' ? (
-          <DraftTranslation
+        {captured === undefined ? null : (
+          <CapturedAssistance
             key={captured.id}
-            text={captured.text}
-            onApply={applyCaptured}
-            onClose={closeCaptured}
-          />
-        ) : null}
-        {captured === undefined || captured.purpose === 'translate' ? null : (
-          <DraftAssistance
-            key={captured.id}
-            purpose={captured.purpose}
-            issue={captured.issue}
-            input={captured.input}
+            captured={captured}
+            assistance={assistance}
+            translation={translation}
             onApply={applyCaptured}
             onClose={closeCaptured}
           />

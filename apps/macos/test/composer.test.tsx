@@ -4,6 +4,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 
+import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { mailboxesOf } from '@private-email/mail-core/registration';
@@ -30,6 +31,10 @@ import type { Selection } from '../src/inbox.tsx';
 
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
+import {
+  MailAssistanceContext,
+  MailAssistanceGate,
+} from '../src/mail-assistance.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
@@ -2261,6 +2266,79 @@ describe('composing Drafts', () => {
       asked[4]?.request,
       asked[5]?.request,
     ]);
+  });
+
+  it('offers Draft assistance only while enabled and retires a pending request when it turns off', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      registration,
+    );
+    const { native, asked, cancelled } = scriptedDraftAssistance();
+    const translation: NativeTranslation = {
+      translationLanguages: () => Promise.resolve([]),
+      translate: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.resolve(null),
+    };
+    const owner = 'synthetic-product-account';
+    const enablement = createMailAssistanceEnablement({
+      mailAssistance: () => Promise.resolve({ owner, profiles: [] }),
+      setMailAssistance: (account, profiles) =>
+        Promise.resolve({ owner: account, profiles }),
+    });
+    await enablement.load(owner);
+    await render(
+      <MailAssistanceContext value={enablement}>
+        <MailAssistanceGate
+          account={owner}
+          assistance={native}
+          translation={translation}>
+          <App
+            drafts={drafts}
+            registration={registration}
+          />
+        </MailAssistanceGate>
+      </MailAssistanceContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'lets meet friday. thanks',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Rewrite the message body' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Translate the selected text' }),
+    ).toBeNull();
+
+    await act(async () => {
+      await enablement.setEnabled(owner, 'default', true);
+    });
+    await press('Rewrite the message body');
+    await screen.findByLabelText('Cancel writing help');
+    // Turning it off cancels the request and closes its panel.
+    await act(async () => {
+      const off = enablement.setEnabled(owner, 'default', false);
+      // Cancellation precedes both storage completion and React's hidden-panel commit.
+      expect(cancelled).toStrictEqual([asked[0]?.request]);
+      fireEvent.press(
+        screen.getByRole('button', { name: 'Rewrite the message body' }),
+      );
+      await off;
+    });
+    expect(cancelled).toStrictEqual([asked[0]?.request]);
+    expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+    // Turning it on again offers the action without restarting the retired request.
+    await act(async () => {
+      await enablement.setEnabled(owner, 'default', true);
+    });
+    expect(
+      screen.getByRole('button', { name: 'Rewrite the message body' }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+    expect(asked).toHaveLength(1);
   });
   /* oxlint-enable vitest/max-expects */
 });

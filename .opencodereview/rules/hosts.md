@@ -154,6 +154,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   change retires the previous request's controls. Otherwise stale input starts
   hidden inference or replaces, cancels or closes a later translation.
 
+- `translation.tsx.useLanguages` querying native Translation from a pending passive
+  effect after Mail Assistance Enablement turns off. Reuse the request owner's
+  live enablement predicate at that call boundary; hiding the panel on a later
+  render does not retire its pending effect. Exercise Off between layout setup
+  and passive effects, or a disabled account can still reach Apple Translation.
+
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating
   the captured selection only after rendering. Recheck acceptance after a target

@@ -1,3 +1,5 @@
+import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
 import type {
   AccountRemoval,
   InboxChoice,
@@ -11,6 +13,7 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
+import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
@@ -48,6 +51,13 @@ import {
 
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
+import {
+  MailAssistanceContext,
+  MailAssistanceGate,
+  MailAssistanceSettings,
+  mailAssistance as deviceMailAssistance,
+} from './mail-assistance.tsx';
+import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { registration } from './registration.ts';
 import {
@@ -57,6 +67,7 @@ import {
   RemoteContentContext,
 } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
+import { TranslationContext, nativeTranslation } from './translation.tsx';
 import { TrustedDevices } from './trusted-devices.tsx';
 
 // The connected Inbox opens the account page and asks for Gmail permission again through this.
@@ -542,6 +553,12 @@ function AccountSettings({
         button={button}
         store={store}
       />
+      {snapshot.removalPending === undefined ? (
+        <MailAssistanceSettings
+          account={snapshot.productAccountId}
+          button={button}
+        />
+      ) : null}
       <PrivateSync
         key={snapshot.recoveryKey ?? 'confirmed'}
         account={snapshot}
@@ -579,12 +596,19 @@ export function RegistrationGate({
   store = registration,
   preview = previewInbox,
   remoteContent = deviceRemoteContent,
+  mailAssistance = deviceMailAssistance,
+  assistance = nativeAssistance,
+  translation = nativeTranslation,
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
   readonly preview?: boolean;
   // The device's remote content policies, for the Inbox's readers and the account page.
   readonly remoteContent?: RemoteContentSettingsStore;
+  // The device's Mail Assistance Enablement, which permits the model and Translation below.
+  readonly mailAssistance?: MailAssistanceEnablementStore;
+  readonly assistance?: NativeAssistance;
+  readonly translation?: NativeTranslation;
 }) {
   const { snapshot, busy, locked } = useSyncExternalStore(
     store.subscribe,
@@ -599,6 +623,22 @@ export function RegistrationGate({
   if (choice !== undefined && !landing.valid) {
     setChoice(undefined);
   }
+  // Enablement belongs to an admitted Product Account that is not being removed; it is read again
+  // whenever that changes, or when locked storage may have become readable.
+  const assistanceAccount =
+    snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
+      ? undefined
+      : snapshot.productAccountId;
+  const assistanceScope = JSON.stringify([
+    assistanceAccount,
+    snapshot.kind === 'device-pending',
+    locked === true,
+  ]);
+  useEffect(() => {
+    if (!preview) {
+      void mailAssistance.load(assistanceScope);
+    }
+  }, [preview, mailAssistance, assistanceScope]);
   const actions = useMemo(
     () => ({
       mailboxes: mailboxesOf(snapshot),
@@ -632,34 +672,48 @@ export function RegistrationGate({
       subscription.remove();
     };
   }, [preview, store, remoteContent]);
+  // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
-    return children;
+    return (
+      <AssistanceContext value={assistance}>
+        <TranslationContext value={translation}>{children}</TranslationContext>
+      </AssistanceContext>
+    );
   }
   const inbox = landing.destination === 'inbox';
   if (!locked && inbox) {
     return (
       <RemoteContentContext value={remoteContent}>
-        <AccountContext value={actions}>{children}</AccountContext>
+        <MailAssistanceContext value={mailAssistance}>
+          <MailAssistanceGate
+            account={assistanceAccount}
+            assistance={assistance}
+            translation={translation}>
+            <AccountContext value={actions}>{children}</AccountContext>
+          </MailAssistanceGate>
+        </MailAssistanceContext>
       </RemoteContentContext>
     );
   }
   if (!locked) {
     return (
       <RemoteContentContext value={remoteContent}>
-        <RegistrationPage
-          store={store}
-          onInbox={
-            inboxAccount === undefined
-              ? undefined
-              : () => {
-                  setChoice({
-                    account: inboxAccount,
-                    destination: 'inbox',
-                    setup,
-                  });
-                }
-          }
-        />
+        <MailAssistanceContext value={mailAssistance}>
+          <RegistrationPage
+            store={store}
+            onInbox={
+              inboxAccount === undefined
+                ? undefined
+                : () => {
+                    setChoice({
+                      account: inboxAccount,
+                      destination: 'inbox',
+                      setup,
+                    });
+                  }
+            }
+          />
+        </MailAssistanceContext>
       </RemoteContentContext>
     );
   }
