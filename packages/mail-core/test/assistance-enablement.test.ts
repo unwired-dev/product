@@ -204,4 +204,40 @@ describe('mail Assistance Enablement', () => {
     await store.setEnabled(account, defaultProfile, true);
     expect(written).toStrictEqual([account, account]);
   });
+
+  it('discards failed-save status and retry ownership when the account changes', async () => {
+    expect.hasAssertions();
+    let owner = account;
+    const failures: Array<(failure: unknown) => void> = [];
+    const store = createMailAssistanceEnablement({
+      mailAssistance: () =>
+        Promise.resolve({ owner, profiles: [defaultProfile] }),
+      setMailAssistance: () =>
+        // oxlint-disable-next-line promise/avoid-new -- Reject a native save after replacement account load begins.
+        new Promise((_resolve, reject) => {
+          failures.push(reject);
+        }),
+    });
+    await store.load(owner);
+    const off = store.setEnabled(owner, defaultProfile, false);
+    expect(store.getSaveState()).toBe('saving');
+    owner = 'replacement-account';
+    const replacement = store.load(owner);
+    failures[0]?.({ code: 'locked' });
+    await off;
+    await replacement;
+    expect(store.getSaveState()).toBe('idle');
+    await store.retrySave(account);
+    expect(store.getSnapshot()).toStrictEqual({
+      owner,
+      profiles: [defaultProfile],
+    });
+    const replacementOff = store.setEnabled(owner, defaultProfile, false);
+    failures[1]?.({ code: 'locked' });
+    await replacementOff;
+    expect(store.getSaveState()).toBe('failed');
+    await store.retrySave(account);
+    expect(store.getSnapshot()).toStrictEqual({ owner, profiles: [] });
+    expect(failures).toHaveLength(2);
+  });
 });

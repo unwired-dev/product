@@ -503,9 +503,11 @@ function AccountActions({
 // A signed-in account's settings; until a trusted device or the Recovery Key admits this device,
 // it offers only that.
 function AccountSettings({
+  assistance,
   button,
   store,
 }: {
+  readonly assistance: NativeAssistance;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
   readonly store: Registration;
 }) {
@@ -556,6 +558,7 @@ function AccountSettings({
       {snapshot.removalPending === undefined ? (
         <MailAssistanceSettings
           account={snapshot.productAccountId}
+          assistance={assistance}
           button={button}
         />
       ) : null}
@@ -700,6 +703,7 @@ export function RegistrationGate({
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
           <RegistrationPage
+            assistance={assistance}
             store={store}
             onInbox={
               inboxAccount === undefined
@@ -741,9 +745,11 @@ export function RegistrationGate({
 }
 
 function RegistrationPage({
+  assistance,
   store,
   onInbox,
 }: {
+  readonly assistance: NativeAssistance;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
@@ -827,6 +833,7 @@ function RegistrationPage({
         {actions.retry ? button(t('common.retry'), store.restore) : null}
         {actions.settings ? (
           <AccountSettings
+            assistance={assistance}
             button={button}
             store={store}
           />

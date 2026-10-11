@@ -47,9 +47,17 @@ On-Device Mail Assistance action, **Summarize**, Draft
   signed-in Product Account's Mail Profile on this device. Only the
   [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
   choice. Turning it on starts nothing; each action is still an explicit request.
+- While assistance is on, **Check Apple Intelligence availability** explicitly
+  checks whether the system model can run, without generating text or prewarming
+  it. The account page reports eligibility, Apple Intelligence configuration,
+  model readiness or language support. Availability for Translation remains
+  separate. Opening the page or changing enablement never runs this check.
+- A device choice that is still saving or could not be saved is shown as such,
+  with an explicit retry for the failed save. Turning assistance off still closes
+  its actions immediately, even when saving fails.
 - Turning it off, in any window, cancels in-flight assistance and forgets every
-  shown preview. A captured Draft request is retired, so turning it on again does
-  not restart it.
+  shown preview, including any account-page availability status. A captured Draft
+  request is retired, so turning it on again does not restart it.
 - It is stored only in this device's Keychain, never synchronized or restored to another device.
   A Pending Device, or an account whose sign-out or deletion is under way, has
   none. Sign-out, Product Account deletion and removal of this device by another
@@ -117,8 +125,11 @@ allow-listed native code or decode path, never mail or summary text.
   `apps/macos/test/mail-assistance.test.tsx` drive the real registration gate and
   reader over the synthetic registration session: actions stay hidden and nothing
   reaches either framework until the account page turns assistance on, turning it
-  off cancels an in-flight summary and drops its late result, and signing out and
-  in again leaves it off. Both composer suites check that Draft assistance and
+  off cancels an in-flight summary and drops its late result. Explicit account-page
+  availability checks report every model outcome without generation, fail closed
+  on malformed or rejected replies, and forget late results after Off, account
+  replacement or unmount. Failed preference saves keep assistance off and offer
+  an explicit retry. Signing out and in again leaves it off. Both composer suites check that Draft assistance and
   translation appear only while enabled and that turning it off retires a pending
   request before React commits, refusing queued controls. The hosted native storage suite checks that the Keychain item belongs to
   its account and that every purge removes it.

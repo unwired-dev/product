@@ -17,3 +17,9 @@ turning it off cancels in-flight assistance and forgets shown previews.
 Mock Mail Sessions gain an `assistance-disabled` scenario and a `mailAssistance`
 provider. The hosts' `AssistanceContext` and `TranslationContext` now default to
 no assistance.
+
+The account page offers an explicit Apple Intelligence availability check only
+while assistance is enabled. It explains unavailable states without generating
+text and discards checks and status when assistance or the account changes.
+Unsaved device choices show saving or failure status and offer a save retry;
+turning assistance off closes the gate even if persistence fails.

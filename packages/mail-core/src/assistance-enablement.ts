@@ -75,6 +75,10 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
   let generation = 0;
   let change = 0;
   let desired: MailAssistanceEnablement | undefined = undefined;
+  let saveState: 'idle' | 'saving' | 'failed' = 'idle';
+  let failedSave:
+    | Readonly<{ owner: string; profile: string; enabled: boolean }>
+    | undefined = undefined;
   const listeners = new Set<() => void>();
   const publish = (next: MailAssistanceEnablement | undefined) => {
     enablement = next;
@@ -82,7 +86,69 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
       listener();
     }
   };
+  // Turning it on never starts inference; each assistance action stays an explicit request.
+  const setEnabled = (owner: string, profile: string, enabled: boolean) => {
+    if (desired?.owner !== owner) {
+      return Promise.resolve();
+    }
+    const saving = generation;
+    change += 1;
+    const revision = change;
+    const others = desired.profiles.filter((item) => item !== profile);
+    const profiles = enabled ? [...others, profile] : others;
+    desired = { owner, profiles };
+    failedSave = undefined;
+    saveState = 'saving';
+    // Off applies before queueing storage, and earlier saves cannot turn it back on.
+    if (!enabled) {
+      enablement = {
+        owner,
+        profiles: (enablement?.profiles ?? []).filter(
+          (item) => item !== profile,
+        ),
+      };
+    }
+    publish(enablement);
+    return runLogged(
+      operations
+        .withPermit(
+          Effect.gen(function* () {
+            if (generation !== saving) {
+              return;
+            }
+            const saved = yield* call(() =>
+              native.setMailAssistance(owner, profiles),
+            );
+            // A registration change meanwhile reads the enablement again instead.
+            if (generation === saving && change === revision) {
+              saveState = 'idle';
+              publish(saved);
+            }
+          }),
+        )
+        .pipe(
+          Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
+            Effect.gen(function* () {
+              yield* logFailure(
+                'Mail Assistance Enablement could not be saved:',
+              )(failure);
+              if (generation === saving && change === revision) {
+                failedSave = { owner, profile, enabled };
+                saveState = 'failed';
+                publish(enablement);
+              }
+            }),
+          ),
+        ),
+    );
+  };
   return {
+    getSaveState: () => saveState,
+    retrySave: (owner: string) =>
+      failedSave === undefined || failedSave.owner !== owner
+        ? Promise.resolve()
+        : setEnabled(failedSave.owner, failedSave.profile, failedSave.enabled),
+    setEnabled,
     getSnapshot: () => enablement,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -101,6 +167,8 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
       generation += 1;
       const reading = generation;
       desired = undefined;
+      failedSave = undefined;
+      saveState = 'idle';
       publish(undefined);
       return runLogged(
         operations
@@ -121,50 +189,6 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
             Effect.catchTag(
               'MailAssistanceNativeFailure',
               logFailure('Mail Assistance Enablement could not be read:'),
-            ),
-          ),
-      );
-    },
-    // Turning it on never starts inference; each assistance action stays an explicit request.
-    setEnabled: (owner: string, profile: string, enabled: boolean) => {
-      if (desired?.owner !== owner) {
-        return Promise.resolve();
-      }
-      const saving = generation;
-      change += 1;
-      const revision = change;
-      const others = desired.profiles.filter((item) => item !== profile);
-      const profiles = enabled ? [...others, profile] : others;
-      desired = { owner, profiles };
-      // Off applies before queueing storage, and earlier saves cannot turn it back on.
-      if (!enabled) {
-        publish({
-          owner,
-          profiles: (enablement?.profiles ?? []).filter(
-            (item) => item !== profile,
-          ),
-        });
-      }
-      return runLogged(
-        operations
-          .withPermit(
-            Effect.gen(function* () {
-              if (generation !== saving) {
-                return;
-              }
-              const saved = yield* call(() =>
-                native.setMailAssistance(owner, profiles),
-              );
-              // A registration change meanwhile reads the enablement again instead.
-              if (generation === saving && change === revision) {
-                publish(saved);
-              }
-            }),
-          )
-          .pipe(
-            Effect.catchTag(
-              'MailAssistanceNativeFailure',
-              logFailure('Mail Assistance Enablement could not be saved:'),
             ),
           ),
       );

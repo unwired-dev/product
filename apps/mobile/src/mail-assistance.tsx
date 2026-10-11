@@ -4,16 +4,27 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 
+import { createAssistanceAvailability } from '@private-email/mail-core/assistance';
 import {
   createMailAssistanceEnablement,
   mailAssistanceEnabled,
 } from '@private-email/mail-core/assistance-enablement';
 import { defaultProfile } from '@private-email/mail-core/registration';
-import { use, useSyncExternalStore } from 'react';
+import {
+  use,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import { Text, TurboModuleRegistry } from 'react-native';
 
+import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
-import { MailAssistanceContext } from './mail-assistance-lifetime.ts';
+import {
+  MailAssistanceContext,
+  useMailAssistanceLifetime,
+} from './mail-assistance-lifetime.ts';
 import { AssistanceContext } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { usePalette } from './theme.ts';
@@ -78,9 +89,11 @@ export function MailAssistanceGate({
 // The account page's opt-in for this device.
 export function MailAssistanceSettings({
   account,
+  assistance,
   button,
 }: {
   readonly account: string;
+  readonly assistance: NativeAssistance;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
 }) {
   const colors = usePalette();
@@ -90,6 +103,10 @@ export function MailAssistanceSettings({
   const read = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
     () => store?.getSnapshot()?.owner === account,
+  );
+  const saveState = useSyncExternalStore(
+    store?.subscribe ?? noSubscription,
+    () => store?.getSaveState() ?? 'idle',
   );
   if (store === undefined || !read) {
     return null;
@@ -111,6 +128,77 @@ export function MailAssistanceSettings({
         t(enabled ? 'mailAssistance.turnOff' : 'mailAssistance.turnOn'),
         () => store.setEnabled(account, profile, !enabled),
       )}
+      {saveState === 'idle' ? null : (
+        <Text style={[styles.text, { color: colors.secondary }]}>
+          {t(
+            saveState === 'saving'
+              ? 'mailAssistance.saving'
+              : 'mailAssistance.saveFailed',
+          )}
+        </Text>
+      )}
+      {saveState === 'failed'
+        ? button(t('mailAssistance.retrySave'), () => store.retrySave(account))
+        : null}
+      {enabled ? (
+        <AssistanceAvailability
+          key={account}
+          account={account}
+          assistance={assistance}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function AssistanceAvailability({
+  account,
+  assistance,
+}: {
+  readonly account: string;
+  readonly assistance: NativeAssistance;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const check = useMemo(
+    () => createAssistanceAvailability(assistance),
+    [assistance],
+  );
+  const enabled = useMailAssistanceLifetime(check.discard);
+  const committed = useRef<typeof check>(undefined);
+  useLayoutEffect(() => {
+    committed.current = check;
+    return () => {
+      committed.current = undefined;
+      check.discard();
+    };
+  }, [check]);
+  const state = useSyncExternalStore(check.subscribe, () =>
+    check.getSnapshot(account),
+  );
+  return (
+    <>
+      {state.kind === 'idle' ? null : (
+        <Text style={[styles.text, { color: colors.secondary }]}>
+          {state.kind === 'unavailable'
+            ? t(
+                state.reason === 'model-not-ready'
+                  ? 'summary.model-not-ready'
+                  : `mailAssistance.${state.reason}`,
+              )
+            : t(
+                `mailAssistance.${state.kind === 'checking' || state.kind === 'available' ? state.kind : 'checkFailed'}`,
+              )}
+        </Text>
+      )}
+      <Action
+        label={t('mailAssistance.checkAvailability')}
+        onPress={() => {
+          if (committed.current === check && enabled()) {
+            void check.start(account);
+          }
+        }}
+      />
     </>
   );
 }
