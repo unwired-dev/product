@@ -501,7 +501,7 @@
         "registration-cancelled", "registration-declined", "registration-no-gmail",
         "registration-interrupted", "registration-apple", "registration-link",
         "registration-enrollment", "registration-recovery", "registration-revocation",
-        "registration-revoked", "registration-removal",
+        "registration-revoked", "registration-removal", "registration-draft-editor",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable

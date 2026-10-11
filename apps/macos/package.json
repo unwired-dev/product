@@ -18,6 +18,7 @@
     "verify:bundle": "node scripts/verify-bundle.ts && node scripts/verify-native.ts"
   },
   "dependencies": {
+    "@private-email/draft-editor": "workspace:*",
     "@private-email/localization": "workspace:*",
     "@private-email/mail-core": "workspace:*",
     "effect": "catalog:",

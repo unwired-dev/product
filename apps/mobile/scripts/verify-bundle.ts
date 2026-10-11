@@ -79,7 +79,8 @@ for (const source of sources) {
     `Unexpected platform dependency: ${source}`,
   );
 }
-// Registration scenarios substitute a native provider only; their JavaScript stays production.
+// Registration scenarios substitute a native provider only; their JavaScript stays production,
+// apart from the evaluation editor page below.
 const scenario: unknown = process.env.UNWIRED_MOCK_SCENARIO;
 const nativeOnly =
   typeof scenario === 'string' && scenario.startsWith('registration-');
@@ -90,6 +91,17 @@ assert.equal(
   mockSources.length > 0,
   Boolean(scenario) && !nativeOnly,
   'Mock providers must appear only in explicitly selected test bundles.',
+);
+// Only `registration-draft-editor` bundles carry the Tiptap evaluation page, as one packaged
+// string; Tiptap and ProseMirror never join the native renderer's module graph.
+assert.equal(
+  sources.some((source) => source.endsWith('/draft-editor/dist/page.js')),
+  scenario === 'registration-draft-editor',
+  'The Tiptap evaluation page must appear only in registration-draft-editor bundles.',
+);
+assert.ok(
+  !sources.some((source) => /@tiptap|prosemirror-/u.test(source)),
+  'Tiptap must stay inside the packaged evaluation page.',
 );
 process.stdout.write(
   `Verified ${sources.length} sources in ${fileURLToPath(dist)}: mobile renderer, Effect, shared core and native split view.\n`,

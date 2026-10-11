@@ -230,8 +230,24 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-revocation', 'normal'],
     ['registration-revoked', 'normal'],
     ['registration-removal', 'normal'],
+    ['registration-draft-editor', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
+      cwd: root,
+      env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseJson(result.stdout).type, expected);
+  }
+  // Only the evaluation scenario substitutes the packaged Tiptap page for the empty default.
+  const page = `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '@private-email/draft-editor/page', 'ios')));`;
+  for (const [scenario, expected] of [
+    ['', 'normal'],
+    ['registration-apple', 'normal'],
+    ['registration-draft-editor', 'sourceFile'],
+  ]) {
+    const result = spawnSync(process.execPath, ['-e', page], {
       cwd: root,
       env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
       encoding: 'utf8',
