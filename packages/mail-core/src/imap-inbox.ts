@@ -475,12 +475,15 @@ export function createImapInbox(
       lifetime,
     };
     document = stored;
+    // Reopening refreshes no other folder, so one whose last read failed keeps saying so.
+    const previous = new Map(folderViews);
     folderViews.clear();
     for (const { name, cache: folder } of stored.mailboxes) {
+      const last = previous.get(name);
       folderViews.set(name, {
         kind: 'ready',
         messages: folder.messages,
-        status: 'current',
+        status: last?.kind === 'ready' ? last.status : 'current',
       });
     }
     return cache.availability === undefined;
@@ -683,10 +686,14 @@ export function createImapInbox(
     document?.mailboxes.some(({ cache }) =>
       cache.messages.some((message) => message.id === id),
     ) === true;
+  // A folder evicted from the cache keeps its shown rows openable until its view is replaced.
   const messageOf = (id: string) =>
-    document?.mailboxes
-      .flatMap(({ cache }) => cache.messages)
-      .find((message) => message.id === id);
+    [
+      ...(document?.mailboxes.flatMap(({ cache }) => cache.messages) ?? []),
+      ...[...folderViews.values()].flatMap((view) =>
+        view.kind === 'ready' ? view.messages : [],
+      ),
+    ].find((message) => message.id === id);
 
   // The message's raw source from the server, as the body the reader presents.
   const bodyOf = Effect.fnUntraced(function* (message: ImapMessage) {

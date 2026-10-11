@@ -11,6 +11,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
+- `imap-inbox.ts.open` recreating a cached folder view as `current` without
+  reading that folder. Preserve its previous ready status, including `syncing`
+  for a read queued behind the semaphore, until that folder read settles; retain
+  access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
+  different folder's retry or authentication warning.
+- `imap-inbox.ts.messageOf` searching only the persisted metadata document while
+  ready folder views survive its bounded folder eviction. Keep shown rows
+  resolvable until their view is replaced or access closes, without widening
+  `listed` body-cache admission. Otherwise another Mac window displays rows that
+  cannot open, or opening an evicted row stores an unlisted body.
+
 - `imap-inbox.ts.folder` returning a new fallback view on each snapshot read
   after reload or forget clears `folderViews`. Unchanged loading or cached
   messages must return the same object, and a changed cache must yield a new
@@ -22,7 +33,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   named-group transform can leave `.groups` unset while positional captures
   survive and Node tests pass, rejecting valid named recipients, retaining a
   whole From header as an address or dropping message content and link destinations.
-  Read positional captures while retaining named groups in the pattern for lint;
+  Read positional captures and use positional replacement references such as
+  `$1` instead of `$<name>` for quoted-pair unescaping in `mime.ts.parameter`,
+  while retaining named groups in the pattern for lint;
   exercise absent `.groups` in a regression and validate changed parsing in the
   packaged host when its transform differs from the test runtime.
 

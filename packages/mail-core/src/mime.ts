@@ -68,7 +68,8 @@ const parameter = (value: string | undefined, name: string) => {
   ).exec(value ?? '');
   return match === null
     ? undefined
-    : (match[1]?.replaceAll(/\\(?<escaped>.)/gu, '$<escaped>') ?? match[2]);
+    : // Positional, since packaged hosts can drop named capture groups.
+      (match[1]?.replaceAll(/\\(?<escaped>.)/gu, '$1') ?? match[2]);
 };
 
 const mediaType = (value: string | undefined) =>

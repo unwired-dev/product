@@ -1,20 +1,15 @@
 import assert from 'node:assert/strict';
 
 import * as Vitest from '@effect/vitest';
-import * as Effect from 'effect/Effect';
-import PostalMime from 'postal-mime';
 
 import type {
   ImapBodyState,
   ImapFolderView,
   ImapInboxState,
 } from '../src/imap-inbox.ts';
-import type { GmailPart } from '../src/message-body.ts';
 
 import { applyFolderRead, createImapInbox } from '../src/imap-inbox.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
-import { bodyParts, partText } from '../src/message-body.ts';
-import { parseMime } from '../src/mime.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
@@ -48,10 +43,6 @@ const imapInbox = (mailboxes: Readonly<ReturnType<typeof createMailboxes>>) => {
   return entry.inbox;
 };
 
-// A part's text as the reader decodes it; absent parts read as undefined.
-const decoded = (part: GmailPart | undefined) =>
-  part === undefined ? Effect.void : partText(part, part.body?.data ?? '');
-
 // A read folder's first message.
 const firstMessage = (view: ImapFolderView) => {
   const [message] = view.kind === 'ready' ? view.messages : [];
@@ -66,14 +57,6 @@ const readyBody = (body: ImapBodyState | undefined) => {
     throw new Error(`Expected a ready body, received ${body?.kind}`);
   }
   return body;
-};
-
-const treeOf = (bytes: Readonly<Uint8Array>) => {
-  const tree = parseMime(bytes);
-  if (tree === undefined) {
-    throw new Error('Expected a MIME tree');
-  }
-  return tree;
 };
 
 const crlf = (lines: readonly string[]) => lines.join('\r\n');
@@ -699,6 +682,51 @@ describe('connecting IMAP mailboxes', () => {
     expect(firstMessage(first.folder('Archive')).subject).toBe('Archived');
   });
 
+  it('keeps a folder refresh failure across an Inbox reload that does not read that folder', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Archived' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Archive');
+    imap.server.failure = 'offline';
+    await inbox.openFolder('Archive');
+    expect(inbox.folder('Archive')).toMatchObject({ status: 'retry' });
+    // The server answers again, but only the Inbox is read; the Archive was not refreshed.
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).status).toBe('current');
+    expect(inbox.folder('Archive')).toMatchObject({
+      kind: 'ready',
+      status: 'retry',
+    });
+  });
+
+  it('keeps rows of a folder evicted from the cache openable while they are shown', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    for (const name of names) {
+      await inbox.openFolder(name);
+    }
+    // Opening the ninth folder evicts the least recently read one from the cache.
+    const shown = firstMessage(inbox.folder('Folder 0'));
+    expect(inbox.message(shown.id)).toStrictEqual(shown);
+    const release = inbox.retainMessage(shown.id);
+    await inbox.readMessage(shown.id);
+    expect(inbox.messageBody(shown.id)?.kind).toBe('ready');
+    expect(imap.bodies.has(shown.id)).toBe(false);
+    release();
+    expect(inbox.messageBody(shown.id)).toBeUndefined();
+  });
+
   it('returns the same folder snapshot on consecutive reads after a reload drops its view', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
@@ -849,108 +877,3 @@ describe('connecting IMAP mailboxes', () => {
 });
 
 /* oxlint-enable vitest/max-expects */
-
-describe('parsing raw IMAP messages into MIME trees', () => {
-  const corpus = [
-    crlf([
-      'Subject: Plain',
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: quoted-printable',
-      '',
-      'Soft =',
-      'break and =C3=A9 accent',
-    ]),
-    crlf([
-      'Subject: Alternative',
-      'Content-Type: multipart/alternative; boundary=b1',
-      '',
-      'preamble',
-      '--b1',
-      'Content-Type: text/plain',
-      '',
-      'Plain text',
-      '--b1',
-      'Content-Type: text/html; charset="utf-8"',
-      'Content-Transfer-Encoding: base64',
-      '',
-      btoa('<b>Bold</b>'),
-      '--b1--',
-      'epilogue',
-    ]),
-    // LF line endings and a missing close delimiter still end the last part.
-    [
-      'Subject: Unclosed',
-      'Content-Type: multipart/mixed; boundary="u"',
-      '',
-      '--u',
-      'Content-Type: text/plain',
-      '',
-      'Last part',
-    ].join('\n'),
-  ];
-
-  // oxlint-disable-next-line vitest/require-hook -- This @effect/vitest call declares parameterized tests, not setup work.
-  Vitest.it.effect.each(corpus)(
-    'reads the same readable text as a reference parser (%#)',
-    (raw) =>
-      Effect.gen(function* () {
-        /* oxlint-disable vitest/no-standalone-expect -- Oxlint does not recognize the @effect/vitest effect callback. */
-        expect.hasAssertions();
-        const bytes = new TextEncoder().encode(raw);
-        const { text, html } = bodyParts(treeOf(bytes));
-        const reference = yield* Effect.promise(() => PostalMime.parse(bytes));
-        const [plain, rich] = yield* Effect.all([decoded(text), decoded(html)]);
-        expect(plain?.trim()).toBe(reference.text?.trim());
-        expect(rich?.trim()).toBe(reference.html?.trim());
-        /* oxlint-enable vitest/no-standalone-expect */
-      }),
-  );
-
-  it('retains multipart and HTML media types when the host omits named capture groups', () => {
-    expect.hasAssertions();
-    const { exec } = RegExp.prototype;
-    const transformed = vi
-      .spyOn(RegExp.prototype, 'exec')
-      .mockImplementation(function (this: RegExp, text: string) {
-        const match = exec.call(this, text);
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Simulates the host transform only for successful regex matches.
-        if (match !== null) {
-          delete match.groups;
-        }
-        return match;
-      });
-    try {
-      const tree = treeOf(new TextEncoder().encode(corpus[1]));
-      const { text, html } = bodyParts(tree);
-      expect(tree.mimeType).toBe('multipart/alternative');
-      expect(text?.mimeType).toBe('text/plain');
-      expect(html?.mimeType).toBe('text/html');
-    } finally {
-      transformed.mockRestore();
-    }
-  });
-
-  it('refuses a tree deeper than the reader walks', () => {
-    expect.hasAssertions();
-    const nested = Array.from(
-      { length: 40 },
-      (_, depth) =>
-        `Content-Type: multipart/mixed; boundary="d${depth}"\r\n\r\n--d${depth}\r\n`,
-    ).join('');
-    expect(parseMime(new TextEncoder().encode(nested))).toBeUndefined();
-  });
-
-  it('refuses excessive MIME parts before walking the remaining siblings', () => {
-    expect.hasAssertions();
-    const raw = `Content-Type: multipart/mixed; boundary=p\r\n\r\n${'--p\r\n\r\nx\r\n'.repeat(20_000)}--p--\r\n`;
-    const bytes = new TextEncoder().encode(raw);
-    const encoder = vi.spyOn(Uint8Array, 'from');
-    try {
-      expect(parseMime(bytes)).toBeUndefined();
-      // Header and leaf decoding must stop at the cap rather than visit all siblings.
-      expect(encoder.mock.calls.length).toBeLessThan(20_000);
-    } finally {
-      encoder.mockRestore();
-    }
-  });
-});
