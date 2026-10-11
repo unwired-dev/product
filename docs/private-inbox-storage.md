@@ -83,6 +83,46 @@ another deployment or Google client is ignored. Purging attempts every account
 cache and key item and removes registration last; incomplete cleanup remains
 retryable after relaunch.
 
+## Mail Profiles
+
+[#644](https://github.com/unwired-dev/product/issues/644) introduces the
+[Default Profile](domain/identity.md) without changing visible mail behavior.
+Every Mailbox Connection belongs to exactly one Mail Profile. A connection listed
+without one, which is every connection today, belongs to the Default Profile.
+No connection, Draft, Outbox or encrypted-record identity, credential or cache
+moves or changes. A Draft and
+its Outbox entry belong to the Profile of their Mailbox Connection. Creating
+another Profile stays unavailable until both migration batches below finish and
+[#647](https://github.com/unwired-dev/product/issues/647) enables it.
+
+Callers that still read or act without an explicit Profile, by migration batch:
+
+- Reading and search, [#645](https://github.com/unwired-dev/product/issues/645):
+  - `packages/mail-core`: `mailboxes.ts` (`createMailboxes`, `inboxMessages`,
+    `searchMessages`, `savedMessageBodies`, `createGmailSearch`),
+    `registration.ts` (`mailboxesOf`, `canOpenInbox`, `inboxLanding`),
+    `gmail-inbox.ts`, `graph-inbox.ts`, `freshness.ts` and `remote-content.ts`.
+  - Both Apple hosts: `inbox.tsx`, `mailbox.tsx`, `message-detail.tsx`,
+    `message-body.tsx`, `remote-content.tsx`, `organize.tsx`,
+    `registration-gate.tsx`, and the Mac `window.tsx`.
+  - Convex: the Gmail provider connection list, connection and removal in
+    `productAccount.ts`.
+- Drafts, delivery and notifications,
+  [#646](https://github.com/unwired-dev/product/issues/646):
+  - `packages/mail-core`: `drafts.ts`, `draft-sync.ts`, `outbox.ts`,
+    `responses.ts`, `outgoing-message.ts` and `composer-navigation.ts`.
+  - Both Apple hosts: `composer.tsx`, `message-detail.tsx` (attachment-to-Draft),
+    `outbox.tsx`, `freshness.ts`, and the push wake routes in `registration.ts`.
+  - Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
+  - Native: `PushRoutes.swift` and `DraftSync.swift`.
+
+The deterministic registration, Inbox and Draft relaunch tests exercise this
+compatibility path through substituted provider and storage boundaries. Before
+release, verify Default Profile read/compose/relaunch on each maintained Apple
+host with real provider credentials, encrypted private state and queued work
+preserved. Mock tests and earlier native journeys do not qualify this combination.
+No setup or data reset is required for this slice.
+
 ## Message body cache
 
 Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the
@@ -125,8 +165,8 @@ cannot show does not count as showing it, and never evicts the resources current
 displayed across all open connections and windows. An entry that cannot fit is not stored, and its image is shown for the
 current presentation only. **Clear remote content** on the account page removes
 every entry without touching mail or bodies. Removing a connection, and every
-account purge, remove its entries with its directory. Mail Profiles do not exist
-yet; their scoping arrives with the Profile migration.
+account purge, remove its entries with its directory. Entries are not yet scoped
+by [Mail Profile](#mail-profiles).
 
 ## Draft storage
 

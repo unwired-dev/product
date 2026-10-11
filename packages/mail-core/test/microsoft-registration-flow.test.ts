@@ -1,6 +1,7 @@
 import * as Schema from 'effect/Schema';
 
 import {
+  defaultProfile,
   mailboxesOf,
   RegistrationSnapshotSchema,
 } from '../src/registration.ts';
@@ -56,6 +57,7 @@ describe('microsoft registration flow', () => {
           address: 'casey@example.invalid',
           state: 'connected',
           epoch: expect.any(String),
+          profile: defaultProfile,
         },
       ]);
       // Google was never asked for Gmail.

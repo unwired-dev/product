@@ -12,6 +12,7 @@ import {
 } from '../src/mailboxes.ts';
 import {
   createRegistration,
+  defaultProfile,
   mailboxesOf,
   registrationCopy,
 } from '../src/registration.ts';
@@ -618,6 +619,7 @@ describe('reading Microsoft mail through Graph', () => {
         provider: 'microsoft-graph',
         address: 'casey@example.invalid',
         state: 'connected',
+        profile: defaultProfile,
       },
     ]);
     expect(
