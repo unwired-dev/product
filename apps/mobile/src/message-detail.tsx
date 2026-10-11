@@ -1,12 +1,15 @@
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
 import { sendingMailboxes } from '@private-email/mail-core/drafts';
+import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -36,7 +39,9 @@ import {
   AttachContext,
   GmailMessageBody,
   LinkConfirmationProvider,
+  QuotedHistoryContext,
   ReaderScrollView,
+  useReaderScrollTo,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
@@ -82,7 +87,20 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 22, fontWeight: '500', textAlign: 'center' },
   emptyDescription: { fontSize: 16, textAlign: 'center' },
+  threadMessage: {
+    gap: 5,
+    marginTop: spacing.large,
+    paddingTop: spacing.large,
+    paddingHorizontal: spacing.medium,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+  },
+  // A bar beside the opened message, so it stands out without relying on color.
+  openedMessage: { borderLeftWidth: 4 },
 });
+
+// Keeps the message being read in place while bodies above it load.
+const keepVisibleMessage = { minIndexForVisible: 0 };
 
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
@@ -398,6 +416,31 @@ function ResponseActions({
   );
 }
 
+// The scoped mailbox's storage could not open; retrying opens it again.
+function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
+  const actions = useInboxActions();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <View style={styles.empty}>
+      <Text
+        accessibilityRole="alert"
+        style={[styles.emptyDescription, { color: colors.foreground }]}>
+        {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          void actions.load();
+        }}>
+        <Text style={[styles.secondary, { color: colors.accent }]}>
+          {t('common.retry')}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
@@ -435,24 +478,7 @@ function MailboxMessage({
   }
 
   if (state.kind === 'locked' || state.kind === 'failed') {
-    return (
-      <View style={styles.empty}>
-        <Text
-          accessibilityRole="alert"
-          style={[styles.emptyDescription, { color: colors.foreground }]}>
-          {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void actions.load();
-          }}>
-          <Text style={[styles.secondary, { color: colors.accent }]}>
-            {t('common.retry')}
-          </Text>
-        </Pressable>
-      </View>
-    );
+    return <StorageProblem kind={state.kind} />;
   }
 
   return (
@@ -473,7 +499,7 @@ function MailboxMessage({
       ) : (
         <LinkConfirmationProvider
           inbox={actions}
-          id={message.id}>
+          ids={[message.id]}>
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable
@@ -567,5 +593,157 @@ function MailboxMessage({
         </LinkConfirmationProvider>
       )}
     </SafeAreaView>
+  );
+}
+
+// A Thread: every locally cached message of the opened message's Gmail thread, newest at the top,
+// opened scrolled to that message and highlighting it, with quoted history collapsed.
+export function ThreadView({
+  mailbox,
+  id,
+}: {
+  // The mailbox the message belongs to; Gmail message IDs are unique only within it.
+  readonly mailbox: string | undefined;
+  readonly id: string | undefined;
+}) {
+  if (mailbox === undefined || id === undefined) {
+    return <EmptyDetail id={id} />;
+  }
+  return (
+    <MailboxScope
+      id={mailbox}
+      fallback={<EmptyDetail id={id} />}>
+      <ThreadMessages
+        key={`${mailbox}/${id}`}
+        id={id}
+      />
+    </MailboxScope>
+  );
+}
+
+function ThreadMessages({ id }: { readonly id: string }) {
+  const state = useInbox();
+  const inbox = useInboxActions();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const messages = useMemo(
+    () =>
+      state.kind === 'ready' && 'labels' in state
+        ? threadMessages(state, id)
+        : [],
+    [state, id],
+  );
+  if (state.kind === 'loading') {
+    return (
+      <ActivityIndicator
+        accessibilityLabel={t('message.loading')}
+        style={styles.fill}
+      />
+    );
+  }
+  if (state.kind === 'locked' || state.kind === 'failed') {
+    return <StorageProblem kind={state.kind} />;
+  }
+  const opened = shownMessage(state, id);
+  if (
+    state.kind !== 'ready' ||
+    opened === undefined ||
+    !('threadId' in opened) ||
+    !('readMessage' in inbox)
+  ) {
+    return <EmptyDetail id={id} />;
+  }
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.background }]}>
+      <QuotedHistoryContext value="collapsible">
+        <LinkConfirmationProvider
+          inbox={inbox}
+          ids={messages.map((message) => message.id)}>
+          <ReaderScrollView
+            contentContainerStyle={styles.content}
+            maintainVisibleContentPosition={keepVisibleMessage}>
+            <Text
+              accessibilityRole="header"
+              selectable
+              style={[styles.subject, { color: colors.foreground }]}>
+              {opened.subject}
+            </Text>
+            {messages.map((message) => (
+              <ThreadMessage
+                key={message.id}
+                inbox={inbox}
+                message={message}
+                highlighted={message.id === id}
+              />
+            ))}
+          </ReaderScrollView>
+        </LinkConfirmationProvider>
+      </QuotedHistoryContext>
+    </SafeAreaView>
+  );
+}
+
+function ThreadMessage({
+  inbox,
+  message,
+  highlighted,
+}: {
+  readonly inbox: GmailInbox;
+  readonly message: Readonly<{
+    id: string;
+    sender: string;
+    subject: string;
+    receivedAt: string;
+  }>;
+  // The opened message, which the Thread scrolls to once it is laid out.
+  readonly highlighted: boolean;
+}) {
+  const mailbox = useMailbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat(true);
+  const scrollTo = useReaderScrollTo();
+  const scrolled = useRef(false);
+  return (
+    <View
+      onLayout={({ nativeEvent }) => {
+        if (highlighted && !scrolled.current) {
+          scrolled.current = true;
+          scrollTo?.(nativeEvent.layout.y);
+        }
+      }}
+      style={[
+        styles.threadMessage,
+        { borderTopColor: colors.separator },
+        highlighted
+          ? [
+              styles.openedMessage,
+              {
+                backgroundColor: colors.selected,
+                borderLeftColor: colors.accent,
+              },
+            ]
+          : null,
+      ]}>
+      <Text
+        accessibilityState={highlighted ? { selected: true } : undefined}
+        selectable
+        style={[styles.sender, { color: colors.foreground }]}>
+        {message.sender}
+      </Text>
+      <Text style={[styles.secondary, { color: colors.secondary }]}>
+        {t('message.received', {
+          date: dateFormat.format(new Date(message.receivedAt)),
+        })}
+      </Text>
+      <GmailMessageBody
+        inbox={inbox}
+        id={message.id}
+        subject={message.subject}
+        connection={mailbox?.id}
+      />
+    </View>
   );
 }

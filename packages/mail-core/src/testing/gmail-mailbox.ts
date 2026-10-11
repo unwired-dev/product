@@ -13,6 +13,7 @@ import { createSyntheticRemoteContent } from './remote-content.ts';
 // Inbox makes with Gmail's response shapes and keeps the cache's revision and address rules.
 interface SyntheticMessage {
   readonly id: string;
+  readonly threadId: string;
   readonly from: string;
   readonly subject: string;
   readonly snippet: string;
@@ -211,6 +212,7 @@ export function createSyntheticGmail({
     at = Date.UTC(2026, 8, 1) + nextId * 60_000,
     content = { text: `${snippet}\n\nSynthetic body.` },
     headers = {},
+    thread,
   }: {
     readonly from?: string;
     readonly subject?: string;
@@ -219,11 +221,14 @@ export function createSyntheticGmail({
     readonly at?: number;
     readonly content?: SyntheticContent;
     readonly headers?: Readonly<Record<string, string>>;
+    // The Gmail thread the message joins; by default it starts its own.
+    readonly thread?: string;
   } = {}) => {
     nextId += 1;
     const id = nextId.toString(16);
     messages.set(id, {
       id,
+      threadId: thread ?? id,
       from,
       subject,
       snippet,
@@ -296,7 +301,9 @@ export function createSyntheticGmail({
     const start = Number(params.get('pageToken') ?? 0);
     const end = start + Number(params.get('maxResults') ?? 100);
     return respond({
-      messages: inbox.slice(start, end).map(({ id }) => ({ id, threadId: id })),
+      messages: inbox
+        .slice(start, end)
+        .map(({ id, threadId }) => ({ id, threadId })),
       ...(end < inbox.length ? { nextPageToken: String(end) } : {}),
     });
   };
@@ -422,7 +429,7 @@ export function createSyntheticGmail({
     if (params.get('format') === 'full') {
       return respond({
         id: message.id,
-        threadId: message.id,
+        threadId: message.threadId,
         labelIds: [...message.labels],
         snippet: message.snippet,
         payload: fullPayload(message),
@@ -433,7 +440,7 @@ export function createSyntheticGmail({
       const payload = fullPayload(message);
       return respond({
         id: message.id,
-        threadId: message.id,
+        threadId: message.threadId,
         labelIds: [...message.labels],
         internalDate: String(message.internalDate),
         payload: {
@@ -449,7 +456,7 @@ export function createSyntheticGmail({
     }
     return respond({
       id: message.id,
-      threadId: message.id,
+      threadId: message.threadId,
       labelIds: [...message.labels],
       snippet: message.snippet,
       historyId: String(historyId),
@@ -551,7 +558,7 @@ export function createSyntheticGmail({
     }
     return respond({
       id,
-      threadId: id,
+      threadId: message.threadId,
       labelIds: [...message.labels],
     });
   };
@@ -596,6 +603,7 @@ export function createSyntheticGmail({
       /^Subject: (?<subject>.*)$/mu.exec(raw)?.groups?.subject ?? '';
     messages.set(id, {
       id,
+      threadId: threadId ?? id,
       from: address,
       subject,
       snippet: subject,

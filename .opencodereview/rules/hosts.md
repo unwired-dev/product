@@ -354,6 +354,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   fail-closed unresolved-policy state, and exercise the transition through the
   real settings store and reader rather than only checking the button.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
+- `message-detail.tsx.ThreadMessages` or another multi-message rich reader treating
+  bounded download concurrency, image reservations or viewport fetch priority as
+  a bound on mounted bodies. Trace mounted `GmailMessageBody`/WebView instances and
+  rich-document preparation separately from request scheduling; otherwise a long
+  conversation creates a native view and prepared document for every cached
+  message even while downloads are capped. Check the task's accepted scope before
+  requiring windowing: #809 explicitly defers bounded rendering to #862, and its
+  operational docs and changeset must retain that limitation until qualified.
 - `composer.tsx.DraftRowView` or a message row flattening an entire body before
   native `numberOfLines` truncation. Bound preview traversal and intermediate
   strings before rendering, including a single large span and many empty blocks;
@@ -449,6 +457,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `message-detail.tsx.ThreadMessage` or another selected reader section marked
+  only by a background color and `accessibilityState.selected`. Require a visible
+  non-color cue such as a border, icon or text as well as assistive-technology
+  state; otherwise sighted users in grayscale or with color-vision differences
+  cannot identify the opened message. Check the cue against both palettes and
+  the section's padding/radius, and retain increased-contrast native qualification
+  as deferred when unavailable; component style assertions do not prove it.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
@@ -479,6 +494,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Verify queued keyboard and WebKit choices after forget, message/account replacement
   and reader unmount in both hosts, including the commit before passive cleanup;
   stale Copy/Proceed callbacks must remain blocked too.
+- `message-body.tsx.GmailMessageBody` dismissing a shared `LinkConfirmationProvider`
+  confirmation without comparing its owning Inbox and message ID. Body replacement,
+  reader cleanup and quote toggles must clear only that body's pending choice,
+  using the latest pending state; otherwise message B dismisses message A's still
+  valid destination. When a provider admits several messages, exercise a sibling
+  transition with A's confirmation open and A's own invalidation, while preserving
+  the existing stale-owner Copy/Proceed fences.
 
 #### Bundle and workspace boundary
 
