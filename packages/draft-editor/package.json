@@ -5,14 +5,18 @@
   "type": "module",
   "exports": {
     "./conversion": "./src/conversion.ts",
+    "./messages": "./src/messages.ts",
     "./page": "./src/page.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run"
   },
-  "devDependencies": {
+  "dependencies": {
     "@private-email/mail-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
     "@rajzik/tsconfig": "catalog:",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-document": "catalog:",
@@ -21,7 +25,6 @@
     "@tiptap/extensions": "catalog:",
     "@tiptap/pm": "catalog:",
     "@types/node": "catalog:",
-    "effect": "catalog:",
     "esbuild": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",

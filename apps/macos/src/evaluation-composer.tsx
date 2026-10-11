@@ -1,12 +1,10 @@
 import type { Draft } from '@private-email/mail-core/drafts';
 
 import { supported } from '@private-email/draft-editor/conversion';
+import { decodeChange } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import { draftOf, isEmptyDraft } from '@private-email/mail-core/drafts';
-import { SemanticDocumentSchema } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
-import * as Option from 'effect/Option';
-import * as Schema from 'effect/Schema';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -38,14 +36,6 @@ const styles = StyleSheet.create({
   notice: { fontSize: 14 },
   body: { flex: 1 },
 });
-
-// The page's only message: the whole body after an edit, decoded before it reaches the store.
-const Change = Schema.fromJsonString(
-  Schema.Struct({
-    type: Schema.Literal('change'),
-    document: SemanticDocumentSchema,
-  }),
-);
 
 // The Tiptap evaluation editor for one Draft: the packaged page edits plain paragraphs, and each
 // change saves through the Draft store like the current composer's edits.
@@ -192,12 +182,12 @@ function EvaluationEditor({
             if (!mounted.current) {
               return;
             }
-            const change = Schema.decodeOption(Change)(nativeEvent.data);
-            if (Option.isNone(change)) {
+            const body = decodeChange(nativeEvent.data);
+            if (body === undefined) {
               return;
             }
             const previous = authored.current;
-            authored.current = { ...previous, body: change.value.document };
+            authored.current = { ...previous, body };
             void store.update(authored.current, previous, rebind);
           }}
           // Only the page itself loads; every navigation it could start is cancelled.

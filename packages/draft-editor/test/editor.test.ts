@@ -1,19 +1,12 @@
+import { ok } from 'node:assert/strict';
+
 // @vitest-environment happy-dom
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { Editor } from '@tiptap/core';
 
-import { SemanticDocumentSchema } from '@private-email/mail-core/semantic-document';
-import * as Schema from 'effect/Schema';
-
 import { pageHtml } from '../build.cjs';
 import { supported } from '../src/conversion.ts';
-
-const Change = Schema.fromJsonString(
-  Schema.Struct({
-    type: Schema.Literal('change'),
-    document: SemanticDocumentSchema,
-  }),
-);
+import { decodeChange } from '../src/messages.ts';
 
 const opened: SemanticDocument = [
   { kind: 'paragraph', spans: [{ text: 'Dear Ana,' }] },
@@ -39,7 +32,9 @@ describe('the Tiptap evaluation page', () => {
     const posted: SemanticDocument[] = [];
     globalThis.ReactNativeWebView = {
       postMessage: (message) => {
-        posted.push(Schema.decodeSync(Change)(message).document);
+        const document = decodeChange(message);
+        ok(document, 'Expected a valid page message');
+        posted.push(document);
       },
     };
     globalThis.draftEditor = { document: opened, label: 'Message' };

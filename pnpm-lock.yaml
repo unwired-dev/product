@@ -560,10 +560,14 @@ importers:
         version: 5.0.3(@edge-runtime/vm@5.0.0)(@types/node@24.19.1)(happy-dom@20.14.5)(jsdom@20.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(terser@5.51.2)(yaml@2.9.1))
 
   packages/draft-editor:
-    devDependencies:
+    dependencies:
       '@private-email/mail-core':
         specifier: workspace:*
         version: link:../mail-core
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0
+    devDependencies:
       '@rajzik/tsconfig':
         specifier: 'catalog:'
         version: 4.0.4
@@ -588,9 +592,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.1
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.0
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2

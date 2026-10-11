@@ -8,6 +8,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
 - A native module result used in the host before the shared store decodes it. The adapter passes the raw result through; see `src/private-storage.ts`.
 - Effect imported into a component or hook. React code is plain TypeScript consuming stores.
+- `evaluation-composer.tsx` or another host component defining a WebView/page-message
+  Schema decoder instead of consuming a shared non-React decoder's plain result.
+  Trace the page producer, every host consumer and malformed-message rejection
+  through the shared package export; otherwise separate hosts can accept different
+  payloads and malformed messages can mutate Drafts. Keep the host decoder separate
+  from page-facing conversion code so Schema/Effect stays outside the packaged page.
 - An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
 - The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
 
