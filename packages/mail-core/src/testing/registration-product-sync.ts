@@ -9,6 +9,7 @@ import type {
   MailboxChange,
   MailboxDescriptor,
 } from '../registration-vault.ts';
+import type { MailProvider } from '../registration.ts';
 import type {
   Connection,
   Identity,
@@ -76,7 +77,7 @@ export function createSyntheticProductSyncBackend() {
     >(),
     // What each recovery envelope seals: the ring its creator published.
     recoveries: new Map<string, Ring>(),
-    // The opaque identifier each ring gives each Google account's descriptor.
+    // The opaque identifier each ring gives each provider account's descriptor.
     identifiers: new Map<string, string>(),
     rings: 0,
     sealed: new Map<
@@ -158,13 +159,14 @@ export function storeDescriptor(
   });
 }
 
-// The opaque identifier a ring stores a Google account's mailbox descriptor under.
+// The opaque identifier a ring stores a mailbox account's descriptor under, by the provider's
+// account as native code names it: `gmail:<subject>` or `microsoft-graph:<subject>`.
 export function mailboxRecord(
   sync: SyntheticProductSync,
   ring: string,
-  subject: string,
+  account: string,
 ) {
-  const name = `${ring}\n${subject}`;
+  const name = `${ring}\n${account}`;
   const known = sync.identifiers.get(name);
   if (known !== undefined) {
     return known;
@@ -199,7 +201,11 @@ export function createSyntheticSyncVault(
     cached,
   }: Readonly<{
     saved: () => SavedRecord;
-    connectionId: (subject: string, address?: string) => string;
+    connectionId: (
+      provider: MailProvider,
+      subject: string,
+      address: string,
+    ) => string;
     newlyAuthorized: Set<string>;
     live: Readonly<{ session: Identity | undefined }>;
     connect: (
@@ -300,13 +306,17 @@ export function createSyntheticSyncVault(
                 ? {}
                 : { savedMailboxes: vault.savedMailboxes }),
               mailboxes: record.connections.map((connection) => {
-                const id = connectionId(connection.subject, connection.address);
+                const id = connectionId(
+                  connection.provider,
+                  connection.subject,
+                  connection.address,
+                );
                 return {
                   id,
                   record: mailboxRecord(
                     sync,
                     vault.ring.id,
-                    connection.subject,
+                    `${connection.provider}:${connection.subject}`,
                   ),
                   published: connection.published === true,
                   newlyAuthorized: newlyAuthorized.has(id),
@@ -319,8 +329,17 @@ export function createSyntheticSyncVault(
                 };
               }),
               removals: (record.removals ?? []).map((removal) => ({
-                id: connectionId(removal.subject, removal.address),
-                record: mailboxRecord(sync, vault.ring.id, removal.subject),
+                id: connectionId(
+                  removal.provider,
+                  removal.subject,
+                  removal.address,
+                ),
+                record: mailboxRecord(
+                  sync,
+                  vault.ring.id,
+                  `${removal.provider}:${removal.subject}`,
+                ),
+                provider: removal.provider,
                 address: removal.address,
                 ...(removal.epoch === undefined
                   ? {}
@@ -614,8 +633,8 @@ export function createSyntheticSyncVault(
         const record = saved();
         for (const change of changes) {
           const connection = record.connections.find(
-            ({ subject, address }) =>
-              connectionId(subject, address) === change.id,
+            ({ provider, subject, address }) =>
+              connectionId(provider, subject, address) === change.id,
           );
           if (connection !== undefined) {
             applyChange(connection, change);
@@ -625,9 +644,9 @@ export function createSyntheticSyncVault(
         const sync = syncBackend();
         if (vault !== undefined && settledRemovals.length > 0) {
           const remaining = (record.removals ?? []).filter(
-            ({ subject }) =>
+            ({ subject, provider }) =>
               !settledRemovals.includes(
-                mailboxRecord(sync, vault.ring.id, subject),
+                mailboxRecord(sync, vault.ring.id, `${provider}:${subject}`),
               ),
           );
           record.removals = remaining;
@@ -642,7 +661,8 @@ export function createSyntheticSyncVault(
         syncBackend().steps.push(`purgeMailbox:${id}`);
         const record = saved();
         record.connections = record.connections.filter(
-          ({ subject, address }) => connectionId(subject, address) !== id,
+          ({ provider, subject, address }) =>
+            connectionId(provider, subject, address) !== id,
         );
         verified.delete(id);
         cached.delete(id);

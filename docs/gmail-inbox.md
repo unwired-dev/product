@@ -25,8 +25,10 @@ Each Gmail account the person authorizes is one **Mailbox Connection** of the
 Product Account, with its own Gmail credential, verification, encrypted cache,
 waiting changes and synchronization. Adding a mailbox never adds a Product Sign-In.
 
-- **Adding.** The account page's **Gmail mailboxes** section lists every connection
-  with its state and offers **Add another Gmail mailbox**, which asks Google for an
+- **Adding.** The account page's **Mailboxes** section lists every connection, Gmail
+  and [Microsoft](microsoft-mail.md), with its state and offers **Add another Gmail
+  mailbox** and, when Microsoft mail is configured for this build, **Add a Microsoft
+  mailbox**. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
@@ -46,7 +48,7 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   **Gmail needs your permission again** and **Allow Gmail access for** its address,
   and its saved mail stays closed, while every other mailbox stays open and usable.
   Each verification checks a refused mailbox again. Only when every mailbox needs
-  Gmail does the account page open with **Connect your Gmail**.
+  authorization again does the account page open with **Connect your mail**.
 - **Removing.** **Remove** asks first and explains that the mailbox's Gmail access
   and the mail saved for it, including changes still waiting for Gmail, leave this
   device and the person's other devices, while mail stays in Gmail. Removal is

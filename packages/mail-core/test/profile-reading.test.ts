@@ -52,7 +52,8 @@ describe('profile-scoped reading', () => {
     const session = createMockRegistrationSession('registration-success');
     const registration = createRegistration(session.native);
     await registration.register('google');
-    await registration.addMailbox(true);
+    await registration.addMailbox();
+    await registration.addMailbox('gmail', true);
     gmail.alex.deliver({ subject: 'Quarterly plan', at: at(1) });
     gmail.other.deliver({ subject: 'Quarterly budget', at: at(2) });
     // Registration as if Other belonged to a second Mail Profile, which no host can create yet.

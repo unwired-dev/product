@@ -17,6 +17,9 @@ senders and reader actions consume #646’s connection-Profile boundaries; the
 unified Inbox creates Drafts from the window’s Profile. Backend/native Profile
 Record Scope routing remains #647 work.
 
+Gmail and Microsoft Graph reading, cached bodies, attachments and authorization
+notices share that Profile scope. Online provider search remains Gmail-only.
+
 Reader Mail Assistance uses the reading Profile’s device-local consent, including
 Translation, and cancels retained work when that consent is revoked or the reading
 Profile changes. Account settings and Draft consent retain their staged Default

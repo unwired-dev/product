@@ -636,6 +636,8 @@ export function createSyntheticGmail({
         ? readGmail(path, query)
         : rejection('mailbox-invalidated');
     },
+    // A Gmail connection reaches no Microsoft mail.
+    graphRequest: () => rejection('unavailable'),
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||
@@ -934,7 +936,7 @@ export function createSyntheticGmail({
 // A connection native code does not know reaches no Gmail mailbox.
 const missing = () => rejection('gmail-unavailable');
 
-// Several controlled Gmail mailboxes behind one native module. Each call reaches only the mailbox
+// Several controlled Gmail or Microsoft mailboxes behind one native module. Each call reaches only the mailbox
 // of the connection it names, as native code routes it; another connection's ID reaches nothing.
 export function syntheticConnections(
   mailboxes: Readonly<Record<string, Readonly<{ native: NativeGmailMailbox }>>>,
@@ -946,6 +948,8 @@ export function syntheticConnections(
   return {
     gmailRequest: (path, query, mailbox) =>
       of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
+    graphRequest: (url, mailbox) =>
+      of(mailbox.connection)?.graphRequest(url, mailbox) ?? missing(),
     gmailModify: (change, mailbox) =>
       of(mailbox.connection)?.gmailModify(change, mailbox) ?? missing(),
     gmailSend: (message, mailbox) =>

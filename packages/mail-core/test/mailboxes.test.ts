@@ -150,7 +150,9 @@ async function twoMailboxes(
   const session = createMockRegistrationSession('registration-success');
   const registration = createRegistration(session.native);
   await registration.register('google');
-  await registration.addMailbox(true);
+  // Product Sign-In connects no mailbox; the person chooses Gmail.
+  await registration.addMailbox();
+  await registration.addMailbox('gmail', true);
   const base = syntheticConnections({
     [alex]: gmail.alex,
     [other]: gmail.other,
@@ -204,12 +206,14 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
       {
         id: alex,
+        provider: 'gmail',
         address: 'alex@example.invalid',
         state: 'connected',
         profile: defaultProfile,
       },
       {
         id: other,
+        provider: 'gmail',
         address: 'other@example.invalid',
         state: 'connected',
         profile: defaultProfile,
@@ -564,7 +568,7 @@ describe('mailbox connections and the unified Inbox', () => {
     ).toHaveLength(1);
 
     // Authorizing Alex again reopens its Inbox, which synchronizes on its own.
-    await registration.authorizeGmail(alex);
+    await registration.authorizeMailbox(alex);
     expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([
       alex,
       other,
@@ -605,6 +609,7 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
       {
         id: alex,
+        provider: 'gmail',
         address: 'alex@example.invalid',
         state: 'connected',
         profile: defaultProfile,
@@ -630,7 +635,12 @@ describe('mailbox connections and the unified Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     const mailboxList = JSON.stringify([
-      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      {
+        id: alex,
+        provider: 'gmail',
+        address: 'alex@example.invalid',
+        state: 'connected',
+      },
     ]);
     let snapshot: unknown = {
       kind: 'connected',
@@ -643,7 +653,7 @@ describe('mailbox connections and the unified Inbox', () => {
       restore: () => Promise.resolve(snapshot),
       signIn: unused,
       addMailbox: unused,
-      authorizeGmail: unused,
+      authorizeMailbox: unused,
       removeMailbox: unused,
       link: unused,
       confirmRecoveryKey: unused,
@@ -861,7 +871,7 @@ describe('mailbox connections and the unified Inbox', () => {
       restore: () => Promise.resolve(snapshot),
       signIn: unused,
       addMailbox: unused,
-      authorizeGmail: unused,
+      authorizeMailbox: unused,
       removeMailbox: unused,
       link: unused,
       confirmRecoveryKey: unused,

@@ -60,7 +60,7 @@ import {
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { registration } from './registration.ts';
+import { microsoftMail, registration } from './registration.ts';
 import {
   MailboxRemoteContent,
   RemoteContentSettings,
@@ -71,13 +71,14 @@ import { usePalette } from './theme.ts';
 import { TranslationContext, nativeTranslation } from './translation.tsx';
 import { TrustedDevices } from './trusted-devices.tsx';
 
-// The connected Inbox opens the account page and asks for Gmail permission again through this.
+// The connected Inbox opens the account page and asks a mailbox's provider for permission again
+// through this.
 export const AccountContext = createContext<
   | Readonly<{
-      // Every Mailbox Connection, including those waiting for Gmail authorization again.
+      // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
       openAccount: () => void;
-      authorizeGmail: (connection: string) => Promise<void>;
+      authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
     }>
   | undefined
@@ -87,10 +88,12 @@ export const AccountContext = createContext<
 function Mailboxes({
   account,
   button,
+  microsoft,
   store,
 }: {
   readonly account: Readonly<{ mailboxes?: string }>;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly microsoft: boolean;
   readonly store: Registration;
 }) {
   const colors = usePalette();
@@ -110,49 +113,61 @@ function Mailboxes({
       <Label style={[styles.text, { color: colors.secondary }]}>
         {t('mailboxes.description')}
       </Label>
-      {mailboxes.map((mailbox) => (
-        <View
-          key={mailbox.id}
-          style={styles.device}>
-          <Label style={[styles.text, { color: colors.foreground }]}>
-            {mailbox.address}
-          </Label>
-          <Label style={[styles.text, { color: colors.secondary }]}>
-            {t(`mailboxes.states.${mailbox.state}`)}
-          </Label>
-          {mailbox.state === 'authorization'
-            ? button(t('mailboxes.allow', { address: mailbox.address }), () =>
-                store.authorizeGmail(mailbox.id),
-              )
-            : null}
-          <MailboxRemoteContent {...mailbox} />
-          {confirming === mailbox.id ? (
-            <>
-              <Label style={[styles.text, { color: colors.foreground }]}>
-                {t('mailboxes.confirm', { address: mailbox.address })}
-              </Label>
-              {button(
+      {mailboxes.map((mailbox) => {
+        const provider = t(`mailProviders.${mailbox.provider}`);
+        return (
+          <View
+            key={mailbox.id}
+            style={styles.device}>
+            <Label style={[styles.text, { color: colors.foreground }]}>
+              {mailbox.address}
+            </Label>
+            <Label style={[styles.text, { color: colors.secondary }]}>
+              {t(`mailboxes.states.${mailbox.state}`, { provider })}
+            </Label>
+            {mailbox.state === 'authorization'
+              ? button(
+                  t('mailboxes.allow', { address: mailbox.address, provider }),
+                  () => store.authorizeMailbox(mailbox.id),
+                )
+              : null}
+            <MailboxRemoteContent {...mailbox} />
+            {confirming === mailbox.id ? (
+              <>
+                <Label style={[styles.text, { color: colors.foreground }]}>
+                  {t('mailboxes.confirm', {
+                    address: mailbox.address,
+                    provider,
+                  })}
+                </Label>
+                {button(
+                  t('mailboxes.remove', { address: mailbox.address }),
+                  async () => {
+                    setConfirming(undefined);
+                    await store.removeMailbox(mailbox.id);
+                  },
+                )}
+                {button(t('mailboxes.cancel'), async () => {
+                  setConfirming(undefined);
+                })}
+              </>
+            ) : (
+              button(
                 t('mailboxes.remove', { address: mailbox.address }),
                 async () => {
-                  setConfirming(undefined);
-                  await store.removeMailbox(mailbox.id);
+                  setConfirming(mailbox.id);
                 },
-              )}
-              {button(t('mailboxes.cancel'), async () => {
-                setConfirming(undefined);
-              })}
-            </>
-          ) : (
-            button(
-              t('mailboxes.remove', { address: mailbox.address }),
-              async () => {
-                setConfirming(mailbox.id);
-              },
-            )
-          )}
-        </View>
-      ))}
-      {button(t('mailboxes.add'), () => store.addMailbox(true))}
+              )
+            )}
+          </View>
+        );
+      })}
+      {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
+      {microsoft
+        ? button(t('mailboxes.addMicrosoft'), () =>
+            store.addMailbox('microsoft-graph'),
+          )
+        : null}
       <RemoteContentSettings button={button} />
     </>
   );
@@ -506,10 +521,12 @@ function AccountActions({
 function AccountSettings({
   assistance,
   button,
+  microsoft,
   store,
 }: {
   readonly assistance: NativeAssistance;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly microsoft: boolean;
   readonly store: Registration;
 }) {
   const {
@@ -554,6 +571,7 @@ function AccountSettings({
       <Mailboxes
         account={snapshot}
         button={button}
+        microsoft={microsoft}
         store={store}
       />
       {snapshot.removalPending === undefined ? (
@@ -598,6 +616,7 @@ function AccountSettings({
 export function RegistrationGate({
   children,
   store = registration,
+  microsoft = microsoftMail(),
   preview = previewInbox,
   remoteContent = deviceRemoteContent,
   mailAssistance = deviceMailAssistance,
@@ -606,6 +625,8 @@ export function RegistrationGate({
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
+  // This build can authorize Microsoft mail.
+  readonly microsoft?: boolean;
   readonly preview?: boolean;
   // The device's remote content policies, for the Inbox's readers and the account page.
   readonly remoteContent?: RemoteContentSettingsStore;
@@ -655,7 +676,7 @@ export function RegistrationGate({
           });
         }
       },
-      authorizeGmail: store.authorizeGmail,
+      authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
     }),
     [store, snapshot, inboxAccount, setup],
@@ -705,6 +726,7 @@ export function RegistrationGate({
         <MailAssistanceContext value={mailAssistance}>
           <RegistrationPage
             assistance={assistance}
+            microsoft={microsoft}
             store={store}
             onInbox={
               inboxAccount === undefined
@@ -747,10 +769,12 @@ export function RegistrationGate({
 
 function RegistrationPage({
   assistance,
+  microsoft,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
+  readonly microsoft: boolean;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
@@ -814,11 +838,16 @@ function RegistrationPage({
         {actions.firstMailbox ? (
           <>
             {button(t('registration.authorizeGmail'), () =>
-              store.addMailbox(false),
+              store.addMailbox('gmail'),
             )}
             {button(t('registration.chooseMailbox'), () =>
-              store.addMailbox(true),
+              store.addMailbox('gmail', true),
             )}
+            {microsoft
+              ? button(t('registration.connectMicrosoft'), () =>
+                  store.addMailbox('microsoft-graph'),
+                )
+              : null}
           </>
         ) : null}
         {actions.signIn.map(({ offer, provider }) => (
@@ -836,6 +865,7 @@ function RegistrationPage({
           <AccountSettings
             assistance={assistance}
             button={button}
+            microsoft={microsoft}
             store={store}
           />
         ) : null}

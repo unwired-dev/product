@@ -114,15 +114,15 @@ remain unavailable.
 Changing a window's Profile retires its previous reader presentation and clears
 its search and mailbox choice.
 The unified and single-mailbox Inbox, local and online search, the reader
-with its body and remote-content caches, organizing, and the waiting-for-Gmail notices
+with its body and remote-content caches, organizing, and provider-authorization notices
 read only the window's Profile's connections. A connection owned by another
 Profile, or a Profile owning nothing on this device, shows nothing: such a link reads
 as an unavailable message. Background synchronization, body prefetch and freshness
 keep running for every connection whatever Profile a window shows. A connection
 moved to another Profile keeps its Inbox and cached mail. The account page still
 lists every connection of the Product Account for review and removal. Convex learns
-no Profile ownership: its Gmail connection list, connection and removal stay
-scoped to the Product Account and trusted device.
+no Profile ownership: its connection list and connection/removal operations for
+Gmail and Microsoft stay scoped to the Product Account and trusted device.
 
 The Drafts, delivery and notifications batch,
 [#646](https://github.com/unwired-dev/product/issues/646), scopes shared Draft and

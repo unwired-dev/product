@@ -8,7 +8,7 @@ describe('registration push lifecycle', () => {
     const { flow, relaunch, device, google, apple, backend } = launch();
     await flow.signIn('google');
     expect(backend.push).toStrictEqual([]);
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     expect(backend.push).toStrictEqual(['route']);
     await relaunch().restore();
     expect(backend.push).toStrictEqual(['route', 'route']);
@@ -48,7 +48,7 @@ describe('registration push lifecycle', () => {
     expect(backend.unregistered).toHaveLength(1);
 
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     await expect(routing('revoked').restore()).resolves.toStrictEqual({
       kind: 'signed-out',
       notice: 'revoked',
@@ -57,7 +57,7 @@ describe('registration push lifecycle', () => {
 
     // Deletion does too, before the account and every route are deleted.
     await flow.signIn('google');
-    await flow.addMailbox(false);
+    await flow.addMailbox('gmail', false);
     const deletion = createSyntheticVault(synthetic).vault;
     await expect(
       createRegistrationFlow({

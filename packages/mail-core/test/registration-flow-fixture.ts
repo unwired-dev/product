@@ -17,10 +17,10 @@ export const createRegistrationFlow = (
   return {
     restore: () => Effect.runPromise(flow.restore()),
     signIn: (provider) => Effect.runPromise(flow.signIn(provider)),
-    addMailbox: (chooseAccount) =>
-      Effect.runPromise(flow.addMailbox(chooseAccount)),
-    authorizeGmail: (connection) =>
-      Effect.runPromise(flow.authorizeGmail(connection)),
+    addMailbox: (provider, chooseAccount) =>
+      Effect.runPromise(flow.addMailbox(provider, chooseAccount)),
+    authorizeMailbox: (connection) =>
+      Effect.runPromise(flow.authorizeMailbox(connection)),
     removeMailbox: (connection) =>
       Effect.runPromise(flow.removeMailbox(connection)),
     link: (provider) => Effect.runPromise(flow.link(provider)),

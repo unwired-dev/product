@@ -164,8 +164,9 @@ extension RegistrationStore {
     guard let topic, let saved = try load(), let product = saved.product, product.pending != true,
       let device = device ?? saved.pushDevice
     else { return }
+    // Only Gmail watches deliver wakes; Microsoft mail keeps the host's polling.
     let due = saved.usableConnections.filter {
-      verifiedMailboxes.contains($0.id)
+      $0.receipt.mailProvider == .gmail && verifiedMailboxes.contains($0.id)
         && ($0.pushVerified != true || ($0.pushExpiration ?? 0) - now < Self.watchRenewal)
     }
     // Each renewal also renews the relay's record of this device, which otherwise expires unused;
@@ -287,7 +288,7 @@ extension RegistrationStore {
   // removes its route. A route the relay could not remove is kept to retry without the credential.
   @discardableResult func unroute(_ id: String, deferRemoval: Bool = false) async throws -> String? {
     guard transport != nil, let saved = try load(), let product = saved.product,
-      let connection = saved.connection(id)
+      let connection = saved.connection(id), connection.receipt.mailProvider == .gmail
     else { return nil }
     if let route = connection.pushRoute { wakes.drop([route]) }
     try await attempt { try await self.stopWatch(connection, product) }
@@ -331,7 +332,7 @@ extension RegistrationStore {
   func stopMailboxWatches() async throws {
     pushRoutingPaused = true
     guard let saved = try load(), let product = saved.product else { return }
-    for connection in saved.connections {
+    for connection in saved.connections where connection.receipt.mailProvider == .gmail {
       try await attempt { try await self.stopWatch(connection, product) }
     }
   }

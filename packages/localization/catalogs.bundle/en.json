@@ -12,7 +12,7 @@
     "gmail": "Gmail",
     "allInboxes": "All inboxes",
     "account": "Account",
-    "footerGmail": "Gmail · Encrypted on this device",
+    "footerConnected": "Encrypted on this device",
     "inMailbox": "In {{mailbox}}",
     "about": "{{address}}: {{text}}",
     "rowLabel": "{{row}}",
@@ -23,7 +23,7 @@
   "common": {
     "retry": "Try again",
     "cancel": "Cancel",
-    "allowGmail": "Allow Gmail access"
+    "allowAccess": "Allow {{provider}} access"
   },
   "storage": {
     "locked": "Private storage is locked. Unlock your device and try again.",
@@ -71,6 +71,10 @@
     "google": "Google",
     "apple": "Apple"
   },
+  "mailProviders": {
+    "gmail": "Gmail",
+    "microsoft-graph": "Microsoft"
+  },
   "registration": {
     "welcome": {
       "title": "Welcome to Unwired Mail",
@@ -87,13 +91,14 @@
     "account": "Signed in with {{provider}}.",
     "accountWithEmail": "Signed in with {{provider}}. Contact email: {{email}}.",
     "mailboxNeeded": {
-      "title": "Connect your Gmail",
-      "google": "Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.",
-      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Authorize a Google account with Gmail to finish setup.",
-      "cancelled": "Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.",
-      "declined": "Gmail access was not granted. Your Product Account is retained. Retry or choose another Google mailbox.",
+      "title": "Connect your mail",
+      "google": "Your Product Account is ready. Connect a mailbox to finish setup: Gmail, with this or another Google account, or Microsoft mail.",
+      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Connect Gmail or Microsoft mail to finish setup.",
+      "cancelled": "Mailbox authorization was cancelled. Your Product Account is retained. Retry or choose another mailbox.",
+      "declined": "Mail access was not granted. Your Product Account is retained. Retry or choose another mailbox.",
       "gmail-unavailable": "Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.",
-      "interrupted": "Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.",
+      "microsoft-unavailable": "Microsoft mail is unavailable for this account. Its organization may need to approve Unwired Mail, or the account may have no Outlook mailbox. Your Product Account is retained. Retry or choose another mailbox.",
+      "interrupted": "Mailbox authorization was interrupted. Your Product Account is retained. Retry to finish setup.",
       "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}."
     },
     "devicePending": {
@@ -104,11 +109,13 @@
     },
     "connected": {
       "title": "Gmail connected",
+      "titleMail": "Mail connected",
       "description_one": "{{addresses}} is connected on this device.",
       "description_other": "{{addresses}} are connected on this device."
     },
     "cached": {
       "title": "Saved Gmail Inbox",
+      "titleMail": "Saved Inbox",
       "description": "{{addresses}} could not be verified. Mail saved on this device is available; try again when connected."
     },
     "removalPending": {
@@ -122,7 +129,8 @@
     "signInAgain": "Sign in again with {{provider}}",
     "signInInstead": "Sign in with {{provider}} instead",
     "authorizeGmail": "Authorize Gmail",
-    "chooseMailbox": "Choose another Google mailbox"
+    "chooseMailbox": "Choose another Google mailbox",
+    "connectMicrosoft": "Connect Microsoft mail"
   },
   "signInMethods": {
     "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
@@ -152,17 +160,18 @@
     "deletion": "Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data."
   },
   "mailboxes": {
-    "title": "Gmail mailboxes",
-    "description": "Each mailbox keeps its own Gmail access and saved mail on this device. The Inbox shows them together or one at a time.",
+    "title": "Mailboxes",
+    "description": "Each mailbox keeps its own access and saved mail on this device. The Inbox shows them together or one at a time.",
     "states": {
       "connected": "Connected",
-      "cached": "Saved mail only until Gmail can be checked",
-      "authorization": "Gmail needs your permission again"
+      "cached": "Saved mail only until {{provider}} can be checked",
+      "authorization": "{{provider}} needs your permission again"
     },
     "add": "Add another Gmail mailbox",
-    "allow": "Allow Gmail access for {{address}}",
+    "addMicrosoft": "Add a Microsoft mailbox",
+    "allow": "Allow {{provider}} access for {{address}}",
     "remove": "Remove {{address}}",
-    "confirm": "Removing {{address}} deletes its Gmail access and the mail saved for it from this device, including changes still waiting for Gmail, and removes it from your other devices when they next connect. Your mail stays in Gmail.",
+    "confirm": "Removing {{address}} deletes its {{provider}} access and the mail saved for it from this device, including changes still waiting for {{provider}}, and removes it from your other devices when they next connect. Your mail stays in {{provider}}.",
     "cancel": "Cancel"
   },
   "remoteContent": {
@@ -277,14 +286,14 @@
     "failed": "The device could not be removed. Try again."
   },
   "gmailSync": {
-    "syncing": "Checking Gmail…",
-    "authentication": "Gmail needs your permission again to show new mail.",
-    "retry": "Gmail could not be reached. Showing mail saved on this device."
+    "syncing": "Checking {{provider}}…",
+    "authentication": "{{provider}} needs your permission again to show new mail.",
+    "retry": "{{provider}} could not be reached. Showing mail saved on this device."
   },
   "messageBody": {
-    "download": "This message is not saved on this device, and Gmail could not be reached to download it.",
-    "authentication": "Gmail needs your permission again to download this message.",
-    "missing": "This message is no longer in Gmail.",
+    "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",
+    "authentication": "{{provider}} needs your permission again to download this message.",
+    "missing": "This message is no longer in {{provider}}.",
     "locked": "Private storage is locked. Unlock your device and try again.",
     "failed": "This message could not be opened. Your saved mail has been kept.",
     "empty": "This message has no text.",
@@ -305,12 +314,12 @@
   },
   "attachment": {
     "oversized": "Too large to download on this device.",
-    "download": "Gmail could not be reached to download this attachment.",
-    "authentication": "Gmail needs your permission again to download this attachment.",
-    "missing": "This attachment is no longer in Gmail.",
+    "download": "{{provider}} could not be reached to download this attachment.",
+    "authentication": "{{provider}} needs your permission again to download this attachment.",
+    "missing": "This attachment is no longer in {{provider}}.",
     "locked": "Private storage is locked. Unlock your device and try again.",
     "failed": "This attachment could not be saved on this device.",
-    "damaged": "Gmail sent an incomplete or damaged copy of this attachment.",
+    "damaged": "{{provider}} sent an incomplete or damaged copy of this attachment.",
     "bytes_one": "{{size}} byte",
     "bytes_other": "{{size}} bytes",
     "kilobytes": "{{size}} KB",

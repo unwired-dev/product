@@ -58,7 +58,10 @@ remain implementer-readable. Multiple-Profile creation stays unavailable through
 Issue #645 carries decoded ownership into `createMailboxes` snapshots and scopes
 `inboxMessages` and `createGmailSearch` with an explicit `{ profile, mailbox? }`.
 Both hosts filter reader access through their `ProfileScope` and `MailboxScope`;
-unknown or mismatched ownership has no readable mailbox. `readingProfile` decodes
+unknown or mismatched ownership has no readable mailbox. Gmail and Microsoft Graph
+connections, including authorization notices, use the same Profile filter. Graph
+bodies and attachments retain their connection scope; online provider search
+remains Gmail-only in this slice. `readingProfile` decodes
 the mobile `profileId` URL parameter and native selectors: absent legacy values
 mean Default, malformed or repeated values use an
 empty selector that cannot match a decoded nonempty connection owner. Mobile
@@ -335,7 +338,7 @@ other known private data. Completed per-connection cleanup clears its retry mark
 The saved registration is one device-only Keychain record per host and Google client.
 It holds the Product Sign-In's renewal credential, this installation's identifier,
 the Product Account receipt with its Trusted or Pending Device credential, each
-Mailbox Connection's Gmail credential and receipt, and any removal waiting for its
+Mailbox Connection's provider credential and receipt, and any removal waiting for its
 answer. Product Sync keys and an open enrollment request are separate Keychain items
 of the same account.
 
@@ -361,3 +364,13 @@ mailbox reconciliation through purpose-named operations; native persists keys
 before returning the publication payload and applies mailbox bookkeeping deltas to
 the latest saved record. Unreadable Product Sync items fail that projection closed
 without failing registration. See the [Product Sync companion](private-product-sync.md#initialization-and-relaunch).
+
+## Microsoft mailbox cache
+
+Microsoft mail uses the same encrypted mailbox/body and protected attachment
+formats and budgets as Gmail. Its provider-scoped connection ID gives it a distinct
+directory even if another provider issues the same subject or message ID. The
+cache owner still binds Product Account, verified subject, address and incarnation;
+every operation retains the native generation and protected-data fences. Existing
+Gmail directory/record IDs and legacy adoption remain unchanged. See
+[the Graph companion](microsoft-mail.md) for transport and synchronization.

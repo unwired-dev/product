@@ -454,7 +454,7 @@ extension RegistrationStore {
       let vault = try loadVault(product.productAccountId)
     {
       saved.mailboxRemovals = try saved.mailboxRemovals?.filter {
-        !settledRemovals.contains(try vault.ring.identifier("mailbox", "gmail:" + $0.subject))
+        !settledRemovals.contains(try vault.ring.identifier("mailbox", $0.receipt.account))
       }
     }
     if saved.mailboxRemovals?.isEmpty == true { saved.mailboxRemovals = nil }
@@ -596,8 +596,8 @@ extension RegistrationStore {
       result["enrollment"] = entry
     }
     guard let vault = try loadVault(account) else { return result }
-    func record(_ subject: String) throws -> String {
-      try vault.ring.identifier("mailbox", "gmail:" + subject)
+    func record(_ receipt: GmailRegistrationReceipt) throws -> String {
+      try vault.ring.identifier("mailbox", receipt.account)
     }
     var entry: [String: Any] = [
       "keyEpoch": vault.ring.current,
@@ -605,7 +605,7 @@ extension RegistrationStore {
       "recoveryKeyConfirmed": vault.recoveryKeyConfirmed,
       "mailboxes": try saved.connections.map { connection in
         var mailbox: [String: Any] = [
-          "id": connection.id, "record": try record(connection.receipt.subject),
+          "id": connection.id, "record": try record(connection.receipt),
           "published": connection.published == true,
           "newlyAuthorized": newlyAuthorizedMailboxes.contains(connection.id),
         ]
@@ -615,8 +615,9 @@ extension RegistrationStore {
       },
       "removals": try (saved.mailboxRemovals ?? []).map { removal in
         var entry: [String: Any] = [
-          "id": MailboxConnection.id(subject: removal.subject),
-          "record": try record(removal.subject), "address": removal.address,
+          "id": MailboxConnection.id(removal.receipt),
+          "record": try record(removal.receipt), "address": removal.address,
+          "provider": removal.receipt.mailProvider.rawValue,
         ]
         if let epoch = removal.epoch { entry["epoch"] = epoch }
         return entry

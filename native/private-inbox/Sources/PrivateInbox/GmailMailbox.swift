@@ -98,6 +98,67 @@ extension RegistrationStore {
       address: address, generation: generation)
   }
 
+  // Only reads of the signed-in person's own Inbox, its delta rounds, and their messages and
+  // attachments reach a Microsoft credential. The path is checked decoded, so an encoded
+  // separator cannot add a segment.
+  static func graphURL(_ value: String) throws -> URL {
+    guard let url = URL(string: value), url.scheme == "https", url.host == "graph.microsoft.com",
+      url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
+      url.path.range(
+        of: #"^/v1\.0/me/(mail[Ff]olders(/[\w=-]+|\('[\w=-]+'\))/messages(/delta|/[\w=-]+)?|messages/[\w=-]+(/attachments(/[\w=-]+)?)?)$"#,
+        options: .regularExpression) != nil
+    else { throw RegistrationError.unavailable }
+    return url
+  }
+
+  // One Graph read for a Microsoft connection, fenced like a Gmail read: work from before a
+  // removal or another verification is stale, and a refused grant asks for authorization again.
+  func graph(url value: String, connection id: String, address: String, generation expected: String)
+    async throws -> [String: Any]
+  {
+    let url = try Self.graphURL(value)
+    let generation = mailboxGeneration(id)
+    guard generation.uuidString == expected else { throw PrivateInboxError.mailboxInvalidated }
+    _ = try mailboxAccount(id)
+    guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
+    let (credential, mailbox) = try connectedMailbox(id)
+    guard mailbox.mailProvider == .microsoftGraph else { throw RegistrationError.unavailable }
+    guard mailbox.address == address else { throw PrivateInboxError.mailboxInvalidated }
+    func current() -> Bool {
+      generation == mailboxGeneration(id) && verifiedMailboxes.contains(id)
+        && (try? connectedMailbox(id))?.1.account == mailbox.account
+    }
+    let microsoft = try microsoftProvider()
+    let identity: MicrosoftMailIdentity
+    do {
+      identity = try await microsoft.refresh(credential)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch RegistrationError.gmailUnavailable {
+      throw RegistrationError.gmailUnavailable
+    } catch {
+      throw RegistrationError.unavailable
+    }
+    try Task.checkCancellation()
+    guard current() else { throw PrivateInboxError.mailboxInvalidated }
+    // Keep renewed tokens unless the connection changed while they were renewed.
+    if identity.credential != credential, var latest = try load(),
+      latest.connection(id)?.credential == credential
+    {
+      latest.update(id) { $0.credential = identity.credential }
+      try save(latest)
+    }
+    let status: Int
+    let data: Data
+    do {
+      (status, data) = try await microsoft.graph(identity, url: url)
+    } catch is GmailRequestInterrupted {
+      throw RegistrationError.unavailable
+    }
+    guard current() else { throw PrivateInboxError.mailboxInvalidated }
+    return ["status": status, "body": String(decoding: data, as: UTF8.self)]
+  }
+
   // The one Gmail write: a label change of one message. This file writes the body, so only label
   // identifiers cross from TypeScript.
   func gmailModify(
@@ -197,6 +258,8 @@ extension RegistrationStore {
     _ = try mailboxAccount(id)
     guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
     let (credential, mailbox) = try connectedMailbox(id)
+    // A Microsoft connection's credential never reaches Gmail.
+    guard mailbox.mailProvider == .gmail else { throw RegistrationError.unavailable }
     guard mailbox.address == address, generation.uuidString == expectedGeneration else {
       throw PrivateInboxError.mailboxInvalidated
     }
@@ -549,14 +612,16 @@ extension PrivateInboxStore.BodyTier {
   }
 }
 
-// The production Gmail HTTP adapter. Its caller supplies only the native-held credential.
+// The production Gmail and Graph HTTP adapter. Its caller supplies only the native-held credential.
 enum GmailTransport {
   static func send(
-    token: String, url: URL, body: Data?, session: URLSession,
-    limit: Int = 40 * 1024 * 1024, contentType: String = "application/json"
+    token: String?, url: URL, body: Data?, session: URLSession,
+    limit: Int = 40 * 1024 * 1024, contentType: String = "application/json",
+    headers: [String: String] = [:]
   ) async throws -> (Int, Data) {
     var request = URLRequest(url: url)
-    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
     if let body {
       request.httpMethod = "POST"
       request.httpBody = body

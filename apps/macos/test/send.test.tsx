@@ -74,7 +74,7 @@ function App({ sender }: { readonly sender: ReturnType<typeof device> }) {
       value={{
         mailboxes: mailboxesOf(snapshot),
         openAccount: () => undefined,
-        authorizeGmail: () => Promise.resolve(),
+        authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
       }}>
       <InboxProvider

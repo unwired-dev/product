@@ -236,6 +236,33 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `testing/registration-vault.ts` and `testing/registration-product-sync.ts` deriving
+  connection IDs from a bare subject or address without its provider account.
+  Preserve established fixture IDs while scoping unfamiliar and shared addresses
+  by provider, and exercise synchronization and remote removal with those inputs.
+  Otherwise the map-by-ID join publishes another provider's descriptor or purges
+  both providers, while preset-address journeys hide the identity collision.
+- `microsoft-graph.ts.listedMessage` retaining an empty conversation identity
+  instead of falling back to the message ID. Trace the decoded provider metadata
+  through `gmail-inbox.ts.threadMessages` and reopened caches; otherwise unrelated
+  messages with empty conversation identities appear in one Thread. Preserve newest-first grouping
+  for nonempty provider conversation identities.
+- `src/testing/registration-session.ts.withMailboxes` hardcoding one provider's
+  authorization failure for a connection from another provider. Compare the
+  synthetic projection with `registration-flow.ts.pending` and the shared
+  `mailbox-authorization.ts` mapping, including all connections needing
+  authorization and no saved connections. Otherwise Mock Mail Sessions display
+  Gmail recovery for a refused Microsoft grant and misrepresent production behavior.
+- `graph-inbox.ts.quietRound` or another incremental reader discarding a fresh
+  final checkpoint because its page contains no changes. Persist every new
+  provider checkpoint, end the current pass after that commit and use it on the
+  next synchronization, including after relaunch and storage conflict recovery.
+  Otherwise a quiet mailbox keeps consuming an ageing token until it expires.
+- `graph-inbox.ts.advance` following delta continuations without a per-pass
+  bound. Count empty and repeated pages too, retain the last durable checkpoint
+  and release synchronization with retry state at the bound; a later pass must
+  resume it. Otherwise a repeated continuation holds the Inbox semaphore forever.
+
 - `product-sync.ts` mailbox reconciliation treating an epochless connection or queued removal as
   compatible with every live epoch. Pre-epoch connections, descriptors and
   removal intents name one fixed legacy incarnation; concurrent upgrades must
@@ -781,6 +808,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `gmail-inbox.ts.boundedMessage` rejecting provider metadata with a generic
+  failure after the provider already recorded an attachment grant refusal.
+  Preserve that authorization rejection through the reader, cached completion
+  and download error paths without parsing oversized MIME metadata; otherwise
+  a message over budget hides the reauthorization needed by the whole Inbox.
 - `html-sanitizer.ts.sanitizeHtml` classifying quoted history as trailing by
   inspecting only later text. Visible images outside a quote also constitute
   inline replies; preserve their quoted questions in the full presentation,

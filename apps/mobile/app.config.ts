@@ -20,15 +20,24 @@ if (
 }
 
 const googleClientID: unknown = env.UNWIRED_GOOGLE_CLIENT_ID ?? '';
+const microsoftClientID: unknown = env.UNWIRED_MICROSOFT_CLIENT_ID ?? '';
 const convexURL: unknown = env.UNWIRED_CONVEX_URL ?? '';
 // The Cloud Pub/Sub topic Gmail watches publish to; without one no push route is registered.
 const gmailTopic: unknown = env.UNWIRED_GMAIL_PUBSUB_TOPIC ?? '';
 if (
   !Schema.is(Schema.String)(googleClientID) ||
+  !Schema.is(Schema.String)(microsoftClientID) ||
   !Schema.is(Schema.String)(convexURL) ||
   !Schema.is(Schema.String)(gmailTopic)
 ) {
   throw new TypeError('Invalid native registration configuration');
+}
+// The public-client application ID; without it, Microsoft mail cannot be connected.
+if (
+  microsoftClientID &&
+  !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/iu.test(microsoftClientID)
+) {
+  throw new Error('Invalid Microsoft application client ID');
 }
 const googleScheme = googleClientID.split('.').toReversed().join('.');
 if (
@@ -71,6 +80,7 @@ const config: ExpoConfig = {
     infoPlist: {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,
+      UnwiredMicrosoftClientID: microsoftClientID.toLowerCase(),
       UnwiredConvexURL: convexURL,
       ...(gmailTopic ? { UnwiredGmailTopic: gmailTopic } : {}),
       UIBackgroundModes: ['remote-notification'],

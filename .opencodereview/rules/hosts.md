@@ -4,6 +4,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### The host stays thin
 
+- `registration-gate.tsx` offering a provider's first-mailbox or add-mailbox
+  action when this build's native adapter cannot authorize that provider.
+  Trace the native build capability and provider construction together, and
+  check both setup and connected account settings with the capability absent
+  and present. Mock builds must reflect their compiled provider; otherwise an
+  optional missing client ID leaves a permanently failing action in both hosts.
+
+- `Inbox` or registration copy deriving the provider label from Product Account
+  presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
+  use the selected connection's provider or neutral aggregate wording, or the
+  interface labels Microsoft mail as Gmail despite independent authorization.
+
 - Application logic in a component, hook or adapter: decoding a native result, deciding a registration or enrollment transition, retrying, merging or filtering mail state. That logic belongs in a `mail-core` store so both hosts and its tests share it.
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
 - A native module result used in the host before the shared store decodes it. The adapter passes the raw result through; see `src/private-storage.ts`.

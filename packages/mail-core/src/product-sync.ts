@@ -12,7 +12,7 @@ import type {
   ProductSyncState,
   RegistrationRecord,
 } from './registration-vault.ts';
-import type { PrivateSyncStateSchema } from './registration.ts';
+import type { MailProvider, PrivateSyncStateSchema } from './registration.ts';
 
 import {
   backendCode,
@@ -53,7 +53,12 @@ type Vault = NonNullable<ProductSyncState['vault']>;
 type Removal = Vault['removals'][number];
 // One of this device's connections as synchronization sees it.
 type Connection = Vault['mailboxes'][number] &
-  Readonly<{ address: string; epoch?: string; usable: boolean }>;
+  Readonly<{
+    provider: MailProvider;
+    address: string;
+    epoch?: string;
+    usable: boolean;
+  }>;
 type Stored = Map<
   string,
   Readonly<{ descriptor?: MailboxDescriptor; updatedAt: number }>
@@ -421,7 +426,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       return put(
         removal.record,
         {
-          provider: 'gmail',
+          provider: removal.provider,
           address: removal.address,
           epoch: removal.epoch ?? legacyEpoch,
           removed: true,
@@ -460,6 +465,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         : [
             {
               ...entry,
+              provider: mailbox.provider,
               address: mailbox.address,
               ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
               usable: !mailbox.authorizationNeeded,
@@ -509,7 +515,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       change(connection.id, { epoch });
       const winner = yield* put(
         connection.record,
-        { provider: 'gmail', address: connection.address, epoch },
+        { provider: connection.provider, address: connection.address, epoch },
         stored.get(connection.record)?.updatedAt,
       );
       wrote = true;
