@@ -58,6 +58,61 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `remote-content.ts.createRemoteContentSettings` or another privacy-relevant
+  settings store publishing permissive defaults before persisted choices load.
+  Keep readers closed while the policy is unresolved, including cache-only
+  presentation, and apply the documented fallback only after a missing, unreadable
+  or failed read settles. Otherwise a saved Never policy briefly displays remote
+  content or offers consent under Ask before the saved choice takes effect.
+- `gmail-inbox.ts.loadRemoteImages` or another batch-capped scan relying on a
+  render or notification to schedule its next batch when misses emit no state
+  change. Continue until the current eligible sources are covered, respecting
+  existing budgets; use live owner, viewport and authorization interest rather
+  than replaying a captured request that can overwrite newer interest. Compose
+  internal batches within one Effect run. Otherwise an all-miss first batch hides
+  later cached content, or delayed work restores an old viewport or permission.
+
+- `gmail-inbox.ts.remoteImage` treating temporary native unavailability, locked
+  storage or display-budget refusal as a terminal source failure. Permit a later
+  request by the same reader to retry within its original attempt budget; keep
+  invalid bytes and definite refusals final across viewport/authorization-interest
+  changes. Bound each `loadRemoteImages` call to one probe per source, including
+  cache-only continuation batches, or a deferred result can spin indefinitely.
+- `gmail-inbox.ts.prepareRemotePresentations` replacing an unchanged reader
+  snapshot, or `settleRemoteImages` notifying when a cache hit cannot fit the
+  displayed-occurrence budget. Trace the mounted `RichDocument` measurement
+  effect as well as direct store calls: a new rich object restarts measurement
+  and retries deferred sources, so one viewport event can repeatedly restore,
+  sanitize and discard cached bytes. Preserve unchanged presentation identities
+  and publish actual display changes; later viewport requests must still retry
+  after shared budget is released.
+- `gmail-inbox.ts.releaseReader` reconciling remote interest before removing a
+  closing reader's view and shared-image reservation, or skipping re-presentation
+  when the surviving readers' URLs and authorization are unchanged. Re-admit
+  remaining rich readers after releasing the reservation, preserving legacy
+  multiplicity, terminal plain fallbacks and owner fences, then publish. Otherwise
+  a surviving window keeps a placeholder for an already-loaded image despite
+  available display budget, because later requests skip the loaded source.
+- `gmail-inbox.ts` touching or committing remote cache entries after retention
+  alone rather than after `prepareRemotePresentations` admits them to a live
+  reader. Trace repeated occurrences, inline-image reservations and independent readers through
+  actual presentation admission; release undisplayed retention into retryable
+  state before notifying subscribers, which can synchronously replace viewport
+  interest and inherit tentative retention. Otherwise images the reader never
+  shows stay young in LRU eviction, populate the cache or consume a display budget
+  that later requests cannot use.
+- `gmail-inbox.ts.discardRichMessage` switching a reader to plain text without
+  retiring its remote interest and excluding that reader from later remote
+  presentation settlement. Cancel transfers no surviving rich reader wants and
+  release undisplayed retention; preserve another reader's valid work. Fence
+  registration, cache touches/commits and shared display accounting until a
+  refreshed body or new reader can try rich rendering again, including legacy
+  callers and owner invalidation. Derive allowed sources from the requesting
+  reader's current rich presentation, so a failed legacy view cannot disable a
+  healthy symbol reader or leave a newly prepared legacy reader fenced by stale
+  fallback state. Otherwise a failed view keeps hidden work
+  alive, is rebuilt by settlement, or treats unseen bytes as displayed content.
+
 - `registration-flow.ts.signOut` or `deleteAccount` sending irreversible remote work before native removal intent is durable, or reconnecting while an unanswered removal remains. Acknowledged cleanup must resume before provider work. Treat a lost reply as uncertainty and never claim no removal occurred. Deletion may withdraw newly recorded intent after a definite refusal, but must retain an earlier unanswered attempt; otherwise retry can reopen locally retained private state after remote deletion.
 - `createGmailInbox.store` or `retainBodies` changing body-cache membership
   without notifying the cache subscribers exposed by `createMailboxes.bodies`.
@@ -652,6 +707,14 @@ Apply `docs/agents/testing.md`'s admission and proportionate-verification policy
 Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged error classes, and console, time, randomness, `fetch`, timers and `process.env` inside Effect code are lint errors (`scripts/oxlint-effect-policy.ts`). Unused exports and complexity belong to Fallow. Formatting belongs to oxfmt.
 
 #### Rich-body admission and speculative reads
+
+- `message-body.ts.presentation` rebuilding the same blocked-only document on
+  every remote-image batch or caching it under an incomplete admission key. Reuse
+  preparation for the same immutable body and admitted inline-image objects,
+  including fresh arrays containing those objects; Content-IDs alone do not bind
+  their bytes. Bound retained variants while the body remains live, and trace
+  `gmail-inbox.ts.prepareRemotePresentations` and reader release. Otherwise incremental updates
+  repeat whole-HTML work, show stale inline bytes or accumulate old documents.
 
 - `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
   and importance, or confusing source validity with output retention. Invalid
