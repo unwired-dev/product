@@ -2101,6 +2101,26 @@ describe('adding files and images to Drafts', () => {
     await expect(drafts.attach(id, [received])).resolves.toBe(false);
     expect(assetsOf(draft())).toStrictEqual([]);
     expect(storage.assets()).toStrictEqual([]);
+    // Nor does a fill that moves the Draft into that Profile while bringing its own Profile's file.
+    const ownFile = {
+      ...received.source,
+      mailbox: { ...received.source.mailbox, connection: other.id },
+    };
+    await expect(
+      drafts.fill(id, (each) => withSender(each, personal), [
+        {
+          asset: {
+            id: 'asset0001',
+            name: 'a.pdf',
+            type: 'application/pdf',
+            state: 'importing',
+          },
+          source: ownFile,
+        },
+      ]),
+    ).resolves.toBe(false);
+    expect(draft().connection).toBe(other.id);
+    expect(storage.assets()).toStrictEqual([]);
 
     // Attaching it from the reader starts a Draft in the reader's Profile, and none when that
     // Profile cannot send, rather than falling back to another Profile's sender.
@@ -2144,6 +2164,23 @@ describe('adding files and images to Drafts', () => {
       }),
     ).resolves.toBeUndefined();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(count);
+
+    // A late edit to a deleted Draft keeps its content as a copy only within the same Profile.
+    const last = draft();
+    await drafts.discard(id);
+    await drafts.update(
+      { ...withSender(last, personal), subject: 'Moved' },
+      last,
+    );
+    expect(
+      draftsOf(drafts.getSnapshot()).filter(
+        ({ subject }) => subject === 'Moved',
+      ),
+    ).toStrictEqual([]);
+    await drafts.update({ ...last, subject: 'Kept' }, last);
+    expect(
+      draftsOf(drafts.getSnapshot()).find(({ subject }) => subject === 'Kept'),
+    ).toMatchObject({ connection: other.id, conflict: true });
   });
 
   it('copies a received attachment without keeping its mailbox, and only for its account', async () => {

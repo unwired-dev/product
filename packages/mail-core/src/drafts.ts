@@ -1782,7 +1782,7 @@ export function createDrafts(
     return outcome;
   };
 
-  // Whether `next` sends from another Mail Profile than the stored Draft.
+  // Whether `next` sends from another Mail Profile than `stored`, its version before this edit.
   const leavesProfile = (stored: Draft | undefined, next: Draft) => {
     if (stored === undefined || stored.connection === next.connection) {
       return false;
@@ -1794,37 +1794,52 @@ export function createDrafts(
     );
   };
 
+  // Whether `edited` stays in the Mail Profile of `stored`, and received attachments enter it only
+  // from that Profile.
+  const keepsProfile = (
+    stored: Draft,
+    edited: Draft,
+    imports: ReadonlyArray<Readonly<{ source: AssetSource }>>,
+  ) => {
+    const listed = mailboxesOf(registration.getSnapshot().snapshot);
+    const profile = profileOf(edited.connection, listed);
+    return (
+      !leavesProfile(stored, edited) &&
+      imports.every(
+        ({ source }) =>
+          source.kind !== 'received' ||
+          profileOf(source.mailbox.connection, listed) === profile,
+      )
+    );
+  };
+
   const fill = async (
     draft: string,
     edit: (draft: Draft) => Draft,
     imports: ReadonlyArray<Readonly<{ asset: Asset; source: AssetSource }>>,
   ) => {
     const current = generation;
-    const target =
-      state.kind === 'ready'
-        ? state.drafts.find(({ id }) => id === draft)
-        : undefined;
-    if (target === undefined) {
-      return false;
-    }
-    // A received attachment enters only a Draft in the Mail Profile that received it.
-    const listed = mailboxesOf(registration.getSnapshot().snapshot);
-    const profile = profileOf(target.connection, listed);
     if (
-      imports.some(
-        ({ source }) =>
-          source.kind === 'received' &&
-          profileOf(source.mailbox.connection, listed) !== profile,
-      )
+      state.kind !== 'ready' ||
+      !state.drafts.some(({ id }) => id === draft)
     ) {
       return false;
     }
+    // Decided against the Draft version this edit changes.
+    let kept = true;
     // A refused save keeps the content in memory, as for any edit; the caller opens the Draft,
     // whose composer reports the failed save, rather than leaving a hidden one behind.
     await change((drafts) =>
-      drafts.map((each) => (each.id === draft ? edit(each) : each)),
+      drafts.map((each) => {
+        if (each.id !== draft) {
+          return each;
+        }
+        const edited = edit(each);
+        kept = keepsProfile(each, edited, imports);
+        return kept ? edited : each;
+      }),
     );
-    if (!live(current)) {
+    if (!kept || !live(current)) {
       return false;
     }
     for (const { asset, source } of imports) {
@@ -2168,8 +2183,8 @@ export function createDrafts(
           // Decide against the same snapshot this edit changes, before notifying any editor.
           const current = drafts.find((each) => each.id === draft.id);
           // A sender change stays within the Draft's Mail Profile, so its recipients and assets
-          // never move into another Profile.
-          if (leavesProfile(current, draft)) {
+          // never move into another Profile, including as a copy of a deleted Draft.
+          if (leavesProfile(current ?? previous, draft)) {
             return drafts;
           }
           // An edit arriving after its Draft was deleted keeps any authored content as a copy.

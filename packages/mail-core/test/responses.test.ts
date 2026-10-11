@@ -263,6 +263,24 @@ describe('replying to and forwarding a received message', () => {
       'bob@example.invalid',
       'alex@example.invalid',
     ]);
+    // Within a non-default Profile, its own other address still leaves Reply All, while an
+    // address in the Default Profile stays.
+    const bob = {
+      id: 'connection-bob',
+      address: 'bob@example.invalid',
+      profile: defaultProfile,
+    };
+    const personal = draft(
+      await start('replyAll', { ...work, profile: 'personal' }, [
+        { ...alex, profile: 'personal' },
+        { ...work, profile: 'personal' },
+        bob,
+      ]),
+    );
+    expect(personal.to.map(({ address }) => address)).toStrictEqual([
+      'maya.lists@example.invalid',
+      'bob@example.invalid',
+    ]);
 
     // Editing keeps the response apart from the authored body, through a save and a reopen.
     await drafts.update(
