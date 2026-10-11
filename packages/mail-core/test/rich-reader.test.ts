@@ -1571,6 +1571,62 @@ describe('the isolated rich reader', () => {
     },
   );
 
+  it('keeps bodies with MIME metadata over its budgets on demand and prefetches later ones', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const overBudget = 'a'.repeat(256 * 1024 + 1);
+    const ordinary = gmail.deliver({
+      at: Date.now() - 120_000,
+      content: { text: 'Prefetched', single: true },
+    });
+    // The metadata preflight already carries the oversized disposition.
+    const preflight = gmail.deliver({
+      at: Date.now() - 60_000,
+      content: {
+        text: 'On demand',
+        single: true,
+        disposition: `inline; filename="${overBudget}"`,
+      },
+    });
+    // Only the full reply carries the oversized header.
+    const full = gmail.deliver({
+      at: Date.now() - 30_000,
+      content: { text: 'On demand', single: true },
+    });
+    replaceFullPayload(gmail, full, {
+      mimeType: 'text/plain',
+      headers: [{ name: 'X-Padding', value: overBudget }],
+      body: { size: 9, data: Buffer.from('On demand').toString('base64url') },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(3);
+    });
+    for (const id of [preflight, full]) {
+      expect(parseJson(String(gmail.cachedBodies().get(id)))).toStrictEqual({
+        version: 2,
+        id,
+        excluded: true,
+      });
+    }
+    expect(
+      gmail.requests
+        .filter(({ path }) => path === `messages/${preflight}`)
+        .filter(({ query }) => query.get('format') === 'full'),
+    ).toHaveLength(0);
+    // The older ordinary body is prefetched after the lane passes both.
+    expect(parseJson(String(gmail.cachedBodies().get(ordinary)))).toMatchObject(
+      { text: 'Prefetched' },
+    );
+    for (const id of [preflight, full]) {
+      await expect(read(inbox, id)).resolves.toStrictEqual({
+        kind: 'unavailable',
+        reason: 'failed',
+      });
+    }
+  });
+
   it('charges every requested image download to the aggregate byte bound', () => {
     expect.hasAssertions();
     const tally = imageTally();

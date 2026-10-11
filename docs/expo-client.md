@@ -7,14 +7,14 @@ The review agent owns the separate [architecture companion](architecture/expo-cl
 a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
-Product Sign-In, each followed by a choice of Gmail or [Microsoft mail](microsoft-mail.md).
+Product Sign-In, each followed by a choice of Gmail or, when configured for this build, [Microsoft mail](microsoft-mail.md).
 Production mailboxes use [Gmail synchronization](gmail-inbox.md) or the
 [Microsoft Inbox](microsoft-mail.md); sending is a
 later slice. The existing Convex backend
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
-registration; the first mailbox is chosen separately, Gmail or [Microsoft mail](microsoft-mail.md). Either sign-in can later be [linked](linked-sign-in.md)
+registration; the first mailbox is chosen separately, Gmail or, when configured for this build, [Microsoft mail](microsoft-mail.md). Either sign-in can later be [linked](linked-sign-in.md)
 as the other sign-in method. A new account [initializes private Product Sync](private-product-sync.md):
 the device that wins initialization presents the Recovery Key. Another device of
 that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device), or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key). Configure the native client IDs and Convex deployment when generating the host.

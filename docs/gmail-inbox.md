@@ -27,7 +27,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 
 - **Adding.** The account page's **Mailboxes** section lists every connection, Gmail
   and [Microsoft](microsoft-mail.md), with its state and offers **Add another Gmail
-  mailbox** and **Add a Microsoft mailbox**. Adding Gmail asks Google for an
+  mailbox** and, when Microsoft mail is configured for this build, **Add a Microsoft
+  mailbox**. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
@@ -268,7 +269,14 @@ child to the readable body and inline-image resolution; signature and report-dat
 children never supply either. The first child may itself contain readable
 alternatives and related images, including when the container is nested in mixed
 mail. A message nested more than 32 multipart levels deep, or with more than
-10,000 parts, is reported as not downloaded instead of being read. A separately served body part is shown and saved only after all bytes
+10,000 parts, is reported as not downloaded instead of being read. Sender-controlled
+MIME metadata is bounded before any header is parsed: at most 100,000 headers and
+4,194,304 UTF-16 code units of header text per message, room for several headers
+on each of 10,000 parts. Header names and Content-IDs
+are limited to 998 units, header values to 262,144 units and a Gmail MIME type to
+255 units. An explicit open of a message over any budget reports the body as
+failed; metadata is never truncated, because hiding a declaration could change body
+selection or attachment admission. A separately served body part is shown and saved only after all bytes
 arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
@@ -711,8 +719,8 @@ The remaining general priority order is authorized remote images, then speculati
 prefetch/historical work. No mail-loading task creates an account-wide busy state
 or disables navigation or interaction with already available mail.
 
-Prefetch requires wholly well-formed Content-Type and Content-Disposition values;
-any malformed header keeps the body on demand. Mail with malformed MIME parameters
+Prefetch requires MIME metadata within its budgets and wholly well-formed
+Content-Type and Content-Disposition values; anything else keeps the body on demand. Mail with malformed MIME parameters
 can still be opened explicitly when its body type is readable. Prefetch saves
 readable body text and any decoded HTML alternative, not attachments
 or Inline Images. Gmail first checks body-free Content-Type metadata and fetches

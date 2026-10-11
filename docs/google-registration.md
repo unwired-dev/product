@@ -27,7 +27,7 @@ evidence below describe the current Gmail path.
 registration path to both native hosts. Product Sign-In creates or reconnects the
 Product Account through Convex and then offers the first mailbox: **Authorize Gmail**
 with the original account, **Choose another Google mailbox**, or **Connect Microsoft
-mail** ([Microsoft mail](microsoft-mail.md)). Sign-in alone starts no mailbox
+mail** when configured for this build ([Microsoft mail](microsoft-mail.md)). Sign-in alone starts no mailbox
 authorization. Cancelled or declined Gmail consent and Google identities without
 Gmail retain the Product Account, and both Gmail actions retry. Once a mailbox is
 connected, the account page adds others with **Add another Gmail mailbox**; see

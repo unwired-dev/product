@@ -4,6 +4,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### The host stays thin
 
+- `registration-gate.tsx` offering a provider's first-mailbox or add-mailbox
+  action when this build's native adapter cannot authorize that provider.
+  Trace the native build capability and provider construction together, and
+  check both setup and connected account settings with the capability absent
+  and present. Mock builds must reflect their compiled provider; otherwise an
+  optional missing client ID leaves a permanently failing action in both hosts.
+
 - `Inbox` or registration copy deriving the provider label from Product Account
   presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
   use the selected connection's provider or neutral aggregate wording, or the

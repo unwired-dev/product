@@ -50,7 +50,7 @@ import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { registration } from './registration.ts';
+import { microsoftMail, registration } from './registration.ts';
 import {
   MailboxRemoteContent,
   RemoteContentSettings,
@@ -77,10 +77,12 @@ export const AccountContext = createContext<
 function Mailboxes({
   account,
   button,
+  microsoft,
   store,
 }: {
   readonly account: Readonly<{ mailboxes?: string }>;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly microsoft: boolean;
   readonly store: Registration;
 }) {
   const colors = usePalette();
@@ -150,9 +152,11 @@ function Mailboxes({
         );
       })}
       {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
-      {button(t('mailboxes.addMicrosoft'), () =>
-        store.addMailbox('microsoft-graph'),
-      )}
+      {microsoft
+        ? button(t('mailboxes.addMicrosoft'), () =>
+            store.addMailbox('microsoft-graph'),
+          )
+        : null}
       <RemoteContentSettings button={button} />
     </>
   );
@@ -505,9 +509,11 @@ function AccountActions({
 // it offers only that.
 function AccountSettings({
   button,
+  microsoft,
   store,
 }: {
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly microsoft: boolean;
   readonly store: Registration;
 }) {
   const {
@@ -552,6 +558,7 @@ function AccountSettings({
       <Mailboxes
         account={snapshot}
         button={button}
+        microsoft={microsoft}
         store={store}
       />
       <PrivateSync
@@ -589,11 +596,14 @@ function AccountSettings({
 export function RegistrationGate({
   children,
   store = registration,
+  microsoft = microsoftMail(),
   preview = previewInbox,
   remoteContent = deviceRemoteContent,
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
+  // This build can authorize Microsoft mail.
+  readonly microsoft?: boolean;
   readonly preview?: boolean;
   // The device's remote content policies, for the Inbox's readers and the account page.
   readonly remoteContent?: RemoteContentSettingsStore;
@@ -659,6 +669,7 @@ export function RegistrationGate({
     return (
       <RemoteContentContext value={remoteContent}>
         <RegistrationPage
+          microsoft={microsoft}
           store={store}
           onInbox={
             inboxAccount === undefined
@@ -699,9 +710,11 @@ export function RegistrationGate({
 }
 
 function RegistrationPage({
+  microsoft,
   store,
   onInbox,
 }: {
+  readonly microsoft: boolean;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
@@ -770,9 +783,11 @@ function RegistrationPage({
             {button(t('registration.chooseMailbox'), () =>
               store.addMailbox('gmail', true),
             )}
-            {button(t('registration.connectMicrosoft'), () =>
-              store.addMailbox('microsoft-graph'),
-            )}
+            {microsoft
+              ? button(t('registration.connectMicrosoft'), () =>
+                  store.addMailbox('microsoft-graph'),
+                )
+              : null}
           </>
         ) : null}
         {actions.signIn.map(({ offer, provider }) => (
@@ -789,6 +804,7 @@ function RegistrationPage({
         {actions.settings ? (
           <AccountSettings
             button={button}
+            microsoft={microsoft}
             store={store}
           />
         ) : null}

@@ -99,6 +99,11 @@ construction. Missing or refused metadata leaves text readable, omits the resolv
 attachment list from the cache and retries on a later open. Grant refusal also
 publishes the owner-fenced authorization notice.
 
+The synthetic MIME tree passes the shared metadata budgets before shared MIME
+parsing, cached-body completion or attachment locating. The 500-entry tree fits
+the aggregate budgets; oversized individual fields reject the explicit read.
+A recorded attachment grant refusal retains authorization priority on that rejection.
+
 Only sanitized visible CID references read file bytes through shared inline-image
 admission, preserving transfer, count, per-image, geometry and account-wide display
 bounds. A failed optional image does not replace readable text. Exact decoded

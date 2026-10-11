@@ -546,6 +546,47 @@ describe('reading Microsoft mail through Graph', () => {
     },
   );
 
+  it.each([
+    { status: 200, reason: 'failed', reply: () => undefined },
+    {
+      status: 401,
+      reason: 'authentication',
+      reply: (url: string) => unavailableMetadata(url, 401),
+    },
+    {
+      status: 503,
+      reason: 'failed',
+      reply: (url: string) => unavailableMetadata(url, 503),
+    },
+  ])(
+    'rejects oversized Graph metadata and preserves an attachment grant refusal ($status)',
+    async ({ status, reason, reply }) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph();
+      const id = graph.deliver({
+        body: { contentType: 'text', content: 'Over metadata budget' },
+        headers: [{ name: 'References', value: 'x'.repeat(256 * 1024 + 1) }],
+        attachments: [
+          { name: 'notes.txt', contentType: 'text/plain', bytes: [65] },
+        ],
+      });
+      const inbox = createGmailInbox(interceptGraph(graph, reply), {
+        provider: 'microsoft-graph',
+      });
+      await inbox.load();
+      const close = inbox.retainMessage(id);
+      await inbox.readMessage(id);
+      expect(inbox.messageBody(id)).toStrictEqual({
+        kind: 'unavailable',
+        reason,
+      });
+      expect(ready(inbox.getSnapshot()).sync).toBe(metadataSync(status));
+      expect(graph.cachedBodies().has(id)).toBe(false);
+      close();
+      inbox.forget();
+    },
+  );
+
   it('asks for Microsoft authorization again when Graph refuses the grant', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 2 });

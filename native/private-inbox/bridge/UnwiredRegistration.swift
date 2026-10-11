@@ -151,8 +151,7 @@ final class UnwiredRegistration: NSObject {
         base.user == nil, base.password == nil, base.query == nil, base.fragment == nil
       else { throw RegistrationError.unavailable }
       // Microsoft mail needs the public-client application registered for this redirect scheme.
-      let microsoftClientID =
-        Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
+      let microsoftClientID = Self.microsoftClientID
       let authentication = MicrosoftAuthentication()
       let store = RegistrationStore(
         keys: DeviceKeychain(service: bundle + ".google-registration"),
@@ -640,6 +639,19 @@ final class UnwiredRegistration: NSObject {
 
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  private static var microsoftClientID: String {
+    Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
+  }
+
+  // Hosts offer Microsoft mail only when this build can authorize it.
+  @objc func constantsToExport() -> [AnyHashable: Any]! {
+    #if UNWIRED_REGISTRATION_MOCK
+      ["microsoftMail": true]
+    #else
+      ["microsoftMail": !Self.microsoftClientID.isEmpty]
+    #endif
+  }
 
   // Routes with this process's APNs registration and the build's Cloud Pub/Sub topic; without a
   // fully qualified topic this build registers no routes.

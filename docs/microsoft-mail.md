@@ -12,7 +12,8 @@ Shared and delegated mailboxes are outside the [launch scope](product/power-user
 
 After Google or Apple Product Sign-In and any [device admission](private-product-sync.md),
 nothing asks a provider for mail. The account page shows **Connect your mail** with
-**Authorize Gmail**, **Choose another Google mailbox** and **Connect Microsoft mail**.
+**Authorize Gmail**, **Choose another Google mailbox** and, when Microsoft mail is
+configured for this build, **Connect Microsoft mail**.
 A Google sign-in only suggests its own account to Gmail; it is never a Microsoft hint.
 
 **Connect Microsoft mail** opens Microsoft's sign-in page in the system web
@@ -29,6 +30,7 @@ connection is shown only after Graph reads the account and its Inbox:
 Each outcome keeps the Product Account and offers retry or another provider,
 including after relaunch. Once connected, the account page's **Mailboxes** section
 lists Gmail and Microsoft connections together and offers **Add a Microsoft mailbox**.
+That action also requires Microsoft mail to be configured for this build.
 A connection whose grant Microsoft refuses later shows **Microsoft needs your
 permission again** and **Allow Microsoft access for** its address. Authorizing it
 again suggests that account and must name the same Microsoft account; another
@@ -57,6 +59,11 @@ on a later open, including after relaunch; a refused grant also asks for permiss
 again. Other attachments download only when asked. Graph's listed size is
 approximate, so the downloaded file keeps its decoded byte size. Only file
 attachments are listed; attached Outlook items and cloud links are not.
+
+The constructed message's MIME metadata uses the same [budgets as Gmail](gmail-inbox.md#reading-messages).
+An explicit open over a budget reports the body as failed, including when an
+attachment's MIME type or Content-ID exceeds its limit. Metadata is never truncated.
+If Graph also refuses the grant, the Inbox asks for authorization again instead.
 
 Not yet available for Microsoft mail: organizing actions and online search
 ([#635](https://github.com/unwired-dev/product/issues/635)) and sending
@@ -87,8 +94,8 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
   mise exec -- pnpm native:generate
 ```
 
-The variable is optional: without it the hosts still offer **Connect Microsoft
-mail**, which reports **Mailbox authorization was interrupted**. TestFlight uploads
+The variable is optional: without it the hosts offer neither **Connect Microsoft
+mail** nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
 read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository secret.
 
 ## Deterministic evidence

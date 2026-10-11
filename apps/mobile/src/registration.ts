@@ -26,9 +26,16 @@ interface RegistrationModule
     NativeWakes {
   // Cancels a Gmail or Microsoft Graph read by its request name.
   readonly cancelGmailRequest: (request: string) => void;
+  readonly getConstants: () => Readonly<{ microsoftMail?: boolean }>;
 }
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
+
+// Whether this build can authorize Microsoft mail; without the native module it cannot.
+export const microsoftMail = () =>
+  TurboModuleRegistry.get<RegistrationModule>(
+    'UnwiredRegistration',
+  )?.getConstants().microsoftMail === true;
 
 export const registration = createRegistration(
   createRegistrationFlow({

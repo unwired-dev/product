@@ -84,6 +84,7 @@ import {
   responseHeadersOf,
   singleReadablePart,
   unescapeHtml,
+  withinMetadataBudgets,
 } from './message-body.ts';
 
 export type { GmailMessage } from './mailbox-document.ts';
@@ -2226,6 +2227,23 @@ export function createGmailInbox(
     return message.payload;
   });
 
+  // An explicit read's full message. MIME metadata over its budgets is never parsed, so the body
+  // fails instead of stalling the reader; prefetch leaves such a message on demand.
+  const boundedMessage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+  ) {
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    if (!withinMetadataBudgets(payload)) {
+      return yield* new SyncFailure({
+        kind: payload.authentication === true ? 'authentication' : 'failed',
+        cause: 'metadata',
+        diagnostic: 'oversized MIME metadata',
+      });
+    }
+    return payload;
+  });
+
   // Resolves visible Content-ID references against the message's MIME scopes. Each image fails
   // independently; a transient failure leaves the resolution unrecorded so a later open retries.
   const resolveImages = Effect.fnUntraced(function* (
@@ -2275,7 +2293,7 @@ export function createGmailInbox(
     Readonly<{ document: BodyDocument; authentication: boolean }>,
     SyncFailure | GmailNotFound
   > {
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
     const document: BodyDocument = {
       version: 2,
@@ -2325,9 +2343,9 @@ export function createGmailInbox(
     if (!needsImages && !needsAttachments) {
       return { document, changed: false, authentication: false };
     }
-    const payload = yield* fullMessage(scope, document.id, [
-      ['format', 'full'],
-    ]).pipe(Effect.flatMap(requireAttachments));
+    const payload = yield* boundedMessage(scope, document.id).pipe(
+      Effect.flatMap(requireAttachments),
+    );
     const withList = needsAttachments
       ? {
           ...document,
@@ -2535,7 +2553,7 @@ export function createGmailInbox(
     listedAttachment: NonNullable<BodyDocument['attachments']>[number],
   ) {
     // Locating the attachment needs no inline images from Graph.
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]).pipe(
+    const payload = yield* boundedMessage(scope, id).pipe(
       Effect.flatMap(requireAttachments),
     );
     const current = receivedAttachments(payload).find((candidate) =>

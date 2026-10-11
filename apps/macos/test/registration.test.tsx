@@ -289,6 +289,10 @@ describe('product registration', () => {
     expect(
       screen.queryByRole('header', { name: 'Gmail connected' }),
     ).toBeNull();
+    // A build that cannot authorize Microsoft mail never offers it.
+    expect(
+      screen.queryByRole('button', { name: 'Connect Microsoft mail' }),
+    ).toBeNull();
     await first.unmount();
     await render(
       <RegistrationGate
@@ -396,6 +400,10 @@ describe('product registration', () => {
     expect(
       screen.getByRole('button', { name: 'Add another Gmail mailbox' }),
     ).toBeVisible();
+    // oxlint-disable-next-line vitest/max-expects -- This journey also guards unavailable-provider actions.
+    expect(
+      screen.queryByRole('button', { name: 'Add a Microsoft mailbox' }),
+    ).toBeNull();
   });
 
   it('connects Microsoft mail as the first mailbox after Apple sign-in, without Gmail, and reads its Inbox', async () => {
@@ -414,6 +422,7 @@ describe('product registration', () => {
     await render(
       <RegistrationGate
         store={store}
+        microsoft
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Inbox
