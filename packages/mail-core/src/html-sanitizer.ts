@@ -52,6 +52,8 @@ export interface SanitizedHtml {
   // App-generated image or placeholder markup at the matching remote occurrence index.
   readonly remoteNodes: readonly string[];
   readonly links: readonly BodyLink[];
+  // Whether the body has trailing quoted history rather than interleaved replies.
+  readonly quoted: boolean;
 }
 
 // Scripts, metadata, embedded content, form controls and foreign markup never reach the output.
@@ -1199,6 +1201,17 @@ const tableTracks = new Set([
 
 // Elements that never reach the output: removed, foreign, or hidden from readers. Other
 // hidden visibility is inherited state, which a descendant can make visible again.
+// A reply's quoted history as common mail clients mark it: Gmail's quote container and Apple
+// Mail's and Thunderbird's cited blockquote.
+// shortcut: Outlook marks no quote container, so its quoted history stays shown; upgrade when a
+// reader needs it collapsed.
+const isQuotedHistory = (element: Element) =>
+  (element.tagName === 'blockquote' &&
+    attributeOf(element, 'type')?.trim().toLowerCase() === 'cite') ||
+  (attributeOf(element, 'class') ?? '')
+    .split(/\s+/u)
+    .some((name) => name === 'gmail_quote' || name === 'gmail_quote_container');
+
 const isDropped = (
   node: Element,
   style: FilteredStyle,
@@ -1588,13 +1601,19 @@ export function sanitizeHtml(
   {
     preserveImages = false,
     remote = new Map(),
+    omitQuoted = false,
   }: Readonly<{
     preserveImages?: boolean;
     // Admitted Remote Message Content by exact source; other HTTPS images stay placeholders.
     remote?: ReadonlyMap<string, RemoteImage>;
+    // Leaves quoted history out of the document and its readable text.
+    omitQuoted?: boolean;
   }> = {},
 ): SanitizedHtml {
   const builder = paragraphBuilder();
+  let quoted = false;
+  let quoteDepth = 0;
+  let inlineReply = false;
   const contentIds: string[] = [];
   const remoteImages: string[] = [];
   const remoteNodes: string[] = [];
@@ -1677,13 +1696,20 @@ export function sanitizeHtml(
       return part;
     });
 
+  const noteVisibleContent = () => {
+    if (quoted && quoteDepth === 0) {
+      inlineReply = true;
+    }
+    visibleContent += 1;
+  };
+
   const addReadableText = (readable: string, preservesLines: boolean) => {
     if (!readableNow()) {
       return;
     }
     builder.add(readable, link?.href);
     if (hasVisibleText(readable)) {
-      visibleContent += 1;
+      noteVisibleContent();
       if (!preservesLines) {
         resetBreaks();
       }
@@ -1846,7 +1872,7 @@ export function sanitizeHtml(
       link.visible = true;
     }
     resetBreaks();
-    visibleContent += 1;
+    noteVisibleContent();
     shownImage(element, style);
   };
 
@@ -2033,23 +2059,40 @@ export function sanitizeHtml(
     systemFont = parentSystemFont;
   };
 
+  // A table's collapsed cells, skipped when the walk reaches them.
+  const collapseCells = (table: Element, style: FilteredStyle) => {
+    for (const cell of collapsedCells(
+      table,
+      spendTableWork,
+      visibilityIn(style, visibility),
+    )) {
+      collapsed.add(cell);
+    }
+  };
+
+  // Notes quoted history, and whether to leave it out.
+  const omittedQuote = (node: Element) => {
+    if (!isQuotedHistory(node)) {
+      return false;
+    }
+    quoted = true;
+    return omitQuoted;
+  };
+
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
     const style = filterStyle(attributeOf(node, 'style') ?? '', name);
     if (isDropped(node, style, visibility) || collapsed.has(node)) {
       return;
     }
+    if (omittedQuote(node)) {
+      return;
+    }
     if (droppedColumnGroup(node)) {
       return;
     }
     if (name === 'table') {
-      for (const cell of collapsedCells(
-        node,
-        spendTableWork,
-        visibilityIn(style, visibility),
-      )) {
-        collapsed.add(cell);
-      }
+      collapseCells(node, style);
     }
     const block = paragraphs.has(name);
     if (block) {
@@ -2064,12 +2107,19 @@ export function sanitizeHtml(
   };
 
   function children(parent: DefaultTreeAdapterTypes.ParentNode) {
+    const inQuote = 'tagName' in parent && isQuotedHistory(parent);
+    if (inQuote) {
+      quoteDepth += 1;
+    }
     for (const node of parent.childNodes) {
       if (node.nodeName === '#text' && 'value' in node) {
         addText(node.value);
       } else if (isElement(node)) {
         element(node);
       }
+    }
+    if (inQuote) {
+      quoteDepth -= 1;
     }
   }
 
@@ -2102,5 +2152,6 @@ export function sanitizeHtml(
     remoteImages,
     remoteNodes,
     links,
+    quoted: quoted && !inlineReply,
   };
 }

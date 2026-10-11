@@ -741,6 +741,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `html-sanitizer.ts.sanitizeHtml` classifying quoted history as trailing by
+  inspecting only later text. Visible images outside a quote also constitute
+  inline replies; preserve their quoted questions in the full presentation,
+  including image-only replies. Otherwise collapsing removes the context of an
+  answer that remains visible.
+
 - `message-body.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,

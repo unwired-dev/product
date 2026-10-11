@@ -274,7 +274,9 @@
     "linkLabel": "Open link: {{link}}",
     "warning": "• {{warning}}",
     "opening": "Opening message",
-    "message": "Message"
+    "message": "Message",
+    "showQuoted": "Show quoted text",
+    "hideQuoted": "Hide quoted text"
   },
   "attachment": {
     "oversized": "Too large to download on this device.",

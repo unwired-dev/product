@@ -7,6 +7,7 @@ import { Clipboard, Linking } from 'react-native';
 import {
   GmailMessageBody,
   LinkConfirmationProvider,
+  QuotedHistoryContext,
 } from '../src/message-body.tsx';
 
 // Capture the application callback through the same composite-fiber boundary as fireEvent.
@@ -36,7 +37,7 @@ const oldHref = 'https://phish.invalid/private?ticket=synthetic-secret';
 const view = (store: ReturnType<typeof createGmailInbox>, id: string) => (
   <LinkConfirmationProvider
     inbox={store}
-    id={id}>
+    ids={[id]}>
     <GmailMessageBody
       inbox={store}
       id={id}
@@ -46,6 +47,51 @@ const view = (store: ReturnType<typeof createGmailInbox>, id: string) => (
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {
+  it('retires quoted links, confirmation and renderer failures when history is collapsed', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: {
+        html: `<p>New reply.</p><div class="gmail_quote"><a href="${oldHref}">https://bank.invalid</a></div>`,
+      },
+    });
+    const store = createGmailInbox(gmail.native);
+    await store.load();
+    await render(
+      <QuotedHistoryContext value="collapsible">
+        {view(store, id)}
+      </QuotedHistoryContext>,
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Show quoted text' }),
+    );
+    const link = await screen.findByRole('link', {
+      name: 'Open link: https://bank.invalid',
+    });
+    const queuedPress = pressHandler(link);
+    const queuedNavigation =
+      screen.getByTestId('message-webview').props.onShouldStartLoadWithRequest;
+    const queuedFailure = screen.getByTestId('message-webview').props.onError;
+    await fireEvent.press(link);
+    expect(screen.getByText(oldHref)).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Hide quoted text' }),
+    );
+    await act(() => {
+      queuedPress();
+      queuedNavigation({
+        url: 'about:blank#unwired-link-0',
+        navigationType: 'click',
+      });
+      queuedFailure();
+    });
+    expect(screen.queryByText(oldHref)).toBeNull();
+    expect(screen.getByTestId('message-webview').props.source.html).toContain(
+      'New reply.',
+    );
+  });
+
   it.each(['forget', 'message', 'account', 'unmount'] as const)(
     'never reveals queued keyboard or WebKit links after %s',
     async (transition) => {
@@ -106,7 +152,7 @@ describe('queued message link privacy', () => {
             await app.rerender(
               <LinkConfirmationProvider
                 inbox={store}
-                id={id}>
+                ids={[id]}>
                 {null}
               </LinkConfirmationProvider>,
             );
@@ -175,7 +221,7 @@ describe('message link ownership at commit', () => {
       const app = await render(
         <LinkConfirmationProvider
           inbox={store}
-          id={id}>
+          ids={[id]}>
           <GmailMessageBody
             inbox={store}
             id={id}
@@ -210,7 +256,7 @@ describe('message link ownership at commit', () => {
         await app.rerender(
           <LinkConfirmationProvider
             inbox={replacement.store}
-            id={replacement.id}>
+            ids={[replacement.id]}>
             <GmailMessageBody
               inbox={replacement.store}
               id={replacement.id}

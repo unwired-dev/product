@@ -13,7 +13,7 @@ import type { ReadableBody } from './readable-text.ts';
 
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { inlineImageLimits, inspectImage } from './inline-images.ts';
-import { readableText } from './readable-text.ts';
+import { readableText, withoutQuotedText } from './readable-text.ts';
 
 export type { BodyLink, InlineImage } from './html-sanitizer.ts';
 export type { BodySpan, ReadableBody } from './readable-text.ts';
@@ -755,6 +755,8 @@ export interface MessagePresentation {
     }>;
   }>;
   readonly readable: ReadableBody;
+  // The same body without trailing quoted history; absent for inline replies and quote-only mail.
+  readonly withoutQuotedHistory?: MessagePresentation;
 }
 
 // Decode the patched WebKit view's native measurement at the shared boundary.
@@ -803,17 +805,22 @@ const encodeRemoteNodes = Schema.encodeSync(
 );
 
 // Keep only the latest inline admission per body; remote updates reuse it without retaining
-// every document variant produced by changing reader budgets.
-const initialDocuments = new WeakMap<
+// every document variant produced by changing reader budgets. The body with and without its
+// quoted history keep one each.
+type InitialDocuments = WeakMap<
   BodyDocument,
   Readonly<{ images: readonly InlineImage[]; document: string }>
->();
+>;
+const initialDocuments: Readonly<
+  Record<'full' | 'collapsed', InitialDocuments>
+> = { full: new WeakMap(), collapsed: new WeakMap() };
 const initialDocument = (
   document: BodyDocument,
-  html: string,
   images: readonly InlineImage[],
+  omitQuoted: boolean,
 ) => {
-  const cached = initialDocuments.get(document);
+  const prepared = initialDocuments[omitQuoted ? 'collapsed' : 'full'];
+  const cached = prepared.get(document);
   if (
     cached !== undefined &&
     cached.images.length === images.length &&
@@ -821,36 +828,43 @@ const initialDocument = (
   ) {
     return cached.document;
   }
-  const prepared = sanitizeHtml(
-    html,
+  const sanitized = sanitizeHtml(
+    document.html ?? '',
     new Map(images.map((image) => [image.contentId, image])),
+    { omitQuoted },
   ).document;
-  initialDocuments.set(document, { images: [...images], document: prepared });
-  return prepared;
+  prepared.set(document, { images: [...images], document: sanitized });
+  return sanitized;
 };
 
-export function presentation(
+interface PresentationOptions {
+  readonly remote: ReadonlyMap<string, RemoteImage>;
+  readonly omitQuoted: boolean;
+}
+
+// The sanitized rich view of a body's HTML; undefined when it has none or nothing renderable.
+function richOf(
   document: BodyDocument,
-  images: readonly InlineImage[] = document.images?.admitted ?? [],
-  remote: ReadonlyMap<string, RemoteImage> = new Map(),
-): MessagePresentation {
-  const text =
-    document.text === undefined ? undefined : readableText(document.text);
-  if (document.html !== undefined) {
-    try {
-      const sanitized = sanitizeHtml(
-        document.html,
-        new Map(images.map((image) => [image.contentId, image])),
-        { remote },
-      );
-      if (sanitized.renderable) {
-        return {
-          rich: {
+  images: readonly InlineImage[],
+  { remote, omitQuoted }: PresentationOptions,
+) {
+  if (document.html === undefined) {
+    return undefined;
+  }
+  try {
+    const sanitized = sanitizeHtml(
+      document.html,
+      new Map(images.map((image) => [image.contentId, image])),
+      { remote, omitQuoted },
+    );
+    return sanitized.renderable
+      ? {
+          view: {
             document: sanitized.document,
             initialDocument:
               remote.size === 0
                 ? sanitized.document
-                : initialDocument(document, document.html, images),
+                : initialDocument(document, images, omitQuoted),
             links: sanitized.links,
             remote: {
               images: sanitized.remoteImages,
@@ -860,19 +874,59 @@ export function presentation(
               ),
             },
           },
+          readable: sanitized.readable,
+          quoted: sanitized.quoted,
+        }
+      : undefined;
+  } catch {
+    // Preparation failure is terminal plain text; untrusted HTML never reaches WebKit.
+    return undefined;
+  }
+}
+
+export function presentation(
+  document: BodyDocument,
+  images: readonly InlineImage[] = document.images?.admitted ?? [],
+  remote: ReadonlyMap<string, RemoteImage> = new Map(),
+): MessagePresentation {
+  const text =
+    document.text === undefined ? undefined : readableText(document.text);
+  const rich = richOf(document, images, {
+    remote,
+    omitQuoted: false,
+  });
+  const shown: MessagePresentation =
+    rich === undefined
+      ? { readable: text ?? { paragraphs: [], hidesImages: false } }
+      : {
+          rich: rich.view,
           // Keep the blocked-image notice even when the sender supplied a plain alternative.
           readable: {
-            ...(text ?? sanitized.readable),
-            hidesImages: sanitized.readable.hidesImages,
+            ...(text ?? rich.readable),
+            hidesImages: rich.readable.hidesImages,
           },
         };
-      }
-    } catch {
-      // Preparation failure is terminal plain text; untrusted HTML never reaches WebKit.
-    }
+  const shortened =
+    rich === undefined && document.text !== undefined
+      ? withoutQuotedText(document.text)
+      : undefined;
+  if (rich === undefined ? shortened === undefined : !rich.quoted) {
+    return shown;
+  }
+  const collapsed = richOf(document, images, {
+    remote,
+    omitQuoted: true,
+  });
+  // A quote-only HTML body must remain readable, just like a quote-only plain body.
+  if (rich !== undefined && collapsed === undefined) {
+    return shown;
   }
   return {
-    readable: text ?? { paragraphs: [], hidesImages: false },
+    ...shown,
+    withoutQuotedHistory:
+      collapsed === undefined
+        ? { readable: readableText(shortened ?? document.text ?? '') }
+        : { rich: collapsed.view, readable: collapsed.readable },
   };
 }
 
