@@ -468,18 +468,28 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
-  // Whether the retained Product Sign-In still verifies before a mailbox is set up; one that
-  // cannot keeps the Product Account and resumable mailbox setup.
-  const signInConfirmed = (value: RegistrationRecord) =>
+  // Why the retained Product Sign-In did not verify before a mailbox is set up, or undefined once
+  // it does; one that cannot keeps the Product Account and resumable mailbox setup.
+  const signInRefusal = (value: RegistrationRecord) =>
     reconfirm(value).pipe(
-      Effect.as(true),
+      Effect.as(undefined),
       Effect.catchIf(
         (error) => !endsAccess.has(error.code),
-        () => Effect.succeed(false),
+        ({ code }) => Effect.succeed(code),
       ),
     );
-  const unconfirmed = (value: RegistrationRecord) =>
-    failure(value.signInProvider === 'apple' ? 'unavailable' : 'interrupted');
+  // An unconfirmed sign-in records why mailbox setup paused. Offline with other usable mailboxes,
+  // adding another reports the failure and changes nothing, so their Inboxes stay open.
+  const unconfirmed = (
+    value: RegistrationRecord,
+    code: Code,
+    keepsMailboxes: boolean,
+  ) =>
+    code === 'offline' && keepsMailboxes
+      ? failWith('offline')
+      : failure(
+          value.signInProvider === 'apple' ? 'unavailable' : 'interrupted',
+        );
 
   // Authorizes the named connection's provider again, or adds a mailbox of `added` when none is
   // named. Adding a mailbox that is already connected repairs that connection instead of
@@ -511,8 +521,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         !authorizationNeeded && id !== connection,
     );
     // Confirm the retained Product Sign-In independently of the mailbox selection.
-    if (!(yield* signInConfirmed(value))) {
-      return yield* unconfirmed(value);
+    const refusal = yield* signInRefusal(value);
+    if (refusal !== undefined) {
+      return yield* unconfirmed(value, refusal, keepsMailboxes);
     }
     const suggest = suggestsSignIn(value, provider, chooseAccount);
     return yield* Effect.gen(function* () {
@@ -551,8 +562,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     const keepsMailboxes = value.mailboxes.some(
       ({ authorizationNeeded }) => !authorizationNeeded,
     );
-    if (!(yield* signInConfirmed(value))) {
-      return yield* unconfirmed(value);
+    const refusal = yield* signInRefusal(value);
+    if (refusal !== undefined) {
+      return yield* unconfirmed(value, refusal, keepsMailboxes);
     }
     return yield* Effect.gen(function* () {
       yield* native(() => vault.connectImap(setup), MailboxReceipt);

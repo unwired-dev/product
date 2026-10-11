@@ -4,6 +4,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
+  another package in `Package.resolved`. Decode the pins and require the URL and
+  revision to match within one entry; otherwise an unrelated pin can satisfy the
+  gate while the required engine builds at a different revision.
+
 - `apps/mobile/plugins/private-inbox.cjs.addSwiftPackages` treating an existing
   package URL as a complete current link. Check incremental prebuild updates its
   manifest revision and repairs missing app product/Frameworks links, without

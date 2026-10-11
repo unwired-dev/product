@@ -206,6 +206,7 @@ const boundImap = (
     commitMailbox: cache.commitMailbox,
     openMessageBody: cache.openMessageBody,
     commitMessageBody: cache.commitMessageBody,
+    listMessageBodies: cache.listMessageBodies,
   };
 };
 

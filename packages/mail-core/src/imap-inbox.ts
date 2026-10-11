@@ -60,7 +60,11 @@ export interface NativeImapMailbox
   // The connection's encrypted cache, as for Gmail.
   extends Pick<
     NativeGmailMailbox,
-    'openMailbox' | 'commitMailbox' | 'openMessageBody' | 'commitMessageBody'
+    | 'openMailbox'
+    | 'commitMailbox'
+    | 'openMessageBody'
+    | 'commitMessageBody'
+    | 'listMessageBodies'
   > {
   // Resolves `{ folders: [{ name, roles, selectable }] }`.
   readonly imapFolders: (
@@ -110,6 +114,45 @@ export type ImapInboxState =
       // A Standards-Based Mailbox Connection sends nothing until SMTP is authorized.
       readonly receiveOnly: true;
     };
+
+/**
+ * Retires unavailable folder choices after a ready listing, preserving them
+ * while it is unresolved.
+ *
+ * @example
+ *   imapFolderName(undefined, 'Archive'); // 'Archive'
+ *
+ * @param {ImapInboxState | undefined} state The subscribed Inbox state, or no
+ *   IMAP connection.
+ * @param {string} requested The folder this window chose.
+ * @returns {string} The admitted folder name, or Inbox when the listing rejects
+ *   it.
+ */
+export const imapFolderName = (
+  state: ImapInboxState | undefined,
+  requested: string,
+) =>
+  state?.kind === 'ready' &&
+  !state.folders.some(
+    ({ name, selectable }) => selectable && name === requested,
+  )
+    ? inboxFolder
+    : requested;
+
+/**
+ * Reports refresh failure even when cached rows remain readable.
+ *
+ * @example
+ *   imapFolderFailed({ kind: 'ready', messages: [], status: 'retry' }); // true
+ *
+ * @param {ImapFolderView | undefined} view The subscribed view of the chosen
+ *   folder.
+ * @returns {boolean} Whether the folder needs a synchronization failure notice.
+ */
+export const imapFolderFailed = (view: ImapFolderView | undefined) =>
+  view?.kind === 'failed' ||
+  (view?.kind === 'ready' &&
+    (view.status === 'retry' || view.status === 'authentication'));
 
 export type ImapBodyState =
   | { readonly kind: 'loading' }
@@ -178,6 +221,13 @@ const call = (operation: () => Promise<unknown>) =>
       });
     },
   });
+const decodeStoredBodies = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    stored: Schema.Array(Schema.String),
+    excluded: Schema.Array(Schema.String),
+  }),
+);
+
 const malformed = (error: Schema.SchemaError) =>
   new ImapFailure({
     kind: 'failed',
@@ -290,6 +340,10 @@ export function createImapInbox(
   let forgotten = false;
   let lifetime = 0;
   const closedFolder = { kind: 'failed' } as const;
+  // Folder snapshots read before any view is recorded stay the same object across reads, as
+  // React's external stores require; a cached listing keeps its view while its messages do.
+  const loadingFolder = { kind: 'loading' } as const;
+  const cachedViews = new WeakMap<readonly ImapMessage[], ImapFolderView>();
   // Folder views per name, and the bodies opened in this process by message ID.
   const folderViews = new Map<string, ImapFolderView>();
   const bodies = new Map<string, ImapBodyState>();
@@ -657,6 +711,40 @@ export function createImapInbox(
     return yield* bodyDocument(message.id, payload);
   });
 
+  // Which of these cached messages have a body saved on this device, read without the server and
+  // without touching what the cache keeps. A reply for an Inbox that closed or changed meanwhile
+  // names none, and a failed read leaves the answer unknown.
+  const savedBodies = (ids: readonly string[]) => {
+    const scope = opened;
+    const wanted = ids.filter(listed);
+    if (scope === undefined || wanted.length === 0) {
+      return Promise.resolve(new Set<string>());
+    }
+    return runLogged(
+      call(() => native.listMessageBodies(scope, wanted)).pipe(
+        Effect.flatMap((reply) =>
+          decodeStoredBodies(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.map(({ stored, excluded }) => {
+          const markers = new Set(excluded);
+          return new Set(
+            current(scope)
+              ? stored.filter((id) => !markers.has(id) && listed(id))
+              : [],
+          );
+        }),
+        Effect.catchTag('ImapFailure', ({ kind, diagnostic }) =>
+          expected(kind) || closesAccess(kind)
+            ? Effect.void.pipe(Effect.as(undefined))
+            : Effect.logError(
+                'Saved IMAP bodies could not be listed:',
+                diagnostic,
+              ).pipe(Effect.as(undefined)),
+        ),
+      ),
+    );
+  };
+
   // Opens a body from this device, or downloads it; windows opening the same message share one read.
   const readMessage = (id: string) => {
     if (bodies.get(id)?.kind === 'ready') {
@@ -774,19 +862,26 @@ export function createImapInbox(
     load,
     openFolder,
     // A folder's messages as last read, cached ones first; the Inbox reads `messages`.
-    folder: (name: string): ImapFolderView =>
-      state.kind === 'locked' || state.kind === 'failed'
-        ? closedFolder
-        : (folderViews.get(name) ??
-          (cacheOf(name) === undefined
-            ? { kind: 'loading' }
-            : {
-                kind: 'ready',
-                messages: cacheOf(name)?.messages ?? [],
-                status: 'current',
-              })),
+    folder: (name: string): ImapFolderView => {
+      if (state.kind === 'locked' || state.kind === 'failed') {
+        return closedFolder;
+      }
+      const recorded = folderViews.get(name);
+      const messages = cacheOf(name)?.messages;
+      if (recorded !== undefined || messages === undefined) {
+        return recorded ?? loadingFolder;
+      }
+      const cached = cachedViews.get(messages) ?? {
+        kind: 'ready',
+        messages,
+        status: 'current',
+      };
+      cachedViews.set(messages, cached);
+      return cached;
+    },
     // A cached message from any folder, for the reader.
     message: messageOf,
+    savedBodies,
     readMessage,
     messageBody: (id: string, reader?: symbol) => {
       if (reader === undefined) {

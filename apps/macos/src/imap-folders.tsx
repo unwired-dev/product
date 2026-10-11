@@ -1,4 +1,8 @@
-import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import {
+  imapFolderFailed,
+  imapFolderName,
+  inboxFolder,
+} from '@private-email/mail-core/imap-inbox';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -18,7 +22,7 @@ export function FolderPicker({
   // The IMAP mailbox shown on its own, if any.
   readonly mailbox: InboxMailbox | undefined;
   readonly folder: string;
-  // The chosen folder could not be read and has nothing cached.
+  // The chosen folder could not be read; any cached messages still show.
   readonly failed: boolean;
   readonly onFolder: (folder: string) => void;
 }) {
@@ -88,16 +92,24 @@ export function useImapFolder<E>(
     shown.length === 1 && single !== undefined && 'openFolder' in single.inbox
       ? single
       : undefined;
-  const folder =
+  const requested =
     imap !== undefined && choice?.mailbox === imap.id
       ? choice.folder
       : inboxFolder;
+  const state = imap?.state;
+  const folder = imapFolderName(
+    state?.kind === 'ready' && 'folders' in state ? state : undefined,
+    requested,
+  );
+  if (folder !== requested && choice !== undefined) {
+    setChoice(undefined);
+  }
   const browsing = useFolderEntries(imap, folder);
   return {
     imap,
     folder,
     listed: browsing?.entries ?? inbox,
-    failed: browsing?.view.kind === 'failed',
+    failed: imapFolderFailed(browsing?.view),
     chooseFolder: (name: string) => {
       if (imap === undefined || !('openFolder' in imap.inbox)) {
         return;

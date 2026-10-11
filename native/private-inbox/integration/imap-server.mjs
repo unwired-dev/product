@@ -68,6 +68,40 @@ openssl(
 const raw = Buffer.from(
   'Subject: Controlled IMAP\r\nContent-Type: text/plain\r\n\r\nControlled body\r\n',
 );
+// UIDNEXT per folder: a large folder with old uncached messages, and a small one after arrivals
+// were expunged.
+const uidNexts = { Large: 512, Sparse: 402 };
+const uidNextOf = (command) =>
+  Object.entries(uidNexts).find(([folder]) => command.includes(folder))?.[1] ??
+  12;
+// The metadata a FETCH asks for, for the message it names.
+// fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
+const metadataFields = (command, uid) => [
+  `UID ${uid}`,
+  ...(command.includes('FLAGS') ? [String.raw`FLAGS (\Flagged)`] : []),
+  ...(command.includes('RFC822.SIZE') ? [`RFC822.SIZE ${raw.length}`] : []),
+  ...(command.includes('INTERNALDATE')
+    ? ['INTERNALDATE "11-Oct-2026 10:00:00 +0000"']
+    : []),
+  ...(command.includes('ENVELOPE')
+    ? [
+        'ENVELOPE ("11 Oct 2026 10:00:00 +0000" "Controlled IMAP" (("Synthetic Sender" NIL "sender" "example.invalid")) NIL NIL NIL NIL NIL NIL "<controlled@example.invalid>")',
+      ]
+    : []),
+];
+// A resumed folder lists envelopes only for what arrived since its checkpoint.
+const assertResumed = (command, { large, sparse }) => {
+  if (!command.includes('ENVELOPE')) {
+    return;
+  }
+  assert.ok(
+    !large,
+    'A resumed folder without arrivals must not list its newest messages again',
+  );
+  if (sparse) {
+    assert.match(command, /^UID FETCH 12:\* /u);
+  }
+};
 const operations = new Set();
 const sockets = new Set();
 let connected = 0;
@@ -92,6 +126,8 @@ const server = tls.createServer(
     socket.write('* OK [CAPABILITY IMAP4rev1] Controlled server ready\r\n');
     let input = '';
     let identified = false;
+    let large = false;
+    let sparse = false;
     // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
     socket.on('data', (bytes) => {
       input += bytes.toString('ascii');
@@ -118,11 +154,13 @@ const server = tls.createServer(
         } else if (command.startsWith('EXAMINE ')) {
           operations.add('examine');
           identified = !command.includes('NoValidity');
+          large = command.includes('Large');
+          sparse = command.includes('Sparse');
           if (!identified) {
             operations.add('unidentified');
           }
           socket.write(
-            `* FLAGS (\\Flagged)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n${identified ? '* OK [UIDVALIDITY 7] Stable\r\n' : ''}* OK [UIDNEXT 12] Next\r\n`,
+            `* FLAGS (\\Flagged)\r\n* ${large ? 500 : 1} EXISTS\r\n* 0 RECENT\r\n${identified ? '* OK [UIDVALIDITY 7] Stable\r\n' : ''}* OK [UIDNEXT ${uidNextOf(command)}] Next\r\n`,
           );
           socket.write(`${tag} OK [READ-ONLY] Examined\r\n`);
         } else if (command.startsWith('LIST ')) {
@@ -153,26 +191,15 @@ const server = tls.createServer(
               socket.write(`)\r\n${tag} OK Read\r\n`);
             }
           } else {
+            assertResumed(command, { large, sparse });
             operations.add(
               command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size',
             );
-            const uid = command.startsWith('UID FETCH 12 ') ? 12 : 11;
-            const fields = [`UID ${uid}`];
-            if (command.includes('FLAGS')) {
-              fields.push(String.raw`FLAGS (\Flagged)`);
-            }
-            if (command.includes('RFC822.SIZE')) {
-              fields.push(`RFC822.SIZE ${raw.length}`);
-            }
-            if (command.includes('INTERNALDATE')) {
-              fields.push('INTERNALDATE "11-Oct-2026 10:00:00 +0000"');
-            }
-            if (command.includes('ENVELOPE')) {
-              fields.push(
-                'ENVELOPE ("11 Oct 2026 10:00:00 +0000" "Controlled IMAP" (("Synthetic Sender" NIL "sender" "example.invalid")) NIL NIL NIL NIL NIL NIL "<controlled@example.invalid>")',
-              );
-            }
-            socket.write(`* 1 FETCH (${fields.join(' ')})\r\n`);
+            const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
+            const fields = metadataFields(command, large ? 511 : named);
+            socket.write(
+              `* ${large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
+            );
             ok();
           }
         } else if (command === 'LOGOUT') {

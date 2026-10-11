@@ -65,7 +65,10 @@ export function syntheticConnections(
       );
     },
     listMessageBodies: (mailbox, ids) =>
-      of(mailbox.connection)?.listMessageBodies(mailbox, ids) ?? missing(),
+      (server(mailbox.connection) ?? of(mailbox.connection))?.listMessageBodies(
+        mailbox,
+        ids,
+      ) ?? missing(),
     retainMessageBodies: (mailbox, ids, protectedIds) =>
       of(mailbox.connection)?.retainMessageBodies(mailbox, ids, protectedIds) ??
       missing(),

@@ -238,6 +238,101 @@ describe('product registration', () => {
     });
   });
 
+  it('warns when a cached folder cannot be refreshed and falls back to the Inbox once the folder is gone', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Private archived message' });
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'imap-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Archive' }),
+      );
+    });
+    await expect(
+      screen.findByText('Private archived message'),
+    ).resolves.toBeVisible();
+    // An unreachable server keeps the cached folder visible and says it could not be refreshed.
+    imap.server.failure = 'offline';
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    expect(screen.getByText('Private archived message')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Folders could not be listed. Try again when the mail server can be reached.',
+    );
+    // A folder the refreshed listing no longer offers is not shown from its stale cache.
+    imap.server.failure = undefined;
+    imap.removeFolder('Archive');
+    await act(async () => {
+      await mailboxes.load();
+    });
+    await expect(
+      screen.findByText('Saved IMAP message'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+    // Recreating that name does not restore a discarded choice or expose the old cached rows.
+    imap.addFolder('Archive');
+    imap.renumber('Archive');
+    imap.deliver('Archive', { subject: 'New archived message' });
+    await act(async () => {
+      await mailboxes.load();
+    });
+    expect(screen.getByText('Saved IMAP message')).toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+    expect(screen.queryByText('New archived message')).toBeNull();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    await expect(
+      screen.findByText('New archived message'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+  });
+  /* oxlint-enable vitest/max-expects */
+
   it('opens saved Gmail mail offline and verifies registration before retrying', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });

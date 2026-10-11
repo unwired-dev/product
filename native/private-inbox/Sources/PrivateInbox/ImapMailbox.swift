@@ -209,7 +209,13 @@ struct SwiftMailImap: ImapProvider {
         }
       }
       let arrivals: [ImapEnvelope]
-      if selection.messageCount - flags.count > window {
+      // Both counts bound arrivals still present: old uncached messages inflate the folder count,
+      // while arrivals expunged before this read inflate the UIDNEXT gap.
+      let next = selection.uidNext.value
+      let unlisted = max(0, selection.messageCount - flags.count)
+      let arrived =
+        next == 0 ? unlisted : min(unlisted, Int(next - min(next, from.uidNext)))
+      if arrived > window {
         // More arrived than the window keeps: only the newest are read.
         arrivals = try await newest()
       } else if selection.uidNext.value == 0 || selection.uidNext.value > from.uidNext {

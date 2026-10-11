@@ -11,6 +11,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
+- `imap-inbox.ts.folder` returning a new fallback view on each snapshot read
+  after reload or forget clears `folderViews`. Unchanged loading or cached
+  messages must return the same object, and a changed cache must yield a new
+  view; otherwise either host's external-store subscription loops or stays stale.
+
 - Named-capture extraction in `drafts.ts.recipientOf`, `gmail-inbox.ts.sender`,
   `message-body.ts` or another shared parser that assumes `.groups` is present on
   `exec`, `match` or `matchAll` results in code bundled for Hermes. A host's Babel
@@ -22,6 +27,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   packaged host when its transform differs from the test runtime.
 
 #### Untrusted boundaries fail closed
+
+- `registration-flow.ts.authorizeMailbox` or `connectImap` recording a setup
+  failure when retained sign-in confirmation is merely offline and other usable
+  mailboxes remain. Report that refusal through the action without changing the
+  registration snapshot; otherwise adding one mailbox closes every existing
+  Inbox. Preserve access-ending and non-offline sign-in refusal handling.
+
+- `imap-inbox.ts.createImapInbox` omitting `savedBodies` or deriving it from
+  metadata or an in-memory reader. `mailboxes.ts.savedMessageBodies` treats a
+  missing lookup as a fully saved preview store. Bind native `listMessageBodies`
+  to the owning connection, decode its reply, exclude markers, fence scope and
+  listed-message membership, and leave failed reads unknown; otherwise search
+  falsely promises offline access to bodies never downloaded or no longer saved.
 
 - `imap-inbox.ts.openFolder` or body-cache admission swallowing native access
   failures as folder-specific retries or harmless cache-write refusals. Propagate

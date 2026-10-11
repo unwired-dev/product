@@ -149,6 +149,27 @@ describe('connecting IMAP mailboxes', () => {
     expect(offline.getSnapshot().snapshot.kind).toBe('cached');
   });
 
+  it('keeps connected mailboxes open when adding an IMAP mailbox cannot confirm sign-in offline', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const store = createRegistration(
+      createRegistrationFlow(createSyntheticVault(device).vault),
+    );
+    await store.register('google');
+    await store.addMailbox();
+    const connected = store.getSnapshot().snapshot;
+    expect(connected.kind).toBe('connected');
+    device.backend.offline = true;
+    await store.connectImap(setup(device.imap.password));
+    // The form reports the failure; no setup reason is recorded and every Inbox stays listed.
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: connected,
+      imapFailure: 'failed',
+    });
+    expect(device.device.record?.mailboxSetupReason).toBeUndefined();
+    expect(device.imap.logins).toBe(0);
+  });
+
   it('keeps Microsoft and IMAP connections for the same address independently removable', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
@@ -431,9 +452,15 @@ describe('connecting IMAP mailboxes', () => {
       subject: 'Report',
     });
     const { id } = message;
+    // A listed message reads as saved only once its body is on this device, so search never
+    // presents it as available offline before it is downloaded.
+    await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
 
     const release = inbox.retainMessage(id);
     await inbox.readMessage(id);
+    await expect(inbox.savedBodies([id, 'unlisted'])).resolves.toStrictEqual(
+      new Set([id]),
+    );
     const body = readyBody(inbox.messageBody(id));
     expect(body.attachments).toBe(1);
     expect(body.presentation.rich?.document).toContain('Café');
@@ -461,6 +488,45 @@ describe('connecting IMAP mailboxes', () => {
       reason: 'imap-missing',
     });
     stale();
+  });
+
+  it('keeps body availability unknown for unreadable storage and drops a reply after the Inbox closes', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Cached metadata' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const { id } = firstMessage(inbox.folder('INBOX'));
+    const lookup = vi.spyOn(imap.native, 'listMessageBodies');
+    const logs = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    lookup.mockRejectedValueOnce({ code: 'locked' });
+    await expect(inbox.savedBodies([id])).resolves.toBeUndefined();
+    expect(logs).not.toHaveBeenCalled();
+
+    lookup.mockResolvedValueOnce({ stored: [id], excluded: [id] });
+    await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
+    lookup.mockResolvedValueOnce({ stored: [id] });
+    await expect(inbox.savedBodies([id])).resolves.toBeUndefined();
+    expect(logs).toHaveBeenCalledWith(
+      expect.any(String),
+      'Saved IMAP bodies could not be listed:',
+      'invalid at excluded',
+    );
+
+    const requested = Promise.withResolvers<undefined>();
+    const answer = Promise.withResolvers<unknown>();
+    lookup.mockImplementationOnce(() => {
+      requested.resolve(undefined);
+      return answer.promise;
+    });
+    const pending = inbox.savedBodies([id]);
+    await requested.promise;
+    inbox.forget();
+    answer.resolve({ stored: [id], excluded: [] });
+    await expect(pending).resolves.toStrictEqual(new Set());
+    await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
+    lookup.mockRestore();
+    logs.mockRestore();
   });
 
   it.each([
@@ -521,6 +587,27 @@ describe('connecting IMAP mailboxes', () => {
       release();
     },
   );
+
+  it('returns the same folder snapshot on consecutive reads after a reload drops its view', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive');
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    imap.server.failure = 'offline';
+    await inbox.openFolder('Archive');
+    expect(inbox.folder('Archive')).toStrictEqual({ kind: 'failed' });
+    // Reopening the cache records views only for cached folders; React's external store reads
+    // this one repeatedly and must see one snapshot.
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(inbox.folder('Archive')).toBe(inbox.folder('Archive'));
+    imap.deliver('Archive', { subject: 'Archived' });
+    await inbox.openFolder('Archive');
+    await inbox.load();
+    expect(inbox.folder('Archive')).toBe(inbox.folder('Archive'));
+    expect(firstMessage(inbox.folder('Archive')).subject).toBe('Archived');
+  });
 
   it.each([
     { code: 'locked', state: { kind: 'locked' } },

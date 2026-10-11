@@ -6,6 +6,9 @@ status: accepted
 
 ## IMAP adapter amendment — 2026-10-11
 
+This amends ADR 0067's provider-adapter scope without reversing its decision to
+keep the native layer minimal.
+
 The #629 decision panel selected SwiftMail 1.16.0 behind a native adapter while
 TypeScript owns synchronization policy and the cache (2–1). The adapter owns the
 credentialed IMAP session and verified TLS; passwords remain in native custody.

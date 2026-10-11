@@ -97,6 +97,10 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
 The unified Inbox lists each IMAP connection's Inbox folder. Choosing the connection on
 its own shows its folders; each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
+A chosen folder removed from the refreshed selectable listing falls back to Inbox.
+It stays there if that folder name reappears, until the person chooses it again.
+Local search marks a body as available on this device only when the body cache
+confirms it is saved; listing a message alone does not make its body available offline.
 
 ## Reading
 

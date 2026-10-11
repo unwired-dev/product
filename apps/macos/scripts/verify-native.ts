@@ -69,13 +69,24 @@ assert.deepEqual(
   ],
   'Review Swift packages before expanding the Private Inbox graph.',
 );
-const resolved = readFileSync(
-  path.join(privateInbox, 'Package.resolved'),
-  'utf8',
+// Each pin is resolved at its own location, so another package's revision never satisfies it.
+const Pin = Schema.Struct({
+  location: Schema.String,
+  state: Schema.Struct({ revision: Schema.String }),
+});
+const ResolvedPins = Schema.fromJsonString(
+  Schema.Struct({ pins: Schema.Array(Pin) }),
 );
+const { pins } = Schema.decodeSync(ResolvedPins)(
+  readFileSync(path.join(privateInbox, 'Package.resolved'), 'utf8'),
+);
+const resolves = (url: string | undefined, revision: string | undefined) =>
+  pins.some(
+    ({ location, state }) => location === url && state.revision === revision,
+  );
 for (const { url, revision } of pinned) {
   assert.ok(
-    revision !== undefined && resolved.includes(`"revision" : "${revision}"`),
+    resolves(url, revision),
     `Package.resolved does not record ${url} at its pinned revision.`,
   );
 }

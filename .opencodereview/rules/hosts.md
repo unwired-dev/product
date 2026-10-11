@@ -36,6 +36,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `imap-folders.tsx.useImapFolder` treating only a `failed` folder view as a
+  synchronization failure, or retaining a choice absent from the ready listing's
+  selectable folders. Use the shared IMAP projections: cached `ready` rows with
+  `retry` or `authentication` still need the folder notice, and a removed,
+  renamed or non-selectable choice is retired to Inbox and cannot revive when
+  that name reappears. Exercise both hosts, including folder recreation;
+  otherwise stale mail appears current or returns from an obsolete choice.
+
 - `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
   failed-Close feedback after accepting another authored edit. Retire the stale
   notice and its recovery controls on every accepted editing path, while keeping

@@ -240,6 +240,19 @@ extension PrivateInboxTests {
       account, password: "synthetic-password", folder: "INBOX",
       from: ImapCheckpoint(uidValidity: 7, uidNext: 12, known: [11]), window: 200)
     #expect(!resumed.reset && resumed.messages.isEmpty && resumed.flags[11] == ["\\Flagged"])
+    // Older messages never cached are not arrivals: a large folder whose UIDNEXT has not moved
+    // reads only the known flags, never its newest envelopes again.
+    let large = try await provider.synchronize(
+      account, password: "synthetic-password", folder: "Large",
+      from: ImapCheckpoint(uidValidity: 7, uidNext: 512, known: [511]), window: 200)
+    #expect(!large.reset && large.messages.isEmpty && large.flags[511] == ["\\Flagged"])
+    // Expunged arrivals advance UIDNEXT too; a large gap must not relist old envelopes when the
+    // remaining folder fits within the window. The server rejects that sequence-number fetch.
+    let sparse = try await provider.synchronize(
+      account, password: "synthetic-password", folder: "Sparse",
+      from: ImapCheckpoint(uidValidity: 7, uidNext: 12, known: [11]), window: 200)
+    #expect(!sparse.reset && sparse.messages.isEmpty && sparse.flags[11] == ["\\Flagged"])
+    #expect(sparse.uidNext == 402)
     let raw = try await provider.message(
       account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
       limit: RegistrationStore.imapMessageLimit)

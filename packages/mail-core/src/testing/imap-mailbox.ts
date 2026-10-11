@@ -189,6 +189,11 @@ export function createSyntheticImap({
       bodies.set(id, admission.document);
       return Promise.resolve({ admitted: true });
     },
+    listMessageBodies: (_mailbox, ids) =>
+      Promise.resolve({
+        stored: ids.filter((id) => bodies.has(id)),
+        excluded: [],
+      }),
   };
 
   return {
@@ -229,6 +234,10 @@ export function createSyntheticImap({
         uidNext: 1,
         messages: [],
       });
+    },
+    // Deletes a folder, as another client removing or renaming it would.
+    removeFolder: (name: string) => {
+      folders.delete(name);
     },
     setFlags: (name: string, uid: number, flags: string[]) => {
       const message = folder(name).messages.find((item) => item.uid === uid);

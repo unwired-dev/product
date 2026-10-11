@@ -21,3 +21,6 @@ sanitized body and inline images; remote content stays blocked and attachments a
 counted only. `MailProvider` gains `imap`, and `MailGrantProvider` names the
 providers authorized through their own sign-in. `@private-email/mail-core` exports
 `imap-inbox`, `imap-setup` and a controlled `testing/imap-mailbox` provider fixture.
+Local search reports actual IMAP body-cache availability. Folder refresh failures
+keep cached rows with a warning, and a removed folder choice falls back to Inbox.
+Both hosts share the exported `imapFolderName` and `imapFolderFailed` projections.
