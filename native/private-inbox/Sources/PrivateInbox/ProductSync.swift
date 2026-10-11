@@ -457,6 +457,12 @@ extension RegistrationStore {
         next.connections = next.connections.filter { $0.id != connection.id }
         next.mailboxCacheRemovals = Array(Set(
           (next.mailboxCacheRemovals ?? []) + [connection.id])).sorted()
+        // Stop while this credential still exists; retain any failed relay cleanup in the checkpoint.
+        try await unroute(connection.id)
+        let push = try self.saved()
+        next.pushRouteRemovals = push.pushRouteRemovals
+        next.pushDevice = push.pushDevice
+        try save(next)
       }
       if !purged.isEmpty {
         try save(next)
@@ -577,6 +583,8 @@ extension RegistrationStore {
     }
     try await purgeConnections()
     try save(next)
+    try await removeQueuedPushRoutes()
+    next = try self.saved()
     let readable = stored.compactMapValues { $0.descriptor }
     let live = readable.values.filter { $0.removed != true }
     return (

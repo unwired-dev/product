@@ -89,8 +89,11 @@ Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
 credentials in Keychain; ad-hoc builds report unavailable storage. Signed builds
 run in the App Sandbox with outgoing network access only, so their store lives
 in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
-with outgoing network access, but omit profile-required Apple sign-in and Keychain
-entitlements. Debug connects to Metro as a network client. The bundle ID is `dev.unwired.mail`, shared with the
+with outgoing network access, but omit profile-required Apple sign-in, Keychain and
+APNs entitlements; their registration for remote notifications fails, so they keep
+the five-minute interval. Signed builds request the `com.apple.developer.aps-environment` entitlement
+for [push wake routes](gmail-inbox.md#push-wake-routes), so their profile needs the
+Push Notifications capability. Debug connects to Metro as a network client. The bundle ID is `dev.unwired.mail`, shared with the
 iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
 hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls

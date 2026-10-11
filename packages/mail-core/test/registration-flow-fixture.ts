@@ -34,7 +34,7 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.declineEnrollment(requestId)),
     revokeTrustedDevice: (trustedDeviceId) =>
       Effect.runPromise(flow.revokeTrustedDevice(trustedDeviceId)),
-    // oxlint-disable-next-line node/no-sync -- Product Sync is an asynchronous flow, not synchronous Node I/O.
+    // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
     signOut: () => Effect.runPromise(flow.signOut()),
     deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),

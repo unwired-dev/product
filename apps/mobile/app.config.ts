@@ -22,10 +22,13 @@ if (
 const googleClientID: unknown = env.UNWIRED_GOOGLE_CLIENT_ID ?? '';
 const microsoftClientID: unknown = env.UNWIRED_MICROSOFT_CLIENT_ID ?? '';
 const convexURL: unknown = env.UNWIRED_CONVEX_URL ?? '';
+// The Cloud Pub/Sub topic Gmail watches publish to; without one no push route is registered.
+const gmailTopic: unknown = env.UNWIRED_GMAIL_PUBSUB_TOPIC ?? '';
 if (
-  typeof googleClientID !== 'string' ||
-  typeof microsoftClientID !== 'string' ||
-  typeof convexURL !== 'string'
+  !Schema.is(Schema.String)(googleClientID) ||
+  !Schema.is(Schema.String)(microsoftClientID) ||
+  !Schema.is(Schema.String)(convexURL) ||
+  !Schema.is(Schema.String)(gmailTopic)
 ) {
   throw new TypeError('Invalid native registration configuration');
 }
@@ -68,13 +71,19 @@ const config: ExpoConfig = {
     supportsTablet: true,
     // Only Apple's system cryptography and HTTPS are used.
     config: { usesNonExemptEncryption: false },
-    // Native Sign in with Apple; declared directly because no Expo module supplies it.
-    entitlements: { 'com.apple.developer.applesignin': ['Default'] },
+    // Native Sign in with Apple and content-free Gmail wakes; declared directly because no Expo
+    // module supplies them. Distribution signing replaces the APNs environment with production.
+    entitlements: {
+      'com.apple.developer.applesignin': ['Default'],
+      'aps-environment': 'development',
+    },
     infoPlist: {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,
       UnwiredMicrosoftClientID: microsoftClientID,
       UnwiredConvexURL: convexURL,
+      ...(gmailTopic ? { UnwiredGmailTopic: gmailTopic } : {}),
+      UIBackgroundModes: ['remote-notification'],
       ...(commit ? { UnwiredCommit: commit } : {}),
     },
   },

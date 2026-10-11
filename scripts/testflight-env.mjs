@@ -18,6 +18,7 @@ for (const name of [
   'UNWIRED_GOOGLE_CLIENT_ID',
   'UNWIRED_MICROSOFT_CLIENT_ID',
   'UNWIRED_CONVEX_URL',
+  'UNWIRED_GMAIL_PUBSUB_TOPIC',
   'UNWIRED_MOCK_SCENARIO',
 ]) {
   if (env[name] === undefined && local[name] !== undefined) {

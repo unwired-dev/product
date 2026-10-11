@@ -175,6 +175,15 @@ extension PrivateInboxTests {
     // Microsoft authorization never prompts Google.
     #expect(google.hints == googlePrompts)
 
+    // Only Gmail watches deliver wakes: routing never hands the Microsoft credential to Google,
+    // and the host keeps polling while Microsoft mail has no route.
+    let refreshes = google.refreshes
+    try await store.routeMailboxes(
+      device: PushDevice(token: "0a1b2c", environment: "sandbox"),
+      topic: "projects/synthetic-project/topics/gmail-push", now: 0)
+    #expect(google.refreshes == refreshes + 1)
+    #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == false)
+
     _ = try await store.flowRemoveMailbox(id)
     #expect(try descriptor("microsoft-graph:synthetic-product-subject")?.removed == true)
     #expect(try descriptor("gmail:synthetic-product-subject")?.removed == nil)

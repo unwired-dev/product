@@ -32,6 +32,9 @@ microsoft_client_id = ENV.fetch('UNWIRED_MICROSOFT_CLIENT_ID', '')
 raise 'Invalid Microsoft application client ID' unless microsoft_client_id.empty? || microsoft_client_id.match?(/\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/)
 info['UnwiredMicrosoftClientID'] = microsoft_client_id
 info['UnwiredConvexURL'] = ENV.fetch('UNWIRED_CONVEX_URL', '')
+# The Cloud Pub/Sub topic Gmail watches publish to; without one no push route is registered.
+info.delete('UnwiredGmailTopic')
+info['UnwiredGmailTopic'] = ENV['UNWIRED_GMAIL_PUBSUB_TOPIC'] unless ENV.fetch('UNWIRED_GMAIL_PUBSUB_TOPIC', '').empty?
 info['CFBundleURLTypes'] = client_id.empty? ? [] : [{ 'CFBundleURLSchemes' => [client_id.split('.').reverse.join('.')] }]
 Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.generated.plist')
 info['UnwiredMockScenario'] = scenario if scenario

@@ -867,6 +867,49 @@ describe('registration flow', () => {
     },
   );
 
+  it.each(['revoked', 'deleted'] as const)(
+    'reports a native-initiated %s purge on the next shared operation',
+    async (code) => {
+      expect.hasAssertions();
+      const { vault, device } = createSyntheticVault();
+      const registration = vi.fn<NativeRegistrationVault['registration']>(
+        vault.registration,
+      );
+      const store = createRegistration(
+        registrationPrograms({
+          ...vault,
+          registration,
+          purge: async (notice) => {
+            await vault.purge(notice);
+            registration.mockImplementation(vault.registration);
+            return null;
+          },
+        }),
+      );
+      await store.register('google');
+      await store.addMailbox();
+      expect(store.getSnapshot().snapshot.kind).toBe('connected');
+      const [mailbox] = mailboxesOf(store.getSnapshot().snapshot);
+      Vitest.assert.isDefined(mailbox);
+      // The APNs callback already cleared native custody, outside the shared action.
+      await vault.purge(code);
+      registration.mockRejectedValue(
+        Object.assign(new Error('Synthetic native rejection'), { code }),
+      );
+      expect(device.record).toBeUndefined();
+      await store.removeMailbox(mailbox.id);
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: { kind: 'signed-out', notice: code },
+        busy: false,
+        failed: false,
+      });
+      // Acknowledging the notice leaves a new explicit sign-in usable.
+      await store.register('google');
+      await store.addMailbox();
+      expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    },
+  );
+
   // Covers the Convex transport that moved from the Swift bridge, as #715 asked.
   it('decodes Convex replies and keeps the fixed rejection codes and texts', async () => {
     /* oxlint-disable vitest/max-expects -- One table proves every reply shape and host code. */

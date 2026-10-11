@@ -137,7 +137,13 @@ export interface NativeRegistrationVault {
     notice: 'revoked' | 'deleted' | 'signed-out',
   ) => Promise<unknown>;
   readonly call: (request: BackendCall) => Promise<unknown>;
+  // Stops a connection's Gmail watch and removes its push route before its credential leaves.
   readonly removeMailbox: (connection: string) => Promise<unknown>;
+  // Registers this device for content-free Gmail wakes and renews each verified connection's
+  // watch and route. Only the end of this device's access fails it.
+  readonly routeMailboxes: () => Promise<unknown>;
+  // Stops each connection's Gmail watch that no other device's route needs.
+  readonly stopMailboxWatches: () => Promise<unknown>;
   readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
   readonly readsAsRecoveryKey: (entry: string) => Promise<unknown>;
   // Temporary until #758: unlocks with the Recovery Key after the flow renewed the sign-in.

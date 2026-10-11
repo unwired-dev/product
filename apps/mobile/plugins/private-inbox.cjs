@@ -37,8 +37,53 @@ module.exports = function privateInbox(config) {
     }
     return result;
   });
+  // Content-free Gmail wakes reach the shared native queue; JavaScript settles each one.
+  const withPushWakes = withAppDelegate(withGoogleCallback, (result) => {
+    const marker = 'UnwiredPushWakes.registerDeviceToken(deviceToken)';
+    if (!result.modResults.contents.includes(marker)) {
+      const launch =
+        'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
+      const anchor = '  // Universal Links';
+      if (
+        !result.modResults.contents.includes(launch) ||
+        !result.modResults.contents.includes(anchor)
+      ) {
+        throw new Error('Push wakes require the Expo Swift AppDelegate');
+      }
+      result.modResults.contents = result.modResults.contents
+        .replace(
+          launch,
+          `application.registerForRemoteNotifications()\n    ${launch}`,
+        )
+        .replace(
+          anchor,
+          `  public override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    ${marker}
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  // Not forwarded to Expo's subscribers, so the system's handler completes exactly once.
+  public override func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    UnwiredPushWakes.receiveRemoteNotification(userInfo) { result in
+      completionHandler(
+        result == "synchronized" ? .newData : result == "ignored" ? .noData : .failed)
+    }
+  }
+
+${anchor}`,
+        );
+    }
+    return result;
+  });
   const scenarioSetting = JSON.stringify(scenario ?? '');
-  return withXcodeProject(withGoogleCallback, (result) => {
+  return withXcodeProject(withPushWakes, (result) => {
     const project = result.modResults;
     const target = project.getFirstTarget().uuid;
     for (const configuration of Object.values(

@@ -6,6 +6,7 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
+import { waitFor } from '@testing-library/react-native';
 import {
   BackgroundTaskResult,
   BackgroundTaskStatus,
@@ -39,7 +40,7 @@ jest.mock('expo-background-task', () => ({
 
 describe('headless Gmail freshness', () => {
   /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
-  it('restores mail on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
+  it('restores mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
     const flow = createRegistration(createRegistrationFlow(vault));
@@ -48,10 +49,24 @@ describe('headless Gmail freshness', () => {
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
     const id = syntheticMailboxes['alex@example.invalid'];
+    // The host's APNs queue: the entry reads each wake and completes it with its outcome.
+    const pushedWake = Promise.withResolvers<unknown>();
+    const replaced = Promise.withResolvers<unknown>();
+    const completeWake = jest.fn<undefined, [string, string]>();
     const native = {
       getConstants: () => ({}),
       ...vault,
       ...syntheticConnections({ [id]: gmail }),
+      nextWake: jest
+        .fn<Promise<unknown>, []>()
+        .mockReturnValueOnce(pushedWake.promise)
+        .mockReturnValueOnce(replaced.promise)
+        .mockResolvedValue(null),
+      mailboxRoutes: async () => ({
+        routes: { 'route-alex': id },
+        complete: true,
+      }),
+      completeWake,
     };
     const bridge = jest
       .spyOn(TurboModuleRegistry, 'getEnforcing')
@@ -88,6 +103,24 @@ describe('headless Gmail freshness', () => {
           expect.objectContaining({ subject: 'Arrived while terminated' }),
         ],
       });
+
+      // A push wake that launched the app synchronizes its routed mailbox and completes once.
+      const pushed = gmail.deliver({ subject: 'Pushed while suspended' });
+      pushedWake.resolve({
+        id: 'wake-1',
+        hint: { provider: 'gmail', routeId: 'route-alex', historyId: '42' },
+      });
+      await waitFor(() => {
+        expect(completeWake).toHaveBeenCalledWith('wake-1', 'synchronized');
+      });
+      expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+        kind: 'ready',
+        messages: expect.arrayContaining([
+          expect.objectContaining({ id: pushed }),
+        ]),
+      });
+      // The host replaced this reader; nothing more is followed.
+      replaced.resolve(null);
 
       const { scheduleGmailFreshness } = jest.requireActual<{
         readonly scheduleGmailFreshness: typeof ScheduleGmailFreshness;

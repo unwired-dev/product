@@ -14,6 +14,7 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 
 #### Gates stay honest
 
+- A repository or organization secret newly consumed by a reusable workflow, such as `testflight.yml`, missing from a caller's named secret mapping. Trace the consumer through `on.workflow_call.secrets` and each caller, including `release.yml` and nested calls; declaring an optional secret does not forward it. Otherwise release-tag builds can silently receive an empty value and omit configured features such as Gmail push routes. Distinguish secrets supplied by the consuming job's environment, which override caller values, and preserve intentional optionality without broadening to `secrets: inherit`.
 - `release.yml` preflight or `changesets/action` integration treating zero-release changeset files as actionable changesets. Check the action's no-change, empty-only and version paths after preprocessing; an empty file left after a version PR merges must not suppress tagging and TestFlight, and checkout-only cleanup must not be committed to `main` by the publish path.
 - A required check removed, made `continue-on-error`, skipped by a path filter that misses files it covers, or changed to pass with zero tests selected.
 - A workflow command that diverges from the local validation command documented in `README.md` and `docs/expo-client.md`, so CI and local runs prove different things.
