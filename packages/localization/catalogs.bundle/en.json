@@ -641,6 +641,11 @@
       "forwardedCc": "Cc: {{value}}",
       "showQuoted": "Show quoted text",
       "hideQuoted": "Hide quoted text"
+    },
+    "evaluation": {
+      "title": "Evaluation editor",
+      "unsupported": "The evaluation editor opens plain paragraphs only, so this Draft stays unchanged. Close it to return to the Inbox.",
+      "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
     }
   },
   "outbox": {

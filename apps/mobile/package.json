@@ -18,6 +18,7 @@
   "dependencies": {
     "@expo/log-box": "catalog:mobile",
     "@expo/metro-runtime": "catalog:mobile",
+    "@private-email/draft-editor": "workspace:*",
     "@private-email/localization": "workspace:*",
     "@private-email/mail-core": "workspace:*",
     "effect": "catalog:",

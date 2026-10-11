@@ -214,6 +214,72 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
 
+  // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
+  // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: first).value as? String ?? ""
+    first.buttons["Choose another Google mailbox"].click()
+    XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
+    let entry = first.textFields["Last four characters"]
+    entry.click()
+    // Confirm each character reached the controlled field before sending the next one.
+    var confirmation = ""
+    for character in presented.suffix(4) {
+      entry.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
+        .completed)
+    }
+    first.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(
+      first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    // The disposable Draft belongs to this run's synthetic Product Account only.
+    first.buttons["New Message"].click()
+    XCTAssertTrue(text("Evaluation editor", in: first).waitForExistence(timeout: 15))
+    let body = first.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // Focus: typing reaches the page only once its editable body holds keyboard focus.
+    body.click()
+    body.typeText("Evaluation paragraph")
+    let typed = first.webViews.staticTexts.matching(
+      NSPredicate(format: "value == %@", "Evaluation paragraph")
+    ).firstMatch
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Draft · Saved on this device", in: first).waitForExistence(timeout: 10))
+    // Resize: the page follows a narrower window without reloading or losing its text.
+    let before = first.webViews.firstMatch.frame
+    let corner = first.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+      .withOffset(CGVector(dx: -2, dy: -2))
+    corner.press(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: -160, dy: 0)))
+    let resized = NSPredicate { _, _ in first.webViews.firstMatch.frame.width != before.width }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: resized, object: nil)], timeout: 10),
+      .completed)
+    XCTAssertTrue(typed.exists)
+    // Teardown: Close saves and removes the page's web view.
+    first.buttons["Close"].click()
+    XCTAssertTrue(text("Evaluation editor", in: first).waitForNonExistence(timeout: 10))
+    XCTAssertEqual(first.webViews.count, 0)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    let draft = relaunched.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft."))
+      .firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.click()
+    XCTAssertTrue(
+      relaunched.webViews.staticTexts.matching(
+        NSPredicate(format: "value == %@", "Evaluation paragraph")
+      ).firstMatch.waitForExistence(timeout: 15))
+  }
+
   // A new device of an existing account waits until a trusted device approves it; signing in alone
   // admits nothing, so Gmail authorization appears only afterwards.
   private func enrollmentJourney(_ app: XCUIApplication, first: XCUIElement) {
@@ -408,6 +474,10 @@ final class WindowTests: XCTestCase {
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-removal" {
       removalJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor" {
+      draftEditorJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {
