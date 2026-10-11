@@ -742,6 +742,20 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- MIME parsing in `message-body.ts` or `gmail-inbox.ts` that runs before
+  `withinMetadataBudgets` admits the whole message, including discarded subtrees.
+  Bound names before case folding and values before comment, parameter and CID
+  parsing; count headers and text across all parts. Preserve semantic headers
+  without truncation, and reject explicit reads or exclude speculative bodies
+  through their existing states. Delimiter scans must avoid eager match arrays
+  and repeated suffix scans on unterminated quoted strings; otherwise a compact
+  sender-controlled header can stall or exhaust every host's shared runtime.
+- `message-body.ts.metadataLimits` aggregate header-count or text budgets chosen
+  without checking `mimeTreeLimits.parts` and supported attachment trees. Several
+  ordinary headers belong to each part; independent numeric caps can otherwise
+  reject a message deliberately admitted near the part limit. Verify both
+  over-budget rejection across parts and successful reads of admitted trees,
+  including the existing large-attachment journeys in both host test suites.
 - `message-body.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,
