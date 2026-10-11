@@ -186,11 +186,13 @@ the feature guides and launch specification own those requirements. Layout
 dimensions describe the Figma reference mockups. Adopting this palette in app
 theme code is a separate follow-up.
 
-The source of truth for screens and components is the Figma file
+The visual reference for screens and components is the Figma file
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T).
 Its `Unwired` variable collection holds every color token below in Light and
 Dark modes. Tokens with a `-dark` suffix are the Dark value of the token
 without the suffix; a token without a `-dark` sibling is the same in both modes.
+The linked product requirements and feature guides govern behavior, controls and
+defaults wherever an earlier reference mockup differs.
 
 ## Overview
 
@@ -268,7 +270,7 @@ reaches only 3.95:1 on white and fails AA for text.
 
 ## Typography
 
-SF Pro throughout, using Apple's text styles; no custom typeface. The Figma file
+SF Pro throughout the app UI, using Apple's text styles; no custom UI typeface. The Figma file
 keeps local copies of the macOS 27 and iOS 27 kit ramps (`macOS/…` and `iOS/…`
 styles) so the file stays editable.
 
@@ -280,28 +282,47 @@ styles) so the file stays editable.
   long-form reading) and Reading Subject 20/25 bold for the Thread subject.
 - **iOS:** Large Title 34/41 bold, Headline 17/22 semibold, Body 17/22,
   Subheadline 15/20 for bubble text, Footnote 13/18 for subjects and times.
-- Emphasis comes from weight, not size. Never set long text in bold.
+- UI emphasis comes from weight, not size. Never set long UI text in bold.
+  Received message content retains permitted sender formatting, including fonts,
+  sizes and emphasis, under the [sanitization contract](docs/gmail-inbox.md#sanitization-contract).
 
 ## Layout
 
 - **macOS window:** 1280×800 reference, three columns. A floating glass sidebar
   236pt wide inset 8pt, a 340pt message list, and the reading pane. The reading
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt
-  narrow window hides the sidebar.
+  narrow window hides the sidebar. Compact layouts collapse the three destinations
+  into native navigation, per the [organization requirements](docs/product/organization.md).
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
-  then the primary Unified Mailboxes, the secondary Archive, All Mail, Spam and
-  Trash, one collapsible section per Mailbox Connection ("Gmail · address") with
+  then the primary Unified Mailboxes (Inbox, Snoozed, Pins, Drafts and Sent),
+  secondary Archive, All Mail, Spam and Trash, one collapsible section per
+  Mailbox Connection ("Gmail · address") with
   its folders and labels, Saved Searches, and Settings pinned to the bottom.
   Synchronization and authorization problems appear beside the affected Mailbox
-  Connection. The reference mockups show Favorites and per-list banners and do
-  not yet include Archive, All Mail, Spam and Trash.
+  Connection. Conditional [Outbox](docs/outbox.md#sending) sits above Drafts.
+  Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
+  The reference mockups show Favorites and per-list banners and omit the secondary mailboxes.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
-  sync status, and a horizontally scrolling Category chip row.
+  sync status, and a row of up to five Mail View chips, as the
+  [organization requirements](docs/product/organization.md) specify: Important and
+  All Messages first and second, then up to three configured Category views
+  (Orders, Newsletters & Promotions and Flights for new users).
+  The reference mockups show an earlier System Category row with All selected.
 - **Search bar:** search and New Message share one floating glass bar at the
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
-  to the trailing edge. On iPhone it spans the screen width. Rows scroll under it
-  behind a 72pt scroll edge fade. It hides while the composer is open.
+  to the trailing edge. On compact layouts it spans the screen width. Rows scroll
+  under it behind a 72pt scroll edge fade. It hides while the composer is open.
+- **Synchronization status:** retain the bottom-anchored, non-blocking progress
+  overlay, Retry on failure, aggregate progress with expandable connection details,
+  and globally visible refresh and last success from the
+  [sync-status requirements](docs/product/privacy-and-sync.md#local-storage-and-background-freshness).
+  Status never shifts visible Threads; the header subtitle does not replace the
+  overlay or connection-local problem indicators.
+- **Conversation reader:** one flat scroll, subject and Thread summary first,
+  then every message expanded newest to oldest with compact sender-and-date headers,
+  disclosed recipients, bodies and thin separators, per the
+  [reader loading and image requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane, per the
   [conversation reader requirements](docs/product/messages-and-delivery.md):
@@ -316,13 +337,21 @@ styles) so the file stays editable.
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
   reading pane with 12pt outer insets and 70% of the available height, clamped
   from 420 to 720pt. Expanding it takes over the whole app window with the same
-  Draft; there is no separate Compose window and no freeform resizing. On iPhone
-  the composer is pushed onto the navigation stack. Order: body, attachments,
+  Draft; there is no separate Compose window and no freeform resizing. Compact
+  layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
   field reveals together. The sender is a From pop-up beside Send. The reference
   mockups still show an earlier separate window and a 60% inline composer.
-- **Settings:** a 900×720 window with a glass sidebar grouped as Accounts, Mail,
-  Composing, Automation and Application, and grouped forms on the right.
+  One composer per window keeps expand/collapse visible on regular width, Close
+  directly accessible and destructive Discard in overflow. The sidebar and list
+  remain interactive beneath the overlay; save failures appear inline.
+- **Settings:** the Mac reference is a 900×720 independent window, opened with
+  `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
+  Automation and Application, and grouped forms on the right. iPad uses an in-app
+  two-column workspace; iPhone pushes one column into the existing navigation
+  stack. Detail errors and Retry stay inline beside retained values, with other
+  destinations usable, per the
+  [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
@@ -361,7 +390,10 @@ form accessories, keyboards, status bar).
 - **Message Row:** Mail.app-style hierarchy: sender and time, subject, then the
   preview. The preview is one line by default and follows the person's saved
   density and zero-to-three-line preview preference; the reference mockups show
-  two lines. Unread shows a stronger sender and subject weight and an accent
+  two lines. Essential attachment, Pin, Category and source-connection status
+  accompany the preview; every unified-list Thread identifies its Mailbox Connection,
+  per the [list requirements](docs/product/mailboxes.md#unified-list-behavior).
+  Unread shows a stronger sender and subject weight and an accent
   dot; selected is the graphite fill with white text. No avatars and no hover
   actions.
 - **Sidebar Item / Sidebar Section Header:** 28pt items with tinted SF Symbols
@@ -372,32 +404,83 @@ form accessories, keyboards, status bar).
 - **Profile Switcher / Profile Menu:** monogram, Mail Profile name and chevron.
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
   a checkmark, then New Mail Profile… and Manage Mail Profiles….
-- **Category Chip:** icon plus label, always both. The selected chip is graphite
-  with an emphasized label; others use the quiet fill with an unread dot.
-  System Categories: People,
-  Orders, Newsletters & Promotions, Invites, Flights.
+- **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
+  style each header chip with an icon, label and unread-Thread count badge capped
+  at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
+  Settings exposes
+  Important membership and three configurable Category slots, without overflow.
+  Details follow the
+  [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
+- **Category Control:** the reader's multi-select control shows Apply, Cancel and
+  Add New, per the
+  [Category control requirements](docs/product/organization.md#category-controls).
 - **On Device Marker / Summary Card:** the cinnabar lock with "On device" marks
   Mail Assistance output while it is a summary, an incoming translation, or a
   preview or suggestion awaiting acceptance. Accepted rewrites, Draft
   translations and subjects become ordinary Draft content without the marker.
   The Summary card sits at the top of a Thread; while summarizing it shows quiet
-  placeholder lines.
+  placeholder lines with Cancel. Dismissible, non-authoritative previews sit beside unchanged mail
+  and show source, truncation and unavailable-state explanations, per
+  [message summaries](docs/message-summaries.md#behavior) and
+  [translation](docs/message-translation.md#behavior). Reader Summarize and Translate
+  sit side by side when the body is local and assistance is enabled. Hide explicit
+  assistance controls while device-local, default-off
+  [Mail Assistance Enablement](docs/message-summaries.md#mail-assistance-enablement)
+  is off.
 - **Banners:** Translation, Remote Content and Authorization Needed use the quiet
   fill and 10pt radius. Actions stack under the message so long localized
-  strings stay readable in the 340pt list.
-- **Undo Send Toast:** deep graphite, centered above the search bar, with an Undo
-  action, for the undo window.
+  strings stay readable at the available width. Translation and remote-content
+  consent belong beside their message in the reader, per
+  [translation](docs/message-translation.md#behavior) and
+  [remote-content requirements](docs/gmail-inbox.md#links-and-blocked-remote-content);
+  authorization problems identify the affected Mailbox Connection.
+- **Undo Send Toast / Outbox Row:** the toast is deep graphite, centered above the
+  search bar, with Undo during the Undo Send Window. Window preferences follow the
+  [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
+  [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
+  states with recovery controls after the toast ends.
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
-  strikethrough, lists, link, Rewrite, attach file, attach photo; no glass),
+  strikethrough, inline code, lists, link, Translate and Rewrite side by side;
+  no glass),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
   From Pop-up. A suggested subject carries the On device marker until explicit
   Use Subject acceptance makes it ordinary Draft content. A subject the person
   types is ordinary Draft content.
+- **Compose editing and assets:** text styles cover paragraphs, headings 1–3,
+  quotes and code blocks. Link editing, Undo/Redo, native text behavior, Markdown
+  shortcuts, the caret-anchored Slash Command Menu and nonmodal assistance panels follow
+  the [authored-content contract](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
+  The global Formatting Toolbar Preference hides only the bar. Attachment and
+  image affordances follow [Files and images](docs/drafts.md#files-and-images):
+  iPhone/iPad offer Attach File, Attach Photo, Insert Image and Paste Image; Mac
+  offers Attach Files… and Insert Image… plus paste/drop. Attachment Chips show
+  name, size, Remove, import progress/Cancel and failure state; Inline Images retain
+  their authored position, with explicit conversion actions between images and
+  attachments. Keep unsaved state and reasons for blocked Send visible, per
+  [Draft saving and asset availability](docs/drafts.md#saving).
+- **Compose recipients and sender:** Recipient Suggestions appear beneath the
+  active To/Cc/Bcc field; recipients are removable tokens. Invalid entries stay
+  editable with an inline explanation; duplicates show Already added. Populated
+  Cc/Bcc remain visible. From always shows the selected Sending Identity and
+  explains blocked Send beside the retained address, per the
+  [recipient and sender requirements](docs/product/messages-and-delivery.md#sending-identities-and-recipient-entry)
+  and [Draft sender contract](docs/drafts.md#composing).
+- **Draft assistance panels:** Rewrite, Translate and Suggest reply show progress,
+  Cancel, Keep original and Replace text, Replace selection or Use reply, per
+  [Draft assistance](docs/draft-assistance.md#behavior) and
+  [Draft translation](docs/message-translation.md#behavior).
 - **Catch Up:** received bubbles show the avatar, sender, a muted subject, the
   summary or preview (up to three lines), time, unread dot and attachment icon.
-  Sent bubbles are right-aligned in the accent fill. Also: the collapsed Category
+  Sent bubbles are right-aligned in the accent fill. Also: the collapsed category
   bubble ("12 newsletters"), the unread divider, day separators and the List/Chat
-  Inbox View Toggle.
+  Inbox View Toggle in the Inbox header. The list is default; the timeline is
+  newest-at-bottom, per the [Catch Up requirements](docs/catch-up.md#behavior).
+  Quick reply uses a bottom composer bar with
+  a quote/recipient chip; long-press offers archive, delete, mark unread, reply and
+  open Thread. Quoted history is collapsed and expandable.
+  [Background-summary states](docs/catch-up.md#summaries) show a preview with
+  Summary coming soon while pending, or a preview alone when assistance is disabled
+  or unavailable.
 - **Settings Row:** title, optional subtitle and icon, and one trailing control
   (switch, pop-up, value, button or disclosure). The switch track uses the accent
   fill when on and `fill/track` when off.
