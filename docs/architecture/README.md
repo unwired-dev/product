@@ -34,6 +34,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/google-registration.md](../google-registration.md)                         | [google-registration.md](google-registration.md)                         |
 | [docs/localization.md](../localization.md)                                       | [localization.md](localization.md)                                       |
 | [docs/linked-sign-in.md](../linked-sign-in.md)                                   | [linked-sign-in.md](linked-sign-in.md)                                   |
+| [docs/microsoft-mail.md](../microsoft-mail.md)                                   | [microsoft-mail.md](microsoft-mail.md)                                   |
 | [docs/macos-client.md](../macos-client.md)                                       | [macos-client.md](macos-client.md)                                       |
 | [docs/mail-test-environment.md](../mail-test-environment.md)                     | [mail-test-environment.md](mail-test-environment.md)                     |
 | [docs/message-translation.md](../message-translation.md)                         | [message-translation.md](message-translation.md)                         |

@@ -271,7 +271,10 @@ extension PrivateInboxTests {
         "productAccountId", "pending",
       ])
     let mailbox = try #require((projection["mailboxes"] as? [[String: Any]])?.first)
-    #expect(Set(mailbox.keys) == ["id", "address", "epoch", "authorizationNeeded", "access"])
+    #expect(
+      Set(mailbox.keys) == [
+        "id", "provider", "address", "epoch", "authorizationNeeded", "access",
+      ])
     #expect(mailbox["id"] as? String == MailboxConnection.id(subject: "synthetic-product-subject"))
     #expect(mailbox["access"] as? String == "verified")
   }

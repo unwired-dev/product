@@ -49,6 +49,7 @@ import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
+import { useProviderName } from './mailbox.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { useRemoteContentPolicy } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
@@ -652,7 +653,11 @@ export const fileSize = (
       });
 };
 
-const attachmentStatus = (t: Translate, state: ReceivedAttachment['state']) => {
+const attachmentStatus = (
+  t: Translate,
+  state: ReceivedAttachment['state'],
+  provider: string,
+) => {
   if (state.kind === 'downloading') {
     return t('attachment.downloading');
   }
@@ -660,7 +665,7 @@ const attachmentStatus = (t: Translate, state: ReceivedAttachment['state']) => {
     return t('attachment.oversized');
   }
   return state.kind === 'unavailable'
-    ? t(`attachment.${state.reason}`)
+    ? t(`attachment.${state.reason}`, { provider })
     : undefined;
 };
 
@@ -679,10 +684,13 @@ function AttachmentRow({
   id,
   attachment,
   current,
+  provider,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
   readonly attachment: ReceivedAttachment;
+  // The mailbox provider's name, which status copy refers to.
+  readonly provider: string;
   // False once native input from a previous reader arrives after the message changed.
   readonly current: () => boolean;
 }) {
@@ -694,7 +702,7 @@ function AttachmentRow({
     [settings.locale],
   );
   const { locator, name, size, state } = attachment;
-  const status = attachmentStatus(t, state);
+  const status = attachmentStatus(t, state, provider);
   let actions: ReactNode = null;
   if (state.kind === 'available') {
     actions = (
@@ -800,10 +808,12 @@ function ReceivedAttachments({
   inbox,
   id,
   current,
+  provider,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
   readonly current: () => boolean;
+  readonly provider: string;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -837,6 +847,7 @@ function ReceivedAttachments({
           id={id}
           attachment={attachment}
           current={current}
+          provider={provider}
         />
       ))}
       {attachments.length > shown ? (
@@ -883,6 +894,7 @@ export function GmailMessageBody({
   const [quotedRevision, setQuotedRevision] = useState(0);
   const quotedShown = quotedRevision % 2 === 1;
   const policy = useRemoteContentPolicy(connection);
+  const provider = useProviderName();
   // Consent under Ask belongs to this message's presentation; Gmail IDs repeat across mailboxes.
   const [consent, setConsent] = useState<{
     readonly inbox: GmailInbox;
@@ -956,7 +968,7 @@ export function GmailMessageBody({
         <Text
           accessibilityRole="alert"
           style={[styles.paragraph, { color: colors.secondary }]}>
-          {t(`messageBody.${body.reason}`)}
+          {t(`messageBody.${body.reason}`, { provider })}
         </Text>
         {body.reason === 'missing' ? null : (
           <Action
@@ -1054,6 +1066,7 @@ export function GmailMessageBody({
         inbox={inbox}
         id={id}
         current={current}
+        provider={provider}
       />
     </View>
   );

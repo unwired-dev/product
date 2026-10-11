@@ -21,6 +21,34 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   exercise absent `.groups` in a regression and validate changed parsing in the
   packaged host when its transform differs from the test runtime.
 
+#### Shared palette and visible states
+
+- A change to `theme.ts.palette` that checks text contrast but overlooks the
+  surfaces and state indicators in its mobile and Mac consumers. Trace text,
+  unread dots and selection/focus indicators against their actual adjacent
+  backgrounds in both modes, including selected rows after focus leaves.
+  Recheck the issue's text and non-text contrast thresholds, and compare the
+  changed selection indicator with the pinned baseline: weaker selected/sidebar
+  separation can hide the selected Inbox message or Draft even when every text
+  role passes AA. A focus-only border does not identify persistent selection.
+  Distinguish an introduced regression from an existing non-text contrast
+  limitation under R0; send a fix requiring new component behavior or a change
+  to the locked design scope through the workflow's decision panel.
+- A change to `theme.ts.palette.separator` that checks only decorative dividers
+  and overlooks its use as the sole outline of controls in the mobile and Mac
+  hosts. Trace boundary roles to their actual adjacent surfaces and compare each
+  changed pair with the pinned baseline in both modes; a weaker outline can hide
+  a control even when its label still passes text contrast. Preserve the issue's
+  required visibility without treating an existing sub-3:1 boundary as a new
+  regression under R0.
+- Accepting a changed palette pair because its rounded contrast ratio meets a
+  rounded issue threshold when the requirement is to preserve baseline contrast.
+  Calculate the old and new ratios from their actual colors using full precision,
+  compare before rounding, and round only reported values. Check independent
+  numeric floors too; rounding must not turn a lower value into a pass. If a
+  rounded baseline summary conflicts with the locked mapping or baseline
+  requirement, report the discrepancy and use the workflow's decision panel.
+
 #### Untrusted boundaries fail closed
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
@@ -235,6 +263,33 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `testing/registration-vault.ts` and `testing/registration-product-sync.ts` deriving
+  connection IDs from a bare subject or address without its provider account.
+  Preserve established fixture IDs while scoping unfamiliar and shared addresses
+  by provider, and exercise synchronization and remote removal with those inputs.
+  Otherwise the map-by-ID join publishes another provider's descriptor or purges
+  both providers, while preset-address journeys hide the identity collision.
+- `microsoft-graph.ts.listedMessage` retaining an empty conversation identity
+  instead of falling back to the message ID. Trace the decoded provider metadata
+  through `gmail-inbox.ts.threadMessages` and reopened caches; otherwise unrelated
+  messages with empty conversation identities appear in one Thread. Preserve newest-first grouping
+  for nonempty provider conversation identities.
+- `src/testing/registration-session.ts.withMailboxes` hardcoding one provider's
+  authorization failure for a connection from another provider. Compare the
+  synthetic projection with `registration-flow.ts.pending` and the shared
+  `mailbox-authorization.ts` mapping, including all connections needing
+  authorization and no saved connections. Otherwise Mock Mail Sessions display
+  Gmail recovery for a refused Microsoft grant and misrepresent production behavior.
+- `graph-inbox.ts.quietRound` or another incremental reader discarding a fresh
+  final checkpoint because its page contains no changes. Persist every new
+  provider checkpoint, end the current pass after that commit and use it on the
+  next synchronization, including after relaunch and storage conflict recovery.
+  Otherwise a quiet mailbox keeps consuming an ageing token until it expires.
+- `graph-inbox.ts.advance` following delta continuations without a per-pass
+  bound. Count empty and repeated pages too, retain the last durable checkpoint
+  and release synchronization with retry state at the bound; a later pass must
+  resume it. Otherwise a repeated continuation holds the Inbox semaphore forever.
 
 - `product-sync.ts` mailbox reconciliation treating an epochless connection or queued removal as
   compatible with every live epoch. Pre-epoch connections, descriptors and
@@ -781,6 +836,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `gmail-inbox.ts.boundedMessage` rejecting provider metadata with a generic
+  failure after the provider already recorded an attachment grant refusal.
+  Preserve that authorization rejection through the reader, cached completion
+  and download error paths without parsing oversized MIME metadata; otherwise
+  a message over budget hides the reauthorization needed by the whole Inbox.
 - `html-sanitizer.ts.sanitizeHtml` classifying quoted history as trailing by
   inspecting only later text. Visible images outside a quote also constitute
   inline replies; preserve their quoted questions in the full presentation,

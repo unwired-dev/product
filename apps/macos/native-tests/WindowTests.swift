@@ -151,6 +151,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.buttons[signIn].waitForExistence(timeout: 20))
     first.buttons[signIn].click()
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    // Sign-in connects no mailbox; Gmail and Microsoft mail are offered alike.
+    XCTAssertTrue(first.buttons["Connect Microsoft mail"].exists)
     XCTAssertFalse(text("Gmail connected", in: first).exists)
     if apple {
       XCTAssertTrue(text("relay@privaterelay.example.invalid", in: first).exists)
@@ -489,6 +491,8 @@ final class WindowTests: XCTestCase {
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Apple"].click()
+    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    first.buttons["Authorize Gmail"].click()
     XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Only Apple opens this Product Account", in: first).exists)
     first.buttons["Link Google sign-in"].click()

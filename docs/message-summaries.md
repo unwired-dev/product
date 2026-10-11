@@ -13,9 +13,9 @@ system language model. There is no cloud or product-backend model fallback.
   [Mail Assistance Enablement](#mail-assistance-enablement) is on. Nothing
   runs until the person chooses it, and opening a message never starts inference.
 - The summary reads only the subject and the readable text already shown in the
-  reader: the plain-text presentation of a Gmail body from the encrypted cache, or
+  reader: the plain-text presentation of a Gmail or Microsoft body from the encrypted cache, or
   the preview fixture's body. It never fetches a missing body, more of a Thread,
-  attachments, Inline Images or remote content, and it makes no Gmail request.
+  attachments, Inline Images or remote content, and it makes no provider request.
 - Subject and body text are shortened so the complete JSON request, including framing and escaping, fits within 6,000 characters (never cutting a surrogate pair). A cut summary
   says that only the beginning of the long message was summarized.
 - While the model works, the reader shows progress and **Cancel**. Cancelling
@@ -46,7 +46,9 @@ On-Device Mail Assistance action, **Summarize**, Draft
 - **On-device assistance** on the account page turns it on or off for the
   signed-in Product Account's Mail Profile on this device. Only the
   [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
-  choice. Turning it on starts nothing; each action is still an explicit request.
+  choice. Readers use their window’s Profile consent, while Account settings and
+  Drafts retain the Default consent path until Profile lifecycle arrives. Turning
+  it on starts nothing; each action is still an explicit request.
 - While assistance is on, **Check Apple Intelligence availability** explicitly
   checks whether the system model can run, without generating text or prewarming
   it. The account page reports eligibility, Apple Intelligence configuration,
@@ -55,8 +57,8 @@ On-Device Mail Assistance action, **Summarize**, Draft
 - A device choice that is still saving or could not be saved is shown as such,
   with an explicit retry for the failed save. Turning assistance off still closes
   its actions immediately, even when saving fails.
-- Turning it off, in any window, cancels in-flight assistance and forgets every
-  shown preview, including any account-page availability status. A captured Draft
+- Turning it off, in any window, cancels that Profile’s in-flight assistance and
+  forgets its shown previews, including its account-page availability status. A captured Draft
   request is retired, so turning it on again does not restart it.
 - It is stored only in this device's Keychain, never synchronized or restored to another device.
   A Pending Device, or an account whose sign-out or deletion is under way, has

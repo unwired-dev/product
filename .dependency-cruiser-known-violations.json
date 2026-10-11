@@ -34,27 +34,6 @@
   },
   {
     "type": "cycle",
-    "from": "packages/mail-core/src/gmail-actions.ts",
-    "to": "packages/mail-core/src/gmail-inbox.ts",
-    "unresolvedTo": "./gmail-inbox.ts",
-    "dependencyTypes": ["local", "type-only", "import"],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "packages/mail-core/src/gmail-inbox.ts",
-        "dependencyTypes": ["local", "type-only", "import"]
-      },
-      {
-        "name": "packages/mail-core/src/gmail-actions.ts",
-        "dependencyTypes": ["local", "import"]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
     "from": "packages/mail-core/src/message-body.ts",
     "to": "packages/mail-core/src/message-presentation.ts",
     "unresolvedTo": "./message-presentation.ts",
@@ -562,17 +541,6 @@
     "to": "packages/localization/catalogs.bundle/languages.json",
     "unresolvedTo": "../catalogs.bundle/languages.json",
     "dependencyTypes": ["local", "dynamic-import"],
-    "rule": {
-      "severity": "error",
-      "name": "tests-through-entrypoints"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "packages/mail-core/test/product-sync.test.ts",
-    "to": "packages/mail-core/src/registration-vault.ts",
-    "unresolvedTo": "../src/registration-vault.ts",
-    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "tests-through-entrypoints"

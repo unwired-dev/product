@@ -1,3 +1,4 @@
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -5,7 +6,7 @@ import type { Selection } from './inbox.tsx';
 
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
-import { InboxProvider } from './mailbox.tsx';
+import { InboxProvider, ProfileScope } from './mailbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
@@ -16,7 +17,27 @@ const styles = StyleSheet.create({
   detail: { flex: 1 },
 });
 
-export function PreviewWindow({ windowId }: { readonly windowId: string }) {
+type WindowProps = Readonly<{
+  windowId: string;
+  // The window's Mail Profile. Native windows name none and show the Default Profile until #647
+  // lets the person open another.
+  profile?: string;
+}>;
+
+export function PreviewWindow({
+  windowId,
+  profile = defaultProfile,
+}: WindowProps) {
+  return (
+    <InboxProvider>
+      <ProfileScope profile={profile}>
+        <WindowContents windowId={windowId} />
+      </ProfileScope>
+    </InboxProvider>
+  );
+}
+
+function WindowContents({ windowId }: { readonly windowId: string }) {
   const [selected, setSelected] = useState<Selection>();
   // The window's one composer replaces the reader while it is open.
   const [composing, setComposing] = useState<string>();
@@ -31,49 +52,47 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
     setSelected(undefined);
   };
   return (
-    <InboxProvider>
-      <View
-        testID={`inbox-window-${windowId}`}
-        style={styles.window}>
-        <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
-          <Inbox
-            composing={composing}
-            selected={selected}
+    <View
+      testID={`inbox-window-${windowId}`}
+      style={styles.window}>
+      <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+        <Inbox
+          composing={composing}
+          selected={selected}
+          onClose={close}
+          onCompose={compose}
+          onSelect={(selection) => {
+            setComposing(undefined);
+            setSelected(selection);
+          }}
+        />
+      </View>
+      <View style={styles.detail}>
+        {composing === undefined ? (
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
             onClose={close}
             onCompose={compose}
-            onSelect={(selection) => {
-              setComposing(undefined);
-              setSelected(selection);
-            }}
           />
-        </View>
-        <View style={styles.detail}>
-          {composing === undefined ? (
-            <MessageDetail
-              id={selected?.id}
-              mailbox={selected?.mailbox}
-              onClose={close}
-              onCompose={compose}
-            />
-          ) : (
-            <DraftComposer
-              id={composing}
-              onClose={() => {
-                setComposing(undefined);
-              }}
-              onRebind={setComposing}
-            />
-          )}
-        </View>
+        ) : (
+          <DraftComposer
+            id={composing}
+            onClose={() => {
+              setComposing(undefined);
+            }}
+            onRebind={setComposing}
+          />
+        )}
       </View>
-    </InboxProvider>
+    </View>
   );
 }
 
-export function InboxWindow({ windowId }: { readonly windowId: string }) {
+export function InboxWindow(props: WindowProps) {
   return (
     <RegistrationGate>
-      <PreviewWindow windowId={windowId} />
+      <PreviewWindow {...props} />
     </RegistrationGate>
   );
 }

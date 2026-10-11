@@ -80,7 +80,7 @@ function App({ drafts }: { readonly drafts: ReturnType<typeof createDrafts> }) {
       value={{
         mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
         openAccount: () => undefined,
-        authorizeGmail: () => Promise.resolve(),
+        authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
       }}>
       <InboxProvider

@@ -53,6 +53,36 @@ The [caller inventory and release evidence requirements](../private-inbox-storag
 remain implementer-readable. Multiple-Profile creation stays unavailable through
 #645 and #646; #647 owns synchronized assignments and incompatible-client fencing.
 
+## Profile-scoped reading
+
+Issue #645 carries decoded ownership into `createMailboxes` snapshots and scopes
+`inboxMessages` and `createGmailSearch` with an explicit `{ profile, mailbox? }`.
+Both hosts filter reader access through their `ProfileScope` and `MailboxScope`;
+unknown or mismatched ownership has no readable mailbox. Gmail and Microsoft Graph
+connections, including authorization notices, use the same Profile filter. Graph
+bodies and attachments retain their connection scope; online provider search
+remains Gmail-only in this slice. `readingProfile` decodes
+the mobile `profileId` URL parameter and native selectors: absent legacy values
+mean Default, malformed or repeated values use an
+empty selector that cannot match a decoded nonempty connection owner. Mobile
+message selection and reader close carry that selector through their routes.
+Mac initial props can name a Profile while native windows still open Default.
+The Profile provider is keyed by its decoded selector so reused host views retire
+their previous reader, query, mailbox choice and presentation consent on replacement.
+
+Connection movement replaces the listing's ownership projection without changing
+the connection-owned Inbox or encrypted cache layout. Background synchronization
+continues account-wide. Reader/cache access and search remain confined to the
+currently projected owner. Account management and opaque Convex connection APIs
+remain Product Account-wide; Convex receives no Profile assignments. Drafts and
+delivery consume the staged connection-Profile boundaries below. Profile
+creation, durable assignments, restoration preferences and older-client fencing
+remain #647 work; this is not qualification of that lifecycle protocol.
+
+The host tests exercise substituted ownership and routing with real shared
+stores. Native version-27 and real provider/Profile journeys remain required
+release evidence, independent of these deterministic checks.
+
 ## Drafts, delivery and notifications staging
 
 Issue #646 scopes shared TypeScript services to the decoded connection Profile:
@@ -66,7 +96,9 @@ every connection into the Default Profile.
 
 Draft records and windows do not persist a Profile. `profileOf` therefore resolves
 the current connection assignment and falls back to `defaultProfile` for an
-unlisted connection or unified Inbox. This is a staged Default Profile boundary,
+unlisted connection. New Message from the unified Inbox uses the window’s explicit
+reading Profile, while a selected connection supplies its current Profile. This
+is a staged connection-Profile boundary,
 not proof of isolation during synchronized connection transfer or multi-Profile
 window restoration. Those ownership and lifetime fences belong to #647 before
 another Profile can be created.
@@ -89,6 +121,16 @@ it would also overlap the native registration migration in PR #866. This follows
 the explicitly retained backend/native caller inventory by Profile Record Scope.
 The operational [Mail Profiles checklist](../private-inbox-storage.md#mail-profiles)
 retains that prerequisite and the required real-provider/native release evidence.
+
+Reader Mail Assistance uses the reading Profile’s device-local consent, including
+Translation, and cancels retained work when that consent is revoked or the reading
+Profile changes. Account settings and Draft consent retain their staged Default
+Profile paths until #647 supplies their ownership and lifecycle.
+
+The merge integration panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`)
+selected reader-specific consent and lifetime checks now, 2–1, over deferring them
+with the Account/Draft paths. This carries #788’s device-local consent into #645’s
+explicit reading scopes without enabling Profile creation or transfer.
 
 ## Gmail mailbox cache
 
@@ -253,10 +295,12 @@ identity binds Product Account, connection, provider subject, mailbox address,
 message ID and source URL into both the digest filename and AES-GCM associated
 data. Gmail message content is immutable: the normalized request reference within that
 stable message identifies the resource revision. The Default Profile foundation
-leaves this cache layout intact. Optional Profiles are launch work under
-[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md); their
-remaining migration must add Profile isolation without reusing another Profile's
-entries.
+leaves this cache layout intact. [Profile-scoped reading](#profile-scoped-reading)
+gates access through the connection's current projected owner. Optional Profiles
+are launch work under
+[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md); #647 still
+owns durable assignments and lifecycle qualification. Another Profile's entries
+remain unavailable through the scoped reader.
 
 The native file-locked vault counts all connection remote directories toward a
 separate 250 MB stored-byte limit. It plans LRU eviction before deleting files
@@ -294,7 +338,7 @@ other known private data. Completed per-connection cleanup clears its retry mark
 The saved registration is one device-only Keychain record per host and Google client.
 It holds the Product Sign-In's renewal credential, this installation's identifier,
 the Product Account receipt with its Trusted or Pending Device credential, each
-Mailbox Connection's Gmail credential and receipt, and any removal waiting for its
+Mailbox Connection's provider credential and receipt, and any removal waiting for its
 answer. Product Sync keys and an open enrollment request are separate Keychain items
 of the same account.
 
@@ -320,3 +364,13 @@ mailbox reconciliation through purpose-named operations; native persists keys
 before returning the publication payload and applies mailbox bookkeeping deltas to
 the latest saved record. Unreadable Product Sync items fail that projection closed
 without failing registration. See the [Product Sync companion](private-product-sync.md#initialization-and-relaunch).
+
+## Microsoft mailbox cache
+
+Microsoft mail uses the same encrypted mailbox/body and protected attachment
+formats and budgets as Gmail. Its provider-scoped connection ID gives it a distinct
+directory even if another provider issues the same subject or message ID. The
+cache owner still binds Product Account, verified subject, address and incarnation;
+every operation retains the native generation and protected-data fences. Existing
+Gmail directory/record IDs and legacy adoption remain unchanged. See
+[the Graph companion](microsoft-mail.md) for transport and synchronization.

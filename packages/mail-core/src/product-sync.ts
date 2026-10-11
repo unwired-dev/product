@@ -6,14 +6,19 @@ import * as Random from 'effect/Random';
 import * as Schema from 'effect/Schema';
 
 import type {
+  PendingEnrollment,
+  TrustedDeviceSummary,
+} from './registration-replies.ts';
+import type {
   MailboxChange,
   MailboxDescriptor,
   NativeRegistrationVault,
   ProductSyncState,
   RegistrationRecord,
 } from './registration-vault.ts';
-import type { PrivateSyncStateSchema } from './registration.ts';
+import type { MailProvider, PrivateSyncStateSchema } from './registration.ts';
 
+import { createDeviceTrustProgram } from './product-sync-devices.ts';
 import {
   backendCode,
   endsAccess,
@@ -39,7 +44,6 @@ const KeyRing = Schema.Struct({
   recoveryVerifier: Schema.NonEmptyString,
   deviceKey: Schema.NonEmptyString,
 });
-const Admission = Schema.Struct({ admitted: Schema.Boolean });
 const Opened = Schema.Array(Schema.NullOr(MailboxDescriptorSchema));
 type PrivateSyncState = typeof PrivateSyncStateSchema.Type;
 
@@ -53,7 +57,12 @@ type Vault = NonNullable<ProductSyncState['vault']>;
 type Removal = Vault['removals'][number];
 // One of this device's connections as synchronization sees it.
 type Connection = Vault['mailboxes'][number] &
-  Readonly<{ address: string; epoch?: string; usable: boolean }>;
+  Readonly<{
+    provider: MailProvider;
+    address: string;
+    epoch?: string;
+    usable: boolean;
+  }>;
 type Stored = Map<
   string,
   Readonly<{ descriptor?: MailboxDescriptor; updatedAt: number }>
@@ -223,12 +232,19 @@ const keyState = (vault: Vault, holdsKey: boolean): PrivateSyncState => {
   return { privateSync: holdsKey ? 'ready' : 'enrollment-needed' };
 };
 
+// Other devices' requests and the account's other Trusted Devices, as this process last listed them.
+export type ListedDevices = Readonly<{
+  requests: ReadonlyArray<typeof PendingEnrollment.Type>;
+  trustedDevices: ReadonlyArray<typeof TrustedDeviceSummary.Type>;
+}>;
+
 // Other devices this one can approve or remove, only while it holds the account keys.
-const deviceState = (sync: ProductSyncState): PrivateSyncState => {
+const deviceState = ({
+  requests,
+  trustedDevices,
+}: ListedDevices): PrivateSyncState => {
   // The newest request Convex listed as open; it rejects an approval that arrives too late.
-  const request = sync.requests.reduce<
-    (typeof sync.requests)[number] | undefined
-  >(
+  const request = requests.reduce<(typeof requests)[number] | undefined>(
     (newest, next) =>
       newest === undefined || newest.expiresAt < next.expiresAt ? next : newest,
     undefined,
@@ -236,14 +252,17 @@ const deviceState = (sync: ProductSyncState): PrivateSyncState => {
   return {
     ...(request === undefined
       ? {}
-      : { enrollmentRequest: request.id, enrollmentDevice: request.device }),
-    ...(sync.trustedDevices.length === 0
+      : {
+          enrollmentRequest: request.pendingDeviceId,
+          enrollmentDevice: request.displayName,
+        }),
+    ...(trustedDevices.length === 0
       ? {}
       : {
           trustedDevices: JSON.stringify(
-            sync.trustedDevices.map(({ id, name, registeredAt }) => ({
+            trustedDevices.map(({ id, displayName, registeredAt }) => ({
               id,
-              name,
+              name: displayName,
               registeredAt,
             })),
           ),
@@ -252,7 +271,10 @@ const deviceState = (sync: ProductSyncState): PrivateSyncState => {
 };
 
 // The status values this device's Product Sync state shows.
-export function privateSyncState(value: RegistrationRecord): PrivateSyncState {
+export function privateSyncState(
+  value: RegistrationRecord,
+  listed: ListedDevices | undefined,
+): PrivateSyncState {
   const sync = value.productSync;
   if (sync === undefined) {
     return {};
@@ -291,7 +313,9 @@ export function privateSyncState(value: RegistrationRecord): PrivateSyncState {
   );
   return {
     ...keyState(vault, sync.deviceKey),
-    ...(vault.published && sync.deviceKey ? deviceState(sync) : {}),
+    ...(vault.published && sync.deviceKey && listed !== undefined
+      ? deviceState(listed)
+      : {}),
     // A prepared removal shows its replacement Recovery Key until it is confirmed or cancelled.
     ...(vault.revocation === undefined
       ? {}
@@ -311,15 +335,16 @@ export function privateSyncState(value: RegistrationRecord): PrivateSyncState {
 // End-to-End Encrypted Product Sync: initialization, admission and mailbox descriptors. Native code
 // holds every key and seals and opens each record; this decides what to read and write.
 export function createProductSyncProgram(vault: NativeRegistrationVault) {
-  const { native, step, saved, convex, convexReply } = nativeSteps(vault);
-
-  const syncState = saved.pipe(
-    Effect.flatMap(({ productSync }) =>
-      productSync === undefined || productSync === 'unreadable'
-        ? failWith('unavailable')
-        : Effect.succeed(productSync),
-    ),
-  );
+  const {
+    native,
+    step,
+    saved,
+    sync: syncState,
+    convex,
+    convexReply,
+  } = nativeSteps(vault);
+  const devices = createDeviceTrustProgram(vault);
+  const { adoptRotation } = devices;
   const freshEpoch = Effect.gen(function* () {
     const parts = [];
     for (let index = 0; index < 4; index += 1) {
@@ -421,7 +446,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       return put(
         removal.record,
         {
-          provider: 'gmail',
+          provider: removal.provider,
           address: removal.address,
           epoch: removal.epoch ?? legacyEpoch,
           removed: true,
@@ -460,6 +485,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         : [
             {
               ...entry,
+              provider: mailbox.provider,
               address: mailbox.address,
               ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
               usable: !mailbox.authorizationNeeded,
@@ -509,7 +535,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       change(connection.id, { epoch });
       const winner = yield* put(
         connection.record,
-        { provider: 'gmail', address: connection.address, epoch },
+        { provider: connection.provider, address: connection.address, epoch },
         stored.get(connection.record)?.updatedAt,
       );
       wrote = true;
@@ -643,13 +669,14 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
   const reenrollWithoutKey = Effect.gen(function* () {
     let sync = yield* syncState;
     if (sync.vault?.revocation?.submitted === true) {
-      yield* step(vault.adoptRotation);
+      yield* adoptRotation;
       sync = yield* syncState;
     }
     if (holdsUnsettledKeys(sync.vault)) {
       return false;
     }
     yield* step(vault.reenroll);
+    yield* devices.forgetDevices;
     return true;
   });
 
@@ -670,10 +697,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     }
     // A Pending Device first has to be admitted; until then it reads and writes nothing.
     if (sync.pending) {
-      if (
-        sync.materialInitialized !== true ||
-        !(yield* native(vault.admitPendingDevice, Admission)).admitted
-      ) {
+      if (sync.materialInitialized !== true || !(yield* devices.admit)) {
         return;
       }
       sync = yield* syncState;
@@ -682,14 +706,14 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       return;
     }
     if (sync.vault?.published === true) {
-      yield* step(vault.adoptRotation);
+      yield* adoptRotation;
     } else if (!(yield* initialize)) {
       return;
     }
     // A removal that landed meanwhile seals the pending changes again at its epoch.
     const readback = yield* mailboxes.pipe(
       Effect.catchTag('KeyRotationRequired', () =>
-        step(vault.adoptRotation).pipe(Effect.andThen(mailboxes)),
+        adoptRotation.pipe(Effect.andThen(mailboxes)),
       ),
     );
     yield* step(() =>
@@ -699,7 +723,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         readback.epochs,
       ),
     );
-    yield* step(vault.refreshDevices);
+    yield* devices.refreshDevices;
   });
 
   // Synchronizes with this process's verified Product Sign-In. Product Sync stays pending on
@@ -721,5 +745,5 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     Effect.ensuring(step(vault.finishSynchronization).pipe(Effect.ignore)),
   );
 
-  return { synchronize };
+  return { synchronize, ...devices };
 }

@@ -5,11 +5,13 @@ import * as Schema from 'effect/Schema';
 import type { NativeMailAssistance } from '../assistance-enablement.ts';
 import type {
   MailboxConnection,
+  MailProvider,
   NativeRegistration,
   RegistrationSnapshot,
   SignInProvider,
 } from '../registration.ts';
 
+import { unavailableReason } from '../mailbox-authorization.ts';
 import { defaultProfile, mailboxesOf } from '../registration.ts';
 
 // The Mock Mail Session scenarios this fake implements, each one also in
@@ -109,11 +111,27 @@ const account = (snapshot: SignedIn) => ({
     : { mailboxes: snapshot.mailboxes }),
 });
 
-// The synthetic Google mailboxes and the opaque connection IDs native code would give them.
+// The synthetic Google mailboxes and the Microsoft one, with the opaque connection IDs native code
+// would give them.
 export const syntheticMailboxes = {
   'alex@example.invalid': 'synthetic-connection-alex',
   'other@example.invalid': 'synthetic-connection-other',
+  'casey@example.invalid': 'synthetic-connection-casey',
 } as const;
+const microsoftAddress = 'casey@example.invalid';
+
+// The mailbox an authorization reaches: the Microsoft one, the Google sign-in's suggested Gmail,
+// or the Google account the person chose.
+const authorizedAddress = (
+  provider: MailProvider,
+  suggested: boolean,
+  chosen: SyntheticAddress,
+): SyntheticAddress => {
+  if (provider === 'microsoft-graph') {
+    return microsoftAddress;
+  }
+  return suggested ? 'alex@example.invalid' : chosen;
+};
 export type SyntheticAddress = keyof typeof syntheticMailboxes;
 
 // Scenarios whose first Gmail session grants access; the others need another mailbox.
@@ -133,7 +151,8 @@ const withoutRequest = (snapshot: SignedIn): SignedIn => {
 };
 
 // The account with these connections: connected while one verified, saved-Inbox-only while every
-// usable one is cached, and otherwise waiting for Gmail.
+// usable one is cached, and otherwise waiting for the first connection's provider, as the
+// registration flow reports.
 const withMailboxes = (
   snapshot: SignedIn,
   mailboxes: readonly MailboxConnection[],
@@ -167,7 +186,9 @@ const withMailboxes = (
     ...rest,
     ...listed,
     ...synchronized,
-    ...(mailboxes.length === 0 ? {} : { reason: 'gmail-unavailable' }),
+    ...(mailboxes[0] === undefined
+      ? {}
+      : { reason: unavailableReason(mailboxes[0].provider) }),
   };
 };
 
@@ -196,6 +217,7 @@ const connecting = (
 ): readonly MailboxConnection[] => {
   const mailbox = {
     id: syntheticMailboxes[address],
+    provider: address === microsoftAddress ? 'microsoft-graph' : 'gmail',
     address,
     state: 'connected',
     profile: defaultProfile,
@@ -351,7 +373,7 @@ export function createMockRegistrationSession(
       };
       return Promise.resolve(snapshot);
     },
-    addMailbox: (chooseAccount) => {
+    addMailbox: (provider, chooseAccount) => {
       if (snapshot.kind === 'signed-out') {
         return Promise.reject(new Error('Synthetic Product Account required'));
       }
@@ -364,16 +386,17 @@ export function createMockRegistrationSession(
         return Promise.reject(new Error('Synthetic authorization interrupted'));
       }
       const current = mailboxesOf(snapshot);
-      const suggested = !chooseAccount && current.length === 0;
+      const suggested =
+        provider === 'gmail' && !chooseAccount && current.length === 0;
       if (suggested && !grantsFirstMailbox.has(scenario)) {
         return Promise.resolve(snapshot);
       }
-      const address = suggested ? 'alex@example.invalid' : chosen;
+      const address = authorizedAddress(provider, suggested, chosen);
       syncAccount(snapshot.productAccountId).mailboxes.add(address);
       snapshot = withMailboxes(snapshot, connecting(current, address));
       return Promise.resolve(snapshot);
     },
-    authorizeGmail: (connection) => {
+    authorizeMailbox: (connection) => {
       if (
         snapshot.kind === 'signed-out' ||
         snapshot.kind === 'device-pending'
@@ -651,7 +674,8 @@ export function createMockRegistrationSession(
     choose: (address: SyntheticAddress) => {
       chosen = address;
     },
-    // Gmail refuses this connection's grant at its next verification; the others stay as they are.
+    // The provider refuses this connection's grant at its next verification; the others stay as
+    // they are.
     expire: (address: SyntheticAddress) => {
       if (
         snapshot.kind !== 'signed-out' &&

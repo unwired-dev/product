@@ -1,12 +1,16 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
+import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { Outbox } from '@private-email/mail-core/outbox';
 import type { ReactNode } from 'react';
 
 import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
 import {
   createGmailSearch,
+  profileMailboxes,
+  readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import {
   createContext,
   use,
@@ -23,6 +27,7 @@ import type {
   MailboxList,
 } from './private-storage.ts';
 
+import { useLocalization } from './localization.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
@@ -33,6 +38,8 @@ import {
 const MailboxesContext = createContext<MailboxList>(defaultMailboxes);
 const DraftsContext = createContext<Drafts>(defaultDrafts);
 const OutboxContext = createContext<Outbox>(defaultOutbox);
+// The Mail Profile whose mail the hooks below read.
+const ProfileContext = createContext(defaultProfile);
 // The mailbox a reader or status belongs to.
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
 
@@ -162,17 +169,43 @@ export function useDrafts() {
   return useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
 }
 
-// Every mailbox the Inbox shows, in the order the connections were added.
+// Scopes the Inbox hooks below to one Mail Profile, such as a window's or a deep link's.
+export function ProfileScope({
+  profile,
+  children,
+}: {
+  readonly profile: unknown;
+  readonly children: ReactNode;
+}) {
+  const owner = readingProfile(profile);
+  return (
+    <ProfileContext
+      key={owner}
+      value={owner}>
+      {children}
+    </ProfileContext>
+  );
+}
+
+export function useProfile() {
+  return use(ProfileContext);
+}
+
+// Every mailbox of the scoped Profile the Inbox shows, in the order the connections were added.
+// Another Profile's mailboxes never appear, so readers and searches cannot reach them.
 export function useMailboxes() {
   const mailboxes = use(MailboxesContext);
-  return useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
+  const profile = use(ProfileContext);
+  const all = useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
+  return useMemo(() => profileMailboxes(all, profile), [all, profile]);
 }
 
 export function useReloadMailboxes() {
   return use(MailboxesContext).load;
 }
 
-// Scopes the Inbox hooks below to one mailbox; without it, `fallback` shows instead.
+// Scopes the Inbox hooks below to one of the scoped Profile's mailboxes; without it, `fallback`
+// shows instead.
 export function MailboxScope({
   id,
   children,
@@ -192,6 +225,12 @@ export function MailboxScope({
 
 export function useMailbox() {
   return use(MailboxContext);
+}
+
+// The scoped mailbox's provider name, which copy about it uses; the preview fixture reads as Gmail.
+export function useProviderName() {
+  const { t } = useLocalization();
+  return t(`mailProviders.${use(MailboxContext)?.provider ?? 'gmail'}`);
 }
 
 // The scoped mailbox's Inbox state.
@@ -264,7 +303,7 @@ export function useSavedBodies(
 export function useGmailSearch(
   shown: readonly InboxMailbox[],
   query: string,
-  scope: string | undefined,
+  scope: ViewScope,
 ) {
   const [search, setSearch] = useState(() =>
     createGmailSearch(shown, query, scope),

@@ -1,6 +1,10 @@
 import { english } from '@private-email/localization';
 
-import type { RegistrationSnapshot, SignInOffer } from '../src/registration.ts';
+import type {
+  NativeRegistration,
+  RegistrationSnapshot,
+  SignInOffer,
+} from '../src/registration.ts';
 
 import scenarios from '../../../scripts/mock-mail-scenarios.json' with { type: 'json' };
 import {
@@ -29,8 +33,20 @@ import {
 // The connection list native code reports for one connected synthetic mailbox.
 const connectedTo = (address: keyof typeof syntheticMailboxes) =>
   JSON.stringify([
-    { id: syntheticMailboxes[address], address, state: 'connected' },
+    {
+      id: syntheticMailboxes[address],
+      provider: 'gmail',
+      address,
+      state: 'connected',
+    },
   ]);
+
+// A Product Account signed in with Google whose suggested Gmail mailbox was then connected.
+const connectedAccount = async (native: NativeRegistration) => {
+  const store = createRegistration(native);
+  await store.register('google');
+  await store.addMailbox();
+};
 
 // The store state after an operation that finished without a failure.
 const settled = (snapshot: RegistrationSnapshot) => ({
@@ -88,6 +104,7 @@ describe('product registration', () => {
       .mockImplementation(session.native.signOut);
     const store = createRegistration({ ...session.native, restore, signOut });
     await store.register('google');
+    await store.addMailbox();
     await store.signOut();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'connected' },
@@ -159,8 +176,10 @@ describe('product registration', () => {
       addMailbox: () => Promise.resolve(connected),
       restore: () => Promise.resolve(connected),
     });
+    await store.register('google');
+    expect(store.getSnapshot().snapshot.kind).toBe('mailbox-needed');
     for (const operation of [
-      () => store.register('google'),
+      () => store.addMailbox(),
       () => store.restore(),
       () => store.addMailbox(),
     ]) {
@@ -197,7 +216,7 @@ describe('product registration', () => {
       snapshot: { kind: 'device-pending' },
       failed: false,
     });
-    await outsider.addMailbox(true);
+    await outsider.addMailbox('gmail', true);
     expect(outsider.getSnapshot()).toMatchObject({
       snapshot: { kind: 'device-pending' },
       failed: true,
@@ -244,7 +263,7 @@ describe('product registration', () => {
       expect(relaunched.getSnapshot().snapshot).toStrictEqual(
         first.getSnapshot().snapshot,
       );
-      await relaunched.addMailbox(true);
+      await relaunched.addMailbox('gmail', true);
       expect(relaunched.getSnapshot().snapshot).toStrictEqual({
         kind: 'connected',
         signInProvider: provider,
@@ -260,6 +279,11 @@ describe('product registration', () => {
     const session = createMockRegistrationSession('registration-interrupted');
     const store = createRegistration(session.native);
     await store.register('apple');
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'mailbox-needed', signInProvider: 'apple' },
+      failed: false,
+    });
+    await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'mailbox-needed', signInProvider: 'apple' },
       failed: true,
@@ -303,6 +327,7 @@ describe('product registration', () => {
       restore: () => nativeRestore(),
     });
     await store.register('google');
+    await store.addMailbox();
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
     await store.restoreOnce();
     const verified = store.getSnapshot();
@@ -327,7 +352,7 @@ describe('product registration', () => {
     expect.hasAssertions();
     const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
     const session = createMockRegistrationSession('registration-success');
-    await createRegistration(session.native).register('google');
+    await connectedAccount(session.native);
     let nativeRestore = (): Promise<unknown> =>
       Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
     let restores = 0;
@@ -395,6 +420,7 @@ describe('product registration', () => {
       restore: () => restore(),
     });
     await store.register('google');
+    await store.addMailbox();
     await store.restoreOnce();
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
     restore = () =>
@@ -425,7 +451,8 @@ describe('product registration', () => {
         return blocked.promise;
       },
     });
-    const registering = store.register('google');
+    await store.register('google');
+    const registering = store.addMailbox();
     await started.promise;
     const activating = store.resume();
     blocked.reject(
@@ -448,7 +475,7 @@ describe('product registration', () => {
     async (_phase, action, previousAttempts) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
-      await createRegistration(session.native).register('google');
+      await connectedAccount(session.native);
       const blocked = Promise.withResolvers<unknown>();
       const started = Promise.withResolvers<boolean>();
       const locked = Object.assign(new Error('locked'), { code: 'locked' });
@@ -493,7 +520,7 @@ describe('product registration', () => {
       addMailbox: () => Promise.resolve({ kind: 'connected' }),
     });
     const registration = store.register('google');
-    await store.addMailbox(true);
+    await store.addMailbox('gmail', true);
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out' },
       busy: true,
@@ -501,6 +528,12 @@ describe('product registration', () => {
     });
     gate.resolve(undefined);
     await registration;
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'mailbox-needed' },
+      busy: false,
+      failed: false,
+    });
+    await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'mailbox-needed' },
       busy: false,
@@ -513,6 +546,7 @@ describe('product registration', () => {
     const session = createMockRegistrationSession('registration-link');
     const store = createRegistration(session.native);
     await store.register('apple');
+    await store.addMailbox();
     // A Gmail grant never links the mailbox's Google identity as a sign-in.
     expect(store.getSnapshot().snapshot).not.toHaveProperty('alternateSignIn');
     await store.link('google');
@@ -545,6 +579,7 @@ describe('product registration', () => {
     const session = createMockRegistrationSession('registration-success');
     const store = createRegistration(session.native);
     await store.register('google');
+    await store.addMailbox();
     const presented = store.getSnapshot().snapshot;
     await store.confirmRecoveryKey('0000');
     expect(store.getSnapshot()).toStrictEqual({
@@ -668,6 +703,7 @@ describe('product registration', () => {
       createMockRegistrationSession('registration-success', account).native,
     );
     await lost.register('google');
+    await lost.addMailbox();
     const session = createMockRegistrationSession(
       'registration-enrollment',
       account,
@@ -809,6 +845,7 @@ describe('product registration', () => {
     );
     await current.register('google');
     await other.register('google');
+    await other.addMailbox();
     const deleted = {
       snapshot: { kind: 'signed-out', notice: 'deleted' },
       busy: false,

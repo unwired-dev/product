@@ -70,6 +70,8 @@ UNWIRED_GOOGLE_CLIENT_ID='<native client ID for dev.unwired.mail>'
 UNWIRED_CONVEX_URL='https://<deployment>.convex.cloud'
 # Optional: the Cloud Pub/Sub topic for Gmail push wakes.
 UNWIRED_GMAIL_PUBSUB_TOPIC='projects/<project>/topics/<topic>'
+# Optional: the Microsoft Entra application for Microsoft mail.
+UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>'
 ```
 
 The loader reads these release fields and any selected `UNWIRED_MOCK_SCENARIO`

@@ -150,11 +150,19 @@ final class UnwiredRegistration: NSObject {
         let base = URL(string: deployment), base.scheme == "https", base.host != nil,
         base.user == nil, base.password == nil, base.query == nil, base.fragment == nil
       else { throw RegistrationError.unavailable }
+      // Microsoft mail needs the public-client application registered for this redirect scheme.
+      let microsoftClientID = Self.microsoftClientID
+      let authentication = MicrosoftAuthentication()
       let store = RegistrationStore(
         keys: DeviceKeychain(service: bundle + ".google-registration"),
         deployment: deployment, clientID: clientID,
         provider: NativeGoogleRegistrationProvider(clientID: clientID),
         apple: NativeAppleRegistrationProvider(audience: bundle),
+        microsoft: microsoftClientID.isEmpty
+          ? nil
+          : GraphMailProvider(
+            clientID: microsoftClientID, callbackScheme: "msauth." + bundle,
+            authenticate: { try await authentication.authenticate($0, callbackScheme: $1) }),
         productSync: Self.productSync(base: base),
         deviceRevoked: { product in
           try await Self.mutation(
@@ -189,19 +197,6 @@ final class UnwiredRegistration: NSObject {
     return cache
   }
 
-  // Convex error codes the registration flow distinguishes; others are unavailable.
-  private static let backendErrors: [String: RegistrationError] = [
-    "SIGN_IN_IDENTITY_OWNED": .identityOwned,
-    "SIGN_IN_PROVIDER_ALREADY_LINKED": .identityOwned,
-    "SIGN_IN_RECENT_AUTHENTICATION_REQUIRED": .staleAuthentication,
-    "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
-    "SIGN_IN_NOT_LINKED": .invalidIdentity,
-    "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
-    "PENDING_DEVICE_UNAVAILABLE": .pendingDeviceUnavailable,
-    "TRUSTED_DEVICE_REVOKED": .revoked,
-    "PRODUCT_ACCOUNT_DELETED": .deleted,
-  ]
-
   // The deployment's HTTP actions live on its .convex.site host.
   private static func site(_ base: URL, path: String) throws -> URL {
     guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
@@ -214,8 +209,8 @@ final class UnwiredRegistration: NSObject {
   }
 
   // The deployment's Convex HTTP API for functions, or one of its HTTP action routes. The same
-  // transport serves TypeScript's credentialed calls and, until #758, native Draft sync,
-  // enrollment and revocation.
+  // transport serves TypeScript's credentialed calls, the vault's own proof-carrying calls and
+  // native Draft sync.
   @MainActor static func send(base: URL, _ request: BackendRequest) async throws -> (Int, Data) {
     var urlRequest: URLRequest
     var body = request.args
@@ -252,7 +247,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   // A successful null result is nil. Without an identity, only functions that take the Trusted
-  // Device credential as their proof can succeed. Temporary for native callers until #758.
+  // Device credential as their proof can succeed.
   @MainActor private static func optionalResult<Value: Decodable>(
     base: URL, identity: ProductSignInIdentity?, path: String, args: [String: Any],
     function: String = "mutation"
@@ -274,7 +269,8 @@ final class UnwiredRegistration: NSObject {
     {
       throw refusal
     }
-    throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
+    throw result.errorData.flatMap { RegistrationStore.backendErrors[$0.code] }
+      ?? RegistrationError.unavailable
   }
 
   @MainActor private static func connect(
@@ -432,25 +428,116 @@ final class UnwiredRegistration: NSObject {
   ) {
     performStep("reenroll", resolve, reject: reject) { try await $0.reenroll() }
   }
-  @objc(admitPendingDevice:rejecter:)
-  func admitPendingDevice(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  @objc(beginEnrollment:resolver:rejecter:)
+  func beginEnrollment(
+    _ notice: String?, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("admitPendingDevice", resolve, reject: reject) {
-      ["admitted": try await $0.admitPendingDevice()]
+    perform("beginEnrollment", resolve, reject: reject) {
+      try $0.beginEnrollment(notice: notice)
     }
   }
-  @objc(adoptRotation:rejecter:)
-  func adoptRotation(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  @objc(openEnrollment:resolver:rejecter:)
+  func openEnrollment(
+    _ approval: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("adoptRotation", resolve, reject: reject) { try await $0.adoptLatestRotation() }
+    perform("openEnrollment", resolve, reject: reject) {
+      ["opened": try $0.openEnrollment(approval)]
+    }
   }
-  @objc(refreshDevices:rejecter:)
-  func refreshDevices(
+  @objc(confirmAdmission:rejecter:)
+  func confirmAdmission(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("refreshDevices", resolve, reject: reject) { try await $0.refreshDevices() }
+    perform("confirmAdmission", resolve, reject: reject) {
+      ["admitted": try await $0.confirmAdmission()]
+    }
+  }
+  @objc(recoverPendingDevice:resolver:rejecter:)
+  func recoverPendingDevice(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("recoverPendingDevice", resolve, reject: reject) {
+      ["rejected": try await $0.recoverPendingDevice(entry)]
+    }
+  }
+  @objc(recoverTrustedDevice:envelope:resolver:rejecter:)
+  func recoverTrustedDevice(
+    _ entry: String, envelope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("recoverTrustedDevice", resolve, reject: reject) {
+      ["rejected": try await $0.recoverTrustedDevice(entry, envelope: envelope)]
+    }
+  }
+  @objc(readsAsEnrollmentCode:resolver:rejecter:)
+  func readsAsEnrollmentCode(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("readsAsEnrollmentCode", resolve, reject: reject) { $0.readsAsEnrollmentCode(entry) }
+  }
+  @objc(sealEnrollment:request:resolver:rejecter:)
+  func sealEnrollment(
+    _ code: String, request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("sealEnrollment", resolve, reject: reject) {
+      try $0.sealEnrollment(code, request: request)
+    }
+  }
+  @objc(adoptRotation:resolver:rejecter:)
+  func adoptRotation(
+    _ envelope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("adoptRotation", resolve, reject: reject) { try $0.adoptRotation(envelope) }
+  }
+  @objc(settleRevocation:resolver:rejecter:)
+  func settleRevocation(
+    _ keyEpoch: Double, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("settleRevocation", resolve, reject: reject) {
+      guard let epoch = Int(exactly: keyEpoch) else { throw RegistrationError.unavailable }
+      try $0.settleRevocation(keyEpoch: epoch)
+    }
+  }
+  @objc(adoptIdentity:rejecter:)
+  func adoptIdentity(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("adoptIdentity", resolve, reject: reject) { try $0.adoptIdentity() }
+  }
+  @objc(prepareRevocation:resolver:rejecter:)
+  func prepareRevocation(
+    _ proposal: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("prepareRevocation", resolve, reject: reject) {
+      try $0.prepareRevocation(proposal)
+    }
+  }
+  @objc(submitRevocation:resolver:rejecter:)
+  func submitRevocation(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("submitRevocation", resolve, reject: reject) { try $0.submitRevocation(entry) }
+  }
+  @objc(withdrawRevocation:rejecter:)
+  func withdrawRevocation(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("withdrawRevocation", resolve, reject: reject) { try $0.withdrawRevocation() }
+  }
+  @objc(discardRevocation:rejecter:)
+  func discardRevocation(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("discardRevocation", resolve, reject: reject) { try $0.discardRevocation() }
   }
   @objc(finishSynchronization:rejecter:)
   func finishSynchronization(
@@ -532,20 +619,23 @@ final class UnwiredRegistration: NSObject {
       try await $0.refreshMailbox(connection)
     }
   }
-  @objc(signInMailbox:suggest:resolver:rejecter:)
+  @objc(signInMailbox:suggest:provider:resolver:rejecter:)
   func signInMailbox(
-    _ connection: String?, suggest: Bool, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
+    _ connection: String?, suggest: Bool, provider: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("signInMailbox", resolve, reject: reject) {
-      try await $0.signInMailbox(connection, suggest: suggest)
+      guard let provider = MailProvider(rawValue: provider) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.signInMailbox(connection, suggest: suggest, provider: provider)
     }
   }
-  @objc(verifyGmail:rejecter:)
-  func verifyGmail(
+  @objc(verifyMailbox:rejecter:)
+  func verifyMailbox(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("verifyGmail", resolve, reject: reject) { try await $0.verifyGmail() }
+    perform("verifyMailbox", resolve, reject: reject) { try await $0.verifyMailbox() }
   }
   @objc(confirmMailbox:resolver:rejecter:)
   func confirmMailbox(
@@ -602,7 +692,7 @@ final class UnwiredRegistration: NSObject {
   func prepareSignOut(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("prepareSignOut", resolve, reject: reject) { try await $0.prepareSignOut() }
+    perform("prepareSignOut", resolve, reject: reject) { try $0.prepareSignOut() }
   }
   @objc(endSession:rejecter:)
   func endSession(
@@ -664,63 +754,23 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("readsAsRecoveryKey", resolve, reject: reject) { $0.readsAsRecoveryKey(entry) }
   }
-  @objc(recoverWithRecoveryKey:resolver:rejecter:)
-  func recoverWithRecoveryKey(
-    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("recoverWithRecoveryKey", resolve, reject: reject) {
-      ["rejected": try await $0.recover(with: entry)]
-    }
-  }
-  @objc(approveEnrollment:code:resolver:rejecter:)
-  func approveEnrollment(
-    _ requestId: String, code: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    performStep("approveEnrollment", resolve, reject: reject) {
-      try await $0.approveEnrollment(requestId, code: code)
-    }
-  }
-  @objc(declineEnrollment:resolver:rejecter:)
-  func declineEnrollment(
-    _ requestId: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    performStep("declineEnrollment", resolve, reject: reject) {
-      try await $0.declineEnrollment(requestId)
-    }
-  }
-  @objc(revokeTrustedDevice:resolver:rejecter:)
-  func revokeTrustedDevice(
-    _ trustedDeviceId: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("revokeTrustedDevice", resolve, reject: reject) {
-      try await $0.revoke(trustedDeviceId).object
-    }
-  }
-  @objc(confirmRevocation:resolver:rejecter:)
-  func confirmRevocation(
-    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("confirmRevocation", resolve, reject: reject) {
-      try await $0.confirmRevocation(entry).object
-    }
-  }
-  @objc(cancelRevocation:rejecter:)
-  func cancelRevocation(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("cancelRevocation", resolve, reject: reject) {
-      try await $0.cancelRevocation().object
-    }
-  }
 }
 
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  private static var microsoftClientID: String {
+    Bundle.main.object(forInfoDictionaryKey: "UnwiredMicrosoftClientID") as? String ?? ""
+  }
+
+  // Hosts offer Microsoft mail only when this build can authorize it.
+  @objc func constantsToExport() -> [AnyHashable: Any]! {
+    #if UNWIRED_REGISTRATION_MOCK
+      ["microsoftMail": true]
+    #else
+      ["microsoftMail": !Self.microsoftClientID.isEmpty]
+    #endif
+  }
 
   // Routes with this process's APNs registration and the build's Cloud Pub/Sub topic; without a
   // fully qualified topic this build registers no routes.
@@ -801,6 +851,9 @@ extension UnwiredRegistration {
       reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
     case PrivateInboxError.deliveryUnknown:
       reject("delivery-unknown", "Gmail may have received the message.", nil)
+    // A removal moved the account to a newer key epoch; TypeScript adopts it before retrying.
+    case ProductSyncWriteFailure.keyRotationRequired:
+      reject("key-rotation-required", "Private sync moved to newer keys.", nil)
     default:
       logger.error("\(name, privacy: .public) failed: unavailable")
       reject("unavailable", "Gmail could not be reached.", nil)
@@ -923,6 +976,28 @@ extension UnwiredRegistration {
   @objc(cancelGmailRequest:)
   func cancelGmailRequest(_ request: String) {
     DispatchQueue.main.async { Self.reads[request]?.cancel() }
+  }
+
+  // A Graph read shares Gmail reads' cancellation by request name.
+  @objc(graphRequest:mailbox:resolver:rejecter:)
+  func graphRequest(
+    _ url: String, mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let request = scope["request"] as? String
+    if let request,
+      request.count > 200
+        || request.range(of: "^[0-9A-Za-z:-]+$", options: .regularExpression) == nil
+    {
+      reject("unavailable", "Microsoft mail could not be reached.", nil)
+      return
+    }
+    mailbox("graphRequest", resolve, reject: reject, request: request) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.graph(
+        url: url, connection: connection, address: address, generation: generation)
+    }
   }
 
   @objc(gmailRequest:query:mailbox:resolver:rejecter:)
@@ -1474,9 +1549,8 @@ extension UnwiredRegistration {
     }
   }
 
-  // Every Product Sync call carries the device proof; Convex sees only opaque payloads.
-  // The transport factory assembles all authenticated operations with the same device proof.
-  // swiftlint:disable:next function_body_length
+  // Native Draft sync's Product Sync calls; each carries the device proof, and Convex sees only
+  // opaque payloads.
   @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
     func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
       RegistrationStore.proof(product)
@@ -1517,174 +1591,6 @@ extension UnwiredRegistration {
           base: base, identity: identity, path: "productSync:putEncryptedPayloadIfUnchanged",
           args: args)
       },
-      requestEnrollment: { identity, product, publicKey, deviceKey in
-        struct Response: Decodable { let expiresAt: Double }
-        let _: Response = try await mutation(
-          base: base, identity: identity, path: "productSyncEnrollment:request",
-          args: proof(product).merging([
-            "enrollmentPublicKey": publicKey.rawRepresentation.base64EncodedString(),
-            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
-          ]) { $1 })
-      },
-      enrollmentStatus: { identity, product in
-        try await readEnrollmentStatus(base: base, identity: identity, args: proof(product))
-      },
-      completeEnrollment: { identity, product, keyVersion, deviceKey in
-        struct Response: Decodable {
-          let admitted: Bool
-          let trustedDeviceId: String?
-        }
-        let response: Response = try await mutation(
-          base: base, identity: identity, path: "productSyncEnrollment:complete",
-          args: proof(product).merging([
-            "keyVersion": keyVersion,
-            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
-          ]) { $1 })
-        return response.admitted ? response.trustedDeviceId : nil
-      },
-      bindDeviceKey: { identity, product, deviceKey, recoveryProof in
-        struct Response: Decodable { let bound: Bool }
-        let response: Response = try await mutation(
-          base: base, identity: identity, path: "productSync:bindDeviceEncryptionKey",
-          args: proof(product).merging([
-            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
-            "recoveryProof": recoveryProof,
-          ]) { $1 })
-        return response.bound
-      },
-      recoverPending: { identity, product, recoveryProof, deviceKey in
-        // A successful null result is a proof that matches no Recovery Key of the account.
-        try await optionalResult(
-          base: base, identity: identity, path: "productSyncEnrollment:recover",
-          args: proof(product).merging([
-            "recoveryProof": recoveryProof,
-            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
-          ]) { $1 })
-      },
-      pendingEnrollments: { identity, product in
-        try await readPendingEnrollments(base: base, identity: identity, args: proof(product))
-      },
-      approveEnrollment: { identity, product, request, keyVersion, envelope in
-        struct Response: Decodable { let approved: Bool }
-        let _: Response = try await mutation(
-          base: base, identity: identity, path: "productSyncEnrollment:approve",
-          args: proof(product).merging([
-            "pendingDeviceId": request.pendingDeviceId,
-            "enrollmentPublicKey": request.publicKey.rawRepresentation.base64EncodedString(),
-            "deviceEncryptionPublicKey": request.deviceKey.rawRepresentation.base64EncodedString(),
-            "keyVersion": keyVersion,
-            "encapsulatedKeyBase64": envelope.encapsulatedKey.base64EncodedString(),
-            "ciphertextBase64": envelope.ciphertext.base64EncodedString(),
-          ]) { $1 })
-      },
-      declineEnrollment: { identity, product, pendingDeviceId in
-        struct Response: Decodable { let declined: Bool }
-        let _: Response = try await mutation(
-          base: base, identity: identity, path: "productSyncEnrollment:decline",
-          args: proof(product).merging(["pendingDeviceId": pendingDeviceId]) { $1 })
-      },
-      recoveryEnvelope: { identity, product in
-        // A missing envelope decodes as no value and reports Product Sync as unavailable.
-        try await mutation(
-          base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
-          args: proof(product).merging(["payloadIdentifier": "product-account-recovery-v1"]) {
-            $1
-          },
-          function: "query")
-      },
-      keyRotation: { identity, product in
-        struct Response: Decodable {
-          let keyEpoch: Int
-          let encapsulatedKeyBase64: String
-          let ciphertextBase64: String
-        }
-        let response: Response? = try await optionalResult(
-          base: base, identity: identity, path: "productAccount:getProductSyncKeyRotation",
-          args: proof(product), function: "query")
-        return try response.map {
-          guard let encapsulatedKey = Data(base64Encoded: $0.encapsulatedKeyBase64),
-            let ciphertext = Data(base64Encoded: $0.ciphertextBase64)
-          else { throw RegistrationError.unavailable }
-          return KeyRingEnvelope.Rotation(
-            keyEpoch: $0.keyEpoch, encapsulatedKey: encapsulatedKey, ciphertext: ciphertext)
-        }
-      },
-      acknowledgeRotation: { identity, product, keyEpoch in
-        struct Response: Decodable { let keyEpoch: Int }
-        let _: Response = try await mutation(
-          base: base, identity: identity, path: "productAccount:acknowledgeProductSyncKeyRotation",
-          args: proof(product).merging(["keyEpoch": keyEpoch]) { $1 })
-      },
-      trustedDevices: { identity, product in
-        struct Device: Decodable {
-          let id: String
-          let displayName: String
-          let registeredAt: Double
-          let deviceEncryptionPublicKey: String?
-        }
-        let devices: [Device] = try await mutation(
-          base: base, identity: identity, path: "productAccount:listTrustedDevices",
-          args: proof(product), function: "query")
-        return devices.map {
-          TrustedDevice(
-            id: $0.id, name: $0.displayName, registeredAt: $0.registeredAt,
-            encryptionKey: $0.deviceEncryptionPublicKey.flatMap { Data(base64Encoded: $0) })
-        }
-      },
-      activateRevocation: { identity, product, revocation in
-        var request = URLRequest(url: try site(base, path: "/trusted-devices/revoke"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(
-          withJSONObject: proof(product).merging([
-            "trustedDeviceToRevokeId": revocation.trustedDeviceId,
-            "proposalId": revocation.proposalId,
-            "expectedKeyEpoch": revocation.expectedKeyEpoch,
-            "expectedRecoveryUpdatedAt": revocation.expectedRecoveryUpdatedAt,
-            "keyEnvelopes": revocation.envelopes.map {
-              [
-                "trustedDeviceId": $0.trustedDeviceId,
-                "deviceEncryptionPublicKey": $0.publicKey.base64EncodedString(),
-                "encapsulatedKeyBase64": $0.envelope.encapsulatedKey.base64EncodedString(),
-                "ciphertextBase64": $0.envelope.ciphertext.base64EncodedString(),
-              ]
-            },
-            "recoveryWrappedAccountKey": try json(revocation.recovery),
-            "recoveryVerifier": revocation.recoveryVerifier,
-          ]) { $1 })
-        let (data, response) = try await URLSession.shared.data(for: request)
-        struct Failure: Decodable { let code: String }
-        struct Activated: Decodable { let keyEpoch: Int }
-        let code = (try? JSONDecoder().decode(Failure.self, from: data))?.code
-        switch (response as? HTTPURLResponse)?.statusCode {
-        case 200:
-          guard let activated = try? JSONDecoder().decode(Activated.self, from: data) else {
-            throw URLError(.badServerResponse)
-          }
-          return activated.keyEpoch
-        case 401: throw RegistrationError.staleAuthentication
-        case 403: throw code.flatMap { backendErrors[$0] } ?? RegistrationError.unavailable
-        case 409:
-          throw code.flatMap(RevocationFailure.init(rawValue:)) ?? RegistrationError.unavailable
-        case 400, 404: throw RegistrationError.unavailable
-        default:
-          // A server/proxy failure can follow a committed mutation. The proposal is kept until
-          // its outcome is read or the same request is sent again.
-          throw URLError(.badServerResponse)
-        }
-      },
-      revocationOutcome: { identity, product, proposalId in
-        struct Response: Decodable {
-          let keyEpoch: Int
-          let recoveryKeyCurrent: Bool
-        }
-        let response: Response? = try await optionalResult(
-          base: base, identity: identity, path: "productAccount:getKeyRotationProposal",
-          args: proof(product).merging(["proposalId": proposalId]) { $1 }, function: "query")
-        return response.map { ($0.keyEpoch, $0.recoveryKeyCurrent) }
-      },
       get: { identity, product, identifier in
         try await optionalResult(
           base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
@@ -1698,58 +1604,5 @@ extension UnwiredRegistration {
           args: proof(product).merging(["claimIdentifier": identifier]) { $1 })
         return response.claimed
       })
-  }
-
-  @MainActor fileprivate static func readEnrollmentStatus(
-    base: URL, identity: ProductSignInIdentity, args: [String: Any]
-  ) async throws -> EnrollmentStatus {
-    struct Approval: Decodable {
-      let keyVersion: Int
-      let encapsulatedKeyBase64: String
-      let ciphertextBase64: String
-    }
-    struct Response: Decodable {
-      let state: EnrollmentStatus.State
-      let approval: Approval?
-    }
-    let response: Response = try await mutation(
-      base: base, identity: identity, path: "productSyncEnrollment:status",
-      args: args)
-    // A malformed approval opens nothing; the device asks again.
-    guard let approval = response.approval,
-      let encapsulatedKey = Data(base64Encoded: approval.encapsulatedKeyBase64),
-      let ciphertext = Data(base64Encoded: approval.ciphertextBase64)
-    else { return EnrollmentStatus(state: response.state) }
-    return EnrollmentStatus(
-      state: response.state,
-      approval: (
-        approval.keyVersion,
-        KeyRingEnvelope.Enrollment(encapsulatedKey: encapsulatedKey, ciphertext: ciphertext)
-      ))
-  }
-
-  @MainActor fileprivate static func readPendingEnrollments(
-    base: URL, identity: ProductSignInIdentity, args: [String: Any]
-  ) async throws -> [PendingEnrollment] {
-    struct Request: Decodable {
-      let pendingDeviceId: String
-      let enrollmentPublicKey: String
-      let deviceEncryptionPublicKey: String
-      let displayName: String
-      let expiresAt: Double
-    }
-    let requests: [Request] = try await mutation(
-      base: base, identity: identity, path: "productSyncEnrollment:listPending",
-      args: args)
-    return requests.compactMap { request in
-      guard let raw = Data(base64Encoded: request.enrollmentPublicKey),
-        let publicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw),
-        let deviceRaw = Data(base64Encoded: request.deviceEncryptionPublicKey),
-        let deviceKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: deviceRaw)
-      else { return nil }
-      return PendingEnrollment(
-        pendingDeviceId: request.pendingDeviceId, publicKey: publicKey, deviceKey: deviceKey,
-        deviceName: request.displayName, expiresAt: request.expiresAt)
-    }
   }
 }

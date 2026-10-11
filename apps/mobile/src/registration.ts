@@ -11,7 +11,10 @@ import type { TurboModule } from 'react-native';
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  microsoftMailAvailable,
+} from '@private-email/mail-core/registration';
 import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import { TurboModuleRegistry } from 'react-native';
 
@@ -24,10 +27,19 @@ interface RegistrationModule
     NativeDraftSync,
     NativeDeliveryClaim,
     NativeWakes {
+  // Cancels a Gmail or Microsoft Graph read by its request name.
   readonly cancelGmailRequest: (request: string) => void;
 }
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
+
+// Whether this build can authorize Microsoft mail; without the native module it cannot.
+export const microsoftMail = () =>
+  microsoftMailAvailable(
+    TurboModuleRegistry.get<RegistrationModule>(
+      'UnwiredRegistration',
+    )?.getConstants?.(),
+  );
 
 export const registration = createRegistration(
   createRegistrationFlow({
@@ -42,9 +54,21 @@ export const registration = createRegistration(
     recordInitialization: (initialized) =>
       native().recordInitialization(initialized),
     reenroll: () => native().reenroll(),
-    admitPendingDevice: () => native().admitPendingDevice(),
-    adoptRotation: () => native().adoptRotation(),
-    refreshDevices: () => native().refreshDevices(),
+    beginEnrollment: (notice) => native().beginEnrollment(notice),
+    openEnrollment: (approval) => native().openEnrollment(approval),
+    confirmAdmission: () => native().confirmAdmission(),
+    recoverPendingDevice: (entry) => native().recoverPendingDevice(entry),
+    recoverTrustedDevice: (entry, envelope) =>
+      native().recoverTrustedDevice(entry, envelope),
+    readsAsEnrollmentCode: (entry) => native().readsAsEnrollmentCode(entry),
+    sealEnrollment: (code, request) => native().sealEnrollment(code, request),
+    adoptRotation: (envelope) => native().adoptRotation(envelope),
+    settleRevocation: (keyEpoch) => native().settleRevocation(keyEpoch),
+    adoptIdentity: () => native().adoptIdentity(),
+    prepareRevocation: (proposal) => native().prepareRevocation(proposal),
+    submitRevocation: (entry) => native().submitRevocation(entry),
+    withdrawRevocation: () => native().withdrawRevocation(),
+    discardRevocation: () => native().discardRevocation(),
     finishSynchronization: () => native().finishSynchronization(),
     sealMailboxDescriptor: (record, descriptor) =>
       native().sealMailboxDescriptor(record, descriptor),
@@ -59,9 +83,9 @@ export const registration = createRegistration(
     forgetMailboxAccess: () => native().forgetMailboxAccess(),
     retryMailboxCleanup: () => native().retryMailboxCleanup(),
     refreshMailbox: (connection) => native().refreshMailbox(connection),
-    signInMailbox: (connection, suggest) =>
-      native().signInMailbox(connection, suggest),
-    verifyGmail: () => native().verifyGmail(),
+    signInMailbox: (connection, suggest, provider) =>
+      native().signInMailbox(connection, suggest, provider),
+    verifyMailbox: () => native().verifyMailbox(),
     confirmMailbox: (connection) => native().confirmMailbox(connection),
     storeMailbox: () => native().storeMailbox(),
     markMailbox: (connection, access) =>
@@ -78,14 +102,6 @@ export const registration = createRegistration(
     stopMailboxWatches: () => native().stopMailboxWatches(),
     confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
     readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
-    recoverWithRecoveryKey: (entry) => native().recoverWithRecoveryKey(entry),
-    approveEnrollment: (requestId, code) =>
-      native().approveEnrollment(requestId, code),
-    declineEnrollment: (requestId) => native().declineEnrollment(requestId),
-    revokeTrustedDevice: (trustedDeviceId) =>
-      native().revokeTrustedDevice(trustedDeviceId),
-    confirmRevocation: (entry) => native().confirmRevocation(entry),
-    cancelRevocation: () => native().cancelRevocation(),
   }),
 );
 
@@ -100,27 +116,46 @@ export const wakes: NativeWakes = {
 
 let nextRead = 0;
 
-// One Gmail Inbox per Mailbox Connection; each forgets its mail when its connection or owner leaves.
+// One provider read native code can cancel by its request name when `signal` aborts.
+const cancellable = async (
+  {
+    connection,
+    generation,
+  }: Readonly<{ connection: string; generation: string }>,
+  signal: Readonly<AbortSignal> | undefined,
+  read: (request: string) => Promise<unknown>,
+) => {
+  nextRead += 1;
+  const request = `${connection}:${generation}:${nextRead}`;
+  const cancel = () => {
+    native().cancelGmailRequest(request);
+  };
+  if (signal?.aborted === true) {
+    throw new Error('The mailbox request was cancelled.');
+  }
+  const pending = read(request);
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    return await pending;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
+};
+
+// One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its
+// connection or owner leaves.
 export const gmailMailboxes = createMailboxes(
   {
-    gmailRequest: async (path, query, { signal, ...mailbox }) => {
-      nextRead += 1;
-      const request = `${mailbox.connection}:${mailbox.generation}:${nextRead}`;
-      const scope = { ...mailbox, request };
-      const cancel = () => {
-        native().cancelGmailRequest(request);
-      };
-      if (signal?.aborted === true) {
-        throw new Error('The Gmail request was cancelled.');
-      }
-      const pending = native().gmailRequest(path, query, scope);
-      signal?.addEventListener('abort', cancel, { once: true });
-      try {
-        return await pending;
-      } finally {
-        signal?.removeEventListener('abort', cancel);
-      }
-    },
+    gmailRequest: (path, query, { signal, ...mailbox }) =>
+      cancellable(mailbox, signal, (request) => {
+        const scope = { ...mailbox, request };
+        return native().gmailRequest(path, query, scope);
+      }),
+    graphRequest: (url, { signal, ...mailbox }) =>
+      cancellable(mailbox, signal, (request) => {
+        const scope = { ...mailbox, request };
+        return native().graphRequest(url, scope);
+      }),
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
     gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
@@ -177,6 +212,7 @@ export const drafts = createDrafts(
     removed: () => {
       void registration.deviceRemoved();
     },
+    adoptKeyRotation: () => registration.adoptKeyRotation(),
     native: {
       pullDrafts: (owner, known) => native().pullDrafts(owner, known),
       pushDraft: (owner, record) => native().pushDraft(owner, record),

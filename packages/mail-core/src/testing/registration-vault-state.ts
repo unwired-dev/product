@@ -1,4 +1,4 @@
-import type { SignInProvider } from '../registration.ts';
+import type { MailProvider, SignInProvider } from '../registration.ts';
 
 export interface Identity {
   provider: SignInProvider;
@@ -15,6 +15,7 @@ export interface Receipt {
   materialInitialized?: boolean;
 }
 export interface Connection {
+  provider: MailProvider;
   subject: string;
   address: string;
   // Renewed with each live.authorization, as native credentials are.
@@ -27,6 +28,7 @@ export interface Connection {
 }
 // A removed connection whose descriptor is still to be marked removed.
 export interface Removal {
+  provider: MailProvider;
   subject: string;
   address: string;
   epoch?: string;
@@ -47,7 +49,15 @@ export interface SyncVault {
   readMailboxes?: string[];
   savedMailboxes?: Record<string, string>;
   descriptorEpochs?: Record<string, string>;
-  revocation?: { device: string; recoveryKey: string; submitted: boolean };
+  // A prepared removal: what its activation carries and the ring its new epoch seals.
+  revocation?: {
+    proposal: string;
+    device: string;
+    recoveryKey: string;
+    submitted: boolean;
+    request: Record<string, unknown>;
+    ring: Ring;
+  };
 }
 export interface Stored {
   payloadIdentifier: string;

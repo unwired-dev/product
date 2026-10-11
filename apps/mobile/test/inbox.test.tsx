@@ -7,7 +7,10 @@ import {
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  defaultProfile,
+} from '@private-email/mail-core/registration';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -29,7 +32,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
@@ -131,6 +134,35 @@ describe('preview Inbox', () => {
     expect(screen.queryByText('maya@example.com')).toBeNull();
   });
 
+  it('shows a reused reader only in the Profile that owns its mailbox', async () => {
+    expect.hasAssertions();
+    const link = (profileId: unknown) => (
+      <InboxProvider>
+        <ProfileScope profile={profileId}>
+          <MessageDetail
+            id="weekend-walk"
+            mailbox={preview}
+          />
+        </ProfileScope>
+      </InboxProvider>
+    );
+    // The preview mailbox, like every mailbox listed before Profiles, belongs to the Default Profile.
+    const app = await render(link(defaultProfile));
+    await expect(
+      screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    ).resolves.toBeVisible();
+    // The same link targeted at another Profile, or one unknown here, finds nothing.
+    await app.rerender(link('work'));
+    await expect(
+      screen.findByRole('header', { name: 'Message unavailable' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('oliver@example.com')).toBeNull();
+    await app.rerender(link([defaultProfile, 'work']));
+    expect(
+      screen.getByRole('header', { name: 'Message unavailable' }),
+    ).toBeVisible();
+  });
+
   it('commits a read change and recovers it after the view remounts', async () => {
     expect.hasAssertions();
     const app = await render(<InboxJourney />);
@@ -205,14 +237,14 @@ function renderConnected(
       { id: alex, address: 'alex@example.invalid', state: 'connected' },
     ]),
   } as const;
-  const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+  const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
   const registration = createRegistration({
     restore: () =>
       Promise.resolve(
         removed?.current === true ? { kind: 'signed-out' } : connected,
       ),
     addMailbox: () => Promise.reject(new Error('Not adding')),
-    authorizeGmail,
+    authorizeMailbox,
     removeMailbox: () => Promise.reject(new Error('Not removing')),
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),
@@ -264,7 +296,7 @@ function renderConnected(
   }
   const rendered = render(<Connected />);
   return {
-    authorizeGmail,
+    authorizeMailbox,
     rendered,
     // The connected mailbox's Gmail Inbox, once registration has opened it.
     store: () => {
@@ -318,7 +350,7 @@ describe('connected Gmail Inbox', () => {
       snippet: 'Coffee first, then the long way home?',
     });
     const connected = renderConnected(gmail.native);
-    const { authorizeGmail } = connected;
+    const { authorizeMailbox } = connected;
     await connected.rendered;
     const store = connected.store();
     await fireEvent.press(
@@ -346,7 +378,7 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Allow Gmail access' }),
       );
     });
-    expect(authorizeGmail).toHaveBeenCalledWith(alex);
+    expect(authorizeMailbox).toHaveBeenCalledWith(alex);
     await expect(
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();
