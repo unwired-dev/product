@@ -67,10 +67,13 @@ operation per call:
   operations to create/store keys and seal/open records. Credentialed calls attach
   the process's verified Product Sign-In session when requested.
 - **Enrollment, recovery, rotation adoption, device-list refresh and revocation**
-  stay native as temporary purpose-named operations until
-  [#758](https://github.com/unwired-dev/product/issues/758). They keep their Swift
-  Convex transport. Native Draft sync also retains its list/put/get transport;
-  mailbox descriptor coordination uses the TypeScript call primitive.
+  run as Effect programs in `packages/mail-core/src/product-sync-devices.ts`.
+  TypeScript holds the process's device lists and selects ordinary credentialed
+  calls. Purpose-named native steps keep key operations, recovery-proof calls,
+  admission receipt storage and durable removal material. Native Draft sync
+  retains its list/put/get transport and asks the TypeScript registration flow
+  to adopt after an old-epoch write refusal; mailbox descriptor coordination
+  uses the TypeScript call primitive.
 
 The registration rejection codes and texts hosts receive are unchanged. Transient
 transport failures reach the flow as `offline`, which lets a restore open the
@@ -79,5 +82,5 @@ last verified mailbox's saved Inbox; hosts still see them as `unavailable`.
 The TypeScript response schemas are checked against the types inferred by the
 `packages/contracts` Convex validators. Native void steps resolve with null and
 are decoded as null before the flow continues. The retained Swift Convex helper
-serves purpose-specific connect, native Draft sync and the work awaiting #758; this
+serves purpose-specific credential/proof calls and native Draft sync; this
 transitional transport reuse was approved by the #756 decision panel (3–0).

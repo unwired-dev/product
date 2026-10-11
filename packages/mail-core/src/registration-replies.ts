@@ -2,14 +2,18 @@ import type {
   ProductAccountDeletionResponse,
   SignInLinkRequestResponse,
   SignInLinkResponse,
+  TrustedDeviceSummary as TrustedDeviceSummaryResponse,
   TrustedDeviceUnregistrationResponse,
 } from '@private-email/contracts/productAccount';
 import type {
   EncryptedProductSyncPayload,
   EncryptedProductSyncPayloadBody,
   EncryptedProductSyncPayloadPage,
+  ProductSyncEnrollmentPendingRequest,
   ProductSyncEnrollmentStatus,
   ProductSyncInitializationResponse,
+  ProductSyncKeyEnvelope,
+  ProductSyncKeyRotationProposal,
 } from '@private-email/contracts/productSync';
 
 import * as Schema from 'effect/Schema';
@@ -62,3 +66,37 @@ export const StoredPayloadPage = Schema.Struct({
 export const Initialization = Schema.Struct({
   initialized: Schema.Boolean,
 }) satisfies Schema.Codec<ProductSyncInitializationResponse>;
+export const EnrollmentRequested = Schema.Struct({
+  expiresAt: Schema.Finite,
+});
+export const PendingEnrollment = Schema.Struct({
+  createdAt: Schema.Finite,
+  deviceEncryptionPublicKey: Schema.String,
+  displayName: Schema.String,
+  enrollmentPublicKey: Schema.String,
+  expiresAt: Schema.Finite,
+  pendingDeviceId: Schema.String,
+  platform: Schema.String,
+}) satisfies Schema.Codec<ProductSyncEnrollmentPendingRequest>;
+export const Approved = Schema.Struct({ approved: Schema.Boolean });
+export const Declined = Schema.Struct({ declined: Schema.Boolean });
+export const TrustedDeviceSummary = Schema.Struct({
+  deviceEncryptionPublicKey: Schema.optionalKey(Schema.String),
+  displayName: Schema.String,
+  id: Schema.String,
+  lastSeenAt: Schema.Finite,
+  platform: Schema.String,
+  registeredAt: Schema.Finite,
+}) satisfies Schema.Codec<TrustedDeviceSummaryResponse>;
+export const KeyEnvelope = Schema.Struct({
+  ciphertextBase64: Schema.String,
+  encapsulatedKeyBase64: Schema.String,
+  keyEpoch: Schema.Finite,
+}) satisfies Schema.Codec<ProductSyncKeyEnvelope>;
+export const KeyRotationProposal = Schema.Struct({
+  keyEpoch: Schema.Finite,
+  recoveryKeyCurrent: Schema.Boolean,
+}) satisfies Schema.Codec<ProductSyncKeyRotationProposal>;
+export const KeyRotationAcknowledgement = Schema.Struct({
+  keyEpoch: Schema.Finite,
+});

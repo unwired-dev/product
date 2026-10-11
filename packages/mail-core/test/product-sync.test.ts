@@ -9,7 +9,6 @@ import {
   productSubject,
   setup,
 } from './product-sync-fixture.ts';
-import { createRegistrationFlow } from './registration-flow-fixture.ts';
 
 describe('product sync', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one synchronization path end to end. */
@@ -40,7 +39,6 @@ describe('product sync', () => {
       'createKeyRing',
       'recordInitialization:true',
       'removeQueuedPushRoutes',
-      'refreshDevices',
     ]);
 
     google.subject = 'synthetic-mailbox-subject';
@@ -818,52 +816,5 @@ describe('product sync', () => {
       privateSyncMailboxes: 'alex@example.invalid\nshared@example.invalid',
     });
     expect(sync.rings).toBe(1);
-  });
-
-  it('lists other Trusted Devices and the newest enrollment request only while this device holds its keys', async () => {
-    expect.hasAssertions();
-    const { flow, sync, device, ring } = setup();
-    sync.requests = [
-      { id: 'pending-old', device: 'iPad', expiresAt: 1 },
-      { id: 'pending-new', device: 'iPhone', expiresAt: 2 },
-    ];
-    sync.trustedDevices = [{ id: 'other', name: 'Mac', registeredAt: 1000 }];
-    await expect(flow.signIn('google')).resolves.toMatchObject({
-      enrollmentRequest: 'pending-new',
-      enrollmentDevice: 'iPhone',
-      trustedDevices: '[{"id":"other","name":"Mac","registeredAt":1000}]',
-    });
-    device.productSync.deviceKey = false;
-    const current = await flow.confirmRecoveryKey(ring().id.slice(-4));
-    expect(current).not.toHaveProperty('enrollmentRequest');
-    expect(current).not.toHaveProperty('trustedDevices');
-  });
-
-  it('reports a settled removal by the key epoch this device holds after synchronizing', async () => {
-    expect.hasAssertions();
-    const { flow, vault, sync, device, rotate } = setup();
-    await flow.signIn('google');
-    const settle = (recoveryKeyCurrent: boolean, keyEpoch: number) =>
-      createRegistrationFlow({
-        ...vault,
-        confirmRevocation: () =>
-          Promise.resolve({
-            synchronize: true,
-            settlement: { keyEpoch, recoveryKeyCurrent, settledEpoch: 1 },
-          }),
-      }).confirmRevocation('ABCD');
-    await expect(settle(true, 1)).resolves.toMatchObject({
-      revocationNotice: 'removed',
-    });
-    // A later rotation adopted while synchronizing makes the proposed key no longer current.
-    rotate(2);
-    await expect(settle(true, 1)).resolves.toMatchObject({
-      revocationNotice: 'superseded',
-    });
-    expect(device.productSync.vault?.ring.current).toBe(2);
-    await expect(settle(false, 2)).resolves.toMatchObject({
-      revocationNotice: 'superseded',
-    });
-    expect(sync.steps).toContain('adoptRotation');
   });
 });

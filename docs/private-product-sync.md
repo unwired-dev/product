@@ -194,11 +194,25 @@ unlock it for you. Nothing offers a reset, and mail in Gmail is not affected.
 
 The native module holds every key and seals and opens every record. The shared
 TypeScript flow in `packages/mail-core/src/product-sync.ts` decides what to
-initialize, read and write, and derives the status. It receives ciphertext, opaque
-record identifiers, decrypted mailbox descriptions and the Recovery Key text while
-unconfirmed, and never a key. Enrollment, recovery, key rotation adoption and
-revocation still run natively until
-[#758](https://github.com/unwired-dev/product/issues/758).
+initialize, read and write, and derives the status. Enrollment, Recovery Key
+recovery, key rotation adoption and Device Revocation are sequenced in
+`packages/mail-core/src/product-sync-devices.ts`; the lists of other devices'
+requests and Trusted Devices live there for the process. TypeScript receives
+ciphertext, public keys, opaque identifiers, decrypted mailbox descriptions and,
+only for the screen that shows or collects them, the Recovery Key and Enrollment
+Code text, and never a key.
+
+Each native step is named by its purpose and stores what must survive before it
+returns: a Pending Device's one-time key pair and Enrollment Code before its
+request is sent, an opened approval's or recovery envelope's key ring before
+admission is confirmed, a prepared removal and its replacement Recovery Key before
+anything reaches Convex, and a submitted removal before it is sent. Calls that
+carry a Recovery Key proof (Pending Device recovery and binding a Trusted Device's
+encryption key) and the admission that issues a Trusted Device identifier are made
+by native code itself, which saves the new receipt before returning. When a native
+Draft write is refused because a removal moved the account to a newer key epoch,
+the Draft synchronizer asks the registration flow to adopt that epoch before the
+next pass retries the write.
 
 Sealed records reject altered ciphertext, account, identifier, epoch and schema.
 Prototype recovery schemas are never opened. Enrollment keys unlock data only
@@ -394,6 +408,17 @@ a newer key epoch, removals and their tombstones, purging on other devices, offl
 authorization, incarnations from before epochs, enrolling again after a lost device
 key, and removal notices that depend on the epoch held after synchronizing.
 
+`packages/mail-core/test/device-trust.test.ts` runs enrollment and Recovery Key
+recovery over the same synthetic boundaries. It covers mistyped, declined, stale,
+expired and replayed approvals, interrupted recovery and admission, including a
+kill between storing keys and confirming them.
+`packages/mail-core/test/device-revocation.test.ts` covers key rotation adoption
+and Device Revocation: offline devices adopting the newest of several removals,
+lost and failed activation replies, rotations that land during settlement,
+refused and renewed proposals and lost device keys.
+`packages/mail-core/test/draft-sync-rotation.test.ts` covers Draft writes refused
+for an earlier key epoch. Each retired Swift coordination test names its replacement.
+
 The hosted native storage suite (`native/private-inbox/integration/test.zsh`)
 runs the real Keychain, CryptoKit and registration store against a synthetic
 Convex boundary that enforces single initialization and compare-and-set records.
@@ -406,6 +431,26 @@ It checks:
 - recovery and enrollment envelopes that open only for their key, account,
   Pending Device, key epoch and Enrollment Code, and Enrollment Code parsing
   with its check digit.
+
+Since [#758](https://github.com/unwired-dev/product/issues/758) moved coordination
+to TypeScript, the hosted suite keeps envelope, key agreement and parsing tests
+and one journey that drives every purpose-named enrollment, recovery, rotation
+and removal step with real CryptoKit and Keychain storage. It also shows that
+nothing a removed device held opens its removal's epoch. The rebased 47-test iOS
+suite passed in `artifacts/private-inbox/integration.aKTOJm/`; it uses a synthetic
+Convex boundary. The earlier 45-test result in
+`artifacts/private-inbox/integration.6mtwhD/` is pre-rebase evidence.
+
+The implementer reports pre-rebase packaged iPhone enrollment and revoked-device
+journeys passing. Recovery and revocation passed intermittently, with failure
+frames showing dropped characters during text entry; neither has reliable passing
+evidence. Their final-tree reruns remain deferred, as do Mac packaged journeys on
+this host.
+
+### Earlier native and packaged evidence
+
+The runs below predate #758 and describe the earlier implementation. They do not
+qualify the migrated flows or their current test suite.
 
 It covers one-time initialization, the Recovery Key opening the published
 envelope, and an encrypted descriptor round trip with no address, subject, token

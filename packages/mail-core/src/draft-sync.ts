@@ -101,11 +101,14 @@ export const notifyRemoval = (
   }
 };
 
-// Without keys or a session, Product Sync is expected to be unavailable; the next pass retries.
+// Without keys or a session, Product Sync is expected to be unavailable, and a write sealed under an
+// earlier key epoch is expected after a removal; the next pass retries.
 const quietly = (
   error: Readonly<Pick<DraftStorageFailure, 'cause' | 'diagnostic'>>,
 ) =>
-  rejectionCode(error.cause) === 'unavailable'
+  ['unavailable', 'key-rotation-required'].includes(
+    rejectionCode(error.cause) ?? '',
+  )
     ? Effect.void
     : Effect.logError('Draft synchronization failed:', error.diagnostic);
 
@@ -394,6 +397,8 @@ export type DraftSyncOptions = Readonly<{
   native: NativeDraftSync;
   delay?: number;
   removed?: () => void;
+  // A removal moved the account to a newer key epoch; the next pass seals its writes at it.
+  adoptKeyRotation?: () => Promise<unknown>;
 }>;
 
 type SyncContext = Readonly<{
@@ -464,14 +469,30 @@ export function createDraftSynchronizer(
         while (requested) {
           requested = false;
           for (let attempt = 0; attempt < 3; attempt += 1) {
+            let needsAdoption = false;
             const conflicted = await runLogged(
               synchronizing(remote).pipe(
                 Effect.catchTag('DraftStorageFailure', (error) => {
                   notifyRemoval(error, options?.removed);
+                  needsAdoption =
+                    rejectionCode(error.cause) === 'key-rotation-required';
                   return quietly(error);
                 }),
               ),
             );
+            // Store actions own their Effect run; invoke them outside this pass's run.
+            if (needsAdoption) {
+              await options
+                ?.adoptKeyRotation?.()
+                .catch((error: unknown) =>
+                  runLogged(
+                    Effect.logError(
+                      'Draft key rotation adoption failed:',
+                      rejectionDiagnostic(error),
+                    ),
+                  ),
+                );
+            }
             if (!conflicted) {
               break;
             }

@@ -388,10 +388,6 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var identity: ProductSignInIdentity?
   // The latest mailbox authorization, and its verified receipt, until a connection stores it.
   var mailboxAuthorization: (grant: MailboxGrant, receipt: GmailRegistrationReceipt?)?
-  // Other devices' enrollment requests by Product Account, as last listed in this process.
-  var enrollmentRequests: [String: [PendingEnrollment]] = [:]
-  // The account's other Trusted Devices by Product Account, as last listed in this process.
-  var trustedDevices: [String: [TrustedDevice]] = [:]
   // Wake hints waiting for JavaScript; removing a route drops its own.
   var wakes = PushWakes.shared
 
@@ -839,8 +835,6 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     session = nil
     identity = nil
     mailboxAuthorization = nil
-    enrollmentRequests = [:]
-    trustedDevices = [:]
     wakes.drop(nil)
     let saved = try load()
     let removalOperation: AccountRemovalState.Operation =
@@ -876,6 +870,40 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
         "trustedDeviceId": product.trustedDeviceId,
         "trustedDeviceCredential": product.trustedDeviceCredential,
       ]
+  }
+
+  // Convex error codes the registration flow distinguishes; others are unavailable.
+  static let backendErrors: [String: RegistrationError] = [
+    "SIGN_IN_IDENTITY_OWNED": .identityOwned,
+    "SIGN_IN_PROVIDER_ALREADY_LINKED": .identityOwned,
+    "SIGN_IN_RECENT_AUTHENTICATION_REQUIRED": .staleAuthentication,
+    "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
+    "SIGN_IN_NOT_LINKED": .invalidIdentity,
+    "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
+    "PENDING_DEVICE_UNAVAILABLE": .pendingDeviceUnavailable,
+    "TRUSTED_DEVICE_REVOKED": .revoked,
+    "PRODUCT_ACCOUNT_DELETED": .deleted,
+  ]
+
+  // A Convex mutation this vault makes itself, because its arguments carry a Recovery Key proof or
+  // its reply issues a credential. It presents this process's verified Product Sign-In and this
+  // device's proof. A successful null result is nil.
+  func credentialedCall<Value: Decodable>(_ path: String, _ args: [String: Any]) async throws
+    -> Value?
+  {
+    guard let transport, let session, let product = try saved().product else {
+      throw RegistrationError.unavailable
+    }
+    let (status, data) = try await transport(
+      BackendRequest(
+        endpoint: .mutation, path: path, args: args.merging(Self.proof(product)) { $1 },
+        identity: session, product: product))
+    // Application errors carry a code in errorData whatever the HTTP status.
+    guard let reply = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
+      throw RegistrationError.unavailable
+    }
+    if reply.status == "success", status == 200 { return reply.value }
+    throw reply.errorData.flatMap { Self.backendErrors[$0.code] } ?? RegistrationError.unavailable
   }
 
   // TypeScript names a Convex call; this device attaches the credentials it asks for and returns

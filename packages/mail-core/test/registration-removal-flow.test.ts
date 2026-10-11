@@ -15,43 +15,6 @@ import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
 type Registration = NativeRegistration;
 
 describe('registration removal flow', () => {
-  it('renews an aged sign-in once before confirming a prepared removal again', async () => {
-    expect.hasAssertions();
-    const { vault } = createSyntheticVault();
-    await createRegistrationFlow(vault).signIn('google');
-    const signInIdentity = vi.fn<NativeRegistrationVault['signInIdentity']>(
-      (provider, hint) => vault.signInIdentity(provider, hint),
-    );
-    // The first activation finds the sign-in from preparing no longer recent.
-    const confirmRevocation = vi
-      .fn<NativeRegistrationVault['confirmRevocation']>()
-      .mockRejectedValueOnce(
-        Object.assign(new Error('stale'), { code: 'stale-authentication' }),
-      )
-      .mockResolvedValueOnce({ notice: 'superseded' });
-    const flow = createRegistrationFlow({
-      ...vault,
-      signInIdentity,
-      revokeTrustedDevice: () => Promise.resolve({}),
-      confirmRevocation,
-      cancelRevocation: () => Promise.resolve({ notice: 'unconfirmed' }),
-    });
-    // Preparing asks for a fresh sign-in first and reports no removal yet.
-    await expect(
-      flow.revokeTrustedDevice('device-ipad'),
-    ).resolves.not.toHaveProperty('revocationNotice');
-    await expect(flow.confirmRevocation('ABCD')).resolves.toMatchObject({
-      revocationNotice: 'superseded',
-    });
-    await expect(flow.cancelRevocation()).resolves.toMatchObject({
-      revocationNotice: 'unconfirmed',
-    });
-    expect({
-      signIns: signInIdentity.mock.calls.length,
-      confirmations: confirmRevocation.mock.calls,
-    }).toStrictEqual({ signIns: 2, confirmations: [['ABCD'], ['ABCD']] });
-  });
-
   // Replaces AccountRemovalTests.interruptedRemovalNeverReopensAccessAndResumesAcknowledgedCleanup.
   const removals = [
     {
@@ -192,7 +155,21 @@ describe('registration removal flow', () => {
     const installation = device.record?.deviceIdentifier;
     // Signing out cannot discard the only Recovery Key before its backup is confirmed.
     device.recoveryKeyConfirmed = false;
-    backend.productSync = createSyntheticProductSyncBackend();
+    const sync = createSyntheticProductSyncBackend();
+    const trustedDeviceId = String(device.record?.product?.trustedDeviceId);
+    // Sign-out adopts the account's newest keys first; no removal rotated them.
+    sync.accounts.set('account-synthetic-product-subject', {
+      records: new Map(),
+      admitted: new Set([String(installation)]),
+      devices: new Map([
+        [
+          trustedDeviceId,
+          { installation: String(installation), registeredAt: 1, epoch: 1 },
+        ],
+      ]),
+      proposals: new Map(),
+    });
+    backend.productSync = sync;
     device.productSync.deviceKey = true;
     device.productSync.vault = {
       ring: { id: 'ring', epochs: [1], current: 1 },

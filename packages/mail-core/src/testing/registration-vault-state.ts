@@ -49,7 +49,15 @@ export interface SyncVault {
   readMailboxes?: string[];
   savedMailboxes?: Record<string, string>;
   descriptorEpochs?: Record<string, string>;
-  revocation?: { device: string; recoveryKey: string; submitted: boolean };
+  // A prepared removal: what its activation carries and the ring its new epoch seals.
+  revocation?: {
+    proposal: string;
+    device: string;
+    recoveryKey: string;
+    submitted: boolean;
+    request: Record<string, unknown>;
+    ring: Ring;
+  };
 }
 export interface Stored {
   payloadIdentifier: string;
