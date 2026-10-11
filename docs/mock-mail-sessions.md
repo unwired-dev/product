@@ -16,7 +16,7 @@ A Mock Mail Session accepts only a fixed scenario name. It cannot accept
 credentials, mailbox addresses, Product Account IDs, URLs, network clients or
 provider adapters. Its identity is a literal synthetic identity with an invalid
 email domain. No provider contacts Gmail, Convex, a sign-in service or
-an assistance service. There is no token or backend-authority representation.
+an assistance service, and mock scenario builds refuse every remote image fetch. There is no token or backend-authority representation.
 
 The factory offers `open-read-relaunch`, `identity-unavailable`,
 `mail-unavailable` and `assistance-unavailable`. Identity and mail failures use

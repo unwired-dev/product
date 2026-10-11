@@ -10,6 +10,7 @@ import type {
   Registration,
   RemovalFailure,
 } from '@private-email/mail-core/registration';
+import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 import type { ReactNode } from 'react';
 
 import {
@@ -49,6 +50,12 @@ import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { registration } from './registration.ts';
+import {
+  MailboxRemoteContent,
+  RemoteContentSettings,
+  remoteContent as deviceRemoteContent,
+  RemoteContentContext,
+} from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
 
@@ -106,6 +113,7 @@ function Mailboxes({
                 store.authorizeGmail(mailbox.id),
               )
             : null}
+          <MailboxRemoteContent {...mailbox} />
           {confirming === mailbox.id ? (
             <>
               <Text style={[styles.text, { color: colors.foreground }]}>
@@ -133,6 +141,7 @@ function Mailboxes({
         </View>
       ))}
       {button(t('mailboxes.add'), () => store.addMailbox(true))}
+      <RemoteContentSettings button={button} />
     </>
   );
 }
@@ -569,10 +578,13 @@ export function RegistrationGate({
   children,
   store = registration,
   preview = previewInbox,
+  remoteContent = deviceRemoteContent,
 }: {
   readonly children: ReactNode;
   readonly store?: Registration;
   readonly preview?: boolean;
+  // The device's remote content policies, for the Inbox's readers and the account page.
+  readonly remoteContent?: RemoteContentSettingsStore;
 }) {
   const { snapshot, busy, locked } = useSyncExternalStore(
     store.subscribe,
@@ -609,6 +621,7 @@ export function RegistrationGate({
       return;
     }
     void store.restoreOnce();
+    void remoteContent.load();
     // Like the Inbox, restore on every activation, including after protected storage unlocks.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
@@ -618,30 +631,36 @@ export function RegistrationGate({
     return () => {
       subscription.remove();
     };
-  }, [preview, store]);
+  }, [preview, store, remoteContent]);
   if (preview) {
     return children;
   }
   const inbox = landing.destination === 'inbox';
   if (!locked && inbox) {
-    return <AccountContext value={actions}>{children}</AccountContext>;
+    return (
+      <RemoteContentContext value={remoteContent}>
+        <AccountContext value={actions}>{children}</AccountContext>
+      </RemoteContentContext>
+    );
   }
   if (!locked) {
     return (
-      <RegistrationPage
-        store={store}
-        onInbox={
-          inboxAccount === undefined
-            ? undefined
-            : () => {
-                setChoice({
-                  account: inboxAccount,
-                  destination: 'inbox',
-                  setup,
-                });
-              }
-        }
-      />
+      <RemoteContentContext value={remoteContent}>
+        <RegistrationPage
+          store={store}
+          onInbox={
+            inboxAccount === undefined
+              ? undefined
+              : () => {
+                  setChoice({
+                    account: inboxAccount,
+                    destination: 'inbox',
+                    setup,
+                  });
+                }
+          }
+        />
+      </RemoteContentContext>
     );
   }
   return (

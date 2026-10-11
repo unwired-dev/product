@@ -21,6 +21,11 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   `revocationNotice` mapping and host copy, including conflict renewal and submitted
   replay after private-key loss; otherwise the interface claims removal of a device
   that retains access, or presents an uncommitted Recovery Key as current.
+- `PrivateInboxStore.openRemoteContent` refreshing remote-cache recency on read.
+  Reads can be rejected later by TypeScript's display admission; update recency
+  only through the owning reader's explicit shown-content operation, under the
+  same file lock and mailbox/protected-data fences. Otherwise undisplayed entries
+  displace genuinely used images during least-recently-used eviction.
 
 - `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
   of a stronger guarantee as permission to succeed through a weaker fallback.
@@ -346,6 +351,23 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   legacy cleanup, attempt every owned path, and keep failed cleanup retryable without
   reopening the connection. Otherwise partial cleanup retains credentials/plaintext
   or loses another connection's durable pending actions.
+
+#### Remote content retrieval
+
+- `RemoteContent.swift` classifying a NAT64 destination only by its globally
+  routable IPv6 prefix or the prefixes discovered through `ipv4only.arpa`.
+  RFC 7050 discovery cannot learn destination-specific prefixes for private IPv4.
+  Apply ADR 0029's 2026-10-10 amendment: check every RFC 6052 layout for globally
+  formatted IPv6, including the reserved-byte split and nonzero suffixes, and
+  preserve the well-known prefix's embedded-IPv4 guard for every literal,
+  resolved answer and redirect. Definitely non-public answers refuse the whole
+  name; ambiguous globally formatted IPv6 answers are discarded and never connected
+  to. Pin the first remaining admitted answer and refuse if none remains. Trace
+  the numeric transport endpoint: it must never re-resolve or fall back to an
+  unchecked answer. Cover both answer orders, mixed definitely non-public answers,
+  redirects and IPv6-only refusal, and keep the remaining compatibility cost
+  documented. Otherwise discovery or unchecked fallback permits private access,
+  or ambiguous AAAA records unnecessarily block admitted dual-stack destinations.
 
 #### Mock sessions stay out of production
 

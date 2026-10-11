@@ -16,8 +16,8 @@ import {
 import { useMemo, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 
+import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { RegistrationLabel as Label } from './registration-label.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { usePalette } from './theme.ts';
 
