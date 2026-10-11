@@ -11,6 +11,7 @@ import type {
   SyncVault,
 } from './registration-vault-state.ts';
 
+import { admitSyntheticInstallation } from './registration-product-sync-backend.ts';
 import {
   createSyntheticSyncVault,
   mailboxRecord,
@@ -29,6 +30,7 @@ export type { MailboxDescriptor } from '../registration-vault.ts';
 export {
   createSyntheticProductSyncBackend,
   mailboxRecord,
+  removeTrustedDevice,
   storeDescriptor,
   storedDescriptor,
 } from './registration-product-sync.ts';
@@ -63,17 +65,17 @@ export function createSyntheticDevice() {
     productSync: {
       vault: undefined as SyncVault | undefined,
       deviceKey: false,
+      // The public half of this installation's encryption key, while it holds one.
+      deviceKeyName: undefined as string | undefined,
       enrollment: undefined as
-        | { code: string; notice?: 'renewed' | 'rejected' }
+        | {
+            pendingDeviceId: string;
+            key: string;
+            code: string;
+            notice?: 'renewed' | 'rejected';
+          }
         | undefined,
       unreadable: false,
-      // Other devices' requests and Trusted Devices, as this process last listed them.
-      requests: [] as Array<{ id: string; device: string; expiresAt: number }>,
-      trustedDevices: [] as Array<{
-        id: string;
-        name: string;
-        registeredAt: number;
-      }>,
     },
     connectionIds: new Map<string, string>(),
   };
@@ -236,21 +238,6 @@ export function createSyntheticVault(
     apple.email = undefined;
     return Promise.resolve(signedIn);
   };
-  // With Product Sync, an installation of an account that holds keys waits for admission.
-  const admission = (account: string, installation: string) => {
-    const sync = backend.productSync;
-    const keys = sync?.accounts.get(account);
-    const admitted =
-      keys === undefined ||
-      keys.admitted.has(installation) ||
-      (keys.admitted.size === 0 && keys.recovery === undefined);
-    if (sync !== undefined && admitted && !backend.pendingDevices) {
-      const entry = keys ?? { records: new Map(), admitted: new Set<string>() };
-      entry.admitted.add(installation);
-      sync.accounts.set(account, entry);
-    }
-    return { sync, admitted };
-  };
   // fallow-ignore-next-line complexity -- Mirrors Convex's ownership, deletion and admission refusals.
   const connect = (
     signedIn: Readonly<Identity>,
@@ -277,11 +264,13 @@ export function createSyntheticVault(
       backend.linked.set(account, [signedIn.provider]);
     }
     backend.connected.push(signedIn);
-    const { sync, admitted } = admission(account, installation);
+    const admitted = admitSyntheticInstallation(backend, account, installation);
+    const sync = admitted?.sync;
     return {
       productAccountId: account,
-      trustedDeviceId: `synthetic-device-${(backend.devices += 1)}`,
-      ...(backend.pendingDevices || !admitted
+      trustedDeviceId:
+        admitted?.id ?? `synthetic-device-${(backend.devices += 1)}`,
+      ...(backend.pendingDevices || admitted?.pending === true
         ? { pending: true as const }
         : {}),
       signInProviders: [...(backend.linked.get(account) ?? [])],
@@ -329,6 +318,23 @@ export function createSyntheticVault(
     }
     return success({ registered: false });
   };
+  // The latest Product Sign-In, or else this process's verified one, becomes the session later
+  // steps present; it must open the saved registration.
+  const adoptIdentity = () => {
+    const signedIn = live.identity ?? live.session;
+    if (signedIn === undefined) {
+      throw Object.assign(new Error('Synthetic'), {
+        code: 'stale-authentication',
+      });
+    }
+    if (!opens(load(), signedIn)) {
+      throw Object.assign(new Error('Synthetic'), {
+        code: 'invalid-identity',
+      });
+    }
+    live.identity = signedIn;
+    live.session = signedIn;
+  };
   const syncAdapter = createSyntheticSyncVault(
     { ...shared, microsoft },
     {
@@ -337,6 +343,7 @@ export function createSyntheticVault(
       newlyAuthorized,
       live,
       connect,
+      adoptIdentity,
       verified,
       cached,
     },
@@ -348,13 +355,17 @@ export function createSyntheticVault(
       (presented: Presented) => Readonly<{ status: number; body: string }>
     >
   > = {
-    'productAccount:isTrustedDeviceRevoked': () => {
+    'productAccount:isTrustedDeviceRevoked': ({ product }) => {
       if (backend.revocationOffline) {
         throw Object.assign(new Error('Synthetic failure'), {
           code: 'offline',
         });
       }
-      return success(backend.revoked);
+      const sync = backend.productSync;
+      return success(
+        backend.revoked ||
+          sync?.revoked.has(product?.trustedDeviceId ?? '') === true,
+      );
     },
     '/sign-in-links/request': ({ call, product, signedIn }) => {
       if (backend.stale) {
@@ -410,10 +421,6 @@ export function createSyntheticVault(
     },
     'productAccount:unregisterTrustedDevice': unregister,
     'productAccount:unregisterPendingDevice': unregister,
-    'productSyncEnrollment:status': () =>
-      backend.pendingExpired
-        ? refusal('PENDING_DEVICE_UNAVAILABLE')
-        : success({ state: 'pending' }),
     ...syncAdapter.handlers,
     '/product-account/delete': ({ product, signedIn }) => {
       if (backend.deletionStatus !== 200) {
@@ -818,7 +825,11 @@ export function createSyntheticVault(
           });
         }
         live.session = live.identity;
-        return device.recoveryKeyConfirmed;
+        // An unanswered removal stays until it is settled.
+        return (
+          device.recoveryKeyConfirmed &&
+          device.productSync.vault?.revocation?.submitted !== true
+        );
       }),
     endSession: () =>
       attempt(() => {
@@ -835,9 +846,8 @@ export function createSyntheticVault(
         device.record = undefined;
         device.productSync.vault = undefined;
         device.productSync.deviceKey = false;
+        device.productSync.deviceKeyName = undefined;
         device.productSync.enrollment = undefined;
-        device.productSync.requests = [];
-        device.productSync.trustedDevices = [];
         return null;
       }),
     call: async (call) => {
@@ -921,12 +931,11 @@ export function createSyntheticVault(
         return null;
       }),
     readsAsRecoveryKey: (entry) => Promise.resolve(entry.length > 0),
-    recoverWithRecoveryKey: () => Promise.resolve({ rejected: true }),
-    approveEnrollment: () => reject('enrollment-unavailable'),
-    declineEnrollment: () => reject('enrollment-unavailable'),
-    revokeTrustedDevice: () => reject('unavailable'),
-    confirmRevocation: () => reject('unavailable'),
-    cancelRevocation: () => reject('unavailable'),
+    adoptIdentity: () =>
+      attempt(() => {
+        adoptIdentity();
+        return null;
+      }),
   };
   return { vault: operations, device, google, microsoft, apple, backend };
 }

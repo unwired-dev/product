@@ -289,6 +289,9 @@ export interface NativeRegistration {
   readonly cancelRevocation: () => Promise<unknown>;
   // Checks for an approval of this device, or for another device waiting for one.
   readonly refreshPrivateSync: () => Promise<unknown>;
+  // Adopts the newest key epoch after a removal refused a Product Sync write, so the next write is
+  // sealed at it. Hosts without Product Sync omit it.
+  readonly adoptKeyRotation?: () => Promise<unknown>;
   // Unregisters this Trusted Device, then removes the Product Account's data from this device.
   readonly signOut: () => Promise<unknown>;
   // Permanently deletes the Product Account after an interactive Product Sign-In.
@@ -298,7 +301,7 @@ export interface NativeRegistration {
 // Shared flows compose with the store's run; native adapters keep their Promise interface.
 export type RegistrationPrograms = {
   readonly [Method in keyof NativeRegistration]: (
-    ...args: Parameters<NativeRegistration[Method]>
+    ...args: Parameters<NonNullable<NativeRegistration[Method]>>
   ) => Effect.Effect<unknown, unknown>;
 };
 
@@ -753,6 +756,13 @@ export function createRegistration(
     cancelRevocation: () =>
       execute(request(native.cancelRevocation), revocationFailed),
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
+    // Background work learned of a newer key epoch; a failure leaves the status as it was.
+    adoptKeyRotation: () => {
+      const { adoptKeyRotation } = native;
+      return adoptKeyRotation === undefined
+        ? Promise.resolve()
+        : execute(request(adoptKeyRotation), settled, { foreground: true });
+    },
     signOut: () =>
       execute(
         request(native.signOut),

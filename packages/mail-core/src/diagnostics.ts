@@ -19,6 +19,7 @@ const nativeCodes = new Set([
   'gmail-unavailable',
   'identity-owned',
   'invalid-identity',
+  'key-rotation-required',
   'locked',
   'mailbox-invalidated',
   'mailbox-revoked',

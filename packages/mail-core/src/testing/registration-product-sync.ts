@@ -1,50 +1,64 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
-import * as Arr from 'effect/Array';
-import * as Order from 'effect/Order';
-import * as Predicate from 'effect/Predicate';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type {
   NativeRegistrationVault,
   MailboxChange,
-  MailboxDescriptor,
 } from '../registration-vault.ts';
 import type { MailProvider } from '../registration.ts';
 import type {
   Connection,
   Identity,
-  Payload,
-  Presented,
   Receipt,
   Ring,
   SavedRecord,
-  Stored,
   SyncVault,
 } from './registration-vault-state.ts';
 import type { createSyntheticDevice } from './registration-vault.ts';
 
+import { Envelope as ConvexReply } from '../registration-native.ts';
 import { EncryptedPayload } from '../registration-replies.ts';
+import { createSyntheticSyncHandlers } from './registration-product-sync-backend.ts';
 import {
-  attempt,
-  refusal,
-  success,
-  unavailable,
-} from './registration-vault-state.ts';
+  mailboxRecord,
+  payload,
+  proofOf,
+  configuredBackend,
+  verifierOf,
+} from './registration-product-sync-state.ts';
+import { attempt, unavailable } from './registration-vault-state.ts';
 
-// A sealed record as native returns it; `ciphertext` names what `sealed` maps it to.
-const payload = (ciphertext: string, keyVersion: number): Payload => ({
-  algorithm: 'AES-GCM-256',
-  ciphertextBase64: ciphertext,
-  keyVersion,
-  nonceBase64: ciphertext,
-  schemaVersion: 1,
-  tagBase64: 'synthetic',
-});
+export {
+  mailboxRecord,
+  createSyntheticProductSyncBackend,
+  removeTrustedDevice,
+  storeDescriptor,
+  storedDescriptor,
+} from './registration-product-sync-state.ts';
+export type { SyntheticProductSync } from './registration-product-sync-state.ts';
+
 // The only copy of a Recovery Key not yet backed up, or a removal whose outcome is unknown.
 const holdsUnsettledKeys = (vault: SyncVault | undefined) =>
   (vault?.recoveryKey !== undefined && !vault.recoveryKeyConfirmed) ||
   vault?.revocation?.submitted === true;
 const isPayload = Schema.is(EncryptedPayload);
+// A synthetic Enrollment Code, which reads as one only in this shape.
+const enrollmentCode = /^CODE-\d+$/u;
+// Replies this harness wrote itself, which always decode.
+const Completion = Schema.Struct({
+  admitted: Schema.Boolean,
+  trustedDeviceId: Schema.optionalKey(Schema.String),
+});
+const Binding = Schema.Struct({ bound: Schema.Boolean });
+const decodeReply = (value: unknown) =>
+  Option.getOrThrow(Schema.decodeUnknownOption(ConvexReply)(value));
+const decodeCompletion = (value: unknown) =>
+  Option.getOrThrow(Schema.decodeUnknownOption(Completion)(value));
+const decodeBinding = (value: unknown) =>
+  Option.getOrThrow(Schema.decodeUnknownOption(Binding)(value));
+const holds = (ring: Ring, epochs: readonly number[]) =>
+  epochs.every((epoch) => ring.epochs.includes(epoch));
 
 // Saves what synchronization learned about one connection; a null epoch clears it.
 const applyChange = (connection: Connection, change: MailboxChange) => {
@@ -60,134 +74,6 @@ const applyChange = (connection: Connection, change: MailboxChange) => {
   }
 };
 
-// Convex's Product Sync rules: one recovery envelope per account, compare-and-set records, and
-// writes refused below the account's key epoch. `sealed` stands in for the cryptography: it maps
-// each ciphertext to what it seals, and only a ring of the same lineage at its epoch opens it.
-export function createSyntheticProductSyncBackend() {
-  return {
-    accounts: new Map<
-      string,
-      {
-        recovery?: string;
-        ring?: Ring;
-        records: Map<string, Stored>;
-        // Installations admitted as Trusted Devices.
-        admitted: Set<string>;
-      }
-    >(),
-    // What each recovery envelope seals: the ring its creator published.
-    recoveries: new Map<string, Ring>(),
-    // The opaque identifier each ring gives each provider account's descriptor.
-    identifiers: new Map<string, string>(),
-    rings: 0,
-    sealed: new Map<
-      string,
-      {
-        ring: string;
-        account: string;
-        record: string;
-        descriptor: MailboxDescriptor;
-      }
-    >(),
-    clock: 1000,
-    pageSize: 100,
-    initializations: 0,
-    listedPages: 0,
-    // Another device's write that lands just before this record's next write, or the next listing.
-    beforePut: undefined as ((record: string) => void) | undefined,
-    beforeList: undefined as (() => void) | undefined,
-    // The next initialization applies, but its reply is lost.
-    loseInitializationReply: false,
-    // Whether another Trusted Device approves a waiting device.
-    approves: false,
-    // Product Sync calls cannot reach Convex.
-    offline: false,
-    // Connect replies omit Product Sync state, as receipts saved before it did.
-    legacyReceipts: false,
-    requests: [] as Array<{ id: string; device: string; expiresAt: number }>,
-    trustedDevices: [] as Array<{
-      id: string;
-      name: string;
-      registeredAt: number;
-    }>,
-    // Native steps Product Sync took, in order.
-    steps: [] as string[],
-  };
-}
-export type SyntheticProductSync = ReturnType<
-  typeof createSyntheticProductSyncBackend
->;
-
-// Another device's sealed write: a descriptor under `record`, or a payload nobody here opens.
-export function storeDescriptor(
-  sync: SyntheticProductSync,
-  {
-    account,
-    record,
-    descriptor,
-  }: Readonly<{
-    account: string;
-    record: string;
-    descriptor: MailboxDescriptor | undefined;
-  }>,
-) {
-  const entry = sync.accounts.get(account);
-  if (entry?.ring === undefined) {
-    throw new Error('Synthetic account without keys');
-  }
-  const ciphertext = `sealed-${sync.sealed.size + 1}`;
-  if (descriptor !== undefined) {
-    sync.sealed.set(ciphertext, {
-      ring: entry.ring.id,
-      account,
-      record,
-      descriptor,
-    });
-  }
-  sync.clock += 1;
-  entry.records.set(record, {
-    payloadIdentifier: record,
-    encryptedPayload: {
-      algorithm: 'AES-GCM-256',
-      ciphertextBase64: ciphertext,
-      keyVersion: entry.ring.current,
-      nonceBase64: ciphertext,
-      schemaVersion: 1,
-      tagBase64: 'synthetic',
-    },
-    updatedAt: sync.clock,
-  });
-}
-
-// The opaque identifier a ring stores a mailbox account's descriptor under, by the provider's
-// account as native code names it: `gmail:<subject>` or `microsoft-graph:<subject>`.
-export function mailboxRecord(
-  sync: SyntheticProductSync,
-  ring: string,
-  account: string,
-) {
-  const name = `${ring}\n${account}`;
-  const known = sync.identifiers.get(name);
-  if (known !== undefined) {
-    return known;
-  }
-  const record = `mailbox.${ring}.${sync.identifiers.size + 1}`;
-  sync.identifiers.set(name, record);
-  return record;
-}
-
-// The descriptor stored under a record, opened with the account's keys.
-export function storedDescriptor(
-  sync: SyntheticProductSync,
-  account: string,
-  record: string,
-) {
-  const stored = sync.accounts.get(account)?.records.get(record);
-  return stored === undefined
-    ? undefined
-    : sync.sealed.get(stored.encryptedPayload.ciphertextBase64)?.descriptor;
-}
-
 // Product Sync's synthetic native and Convex boundaries, composed into a registration process.
 export function createSyntheticSyncVault(
   shared: Readonly<ReturnType<typeof createSyntheticDevice>>,
@@ -197,6 +83,7 @@ export function createSyntheticSyncVault(
     newlyAuthorized,
     live,
     connect,
+    adoptIdentity,
     verified,
     cached,
   }: Readonly<{
@@ -213,27 +100,14 @@ export function createSyntheticSyncVault(
       installation: string,
       previous?: Readonly<Receipt>,
     ) => Receipt;
+    adoptIdentity: () => void;
     verified: Set<string>;
     cached: Set<string>;
   }>,
 ) {
   const { device, backend } = shared;
-  // The Product Sync account a Trusted Device's proof reaches.
-  const accountKeys = (product: Readonly<Receipt> | undefined) => {
-    const sync = backend.productSync;
-    const entry =
-      product === undefined || product.pending === true
-        ? undefined
-        : sync?.accounts.get(product.productAccountId);
-    if (sync?.offline === true) {
-      throw Object.assign(new Error('Synthetic'), { code: 'offline' });
-    }
-    if (sync === undefined || entry === undefined) {
-      throw unavailable();
-    }
-    return { sync, entry };
-  };
-
+  const syncBackend = () => configuredBackend(backend);
+  const guardedHandlers = createSyntheticSyncHandlers(shared);
   // The Keychain's Product Sync items, which fail to read when `unreadable`.
   const syncKeys = () => {
     if (device.productSync.unreadable) {
@@ -241,18 +115,31 @@ export function createSyntheticSyncVault(
     }
     return device.productSync;
   };
-  const syncBackend = () => {
-    if (backend.productSync === undefined) {
-      throw unavailable();
+  // This installation's public encryption key; creating one replaces a lost key.
+  const deviceKey = (creating = false) => {
+    const keys = syncKeys();
+    if (!keys.deviceKey || keys.deviceKeyName === undefined) {
+      if (!creating) {
+        throw unavailable();
+      }
+      keys.deviceKey = true;
+      keys.deviceKeyName = `device-key-${(syncBackend().issued += 1)}`;
     }
-    return backend.productSync;
+    return keys.deviceKeyName;
   };
-  const trusted = () => {
+  const registered = () => {
     const record = saved();
-    if (record.product === undefined || record.product.pending === true) {
+    if (record.product === undefined) {
       throw unavailable();
     }
     return { record, product: record.product };
+  };
+  const trusted = () => {
+    const { record, product } = registered();
+    if (product.pending === true) {
+      throw unavailable();
+    }
+    return { record, product };
   };
   const publishedVault = () => {
     const { product } = trusted();
@@ -261,6 +148,14 @@ export function createSyntheticSyncVault(
       throw unavailable();
     }
     return { vault, account: product.productAccountId };
+  };
+  // This Pending Device's open request, only while it belongs to the same Pending Device.
+  const openEnrollment = (product: Readonly<Receipt>) => {
+    const { enrollment } = device.productSync;
+    return product.pending === true &&
+      enrollment?.pendingDeviceId === product.trustedDeviceId
+      ? enrollment
+      : undefined;
   };
   // What native projects of this device's Product Sync state.
   // fallow-ignore-next-line complexity -- Each optional field mirrors the native projection.
@@ -275,17 +170,24 @@ export function createSyntheticSyncVault(
     }
     const keys = device.productSync;
     const { vault } = keys;
+    const enrollment = openEnrollment(product);
     return {
       pending: product.pending === true,
       ...(product.materialInitialized === undefined
         ? {}
         : { materialInitialized: product.materialInitialized }),
       deviceKey: keys.deviceKey,
-      ...(product.pending === true && keys.enrollment !== undefined
-        ? { enrollment: keys.enrollment }
-        : {}),
-      requests: keys.requests,
-      trustedDevices: keys.trustedDevices,
+      deviceId: product.trustedDeviceId,
+      ...(enrollment === undefined
+        ? {}
+        : {
+            enrollment: {
+              code: enrollment.code,
+              ...(enrollment.notice === undefined
+                ? {}
+                : { notice: enrollment.notice }),
+            },
+          }),
       ...(vault === undefined
         ? {}
         : {
@@ -298,7 +200,14 @@ export function createSyntheticSyncVault(
                 : { recoveryKey: vault.recoveryKey }),
               ...(vault.revocation === undefined
                 ? {}
-                : { revocation: vault.revocation }),
+                : {
+                    revocation: {
+                      proposal: vault.revocation.proposal,
+                      device: vault.revocation.device,
+                      recoveryKey: vault.revocation.recoveryKey,
+                      submitted: vault.revocation.submitted,
+                    },
+                  }),
               ...(vault.readMailboxes === undefined
                 ? {}
                 : { readMailboxes: vault.readMailboxes }),
@@ -350,96 +259,41 @@ export function createSyntheticSyncVault(
     };
   };
 
-  const handlers: Readonly<
-    Record<string, (request: Presented) => { status: number; body: string }>
-  > = {
-    'productSync:initialize': ({ call, product }) => {
-      const { sync, entry } = accountKeys(product);
-      const envelope = call.args.encryptedPayload;
-      const ring = isPayload(envelope)
-        ? sync.recoveries.get(envelope.ciphertextBase64)
-        : undefined;
-      if (ring === undefined || !isPayload(envelope)) {
-        return refusal('UNAVAILABLE');
-      }
-      if (entry.recovery !== undefined) {
-        return success({
-          initialized: entry.recovery === envelope.ciphertextBase64,
-        });
-      }
-      entry.recovery = envelope.ciphertextBase64;
-      entry.ring = structuredClone(ring);
-      sync.initializations += 1;
-      if (sync.loseInitializationReply) {
-        sync.loseInitializationReply = false;
-        throw Object.assign(new Error('Synthetic'), { code: 'offline' });
-      }
-      return success({ initialized: true });
-    },
-    'productSync:listEncryptedPayloadsForTrustedDevice': ({
-      call,
-      product,
-    }) => {
-      const { sync, entry } = accountKeys(product);
-      const options = call.args.paginationOpts;
-      const cursor =
-        Predicate.hasProperty(options, 'cursor') &&
-        Predicate.isString(options.cursor)
-          ? options.cursor
-          : null;
-      if (cursor === null) {
-        sync.beforeList?.();
-      }
-      sync.listedPages += 1;
-      const prefix = String(call.args.payloadIdentifierPrefix);
-      const records = Arr.sortWith(
-        [...entry.records.values()].filter(({ payloadIdentifier }) =>
-          payloadIdentifier.startsWith(prefix),
-        ),
-        ({ payloadIdentifier }) => payloadIdentifier,
-        Order.String,
-      );
-      const start = cursor === null ? 0 : Number(cursor);
-      const page = records.slice(start, start + sync.pageSize);
-      const end = start + page.length;
-      return success({
-        page,
-        isDone: end >= records.length,
-        continueCursor: String(end),
+  // A Convex call native makes itself, with this process's session and this device's proof.
+  const send = (path: string, args: Record<string, unknown>) => {
+    if (live.session === undefined) {
+      throw unavailable();
+    }
+    const handler = guardedHandlers[path];
+    if (handler === undefined) {
+      throw unavailable();
+    }
+    const reply = decodeReply(
+      handler({
+        call: { endpoint: 'mutation', path, args, session: true, device: true },
+        product: saved().product,
+        signedIn: live.session,
+      }).body,
+    );
+    if (reply.status !== 'success') {
+      throw Object.assign(new Error('Synthetic refusal'), {
+        code:
+          reply.errorData?.code === 'TRUSTED_DEVICE_REVOKED'
+            ? 'revoked'
+            : 'unavailable',
       });
-    },
-    // fallow-ignore-next-line complexity -- Mirrors Convex's compare-and-set and epoch refusals.
-    'productSync:putEncryptedPayloadIfUnchanged': ({ call, product }) => {
-      const { sync, entry } = accountKeys(product);
-      const record = String(call.args.payloadIdentifier);
-      const sealed = call.args.encryptedPayload;
-      const expected = Predicate.isNumber(call.args.expectedUpdatedAt)
-        ? call.args.expectedUpdatedAt
-        : undefined;
-      if (!isPayload(sealed)) {
-        return refusal('UNAVAILABLE');
-      }
-      sync.beforePut?.(record);
-      if (sealed.keyVersion !== entry.ring?.current) {
-        return refusal('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
-      }
-      const existing = entry.records.get(record);
-      if (existing !== undefined && existing.updatedAt !== expected) {
-        return success(existing);
-      }
-      // As Convex does, a compare-and-set against a record that no longer exists is refused.
-      if (existing === undefined && expected !== undefined) {
-        return refusal('PRODUCT_SYNC_PAYLOAD_CHANGED');
-      }
-      sync.clock += 1;
-      const stored = {
-        payloadIdentifier: record,
-        encryptedPayload: sealed,
-        updatedAt: sync.clock,
-      };
-      entry.records.set(record, stored);
-      return success(stored);
-    },
+    }
+    return reply.value;
+  };
+  // Opens a recovery envelope with an entered Recovery Key, only for this account.
+  const openRecovery = (ciphertext: string, entry: string, account: string) => {
+    const sealed = syncBackend().recoveries.get(ciphertext);
+    return sealed?.key === entry && sealed.account === account
+      ? structuredClone(sealed.ring)
+      : undefined;
+  };
+  const storeRing = (ring: Ring) => {
+    syncKeys().vault = { ring, published: true, recoveryKeyConfirmed: true };
   };
 
   const operations: Pick<
@@ -447,9 +301,19 @@ export function createSyntheticSyncVault(
     | 'createKeyRing'
     | 'recordInitialization'
     | 'reenroll'
-    | 'admitPendingDevice'
+    | 'beginEnrollment'
+    | 'openEnrollment'
+    | 'confirmAdmission'
+    | 'recoverPendingDevice'
+    | 'recoverTrustedDevice'
+    | 'readsAsEnrollmentCode'
+    | 'sealEnrollment'
     | 'adoptRotation'
-    | 'refreshDevices'
+    | 'settleRevocation'
+    | 'prepareRevocation'
+    | 'submitRevocation'
+    | 'withdrawRevocation'
+    | 'discardRevocation'
     | 'finishSynchronization'
     | 'sealMailboxDescriptor'
     | 'openMailboxDescriptors'
@@ -480,14 +344,18 @@ export function createSyntheticSyncVault(
         if (vault.published || vault.recoveryKey === undefined) {
           throw unavailable();
         }
-        keys.deviceKey = true;
+        const key = deviceKey(true);
         const envelope = `recovery-${vault.ring.id}`;
-        sync.recoveries.set(envelope, structuredClone(vault.ring));
+        sync.recoveries.set(envelope, {
+          ring: structuredClone(vault.ring),
+          key: vault.recoveryKey,
+          account: product.productAccountId,
+        });
         sync.steps.push('createKeyRing');
         return {
-          recoveryEnvelope: payload(envelope, vault.ring.current),
-          recoveryVerifier: `verifier-${vault.ring.id}`,
-          deviceKey: 'synthetic-device-key',
+          recoveryEnvelope: payload(envelope, vault.ring.current, 3),
+          recoveryVerifier: verifierOf(proofOf(vault.recoveryKey)),
+          deviceKey: key,
         };
       }),
     recordInitialization: (initialized) =>
@@ -528,71 +396,325 @@ export function createSyntheticSyncVault(
         );
         verified.clear();
         cached.clear();
-        keys.requests = [];
-        keys.trustedDevices = [];
         return null;
       }),
-    admitPendingDevice: () =>
+    beginEnrollment: (notice) =>
       attempt(() => {
         const sync = syncBackend();
-        sync.steps.push('admitPendingDevice');
-        const record = saved();
-        const { product } = record;
-        const keys = syncKeys();
-        const entry =
-          product === undefined
-            ? undefined
-            : sync.accounts.get(product.productAccountId);
-        if (product?.pending !== true || entry === undefined) {
+        sync.steps.push('beginEnrollment');
+        const { product } = registered();
+        if (product.pending !== true) {
           throw unavailable();
         }
-        if (!sync.approves || entry.ring === undefined) {
-          keys.enrollment ??= { code: 'SYNTHETIC-ENROLLMENT-CODE' };
+        const key = deviceKey(true);
+        sync.issued += 1;
+        syncKeys().enrollment = {
+          pendingDeviceId: product.trustedDeviceId,
+          key: `one-time-key-${sync.issued}`,
+          code: `CODE-${sync.issued}`,
+          ...(notice === null ? {} : { notice }),
+        };
+        return {
+          enrollmentPublicKey: `one-time-key-${sync.issued}`,
+          deviceKey: key,
+        };
+      }),
+    openEnrollment: (approval) =>
+      // fallow-ignore-next-line complexity -- Each condition is one binding the approval is sealed to.
+      attempt(() => {
+        const { product } = registered();
+        const enrollment = openEnrollment(product);
+        if (enrollment === undefined) {
+          throw unavailable();
+        }
+        const sealed = syncBackend().envelopes.get(approval.ciphertextBase64);
+        const opened =
+          sealed?.kind === 'enrollment' &&
+          sealed.publicKey === enrollment.key &&
+          sealed.code === enrollment.code &&
+          sealed.account === product.productAccountId &&
+          sealed.device === product.trustedDeviceId &&
+          sealed.deviceKey === device.productSync.deviceKeyName &&
+          device.productSync.deviceKey &&
+          sealed.ring.current === approval.keyVersion;
+        if (opened) {
+          storeRing(structuredClone(sealed.ring));
+        }
+        return { opened };
+      }),
+    confirmAdmission: () =>
+      attempt(() => {
+        const sync = syncBackend();
+        sync.steps.push('confirmAdmission');
+        const { record, product } = registered();
+        const { vault } = syncKeys();
+        if (product.pending !== true || vault === undefined) {
+          throw unavailable();
+        }
+        const reply = send('productSyncEnrollment:complete', {
+          keyVersion: vault.ring.current,
+          deviceEncryptionPublicKey: deviceKey(),
+        });
+        const completion = decodeCompletion(reply);
+        if (!completion.admitted || completion.trustedDeviceId === undefined) {
+          syncKeys().vault = undefined;
           return { admitted: false };
         }
-        keys.vault = {
-          ring: structuredClone(entry.ring),
-          published: true,
-          recoveryKeyConfirmed: true,
-        };
-        keys.deviceKey = true;
-        keys.enrollment = undefined;
-        entry.admitted.add(record.deviceIdentifier);
         record.product = {
           productAccountId: product.productAccountId,
-          trustedDeviceId: `synthetic-device-${(backend.devices += 1)}`,
+          trustedDeviceId: completion.trustedDeviceId,
           ...(product.signInProviders === undefined
             ? {}
             : { signInProviders: product.signInProviders }),
           materialInitialized: true,
         };
+        syncKeys().enrollment = undefined;
         return { admitted: true };
       }),
-    adoptRotation: () =>
+    recoverPendingDevice: (entry) =>
+      attempt(() => {
+        const { product } = registered();
+        if (product.pending !== true) {
+          throw unavailable();
+        }
+        if (entry.trim().length === 0) {
+          return { rejected: true };
+        }
+        const envelope = send('productSyncEnrollment:recover', {
+          recoveryProof: proofOf(entry),
+          deviceEncryptionPublicKey: deviceKey(),
+        });
+        const ring = isPayload(envelope)
+          ? openRecovery(
+              envelope.ciphertextBase64,
+              entry,
+              product.productAccountId,
+            )
+          : undefined;
+        if (ring === undefined) {
+          return { rejected: true };
+        }
+        storeRing(ring);
+        return { rejected: false };
+      }),
+    recoverTrustedDevice: (entry, envelope) =>
+      attempt(() => {
+        const { product } = trusted();
+        if (entry.trim().length === 0) {
+          return { rejected: true };
+        }
+        const ring = openRecovery(
+          envelope.ciphertextBase64,
+          entry,
+          product.productAccountId,
+        );
+        if (ring === undefined) {
+          return { rejected: true };
+        }
+        const binding = decodeBinding(
+          send('productSync:bindDeviceEncryptionKey', {
+            deviceEncryptionPublicKey: deviceKey(),
+            recoveryProof: proofOf(entry),
+          }),
+        );
+        if (!binding.bound) {
+          return { rejected: true };
+        }
+        storeRing(ring);
+        return { rejected: false };
+      }),
+    readsAsEnrollmentCode: (entry) =>
+      Promise.resolve(enrollmentCode.test(entry.trim().toUpperCase())),
+    sealEnrollment: (code, request) =>
+      attempt(() => {
+        if (!enrollmentCode.test(code.trim().toUpperCase())) {
+          throw Object.assign(new Error('Synthetic'), {
+            code: 'enrollment-code-invalid',
+          });
+        }
+        const sync = syncBackend();
+        const { vault, account } = publishedVault();
+        deviceKey();
+        const ciphertext = `enrollment-${(sync.issued += 1)}`;
+        sync.envelopes.set(ciphertext, {
+          kind: 'enrollment',
+          ring: structuredClone(vault.ring),
+          account,
+          device: request.pendingDeviceId,
+          publicKey: request.enrollmentPublicKey,
+          deviceKey: request.deviceEncryptionPublicKey,
+          code: code.trim().toUpperCase(),
+        });
+        return {
+          keyVersion: vault.ring.current,
+          encapsulatedKeyBase64: 'synthetic',
+          ciphertextBase64: ciphertext,
+        };
+      }),
+    adoptRotation: (envelope) =>
+      // fallow-ignore-next-line complexity -- Each condition is one binding the rotation is sealed to.
       attempt(() => {
         const sync = syncBackend();
         sync.steps.push('adoptRotation');
         const { product } = trusted();
         const { vault } = syncKeys();
-        const ring = sync.accounts.get(product.productAccountId)?.ring;
         if (vault === undefined) {
           throw unavailable();
         }
-        if (ring?.id === vault.ring.id && ring.current > vault.ring.current) {
-          vault.ring = structuredClone(ring);
+        if (vault.ring.epochs.includes(envelope.keyEpoch)) {
+          return null;
+        }
+        const sealed = sync.envelopes.get(envelope.ciphertextBase64);
+        // The new ring must keep every key this device holds, so no record becomes unreadable.
+        if (
+          sealed?.kind !== 'rotation' ||
+          sealed.account !== product.productAccountId ||
+          sealed.device !== product.trustedDeviceId ||
+          sealed.deviceKey !== deviceKey() ||
+          sealed.ring.current !== envelope.keyEpoch ||
+          sealed.ring.id !== vault.ring.id ||
+          !holds(sealed.ring, vault.ring.epochs)
+        ) {
+          throw unavailable();
+        }
+        vault.ring = structuredClone(sealed.ring);
+        return null;
+      }),
+    settleRevocation: (keyEpoch) =>
+      attempt(() => {
+        const { vault } = syncKeys();
+        const pending = vault?.revocation;
+        if (vault === undefined || pending?.submitted !== true) {
+          return null;
+        }
+        if (!device.productSync.deviceKey) {
+          // The receipt commits this exact proposal; its confirmed backup opens only that ring.
+          if (
+            pending.ring.current !== keyEpoch ||
+            !holds(pending.ring, vault.ring.epochs)
+          ) {
+            throw unavailable();
+          }
+          vault.ring = structuredClone(pending.ring);
+        } else if (vault.ring.current < keyEpoch) {
+          return null;
+        }
+        delete vault.revocation;
+        return null;
+      }),
+    prepareRevocation: (proposal) =>
+      // fallow-ignore-next-line complexity -- Mirrors the native guards before sealing a removal.
+      attempt(() => {
+        const sync = syncBackend();
+        const { product } = trusted();
+        const { vault, account } = publishedVault();
+        const target = proposal.trustedDeviceId;
+        if (
+          !vault.recoveryKeyConfirmed ||
+          vault.revocation?.submitted === true ||
+          target === product.trustedDeviceId
+        ) {
+          throw unavailable();
+        }
+        const own = deviceKey();
+        if (
+          proposal.devices.find(({ id }) => id === product.trustedDeviceId)
+            ?.deviceEncryptionPublicKey !== own
+        ) {
+          throw unavailable();
+        }
+        const epoch = Math.max(...vault.ring.epochs) + 1;
+        const ring = {
+          id: vault.ring.id,
+          epochs: [...vault.ring.epochs, epoch],
+          current: epoch,
+        };
+        const keyEnvelopes = proposal.devices.map(
+          ({ id, deviceEncryptionPublicKey }) => {
+            if (id === target || deviceEncryptionPublicKey === undefined) {
+              throw unavailable();
+            }
+            const ciphertext = `rotation-${(sync.issued += 1)}`;
+            sync.envelopes.set(ciphertext, {
+              kind: 'rotation',
+              ring: structuredClone(ring),
+              account,
+              device: id,
+              deviceKey: deviceEncryptionPublicKey,
+            });
+            return {
+              trustedDeviceId: id,
+              deviceEncryptionPublicKey,
+              encapsulatedKeyBase64: 'synthetic',
+              ciphertextBase64: ciphertext,
+            };
+          },
+        );
+        sync.issued += 1;
+        const recoveryKey = `SYNTHETIC-RECOVERY-${ring.id}-${epoch}-${sync.issued}`;
+        const recovery = `recovery-${ring.id}-${epoch}-${sync.issued}`;
+        sync.recoveries.set(recovery, {
+          ring: structuredClone(ring),
+          key: recoveryKey,
+          account,
+        });
+        const proposalId = `proposal-${sync.issued}`;
+        vault.revocation = {
+          proposal: proposalId,
+          device: target,
+          recoveryKey,
+          submitted: false,
+          ring,
+          request: {
+            trustedDeviceToRevokeId: target,
+            proposalId,
+            expectedKeyEpoch: vault.ring.current,
+            expectedRecoveryUpdatedAt: proposal.expectedRecoveryUpdatedAt,
+            keyEnvelopes,
+            recoveryWrappedAccountKey: payload(recovery, epoch, 3),
+            recoveryVerifier: verifierOf(proofOf(recoveryKey)),
+          },
+        };
+        return null;
+      }),
+    submitRevocation: (entry) =>
+      attempt(() => {
+        registered();
+        const { vault } = syncKeys();
+        const pending = vault?.revocation;
+        if (pending === undefined) {
+          throw unavailable();
+        }
+        if (
+          entry.length === 0 ||
+          !pending.recoveryKey.toLowerCase().endsWith(entry.toLowerCase())
+        ) {
+          throw Object.assign(new Error('Synthetic'), {
+            code: 'recovery-key-mismatch',
+          });
+        }
+        // A lost key permits only replay of intent that was already confirmed and submitted.
+        if (!device.productSync.deviceKey && !pending.submitted) {
+          throw unavailable();
+        }
+        adoptIdentity();
+        pending.submitted = true;
+        return structuredClone(pending.request);
+      }),
+    withdrawRevocation: () =>
+      attempt(() => {
+        const pending = syncKeys().vault?.revocation;
+        if (pending !== undefined) {
+          pending.submitted = false;
         }
         return null;
       }),
-    refreshDevices: () =>
+    discardRevocation: () =>
       attempt(() => {
-        const sync = syncBackend();
-        sync.steps.push('refreshDevices');
-        const { product } = trusted();
-        const keys = syncKeys();
-        keys.requests = [...sync.requests];
-        keys.trustedDevices = sync.trustedDevices.filter(
-          ({ id }) => id !== product.trustedDeviceId,
-        );
+        const { vault } = syncKeys();
+        if (vault !== undefined) {
+          delete vault.revocation;
+        }
         return null;
       }),
     finishSynchronization: () =>
@@ -685,5 +807,9 @@ export function createSyntheticSyncVault(
         return null;
       }),
   };
-  return { operations, handlers, project: productSyncState };
+  return {
+    operations,
+    handlers: guardedHandlers,
+    project: productSyncState,
+  };
 }

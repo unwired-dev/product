@@ -4,6 +4,7 @@ import {
   createSyntheticProductSyncBackend,
   mailboxRecord,
   RegistrationRecordSchema,
+  removeTrustedDevice,
   storeDescriptor,
   storedDescriptor,
 } from '@private-email/mail-core/testing/registration-vault';
@@ -87,9 +88,10 @@ export const setup = () => {
   };
   // Another device's removal that moves the account to a newer key epoch.
   const rotate = (epoch: number) => {
-    const keys = ring();
-    keys.epochs.push(epoch);
-    keys.current = epoch;
+    removeTrustedDevice(sync, account);
+    if (ring().current !== epoch) {
+      throw new Error('Unexpected key epoch');
+    }
   };
   const connections = () => launched.device.record?.connections ?? [];
   const connection = () => {

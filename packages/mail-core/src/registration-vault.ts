@@ -1,7 +1,12 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
-import type { StoredPayload } from './registration-replies.ts';
+import type {
+  EncryptedPayload,
+  KeyEnvelope,
+  PendingEnrollment,
+  StoredPayload,
+} from './registration-replies.ts';
 import type { MailProvider, SignInProvider } from './registration.ts';
 
 import { MailProviderSchema } from './registration.ts';
@@ -26,26 +31,13 @@ const ProductSyncStateSchema = Schema.Struct({
   materialInitialized: Schema.optionalKey(Schema.Boolean),
   // This installation holds its encryption key for the account.
   deviceKey: Schema.Boolean,
+  // This installation's Trusted or Pending Device identifier, an opaque name other devices list.
+  deviceId: Schema.NonEmptyString,
   // This Pending Device's open request.
   enrollment: Schema.optionalKey(
     Schema.Struct({
       code: Schema.NonEmptyString,
       notice: Schema.optionalKey(Schema.Literals(['renewed', 'rejected'])),
-    }),
-  ),
-  // Other devices' requests and the account's other Trusted Devices, as last listed.
-  requests: Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      device: Schema.NonEmptyString,
-      expiresAt: Schema.Finite,
-    }),
-  ),
-  trustedDevices: Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      name: Schema.NonEmptyString,
-      registeredAt: Schema.Finite,
     }),
   ),
   vault: Schema.optionalKey(
@@ -57,6 +49,8 @@ const ProductSyncStateSchema = Schema.Struct({
       recoveryKey: Schema.optionalKey(Schema.NonEmptyString),
       revocation: Schema.optionalKey(
         Schema.Struct({
+          // The opaque identifier its activation and receipt carry.
+          proposal: Schema.NonEmptyString,
           device: Schema.NonEmptyString,
           recoveryKey: Schema.NonEmptyString,
           // Sent without a definite answer; the account may already have applied it.
@@ -214,11 +208,72 @@ export interface NativeRegistrationVault {
   readonly recordInitialization: (initialized: boolean) => Promise<unknown>;
   // A Trusted Device that lost its encryption key connects again as a new Pending Device.
   readonly reenroll: () => Promise<unknown>;
-  // Temporary until #758: this Pending Device's admission, adoption of the newest key ring, and
-  // the other devices' requests and Trusted Devices kept for approval and removal.
-  readonly admitPendingDevice: () => Promise<unknown>;
-  readonly adoptRotation: () => Promise<unknown>;
-  readonly refreshDevices: () => Promise<unknown>;
+  // Creates and stores this Pending Device's one-time key pair and Enrollment Code, replacing an
+  // earlier request's, and returns the public keys its request names. `notice` says why the
+  // previous request ended without unlocking this device.
+  readonly beginEnrollment: (
+    notice: 'renewed' | 'rejected' | null,
+  ) => Promise<unknown>;
+  // Opens an approval with this Pending Device's one-time key and code and stores the key ring;
+  // `{ opened: false }` when it does not open here, which changes nothing.
+  readonly openEnrollment: (
+    approval: Readonly<{
+      keyVersion: number;
+      encapsulatedKeyBase64: string;
+      ciphertextBase64: string;
+    }>,
+  ) => Promise<unknown>;
+  // Confirms the keys this Pending Device stored. Convex admits it as a Trusted Device, whose
+  // receipt is saved before this resolves `{ admitted: true }`; a void authorization discards the
+  // keys and leaves it pending.
+  readonly confirmAdmission: () => Promise<unknown>;
+  // This Pending Device proves the entered Recovery Key with a value derived from it, opens the
+  // recovery envelope Convex returns and stores the key ring. Resolves `{ rejected }`.
+  readonly recoverPendingDevice: (entry: string) => Promise<unknown>;
+  // Opens the account's recovery envelope with the entered Recovery Key, binds this Trusted
+  // Device's encryption key with the key's proof and stores the key ring. Resolves `{ rejected }`.
+  readonly recoverTrustedDevice: (
+    entry: string,
+    envelope: typeof EncryptedPayload.Type,
+  ) => Promise<unknown>;
+  readonly readsAsEnrollmentCode: (entry: string) => Promise<unknown>;
+  // Seals this device's key ring for another device's request, unlocked by the code it shows, and
+  // returns the approval Convex stores.
+  readonly sealEnrollment: (
+    code: string,
+    request: Pick<
+      typeof PendingEnrollment.Type,
+      'pendingDeviceId' | 'enrollmentPublicKey' | 'deviceEncryptionPublicKey'
+    >,
+  ) => Promise<unknown>;
+  // Adopts the newest key ring a removal sealed to this device's encryption key; one it already
+  // holds changes nothing.
+  readonly adoptRotation: (
+    envelope: typeof KeyEnvelope.Type,
+  ) => Promise<unknown>;
+  // Settles this device's submitted removal, which the account committed at `keyEpoch`.
+  readonly settleRevocation: (keyEpoch: number) => Promise<unknown>;
+  // Makes the latest Product Sign-In, or else this process's verified one, the session later steps
+  // present; it must open the saved registration.
+  readonly adoptIdentity: () => Promise<unknown>;
+  // Prepares removing another Trusted Device: a new key epoch sealed to each remaining device's
+  // encryption key and to a replacement Recovery Key, stored before this resolves. Replaces an
+  // earlier proposal that was never sent.
+  readonly prepareRevocation: (
+    proposal: Readonly<{
+      trustedDeviceId: string;
+      expectedRecoveryUpdatedAt: number;
+      devices: ReadonlyArray<
+        Readonly<{ id: string; deviceEncryptionPublicKey?: string }>
+      >;
+    }>,
+  ) => Promise<unknown>;
+  // Once `entry` matches the end of the replacement Recovery Key, records that the prepared removal
+  // is submitted, before it is sent, and returns what its activation carries.
+  readonly submitRevocation: (entry: string) => Promise<unknown>;
+  // A definite refusal: the prepared removal stays, with no submission outstanding.
+  readonly withdrawRevocation: () => Promise<unknown>;
+  readonly discardRevocation: () => Promise<unknown>;
   // Ends the consent window in which a new connection may adopt a removed descriptor.
   readonly finishSynchronization: () => Promise<unknown>;
   readonly sealMailboxDescriptor: (
@@ -286,18 +341,4 @@ export interface NativeRegistrationVault {
   readonly stopMailboxWatches: () => Promise<unknown>;
   readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
   readonly readsAsRecoveryKey: (entry: string) => Promise<unknown>;
-  // Temporary until #758: unlocks with the Recovery Key after the flow renewed the sign-in.
-  readonly recoverWithRecoveryKey: (entry: string) => Promise<unknown>;
-  readonly approveEnrollment: (
-    requestId: string,
-    code: string,
-  ) => Promise<unknown>;
-  readonly declineEnrollment: (requestId: string) => Promise<unknown>;
-  // Temporary until #758: prepares removing another Trusted Device with the latest sign-in.
-  readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
-  // Temporary until #758: activates the prepared removal once its replacement Recovery Key's final
-  // group matches; a sign-in that is no longer recent rejects as stale authentication.
-  readonly confirmRevocation: (entry: string) => Promise<unknown>;
-  // Temporary until #758: discards the prepared removal, settling an unanswered one first.
-  readonly cancelRevocation: () => Promise<unknown>;
 }

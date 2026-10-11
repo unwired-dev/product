@@ -54,9 +54,21 @@ export const registration = createRegistration(
     recordInitialization: (initialized) =>
       native().recordInitialization(initialized),
     reenroll: () => native().reenroll(),
-    admitPendingDevice: () => native().admitPendingDevice(),
-    adoptRotation: () => native().adoptRotation(),
-    refreshDevices: () => native().refreshDevices(),
+    beginEnrollment: (notice) => native().beginEnrollment(notice),
+    openEnrollment: (approval) => native().openEnrollment(approval),
+    confirmAdmission: () => native().confirmAdmission(),
+    recoverPendingDevice: (entry) => native().recoverPendingDevice(entry),
+    recoverTrustedDevice: (entry, envelope) =>
+      native().recoverTrustedDevice(entry, envelope),
+    readsAsEnrollmentCode: (entry) => native().readsAsEnrollmentCode(entry),
+    sealEnrollment: (code, request) => native().sealEnrollment(code, request),
+    adoptRotation: (envelope) => native().adoptRotation(envelope),
+    settleRevocation: (keyEpoch) => native().settleRevocation(keyEpoch),
+    adoptIdentity: () => native().adoptIdentity(),
+    prepareRevocation: (proposal) => native().prepareRevocation(proposal),
+    submitRevocation: (entry) => native().submitRevocation(entry),
+    withdrawRevocation: () => native().withdrawRevocation(),
+    discardRevocation: () => native().discardRevocation(),
     finishSynchronization: () => native().finishSynchronization(),
     sealMailboxDescriptor: (record, descriptor) =>
       native().sealMailboxDescriptor(record, descriptor),
@@ -90,14 +102,6 @@ export const registration = createRegistration(
     stopMailboxWatches: () => native().stopMailboxWatches(),
     confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
     readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
-    recoverWithRecoveryKey: (entry) => native().recoverWithRecoveryKey(entry),
-    approveEnrollment: (requestId, code) =>
-      native().approveEnrollment(requestId, code),
-    declineEnrollment: (requestId) => native().declineEnrollment(requestId),
-    revokeTrustedDevice: (trustedDeviceId) =>
-      native().revokeTrustedDevice(trustedDeviceId),
-    confirmRevocation: (entry) => native().confirmRevocation(entry),
-    cancelRevocation: () => native().cancelRevocation(),
   }),
 );
 
@@ -208,6 +212,7 @@ export const drafts = createDrafts(
     removed: () => {
       void registration.deviceRemoved();
     },
+    adoptKeyRotation: () => registration.adoptKeyRotation(),
     native: {
       pullDrafts: (owner, known) => native().pullDrafts(owner, known),
       pushDraft: (owner, record) => native().pushDraft(owner, record),
