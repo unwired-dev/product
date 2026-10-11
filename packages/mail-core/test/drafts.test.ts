@@ -387,47 +387,36 @@ describe('editing a Semantic Message Document', () => {
     30_000,
   );
 
-  it('edits one long paragraph as cheaply as the same body split into paragraphs', () => {
+  it('edits beside a long run of text without rebuilding it', () => {
     expect.hasAssertions();
-    // Comparing the two shapes on one machine keeps this independent of runner speed. Expanding
-    // the edited block per code unit made the single paragraph about 100 times slower.
-    const fastestEdit = (start: SemanticDocument) => {
-      let document = start;
-      const times: number[] = [];
-      for (let i = 0; i < 25; i += 1) {
-        const { text } = displayOf(document);
-        const at = Math.floor(text.length / 2);
-        const began = performance.now();
-        ({ document } = applyText(
-          document,
-          `${text.slice(0, at)}y${text.slice(at)}`,
-          {
-            selection: { start: at, end: at },
-          },
-        ));
-        document = toggleMark(
-          document,
-          { start: at - 50, end: at + 50 },
-          'bold',
-        );
-        marksAt(document, { start: at, end: at });
-        times.push(performance.now() - began);
-      }
-      // The first edits warm up the JIT; the fastest of the rest ignores collector pauses.
-      return Math.min(...times.slice(5));
-    };
-    const paragraph: Block = {
-      kind: 'paragraph',
-      spans: [{ text: 'x'.repeat(999) }],
-    };
-    const split = fastestEdit([
-      paragraph,
-      ...Array.from({ length: 999 }, () => paragraph),
+    // Rebuilding an edited block from one object per code unit cost about 100 ms per keystroke
+    // in a 1,000,000-character paragraph. Reusing the untouched run is the deterministic sign
+    // that an edit costs the block's runs, not its characters.
+    const long = { text: 'x'.repeat(1_000_000) };
+    const before: SemanticDocument = [
+      { kind: 'paragraph', spans: [long, { text: 'tail', marks: ['bold'] }] },
+    ];
+    const end = 1_000_004;
+    const typed = applyText(before, `${displayOf(before).text}s`, {
+      selection: { start: end, end },
+    }).document;
+    expect(typed[0].spans[0]).toBe(long);
+    expect(typed[0].spans[1]).toStrictEqual({ text: 'tails', marks: ['bold'] });
+    const italic = toggleMark(
+      typed,
+      { start: 1_000_000, end: end + 1 },
+      'italic',
+    );
+    expect(italic[0].spans).toStrictEqual([
+      long,
+      { text: 'tails', marks: ['bold', 'italic'] },
     ]);
-    const single = fastestEdit([
-      { kind: 'paragraph', spans: [{ text: 'x'.repeat(1_000_000) }] },
+    expect(italic[0].spans[0]).toBe(long);
+    expect(marksAt(italic, { start: 1_000_000, end: end + 1 })).toStrictEqual([
+      'bold',
+      'italic',
     ]);
-    expect(single).toBeLessThan(split * 4 + 1);
+    expect(marksAt(italic, { start: 500_000, end: 500_000 })).toStrictEqual([]);
   });
 
   it('edits the selected occurrence of repeated characters without moving their marks', () => {

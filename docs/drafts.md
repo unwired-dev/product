@@ -338,9 +338,9 @@ including an edit started before an account change. They use
 revision rules without encryption.
 
 In local measurements, a keystroke in one long paragraph costs about the same as
-in the same body split into paragraphs. A shared regression compares those two
-shapes on one machine and fails if the single 1,000,000-character paragraph becomes
-markedly slower. In local Node 24 measurements on an Apple-silicon Mac mini, typing
+in the same body split into paragraphs. A shared regression types, formats and
+reads marks beside a 1,000,000-character run and checks that the untouched run is
+reused rather than rebuilt from per-character objects. In local Node 24 measurements on an Apple-silicon Mac mini, typing
 into the middle of that paragraph took about 0.25 ms per edit (previously about 100 ms, peaking above
 300 ms), formatting and reading the selection's marks under 0.1 ms, and a
 10,000,000-character paragraph about 3.4 ms, the same as split text. Undo history
