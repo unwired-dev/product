@@ -2,6 +2,7 @@ import type {
   NativeDrafts,
   NativeDraftSync,
 } from '@private-email/mail-core/drafts';
+import type { NativeWakes } from '@private-email/mail-core/freshness';
 import type { NativeGmailMailboxes } from '@private-email/mail-core/mailboxes';
 import type { NativeDeliveryClaim } from '@private-email/mail-core/outbox';
 import type { NativeRegistrationVault } from '@private-email/mail-core/registration-flow';
@@ -21,7 +22,8 @@ interface RegistrationModule
     NativeGmailMailboxes,
     NativeDrafts,
     NativeDraftSync,
-    NativeDeliveryClaim {
+    NativeDeliveryClaim,
+    NativeWakes {
   readonly cancelGmailRequest: (request: string) => void;
 }
 const native = () =>
@@ -55,6 +57,8 @@ export const registration = createRegistration(
     purge: (notice) => native().purge(notice),
     call: (request) => native().call(request),
     removeMailbox: (connection) => native().removeMailbox(connection),
+    routeMailboxes: () => native().routeMailboxes(),
+    stopMailboxWatches: () => native().stopMailboxWatches(),
     confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
     readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
     recoverWithRecoveryKey: (entry) => native().recoverWithRecoveryKey(entry),
@@ -67,6 +71,15 @@ export const registration = createRegistration(
     cancelRevocation: () => native().cancelRevocation(),
   }),
 );
+
+// APNs wake hints waiting for JavaScript, and the routes they may name.
+export const wakes: NativeWakes = {
+  nextWake: () => native().nextWake(),
+  mailboxRoutes: () => native().mailboxRoutes(),
+  completeWake: (id, result) => {
+    native().completeWake(id, result);
+  },
+};
 
 let nextRead = 0;
 

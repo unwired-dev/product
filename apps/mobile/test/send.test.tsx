@@ -519,7 +519,7 @@ describe('sending a Draft', () => {
     }
   });
 
-  it('explains a refused Send, a refusal by Gmail and an unknown outcome', async () => {
+  it('explains a refused Send, a refusal by Gmail and an unknown outcome, and recovers each', async () => {
     expect.hasAssertions();
     const sender = device();
     try {
@@ -561,28 +561,73 @@ describe('sending a Draft', () => {
       ).toBeNull();
       await press('Discard');
       await press('Discard Draft');
-      sender.gmail.failSend({ status: 400, body: '{}' }, { lost: true });
+      // Gmail refuses the first, keeps the second without answering, and answers the third with
+      // a server error without keeping it.
+      sender.gmail.failSend(
+        { status: 400, body: '{}' },
+        { lost: true },
+        { status: 503, body: '{}' },
+      );
       await compose('Refused');
       await press('Send');
-      await compose('Lost');
-      await press('Send');
       await later(sender, 10_000);
-
-      expect(sender.gmail.sends).toHaveLength(1);
       expect(
         screen.getByLabelText(
           'Refused. To sam@example.invalid. Not sent. Gmail refused this message.',
         ),
       ).toBeOnTheScreen();
-      expect(
-        screen.getByLabelText(
-          'Lost. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
-        ),
-      ).toBeOnTheScreen();
-      // Only the refused message returns to edit; the unknown one offers no way to send it again.
-      expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
       await press('Edit');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
+      await press('Discard');
+      await press('Discard Draft');
+      await compose('Lost');
+      await press('Send');
+      await compose('Unknown');
+      await press('Send');
+      await later(sender, 10_000);
+
+      // Gmail's Sent mailbox confirms the lost answer, which leaves the Outbox.
+      expect(screen.queryByLabelText(/^Lost\./u)).toBeNull();
+      expect(
+        screen.getByLabelText(
+          'Unknown. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      await press('Check Again');
+      await expect(
+        screen.findByText(
+          'Gmail did not confirm this message. Check Sent in Gmail.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      // A slow check must not dismiss the warning opened while it was pending.
+      let release: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Holds the external Gmail read while the person opens Edit.
+      const pending = new Promise<boolean>((resolve) => {
+        release = () => {
+          resolve(true);
+        };
+      });
+      const request = sender.gmail.native.gmailRequest;
+      sender.gmail.native.gmailRequest = async (...args) => {
+        sender.gmail.native.gmailRequest = request;
+        await pending;
+        return request(...args);
+      };
+      await press('Check Again');
+      // Editing the unknown message asks first, because Gmail may already have it.
+      await press('Edit');
+      const warning =
+        'Gmail may already have sent this message. Edit it only if it is not in Sent in Gmail.';
+      expect(screen.getByText(warning)).toBeOnTheScreen();
+      await act(async () => {
+        release();
+      });
+      expect(screen.getByText(warning)).toBeOnTheScreen();
+      await press('Cancel');
+      expect(screen.queryByText(warning)).toBeNull();
+      await press('Edit');
+      await press('Edit Anyway');
+      expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unknown');
       await later(sender, 60_000);
       expect(sender.gmail.sends).toHaveLength(1);
     } finally {

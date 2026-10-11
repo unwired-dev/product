@@ -29,6 +29,9 @@ client_id = ENV.fetch('UNWIRED_GOOGLE_CLIENT_ID', '')
 raise 'Invalid native Google OAuth client ID' unless client_id.empty? || client_id.match?(/\A[0-9A-Za-z-]+\.apps\.googleusercontent\.com\z/)
 info['GIDClientID'] = client_id
 info['UnwiredConvexURL'] = ENV.fetch('UNWIRED_CONVEX_URL', '')
+# The Cloud Pub/Sub topic Gmail watches publish to; without one no push route is registered.
+info.delete('UnwiredGmailTopic')
+info['UnwiredGmailTopic'] = ENV['UNWIRED_GMAIL_PUBSUB_TOPIC'] unless ENV.fetch('UNWIRED_GMAIL_PUBSUB_TOPIC', '').empty?
 info['CFBundleURLTypes'] = client_id.empty? ? [] : [{ 'CFBundleURLSchemes' => [client_id.split('.').reverse.join('.')] }]
 Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.generated.plist')
 info['UnwiredMockScenario'] = scenario if scenario

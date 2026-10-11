@@ -130,6 +130,9 @@ export function createSyntheticDevice() {
     unregistered: [] as Array<{ identity: Identity; installation: string }>,
     deletions: [] as Identity[],
     calls: [] as Call[],
+    // Native push steps, in order with `calls`: each verified mailbox's routing and every watch
+    // stopped before this device's routes leave the backend.
+    push: [] as Array<'route' | 'stop'>,
   };
   return { device, google, apple, backend };
 }
@@ -727,6 +730,16 @@ export function createSyntheticVault(
       }
       return reply;
     },
+    routeMailboxes: () =>
+      attempt(() => {
+        backend.push.push('route');
+        return null;
+      }),
+    stopMailboxWatches: () =>
+      attempt(() => {
+        backend.push.push('stop');
+        return null;
+      }),
     removeMailbox: (id) =>
       attempt(() => {
         const record = saved();

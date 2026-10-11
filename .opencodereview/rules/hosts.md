@@ -394,6 +394,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   a screen activation callback alone leaves an open Inbox stale indefinitely.
   Exercise the timer with real registration/mailbox stores and a controlled
   native/provider boundary, keeping physical lifecycle qualification separate.
+  In `apps/macos/src/freshness.ts.keepGmailFresh`, current push-route coverage
+  must not suppress the five-minute poll while AppState is active: an APNs wake
+  can be dropped or delayed without invalidating its route. Suppress covered
+  intervals only outside active state, and verify that new mail appears while
+  the app stays active with complete coverage and receives no wake. Check the
+  installed native AppState semantics and launch state; otherwise a valid route
+  can leave an open Inbox stale indefinitely until another activation or wake.
 
 - A framework/OS-owned async executor, such as the `defineTask` callback in
   `src/freshness.ts` or a notification handler, that lets a thrown failure or

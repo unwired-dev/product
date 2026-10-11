@@ -5,6 +5,12 @@
 #import <os/log.h>
 #import <GoogleSignIn/GoogleSignIn.h>
 
+// Shared Swift in native/private-inbox receives APNs registration and Gmail wake hints.
+@protocol UnwiredPushWakes
++ (void)registerDeviceToken:(NSData *)token;
++ (void)receiveRemoteNotification:(NSDictionary *)payload complete:(void (^)(NSString *))complete;
+@end
+
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
@@ -40,8 +46,21 @@
   }];
 #endif
   [self recordLifecycle:@"launch"];
+  // Ad-hoc builds lack the APNs entitlement; registration fails there and the interval poll remains.
+  [NSApp registerForRemoteNotifications];
   [self newWindow:nil];
   [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)application:(NSApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+{
+  [(Class<UnwiredPushWakes>)NSClassFromString(@"UnwiredPushWakes") registerDeviceToken:deviceToken];
+}
+
+- (void)application:(NSApplication *)application didReceiveRemoteNotification:(NSDictionary<NSString *, id> *)userInfo
+{
+  [(Class<UnwiredPushWakes>)NSClassFromString(@"UnwiredPushWakes") receiveRemoteNotification:userInfo
+      complete:^(NSString *result) {}];
 }
 
 - (void)handleGoogleURL:(NSAppleEventDescriptor *)event reply:(NSAppleEventDescriptor *)reply

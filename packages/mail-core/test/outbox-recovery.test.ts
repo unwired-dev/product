@@ -1,9 +1,23 @@
+import type { MockInstance } from 'vitest';
+
+import type { NativeDeliveryClaim } from '../src/outbox.ts';
 import type { Device } from './outbox-fixture.ts';
 
 import { createDrafts } from '../src/drafts.ts';
+import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
-import { alex } from './draft-sync-fixture.ts';
+import { boundaryOf } from '../src/outgoing-message.ts';
+import { plainText } from '../src/semantic-document.ts';
+import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
+import { alex, present } from './draft-sync-fixture.ts';
 import { account, addressed, sender, sharedAccount } from './outbox-fixture.ts';
+
+// A native call that never settles, as when the app stops meanwhile.
+const stopped = () =>
+  // oxlint-disable-next-line promise/avoid-new -- A request that never settles.
+  new Promise<never>(() => {
+    // Never settles.
+  });
 
 // The controlled clock every journey runs on.
 const clock = { now: 0 };
@@ -22,6 +36,115 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('confirms a lost answer without named capture groups in the host runtime', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const captures = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(withoutNamedCaptures);
+    try {
+      const id = await addressed(sending);
+      gmail.failSend({ lost: true });
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(gmail.sends).toHaveLength(1);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(sending.storage.stored()?.document).toContain(
+        `"id":"${id}","message":"${gmail.sends[0]?.id}"`,
+      );
+    } finally {
+      captures.mockRestore();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('reconciles an accepted handoff after the relaunched mailbox becomes ready', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex.id]: gmail }),
+      sending.registration,
+    );
+    let recovery: ReturnType<typeof createOutbox> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      const submit = gmail.native.gmailSend;
+      gmail.native.gmailSend = async (...args) => {
+        await submit(...args);
+        return stopped();
+      };
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      void sending.outbox.process();
+      await vi.waitFor(() => {
+        expect(gmail.sends).toHaveLength(1);
+      });
+      sending.outbox.dispose();
+      sending.storage.relaunch();
+      const drafts = createDrafts(sending.storage.native, sending.registration);
+      await drafts.load();
+      recovery = createOutbox({
+        drafts,
+        mailboxes,
+        registration: sending.registration,
+        claims: sending.storage.delivery,
+      });
+      await recovery.process();
+      expect(drafts.getOutbox()).toMatchObject([{ id, state: 'unknown' }]);
+      await mailboxes.load();
+      await vi.waitFor(() => {
+        expect(drafts.getOutbox()).toStrictEqual([]);
+      });
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      recovery?.dispose();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('retains unknown for conflicting Sent evidence and a failed check, without resubmission', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      const entry = present(sending.drafts.getOutbox()[0], 'admitted message');
+      const boundary = present(
+        boundaryOf(entry.message.segments),
+        'MIME boundary',
+      );
+      // A second Sent copy with the same marker makes the evidence ambiguous.
+      const other = gmail.deliver({
+        headers: {
+          'Content-Type': `multipart/alternative; boundary="${boundary}"`,
+        },
+      });
+      gmail.label(other, 'SENT');
+      gmail.failSend({ lost: true });
+      later(undoSendWindow);
+      await sending.outbox.process();
+      await sending.relaunch();
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+      gmail.remove(other);
+      gmail.fail({ status: 503, body: '{}' });
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      await expect(sending.outbox.check(id)).resolves.toBe(true);
+      expect({
+        accepted: gmail.sends.length,
+        outbox: sending.drafts.getOutbox(),
+      }).toStrictEqual({ accepted: 1, outbox: [] });
+    } finally {
+      sending.outbox.dispose();
+    }
   });
 
   it('saves a definite non-delivery again when storage refused it, then sends once', async () => {
@@ -64,9 +187,52 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     }
   });
 
+  it.each([401, 403])(
+    'asks for Gmail after a Sent check rejects authorization with %i while the Inbox was offline',
+    async (status) => {
+      expect.hasAssertions();
+      const { server, gmail } = sharedAccount();
+      const received = gmail.deliver();
+      const sending = await sender(server, gmail, 'phone');
+      try {
+        const id = await addressed(sending);
+        await sending.outbox.send(() => sending.draft(id));
+        later(undoSendWindow);
+        gmail.failSend({ status: 503, body: '{}' });
+        await sending.outbox.process();
+        const { inbox } = present(
+          sending.mailboxes.getSnapshot()[0],
+          'an open mailbox',
+        );
+        gmail.fail({ status: 503 });
+        await inbox.load();
+        expect(inbox.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          sync: 'retry',
+        });
+        gmail.fail({ status });
+
+        await expect(sending.outbox.check(id)).resolves.toBe(false);
+
+        expect(inbox.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          sync: 'authentication',
+          messages: [{ id: received }],
+        });
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'unknown' },
+        ]);
+        expect(gmail.sends).toStrictEqual([]);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
   it.each([
     { outcome: 'sent', status: 200, states: [], editable: false },
-    { outcome: 'unknown', status: 503, states: ['unknown'], editable: false },
+    // Gmail never kept it, so it stays unknown; the person may still choose to edit it.
+    { outcome: 'unknown', status: 503, states: ['unknown'], editable: true },
     { outcome: 'failed', status: 400, states: ['failed'], editable: true },
   ])(
     'saves a refused $outcome outcome again without another Gmail submission',
@@ -291,4 +457,292 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       sending.outbox.dispose();
     }
   });
+
+  it('checks Gmail again once the mailbox is ready after a refresh interrupted the Sent check', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Gmail accepts without answering, and the mailbox generation renews during the Sent check.
+      gmail.failSend({ lost: true });
+      gmail.fail({ code: 'mailbox-invalidated' });
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+
+      await sending.mailboxes.load();
+
+      await vi.waitFor(() => {
+        expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      });
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('uses a mailbox refresh that finishes before the interrupted Sent check answers', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const sentList = holdSentList(gmail);
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ lost: true });
+      const processing = sending.outbox.process();
+      await vi.waitFor(() => {
+        expect(sentList.held()).toBe(true);
+      });
+
+      await sending.mailboxes.load();
+      gmail.fail({ code: 'mailbox-invalidated' });
+      sentList.release();
+      await processing;
+
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      sentList.release();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('answers overlapping Check Again and activation requests from the Sent lookup already running', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      const before = sentLists(gmail);
+      sentList = holdSentList(gmail);
+
+      const first = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+      const second = sending.outbox.check(id);
+      const activation = sending.outbox.process();
+      sentList.release();
+
+      await expect(
+        Promise.all([first, second, activation]),
+      ).resolves.toStrictEqual([false, false, undefined]);
+      expect(sentLists(gmail) - before).toBe(1);
+    } finally {
+      sentList?.release();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('locks the Inbox when a Sent check finds storage locked, keeping the message unknown', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Gmail answers with a server error without keeping the message.
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      gmail.fail({ code: 'locked' });
+
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+
+      expect(
+        sending.mailboxes.getSnapshot()[0]?.inbox.getSnapshot(),
+      ).toMatchObject({ kind: 'locked' });
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      expect(gmail.sends).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it.each([
+    {
+      point: 'before Convex receives the claim',
+      stop: (({ claims }) => {
+        claims.mockImplementationOnce(stopped);
+      }) satisfies Interruption,
+      stored: '"claim":"requested"',
+    },
+    {
+      point: 'after Convex takes the claim but before its reply arrives',
+      stop: (({ claims, claim }) => {
+        claims.mockImplementationOnce(async (...args) => {
+          await claim(...args);
+          return stopped();
+        });
+      }) satisfies Interruption,
+      stored: '"claim":"requested"',
+    },
+    {
+      point: 'after the claim is held but before Gmail is asked',
+      stop: (({ gmail }) => {
+        gmail.failSend({ code: 'mailbox-invalidated' });
+      }) satisfies Interruption,
+      stored: '"claim":"held"',
+    },
+    {
+      point:
+        'after Gmail accepts the message but before its answer is recorded',
+      stop: (({ gmail, submit }) => {
+        gmail.native.gmailSend = async (...args) => {
+          await submit(...args);
+          return stopped();
+        };
+      }) satisfies Interruption,
+      stored: '"state":"sending"',
+    },
+  ])(
+    'sends a message the app stopped $point once across relaunches',
+    async ({ stop, stored }) => {
+      expect.hasAssertions();
+      await interrupted(stop, stored, ({ sending, gmail }) => {
+        expect(gmail.sends).toHaveLength(1);
+        expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      });
+    },
+  );
+
+  it('keeps a message unknown when the app stopped after recording its handoff, until the person edits it', async () => {
+    expect.hasAssertions();
+    const stop: Interruption = ({ gmail }) => {
+      gmail.native.gmailSend = stopped;
+    };
+    await interrupted(
+      stop,
+      '"state":"sending"',
+      async ({ sending, gmail, id }) => {
+        // Gmail never had it, and nothing confirms that: it stays unknown and is never resent.
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'unknown' },
+        ]);
+        await expect(sending.outbox.check(id)).resolves.toBe(false);
+        // Edit returns it under a new identifier, because its old one stays claimed.
+        const restored = String(await sending.outbox.undo(id));
+        expect(restored).not.toBe(id);
+        expect(plainText(sending.draft(restored).body)).toBe('See you there');
+        expect(gmail.sends).toStrictEqual([]);
+      },
+    );
+  });
 });
+
+// Sends one message, stops the app at `stop` once storage holds `stored`, relaunches twice and
+// processes the Outbox after each relaunch, then hands the result to `check`.
+async function interrupted(
+  stop: Interruption,
+  stored: string,
+  check: (
+    result: Readonly<{
+      sending: Awaited<ReturnType<typeof sender>>;
+      gmail: ReturnType<typeof sharedAccount>['gmail'];
+      id: string;
+    }>,
+  ) => Promise<void> | void,
+) {
+  let phone: Device | undefined = undefined;
+  const { server, gmail } = sharedAccount(() => phone);
+  const sending = await sender(server, gmail, 'phone');
+  phone = sending;
+  try {
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    later(undoSendWindow);
+    const delivery = present(sending.storage.delivery, 'delivery claims');
+    const claim = delivery.claimDraftDelivery.bind(delivery);
+    const submit = gmail.native.gmailSend;
+    stop({
+      claims: vi.spyOn(delivery, 'claimDraftDelivery'),
+      claim,
+      gmail,
+      submit,
+    });
+    void sending.outbox.process();
+    await vi.waitFor(() => {
+      expect(sending.storage.stored()?.document).toContain(stored);
+    });
+    gmail.native.gmailSend = submit;
+    // Relaunching more than once never hands the message to Gmail again.
+    const restart = async () => {
+      await sending.relaunch();
+      later(30_000);
+      await sending.outbox.process();
+    };
+    await restart();
+    await restart();
+    await check({ sending, gmail, id });
+  } finally {
+    sending.outbox.dispose();
+  }
+}
+
+// How many times Gmail was asked for its newest Sent messages.
+function sentLists(gmail: ReturnType<typeof sharedAccount>['gmail']) {
+  return gmail.requests.filter(
+    ({ path, query }) =>
+      path === 'messages' && query.get('labelIds') === 'SENT',
+  ).length;
+}
+
+// Holds Gmail's Sent message lists until `release`, as a slow connection would.
+function holdSentList(gmail: ReturnType<typeof sharedAccount>['gmail']) {
+  const answer = Promise.withResolvers<undefined>();
+  const request = gmail.native.gmailRequest;
+  let held = false;
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (
+      path === 'messages' &&
+      query.some(([name, value]) => name === 'labelIds' && value === 'SENT')
+    ) {
+      held = true;
+      await answer.promise;
+    }
+    return request(path, query, owner);
+  };
+  return {
+    held: () => held,
+    release: () => {
+      answer.resolve(undefined);
+    },
+  };
+}
+
+// Stops the app at one point of a delivery; `claim` and `submit` are the unstopped calls.
+type Interruption = (
+  stopping: Readonly<{
+    claims: MockInstance<NativeDeliveryClaim['claimDraftDelivery']>;
+    claim: NativeDeliveryClaim['claimDraftDelivery'];
+    gmail: ReturnType<typeof sharedAccount>['gmail'];
+    submit: ReturnType<typeof sharedAccount>['gmail']['native']['gmailSend'];
+  }>,
+) => void;
+
+// The host transform can preserve positional captures without exposing named groups.
+const { exec } = RegExp.prototype;
+function withoutNamedCaptures(this: RegExp, text: string) {
+  const result = exec.call(this, text);
+  if (
+    result !== null &&
+    (this.source.includes('?<boundary>') ||
+      this.source.includes('?<value>multipart'))
+  ) {
+    result.groups = undefined;
+  }
+  return result;
+}

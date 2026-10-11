@@ -6,9 +6,10 @@ Setup, coding rules, validation and observable requirements remain in this file.
 composer on iPhone, iPad and Mac. A sent Draft leaves the Drafts list for the
 **Outbox**, waits out the **Undo Send Window**, and is handed to Gmail from this
 device. A handoff whose outcome is uncertain is never resubmitted; only a definite
-refusal, such as a rate limit, is tried again. Recovery after an interrupted send is
-[#616](https://github.com/unwired-dev/product/issues/616), and sending with the app
-in the background or with Mac windows closed is
+refusal, such as a rate limit, is tried again.
+[#616](https://github.com/unwired-dev/product/issues/616) recovers interrupted sends
+after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sending
+with the app in the background or with Mac windows closed is
 [#618](https://github.com/unwired-dev/product/issues/618).
 
 ## Sending
@@ -59,12 +60,29 @@ in the background or with Mac windows closed is
   - Gmail refused it.
 - **Delivery unknown** means Gmail may have the message: the request started but
   no answer arrived, Gmail answered with a server error, or the app stopped while
-  Gmail had it. The message is never sent again automatically and offers no Edit;
-  check Gmail's Sent mailbox. Explaining and reconciling it is #616.
+  Gmail had it. The message is never sent again automatically.
   A connection that never reached Gmail (no network, no host, or a secure
   connection that was never established) is not unknown: the message waits to send.
+- The app looks for an unknown message in Gmail's Sent mailbox when its outcome
+  becomes unknown, when the app starts or becomes active, and when **Check Again** is
+  pressed, waiting for its mailbox to open at launch. It checks a limited set of
+  recent Sent messages; an older message can remain unknown. Unambiguous confirmation
+  records the message as sent and removes it from the Outbox. No confirmation,
+  conflicting evidence, or Gmail being unreachable keeps it
+  unknown; after **Check Again**, the row says Gmail did not confirm it.
+  If the check finds locked storage, the Inbox hides its mail; device removal
+  closes it, and refused Gmail access asks for authorization again, including
+  after an offline retry. The delivery outcome remains unknown.
+- **Edit** on an unknown message first warns that Gmail may already have sent it,
+  and asks to check Sent in Gmail. **Edit Anyway** returns it to the Drafts; sending
+  it again is the person's deliberate choice.
 - **Edit** returns the message to the Drafts and opens it. A message whose claim
   was requested returns under a new identifier, because its old one stays claimed.
+- After a relaunch, only this device continues its Outbox. A message within the
+  Undo Send Window keeps its deadline and Undo. A queued message resumes its claim
+  or handoff from the stored state, and a claim is never assumed: one whose reply
+  never arrived is asked for again, and Convex keeps it for this device. A message
+  stored as handed to Gmail is unknown and is only reconciled, never resubmitted.
 
 ## Delivery rules
 
@@ -121,6 +139,18 @@ cover:
 - a Gmail refusal and an accepted message whose reply is lost, kept apart and
   never sent again through relaunch;
 - the app stopping while Gmail has the message;
+- the app stopping before Convex receives the claim, after Convex takes it but before
+  its reply, after the claim is held, after the handoff is recorded but before Gmail
+  receives the message, and after Gmail accepts it but before its answer is recorded,
+  each followed by two relaunches without a second Gmail copy;
+- an accepted message whose answer was lost, confirmed from Gmail's Sent mailbox;
+- mailbox loading after reopened Draft storage, boundary parsing without named
+  capture groups in the host runtime, and conflicting or unavailable Sent evidence;
+- mailbox refresh interrupting a Sent check, with readiness returning before or
+  after the interrupted check answers, and overlapping Check Again requests sharing
+  one provider lookup;
+- an unknown message that Gmail never kept, which stays unknown through
+  **Check Again** and returns to the Drafts under a new identifier;
 - a renamed sender while queued, during a claim, or while handoff is being saved,
   without submitting the frozen message;
 - a mailbox refresh refusing handoff before submission, retaining the claim and
@@ -136,7 +166,8 @@ deletion test removes claims.
 
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
 **Undo** and send again. They also show a refused Send, a Gmail refusal with
-**Edit**, and an unknown outcome without it. These are rendered component tests.
+**Edit**, a lost answer confirmed from Gmail's Sent mailbox, and an unknown outcome
+with **Check Again** and the warning before **Edit Anyway**. These are rendered component tests.
 The composer journeys also retain the original sender after a mailbox rename and
 choose its current address explicitly before reopening the Draft.
 
@@ -154,8 +185,12 @@ Deferred before release:
 - native iPhone, iPad and Mac send journeys;
 - real Gmail delivery qualification against Apple Mail, Gmail and Outlook,
   including threading, inline images and large attachments;
+- confirming against real Gmail that a Sent copy keeps the message's MIME boundary,
+  so an unknown outcome can be reconciled (otherwise it safely stays unknown);
+- native process termination at each delivery step on iPhone, iPad and Mac;
 - real Convex claims between two signed Trusted Devices;
-- VoiceOver qualification of Send, the Outbox rows and their live status.
+- VoiceOver qualification of Send, the Outbox rows, their live status and the
+  unknown-outcome recovery actions.
 
 The packaged Mock Mail Session accepts sends in synthetic Gmail, but no native
 journey drives them yet.

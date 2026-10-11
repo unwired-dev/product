@@ -113,6 +113,11 @@ struct MailboxConnection: Codable {
   // absence supplies no incarnation to adopt after relaunch.
   var observed: Bool?
   var observedEpoch: String?
+  // The opaque relay route of this connection's Gmail watch, and when Gmail ends that watch, in
+  // milliseconds since 1970.
+  var pushRoute: String?
+  var pushExpiration: Double?
+  var pushVerified: Bool?
 
   // The opaque identifier JavaScript names this connection by.
   var id: String { Self.id(subject: receipt.subject) }
@@ -240,6 +245,10 @@ struct SavedRegistration: Codable {
   var legacyMailboxConnection: String?
   // Stored before remote removal; acknowledgement precedes every local cleanup step.
   var accountRemoval: AccountRemovalState?
+  // The APNs registration the relay last accepted for this device.
+  var pushDevice: PushDevice?
+  // Relay routes of removed connections that could not be removed yet.
+  var pushRouteRemovals: [String]?
 
   var provider: SignInProvider { signInProvider ?? .google }
 
@@ -281,7 +290,7 @@ struct SavedRegistration: Codable {
   }
 }
 
-// One Convex request: a query or mutation by function path, or an HTTP action by route.
+// One Convex request: a query, mutation or action by function path, or an HTTP action by route.
 struct BackendRequest {
   enum Endpoint: String { case query, mutation, action }
   let endpoint: Endpoint
@@ -323,6 +332,10 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var mailboxGenerations: [String: UUID] = [:]
   // Connections whose Gmail access verified in this process, and those open from cache only.
   var verifiedMailboxes: Set<String> = []
+  // Token callbacks must not restart watches between the shared flow's removal steps.
+  var pushRoutingPaused = false
+  // A native callback purged custody; the shared flow still needs to present its removal notice.
+  var pushRegistrationFailure: RegistrationError?
   var cacheOnlyMailboxes: Set<String> = []
   // Only the current explicit consent can recreate a tombstone it encounters for the first time.
   var newlyAuthorizedMailboxes: Set<String> = []
@@ -336,6 +349,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var enrollmentRequests: [String: [PendingEnrollment]] = [:]
   // The account's other Trusted Devices by Product Account, as last listed in this process.
   var trustedDevices: [String: [TrustedDevice]] = [:]
+  // Wake hints waiting for JavaScript; removing a route drops its own.
+  var wakes = PushWakes.shared
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
@@ -380,6 +395,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
 
   // What TypeScript reads of the saved registration: no credential, token or provider subject.
   func registration() throws -> [String: Any]? {
+    if let pushRegistrationFailure { throw pushRegistrationFailure }
     guard let saved = try load() else { return nil }
     var result: [String: Any] = [
       "signInProvider": saved.provider.rawValue,
@@ -705,10 +721,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // Removes a connection from this Product Account: its credential and cached mail leave this
   // device, its synchronized descriptor is marked removed, and its Gmail mail is untouched.
   func removeMailbox(_ id: String) async throws {
+    guard try saved().product?.pending != true else { throw RegistrationError.unavailable }
+    // Stop with its credential, but keep relay deletion behind the synchronized tombstone.
+    let routeRemoval = try await unroute(id, deferRemoval: productSync != nil)
     var saved = try saved()
-    guard saved.product?.pending != true, let connection = saved.connection(id) else {
-      throw RegistrationError.unavailable
-    }
+    guard let connection = saved.connection(id) else { throw RegistrationError.unavailable }
     saved.connections = saved.connections.filter { $0.id != id }
     saved.mailboxRemovals =
       (saved.mailboxRemovals ?? []).filter { $0.subject != connection.receipt.subject } + [
@@ -717,6 +734,9 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
           epoch: connection.epoch)
       ]
     saved.mailboxCacheRemovals = Array(Set((saved.mailboxCacheRemovals ?? []) + [id])).sorted()
+    if let routeRemoval {
+      saved.pushRouteRemovals = Array(Set((saved.pushRouteRemovals ?? []) + [routeRemoval])).sorted()
+    }
     // Credentials leave the durable record before cleanup suspends; its locator stays retryable.
     try save(saved)
     _ = try await synchronize(retryMailboxCleanup(saved))
@@ -738,6 +758,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     mailboxAuthorization = nil
     enrollmentRequests = [:]
     trustedDevices = [:]
+    wakes.drop(nil)
     let saved = try load()
     let removalOperation: AccountRemovalState.Operation =
       notice == "deleted" ? .deletion : notice == "signed-out" ? .signOut : .revoked
@@ -755,6 +776,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     }
     if let failure { throw failure }
     try keys.remove("registration")
+    pushRegistrationFailure = nil
   }
 
   // A Trusted Device's proof, or a Pending Device's for its own admission and removal.

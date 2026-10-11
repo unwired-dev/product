@@ -4,6 +4,10 @@ import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 import type { NativeRegistration } from '../src/registration.ts';
 
 import { createRegistrationFlow as registrationPrograms } from '../src/registration-flow.ts';
+import {
+  createSyntheticDevice,
+  createSyntheticVault,
+} from '../src/testing/registration-vault.ts';
 
 // Promise adapter for the flow journeys; production composes these programs in the store.
 export const createRegistrationFlow = (
@@ -33,9 +37,31 @@ export const createRegistrationFlow = (
     confirmRevocation: (entry) =>
       Effect.runPromise(flow.confirmRevocation(entry)),
     cancelRevocation: () => Effect.runPromise(flow.cancelRevocation()),
-    // oxlint-disable-next-line node/no-sync -- This runs an Effect program, not synchronous filesystem I/O.
+    // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
     signOut: () => Effect.runPromise(flow.signOut()),
     deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),
+  };
+};
+
+// The registration flow over the synthetic native vault. Each relaunch is a new process over the
+// same device Keychain, providers and backend.
+export const launch = () => {
+  const synthetic = createSyntheticVault();
+  return {
+    ...synthetic,
+    flow: createRegistrationFlow(synthetic.vault),
+    relaunch: () =>
+      createRegistrationFlow(createSyntheticVault(synthetic).vault),
+    // Another installation signing in to the same backend with the same providers.
+    otherDevice: () => {
+      const other = createSyntheticVault({
+        ...createSyntheticDevice(),
+        google: synthetic.google,
+        apple: synthetic.apple,
+        backend: synthetic.backend,
+      });
+      return { ...other, flow: createRegistrationFlow(other.vault) };
+    },
   };
 };

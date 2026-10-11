@@ -68,6 +68,8 @@ ASC_KEY_PATH='/absolute/path/outside/this/repository/AuthKey_<key ID>.p8'
 APPLE_DEVELOPMENT_TEAM='<team ID>'
 UNWIRED_GOOGLE_CLIENT_ID='<native client ID for dev.unwired.mail>'
 UNWIRED_CONVEX_URL='https://<deployment>.convex.cloud'
+# Optional: the Cloud Pub/Sub topic for Gmail push wakes.
+UNWIRED_GMAIL_PUBSUB_TOPIC='projects/<project>/topics/<topic>'
 ```
 
 The loader reads these release fields and any selected `UNWIRED_MOCK_SCENARIO`
@@ -205,7 +207,8 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
    ```
 
    The workflow also reads the repository secrets `CONVEX_URL` and
-   `GMAIL_OAUTH_CLIENT_ID` as the hosts' public backend configuration.
+   `GMAIL_OAUTH_CLIENT_ID` as the hosts' public backend configuration, and the
+   optional `GMAIL_PUBSUB_TOPIC` for [push wakes](gmail-inbox.md#push-wake-routes).
 
 4. The Convex deployment accepts the hosts: `APPLE_BUNDLE_ID` is
    `dev.unwired.mail` and `GOOGLE_PRODUCT_CLIENT_IDS` includes the native

@@ -125,6 +125,18 @@ pod install
 Use the corresponding environment values with
 `pnpm --filter @private-email/macos native:build Testing` under the
 [Mac signing prerequisites](macos-client.md#build-and-run).
+
+[Push wakes](gmail-inbox.md#push-wake-routes) need three more settings. Set
+`UNWIRED_GMAIL_PUBSUB_TOPIC` to the fully qualified Cloud Pub/Sub topic, such as
+`projects/<project>/topics/gmail-push`, when generating each host. Grant
+`gmail-api-push@system.gserviceaccount.com` permission to publish to it, and push
+its subscription to `https://<deployment>.convex.site/gmail/push?token=<token>`
+with the deployment's `GMAIL_PUSH_VERIFICATION_TOKEN`. The deployment's
+`GMAIL_OAUTH_CLIENT_ID` must be the native client ID, because the relay verifies
+each mailbox's identity token for that audience. The deployment also needs its
+`GMAIL_ROUTING_*` keys and `APNS_*` credentials, with `APNS_TOPIC` set to
+`dev.unwired.mail`. Without a topic, a host registers no route and synchronizes on
+its schedule alone.
 Do not commit configured deployment values or credentials. App Check enforcement,
 restricted-scope verification, App Store disclosures and distribution entitlements
 remain protected release qualifications.
