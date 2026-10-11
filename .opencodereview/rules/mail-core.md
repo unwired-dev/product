@@ -55,6 +55,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A log, annotation or error message that carries `cause`, `error.message`, `String(error)`, a payload, an email address, a token or an account, device or message identifier. Any field of a host or provider error can hold mail or account data; log only what `rejectionDiagnostic` and `decodeDiagnostic` in `src/diagnostics.ts` produce.
 - A new native rejection code handled in a store without being added to `nativeCodes` in `src/diagnostics.ts` (it logs as `unrecognized code` and cannot be diagnosed), or that allow-list widened to pass through arbitrary strings.
 - `Effect.catch`/`catchAll`-style recovery that swallows a failure the caller's contract does not permit recovering, or `Effect.orDie` on a failure a user can trigger.
+- `registration-flow.ts.guarded` swallowing revoked/deleted rejections while
+  reading `vault.registration`. A native callback can already have purged the
+  account; let those codes reach the existing purge-and-notice path before the
+  requested operation. Otherwise a later native step fails as unavailable and
+  leaves the shared store showing the removed account.
 - `createGmailInbox.findSent` or another auxiliary provider read reducing a
   lifecycle-changing `SyncFailure` to its operation's fallback without running
   the Inbox's owner-fenced recovery. The first discovery of locked storage,
@@ -216,6 +221,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   results by generation; otherwise native purge leaves the host showing private
   Drafts under a stale connected account. Exercise the real registration and Draft
   stores together and assert the closed Draft state, not only a removal callback.
+
+- `followWakes` passing a route map captured before registration verification to
+  `freshness.wake`. Read the native lookup again after verification before
+  selecting the mailbox, even when its opaque connection ID still exists.
+  Otherwise a removed route can read a recreated connection through stale lookup.
 
 #### Services
 

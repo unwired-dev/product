@@ -15,6 +15,37 @@ const WakeHint = Schema.Struct({
   routeId: Schema.NonEmptyString,
 });
 
+// A wake hint the host received, and the routes it may name: each route's connection, and whether
+// every usable connection holds a current route.
+const Wake = Schema.Struct({ id: Schema.NonEmptyString, hint: Schema.Unknown });
+const Routes = Schema.Struct({
+  routes: Schema.Record(Schema.String, Schema.String),
+  complete: Schema.Boolean,
+});
+const decodeRoutes = Schema.decodeUnknownPromise(Routes);
+
+// The host's queue of APNs wake hints and its native route lookup.
+export interface NativeWakes {
+  // The next wake, or null once a reloaded JavaScript context replaced this reader.
+  readonly nextWake: () => Promise<unknown>;
+  readonly mailboxRoutes: () => Promise<unknown>;
+  // Completes the system's handler for the wake.
+  readonly completeWake: (
+    id: string,
+    result: 'synchronized' | 'ignored' | 'failed',
+  ) => void;
+}
+
+// Whether wakes alone can keep every usable mailbox fresh; unknown reads as not.
+export async function pushCovers(wakes: NativeWakes) {
+  try {
+    const { complete } = await decodeRoutes(await wakes.mailboxRoutes());
+    return complete;
+  } catch {
+    return false;
+  }
+}
+
 type Synchronized = Readonly<{
   getSnapshot: () => ReadonlyArray<
     Readonly<{ id: string; inbox: Readonly<{ load: () => Promise<void> }> }>
@@ -37,8 +68,9 @@ export function createFreshness(
   return {
     // Foreground catch-up, and each background opportunity the operating system grants.
     refresh,
-    // Synchronizes every `minutes` until stopped; quitting the application stops it with the process.
-    keepAlive: (minutes: number) => {
+    // Synchronizes every `minutes` until stopped, skipping an interval that `covered` reports wakes
+    // already handle; quitting the application stops it with the process.
+    keepAlive: (minutes: number, covered?: () => Promise<boolean>) => {
       const controller = new AbortController();
       const poll = async () => {
         const step = await runLogged(
@@ -53,7 +85,8 @@ export function createFreshness(
                 signal: controller.signal,
               },
             );
-            if (!controller.signal.aborted) {
+            const coveredByPush = (await covered?.()) ?? false;
+            if (!controller.signal.aborted && !coveredByPush) {
               await refresh();
             }
           } catch (error) {
@@ -78,14 +111,16 @@ export function createFreshness(
     // this device does not know, or whose mailbox was removed or lost its grant, wakes nothing.
     wake: async (
       hint: unknown,
-      route: (routeId: string) => string | undefined,
+      route: (
+        routeId: string,
+      ) => string | undefined | Promise<string | undefined>,
     ): Promise<'synchronized' | 'ignored'> => {
       const decoded = Schema.decodeUnknownOption(WakeHint)(hint);
       if (Option.isNone(decoded)) {
         return 'ignored';
       }
       const { routeId } = decoded.value;
-      const connection = route(routeId);
+      const connection = await route(routeId);
       if (connection === undefined) {
         return 'ignored';
       }
@@ -95,7 +130,7 @@ export function createFreshness(
         const mailbox = mailboxes
           .getSnapshot()
           .find(({ id }) => id === connection);
-        if (mailbox !== undefined && route(routeId) === connection) {
+        if (mailbox !== undefined && (await route(routeId)) === connection) {
           woke = true;
           await mailbox.inbox.load();
         }
@@ -103,4 +138,39 @@ export function createFreshness(
       return woke ? 'synchronized' : 'ignored';
     },
   };
+}
+
+// Settles each wake the host receives, one at a time, until a reloaded JavaScript context replaces
+// this reader. A wake that fails still completes, so the system's handler always finishes.
+export async function followWakes(
+  freshness: Pick<ReturnType<typeof createFreshness>, 'wake'>,
+  wakes: NativeWakes,
+) {
+  for (;;) {
+    let received: unknown = null;
+    try {
+      received = await wakes.nextWake();
+    } catch {
+      // A host without the wake queue, such as a test renderer, has nothing to follow.
+    }
+    const next = Schema.decodeUnknownOption(Wake)(received);
+    if (Option.isNone(next)) {
+      return;
+    }
+    const { id, hint } = next.value;
+    try {
+      wakes.completeWake(
+        id,
+        await freshness.wake(hint, async (route) => {
+          const { routes } = await decodeRoutes(await wakes.mailboxRoutes());
+          return Object.hasOwn(routes, route) ? routes[route] : undefined;
+        }),
+      );
+    } catch (error) {
+      await runLogged(
+        Effect.logError('Gmail wake failed', rejectionDiagnostic(error)),
+      );
+      wakes.completeWake(id, 'failed');
+    }
+  }
 }

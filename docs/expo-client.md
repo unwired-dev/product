@@ -105,7 +105,12 @@ config plugins. The bundle ID is `dev.unwired.mail`, the version comes from
 apps built with the iOS 27 SDK cannot launch with the old application lifecycle.
 The `expo-background-task` and `expo-task-manager` plugins add the `fetch` and
 `processing` background modes and the scheduler identifier for
-[Gmail freshness](gmail-inbox.md#freshness-across-app-lifecycles).
+[Gmail freshness](gmail-inbox.md#freshness-across-app-lifecycles). The app adds the
+`remote-notification` mode and the `aps-environment` entitlement for
+[push wake routes](gmail-inbox.md#push-wake-routes); distribution signing selects
+production APNs. The private-inbox config plugin registers for remote notifications
+at launch and hands token and wakes to native code. The app identifier's Push
+Notifications capability must be enabled for signed builds.
 Simulators report background tasks as restricted, so the app registers none there.
 The app entry defines the Gmail task before Router starts, including launches
 that mount no screens. A failed background-task registration logs a fixed
