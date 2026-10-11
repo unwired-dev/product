@@ -9,7 +9,7 @@ import type {
   SignInProvider,
 } from '../registration.ts';
 
-import { mailboxesOf } from '../registration.ts';
+import { defaultProfile, mailboxesOf } from '../registration.ts';
 
 // The Mock Mail Session scenarios this fake implements, each one also in
 // scripts/mock-mail-scenarios.json, plus the test-only 'registration-success'.
@@ -138,8 +138,11 @@ const withMailboxes = (
   mailboxes: readonly MailboxConnection[],
 ): RegistrationSnapshot => {
   const { mailboxes: _previous, ...rest } = account(snapshot);
-  const listed =
-    mailboxes.length === 0 ? {} : { mailboxes: JSON.stringify(mailboxes) };
+  // Native device storage records no Profile, so its connections read back as the Default Profile.
+  const native = JSON.stringify(
+    mailboxes.map(({ profile: _profile, ...mailbox }) => mailbox),
+  );
+  const listed = mailboxes.length === 0 ? {} : { mailboxes: native };
   const synchronized =
     mailboxes.length === 0
       ? {}
@@ -154,7 +157,7 @@ const withMailboxes = (
     return {
       kind: states.has('connected') ? 'connected' : 'cached',
       ...rest,
-      mailboxes: JSON.stringify(mailboxes),
+      mailboxes: native,
       ...synchronized,
     };
   }
@@ -194,6 +197,7 @@ const connecting = (
     id: syntheticMailboxes[address],
     address,
     state: 'connected',
+    profile: defaultProfile,
   } as const;
   return current.some(({ id }) => id === mailbox.id)
     ? current.map((item) => (item.id === mailbox.id ? mailbox : item))

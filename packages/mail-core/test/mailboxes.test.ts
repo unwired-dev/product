@@ -9,7 +9,11 @@ import {
   searchGmail,
   searchMessages,
 } from '../src/mailboxes.ts';
-import { createRegistration, mailboxesOf } from '../src/registration.ts';
+import {
+  createRegistration,
+  defaultProfile,
+  mailboxesOf,
+} from '../src/registration.ts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -190,10 +194,21 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(
       inboxMessages(current, other).map(({ message }) => message.subject),
     ).toStrictEqual(['Other, tied', 'Other, middle']);
-    // Registration lists each connection once, in the order it was added.
+    // Registration lists each connection once, in the order it was added. Native storage records
+    // no Profile, so every connection belongs to the Default Profile.
     expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
-      { id: alex, address: 'alex@example.invalid', state: 'connected' },
-      { id: other, address: 'other@example.invalid', state: 'connected' },
+      {
+        id: alex,
+        address: 'alex@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+      },
+      {
+        id: other,
+        address: 'other@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+      },
     ]);
   });
 
@@ -579,7 +594,12 @@ describe('mailbox connections and the unified Inbox', () => {
     const running = mailboxes.load();
     await registration.removeMailbox(other);
     expect(mailboxesOf(registration.getSnapshot().snapshot)).toStrictEqual([
-      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      {
+        id: alex,
+        address: 'alex@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+      },
     ]);
     expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([alex]);
     expect(removed.getSnapshot()).toStrictEqual({ kind: 'loading' });

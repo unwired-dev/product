@@ -47,6 +47,11 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
+// The lossless migrated Mail Profile. It owns every Mailbox Connection recorded before Profiles,
+// and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
+// connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
+export const defaultProfile = 'default';
+
 // This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
 // Inbox until Gmail verifies again; 'authorization' needs Gmail authorized again first.
 const MailboxesSchema = Schema.fromJsonString(
@@ -57,6 +62,11 @@ const MailboxesSchema = Schema.fromJsonString(
       state: Schema.Literals(['connected', 'cached', 'authorization']),
       // A removal/recreation changes this owner lifetime; ordinary verification does not.
       epoch: Schema.optionalKey(Schema.NonEmptyString),
+      // The owning Mail Profile. Entries written before Profiles carry none and belong to the
+      // Default Profile.
+      profile: Schema.NonEmptyString.pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed(defaultProfile)),
+      ),
     }),
   ).check(
     Schema.makeFilter(
