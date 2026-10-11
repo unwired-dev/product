@@ -20,6 +20,24 @@ tests.add_dependency(host)
 Dir.glob(File.join(root, 'Sources/PrivateInbox/*.swift')).each do |file|
   tests.add_file_references([project.main_group.new_file(file)])
 end
+# The Swift packages the manifest pins by revision, built at the graph Package.resolved records.
+manifest = File.read(File.join(root, 'Package.swift'))
+products = manifest.scan(/\.product\(name: "([^"]+)", package: "([^"]+)"\)/)
+manifest.scan(/url: "([^"]+)",\s*revision: "([0-9a-f]{40})"/) do |url, revision|
+  package = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+  package.repositoryURL = url
+  package.requirement = { 'kind' => 'revision', 'revision' => revision }
+  project.root_object.package_references << package
+  products.select { |_, name| name == File.basename(url, '.git') }.each do |product_name, _|
+    product = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    product.package = package
+    product.product_name = product_name
+    tests.package_product_dependencies << product
+    tests.frameworks_build_phase.add_file_reference(nil).product_ref = product
+  end
+end
+FileUtils.mkdir_p('StorageProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm')
+FileUtils.cp(File.join(root, 'Package.resolved'), 'StorageProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/')
 Dir.glob(File.join(root, 'Tests/PrivateInboxTests/*.swift')).each do |file|
   name = File.basename(file)
   File.write(name, File.read(file).sub('@testable import PrivateInbox', ''))
@@ -63,4 +81,10 @@ scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(host)
 scheme.add_build_target(tests)
 scheme.add_test_target(tests)
+if platform == :ios
+  scheme.test_action.should_use_launch_scheme_args_env = false
+  scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new([
+    { key: 'UNWIRED_IMAP_TLS_TEST_PORT', value: ENV.fetch('UNWIRED_IMAP_TLS_TEST_PORT'), enabled: true }
+  ])
+end
 scheme.save_as(project.path, 'StorageProbe', true)

@@ -2,6 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { ImapSetup } from './imap-setup.ts';
 import type { RevocationReply } from './product-sync-devices.ts';
 import type { ListedDevices } from './product-sync.ts';
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
@@ -11,14 +12,14 @@ import type {
   SetupReason,
 } from './registration-vault.ts';
 import type {
-  MailProvider,
+  MailGrantProvider,
   RegistrationPrograms,
   RegistrationSnapshot,
   SignInProvider,
 } from './registration.ts';
 
 import {
-  grantsMail,
+  createMailboxVerification,
   setupReason,
   suggestsSignIn,
   unavailableReason,
@@ -87,6 +88,11 @@ const refusals: ReadonlySet<Code> = new Set([
   'apple-authorization-required',
   'pending-device-unavailable',
 ]);
+// Why an IMAP connection could not be added, as the setup reason a relaunch resumes with.
+const imapSetupReasons: Partial<Record<Code, SetupReason>> = {
+  'imap-refused': 'imap-refused',
+  'imap-insecure': 'imap-insecure',
+};
 
 const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
   if (mailbox.authorizationNeeded) {
@@ -106,6 +112,7 @@ const mailboxList = (value: RegistrationRecord) =>
           address: mailbox.address,
           ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
           id: mailbox.id,
+          ...(mailbox.imap === undefined ? {} : { imap: mailbox.imap }),
           state: mailboxState(mailbox),
         })),
       );
@@ -300,15 +307,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     );
 
-  const checkedMailbox = Effect.fnUntraced(function* (
-    provider: MailProvider,
-    scopes: readonly string[],
-  ) {
-    if (!scopes.some((scope) => grantsMail(provider, scope))) {
-      return yield* failWith('declined');
-    }
-    return yield* native(vault.verifyMailbox, MailboxReceipt);
-  });
+  const { checkedMailbox, verify } = createMailboxVerification(vault);
 
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
@@ -319,32 +318,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      yield* native(
-        () => vault.refreshMailbox(mailbox.id),
-        MailboxIdentity,
-      ).pipe(
-        Effect.flatMap(({ scopes }) =>
-          checkedMailbox(mailbox.provider, scopes),
-        ),
-        Effect.andThen(step(() => vault.confirmMailbox(mailbox.id))),
-        // Cached consent is never proof of usable mail access; a refused grant never opens its
-        // saved mail.
-        Effect.catchIf(
-          (error) => !endsAccess.has(error.code),
-          ({ code }) => {
-            // Offline keeps the saved Inbox open unless its provider already refused this grant.
-            const offline = mailbox.authorizationNeeded
-              ? 'unverified'
-              : 'cached';
-            return step(() =>
-              vault.markMailbox(
-                mailbox.id,
-                code === 'offline' ? offline : 'authorization',
-              ),
-            );
-          },
-        ),
-      );
+      yield* verify(mailbox);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
@@ -494,13 +468,26 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
+  // Whether the retained Product Sign-In still verifies before a mailbox is set up; one that
+  // cannot keeps the Product Account and resumable mailbox setup.
+  const signInConfirmed = (value: RegistrationRecord) =>
+    reconfirm(value).pipe(
+      Effect.as(true),
+      Effect.catchIf(
+        (error) => !endsAccess.has(error.code),
+        () => Effect.succeed(false),
+      ),
+    );
+  const unconfirmed = (value: RegistrationRecord) =>
+    failure(value.signInProvider === 'apple' ? 'unavailable' : 'interrupted');
+
   // Authorizes the named connection's provider again, or adds a mailbox of `added` when none is
   // named. Adding a mailbox that is already connected repairs that connection instead of
   // duplicating it. The first Gmail mailbox suggests the Google sign-in unless the person chooses
   // another account.
   const authorizeMailbox = Effect.fnUntraced(function* (
     connection: string | null,
-    added: MailProvider,
+    added: MailGrantProvider,
     chooseAccount: boolean,
   ) {
     const value = yield* saved;
@@ -514,23 +501,18 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       return yield* failWith('unavailable');
     }
     const provider = existing?.provider ?? added;
+    // An IMAP password is entered again in its own setup, never through a provider's sign-in.
+    if (provider === 'imap') {
+      return yield* failWith('unavailable');
+    }
     // A failure leaves other usable mailboxes as they are; the host reports it.
     const keepsMailboxes = value.mailboxes.some(
       ({ id, authorizationNeeded }) =>
         !authorizationNeeded && id !== connection,
     );
     // Confirm the retained Product Sign-In independently of the mailbox selection.
-    const confirmed = yield* reconfirm(value).pipe(
-      Effect.as(true),
-      Effect.catchIf(
-        (error) => !endsAccess.has(error.code),
-        () => Effect.succeed(false),
-      ),
-    );
-    if (!confirmed) {
-      return yield* failure(
-        value.signInProvider === 'apple' ? 'unavailable' : 'interrupted',
-      );
+    if (!(yield* signInConfirmed(value))) {
+      return yield* unconfirmed(value);
     }
     const suggest = suggestsSignIn(value, provider, chooseAccount);
     return yield* Effect.gen(function* () {
@@ -552,6 +534,35 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       Effect.catchIf(
         (error) => !endsAccess.has(error.code) && !keepsMailboxes,
         ({ code }) => failure(setupReason(provider, code)),
+      ),
+    );
+  });
+
+  // Connects an IMAP mailbox after its login verifies, or repairs the connection for the same
+  // account. Choosing IMAP never starts Gmail authorization. A failed first mailbox keeps the
+  // Product Account and records why, so setup resumes after relaunch; with other usable mailboxes
+  // the failure is reported and nothing changes.
+  const connectImap = Effect.fnUntraced(function* (setup: ImapSetup) {
+    const value = yield* saved;
+    // Mailbox setup follows admission; a Pending Device holds no mailbox.
+    if (value.product === undefined || value.product.pending) {
+      return yield* failWith('unavailable');
+    }
+    const keepsMailboxes = value.mailboxes.some(
+      ({ authorizationNeeded }) => !authorizationNeeded,
+    );
+    if (!(yield* signInConfirmed(value))) {
+      return yield* unconfirmed(value);
+    }
+    return yield* Effect.gen(function* () {
+      yield* native(() => vault.connectImap(setup), MailboxReceipt);
+      yield* step(vault.retryMailboxCleanup);
+      yield* synchronize;
+      return yield* current;
+    }).pipe(
+      Effect.catchIf(
+        (error) => !endsAccess.has(error.code) && !keepsMailboxes,
+        ({ code }) => failure(imapSetupReasons[code] ?? 'imap-offline'),
       ),
     );
   });
@@ -836,6 +847,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       program(authorizeMailbox(null, provider, chooseAccount)),
     authorizeMailbox: (connection) =>
       program(authorizeMailbox(connection, 'gmail', false)),
+    connectImap: (setup) => program(connectImap(setup)),
     // The removal then reaches Product Sync and every Trusted Device.
     removeMailbox: (connection) =>
       program(

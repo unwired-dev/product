@@ -1,13 +1,14 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
+import type { ImapSetup } from './imap-setup.ts';
 import type {
   EncryptedPayload,
   KeyEnvelope,
   PendingEnrollment,
   StoredPayload,
 } from './registration-replies.ts';
-import type { MailProvider, SignInProvider } from './registration.ts';
+import type { MailGrantProvider, SignInProvider } from './registration.ts';
 
 import { MailProviderSchema } from './registration.ts';
 
@@ -19,6 +20,11 @@ const SetupReasonSchema = Schema.Literals([
   'microsoft-unavailable',
   'interrupted',
   'unavailable',
+  // An IMAP server refused the user name and password, could not be reached, or offered no
+  // verified TLS.
+  'imap-refused',
+  'imap-offline',
+  'imap-insecure',
 ]);
 export type SetupReason = typeof SetupReasonSchema.Type;
 
@@ -111,6 +117,14 @@ export const RegistrationRecordSchema = Schema.Struct({
       id: Schema.NonEmptyString,
       provider: MailProviderSchema,
       address: Schema.NonEmptyString,
+      // An IMAP connection's reviewed endpoint; its password never leaves native storage.
+      imap: Schema.optionalKey(
+        Schema.Struct({
+          host: Schema.NonEmptyString,
+          port: Schema.Int,
+          username: Schema.NonEmptyString,
+        }),
+      ),
       epoch: Schema.optionalKey(Schema.NonEmptyString),
       authorizationNeeded: Schema.Boolean,
       access: Schema.Literals(['verified', 'cached', 'unverified']),
@@ -306,10 +320,15 @@ export interface NativeRegistrationVault {
   readonly signInMailbox: (
     connection: string | null,
     suggest: boolean,
-    provider: MailProvider,
+    provider: MailGrantProvider,
   ) => Promise<unknown>;
   // Reads the authorized mailbox's address from its provider, which proves the mail grant.
   readonly verifyMailbox: () => Promise<unknown>;
+  // Verifies an IMAP login and adds it as a connection, or repairs the one for the same account.
+  // Resolves `{ connection, address }`; the password stays in native device storage.
+  readonly connectImap: (setup: ImapSetup) => Promise<unknown>;
+  // Logs in to a saved IMAP connection again, which verifies it for this process.
+  readonly verifyImap: (connection: string) => Promise<unknown>;
   // Saves the verified authorization to its existing connection.
   readonly confirmMailbox: (connection: string) => Promise<unknown>;
   // Adds the verified authorization as a connection, or repairs the existing one.

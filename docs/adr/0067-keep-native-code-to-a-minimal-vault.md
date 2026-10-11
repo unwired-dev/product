@@ -4,6 +4,22 @@ status: accepted
 
 # Keep native code to a minimal vault
 
+## IMAP adapter amendment — 2026-10-11
+
+The #629 decision panel selected SwiftMail 1.16.0 behind a native adapter while
+TypeScript owns synchronization policy and the cache (2–1). The adapter owns the
+credentialed IMAP session and verified TLS; passwords remain in native custody.
+An entered password crosses only as transient form text passed directly to that
+operation, like the entered recovery text below. TypeScript never persists, logs
+or sends it elsewhere. This extends the provider-credential boundary below to
+IMAP without moving mailbox synchronization policy into Swift.
+
+The panel also chose a separate reduced IMAP reader for this slice (3–0): sanitized
+body and inline CID images, blocked remote content, counted attachments, and no
+prefetch, responses or organization. Parity remains follow-up work. Qualification
+evidence and limits are recorded in the
+[IMAP implementation companion](../architecture/imap-mailboxes.md).
+
 `native/private-inbox` has grown to about 2,350 lines of Swift. Besides holding
 keys, it runs the registration flow, Convex transport, Product Sync coordination,
 and the synthetic registration scenarios. Contract shapes are duplicated as Swift

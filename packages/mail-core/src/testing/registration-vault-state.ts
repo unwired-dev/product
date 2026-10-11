@@ -18,6 +18,8 @@ export interface Connection {
   provider: MailProvider;
   subject: string;
   address: string;
+  // An IMAP connection keeps its endpoint and password; a Gmail one has none.
+  imap?: { host: string; port: number; username: string; password: string };
   // Renewed with each live.authorization, as native credentials are.
   credential: number;
   authorizationNeeded?: true;

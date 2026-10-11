@@ -49,6 +49,7 @@ import {
   View,
 } from 'react-native';
 
+import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -99,6 +100,10 @@ function Mailboxes({
   const colors = usePalette();
   const { t } = useLocalization();
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
+  // The IMAP connection whose password is being entered again, or a new one being added.
+  const [imap, setImap] = useState<
+    { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
+  >();
   const mailboxes = mailboxesOf(account);
   if (mailboxes.length === 0) {
     return null;
@@ -115,6 +120,8 @@ function Mailboxes({
       </Label>
       {mailboxes.map((mailbox) => {
         const provider = t(`mailProviders.${mailbox.provider}`);
+        const imapMailbox = mailbox.provider === 'imap';
+        const repairing = imap?.kind === 'repair' && imap.id === mailbox.id;
         return (
           <View
             key={mailbox.id}
@@ -123,22 +130,56 @@ function Mailboxes({
               {mailbox.address}
             </Label>
             <Label style={[styles.text, { color: colors.secondary }]}>
-              {t(`mailboxes.states.${mailbox.state}`, { provider })}
+              {t(
+                imapMailbox && mailbox.state !== 'connected'
+                  ? `mailboxes.states.imap-${mailbox.state}`
+                  : `mailboxes.states.${mailbox.state}`,
+                { provider },
+              )}
             </Label>
-            {mailbox.state === 'authorization'
+            {imapMailbox ? (
+              <Label style={[styles.text, { color: colors.secondary }]}>
+                {t('mailboxes.receiveOnly')}
+              </Label>
+            ) : null}
+            {mailbox.state === 'authorization' && !imapMailbox
               ? button(
                   t('mailboxes.allow', { address: mailbox.address, provider }),
                   () => store.authorizeMailbox(mailbox.id),
                 )
               : null}
-            <MailboxRemoteContent {...mailbox} />
+            {imapMailbox && !repairing
+              ? button(
+                  t('mailboxes.enterPassword', { address: mailbox.address }),
+                  async () => {
+                    setImap({ kind: 'repair', id: mailbox.id });
+                  },
+                )
+              : null}
+            {repairing ? (
+              <ImapSetup
+                button={button}
+                onClose={() => {
+                  setImap(undefined);
+                }}
+                repair={mailbox}
+                store={store}
+              />
+            ) : null}
+            {/* Remote Message Content never loads for IMAP mail yet. */}
+            {imapMailbox ? null : <MailboxRemoteContent {...mailbox} />}
             {confirming === mailbox.id ? (
               <>
                 <Label style={[styles.text, { color: colors.foreground }]}>
-                  {t('mailboxes.confirm', {
-                    address: mailbox.address,
-                    provider,
-                  })}
+                  {t(
+                    imapMailbox
+                      ? 'mailboxes.confirm_imap'
+                      : 'mailboxes.confirm',
+                    {
+                      address: mailbox.address,
+                      provider,
+                    },
+                  )}
                 </Label>
                 {button(
                   t('mailboxes.remove', { address: mailbox.address }),
@@ -168,6 +209,19 @@ function Mailboxes({
             store.addMailbox('microsoft-graph'),
           )
         : null}
+      {imap?.kind === 'new' ? (
+        <ImapSetup
+          button={button}
+          onClose={() => {
+            setImap(undefined);
+          }}
+          store={store}
+        />
+      ) : (
+        button(t('mailboxes.addImap'), async () => {
+          setImap({ kind: 'new' });
+        })
+      )}
       <RemoteContentSettings button={button} />
     </>
   );
@@ -848,6 +902,10 @@ function RegistrationPage({
                   store.addMailbox('microsoft-graph'),
                 )
               : null}
+            <ImapSetup
+              button={button}
+              store={store}
+            />
           </>
         ) : null}
         {actions.signIn.map(({ offer, provider }) => (

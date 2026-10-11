@@ -21,6 +21,7 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.addMailbox(provider, chooseAccount)),
     authorizeMailbox: (connection) =>
       Effect.runPromise(flow.authorizeMailbox(connection)),
+    connectImap: (setup) => Effect.runPromise(flow.connectImap(setup)),
     removeMailbox: (connection) =>
       Effect.runPromise(flow.removeMailbox(connection)),
     link: (provider) => Effect.runPromise(flow.link(provider)),

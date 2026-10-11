@@ -5,7 +5,100 @@ const {
   withXcodeProject,
   withPodfile,
   withAppDelegate,
+  withDangerousMod,
 } = require('expo/config-plugins');
+
+const privateInboxSource = (projectRoot) =>
+  path.resolve(projectRoot, '../../native/private-inbox');
+
+// Links the Swift packages Private Inbox's manifest pins by revision to the app target.
+function addSwiftPackages(project, target, manifest) {
+  const { objects } = project.hash.project;
+  objects.XCRemoteSwiftPackageReference ??= {};
+  objects.XCSwiftPackageProductDependency ??= {};
+  const root = objects.PBXProject[project.hash.project.rootObject];
+  root.packageReferences ??= [];
+  const app = objects.PBXNativeTarget[target];
+  app.packageProductDependencies ??= [];
+  const frameworks = app.buildPhases.find(
+    ({ value }) => objects.PBXFrameworksBuildPhase?.[value] !== undefined,
+  );
+  if (frameworks === undefined) {
+    throw new Error('Private Inbox needs the app target Frameworks phase');
+  }
+  for (const [, url, revision] of manifest.matchAll(
+    /url: "(?<url>[^"]+)",\s*revision: "(?<revision>[0-9a-f]{40})"/gu,
+  )) {
+    const name = path.basename(url, '.git');
+    // Incremental prebuild also updates pins and repairs missing target links.
+    let reference = Object.entries(objects.XCRemoteSwiftPackageReference).find(
+      ([, packageReference]) => packageReference?.repositoryURL === `"${url}"`,
+    )?.[0];
+    if (reference === undefined) {
+      reference = project.generateUuid();
+      objects.XCRemoteSwiftPackageReference[reference] = {
+        isa: 'XCRemoteSwiftPackageReference',
+        repositoryURL: `"${url}"`,
+      };
+    }
+    objects.XCRemoteSwiftPackageReference[reference].requirement = {
+      kind: 'revision',
+      revision,
+    };
+    if (!root.packageReferences.some(({ value }) => value === reference)) {
+      root.packageReferences.push({ value: reference, comment: name });
+    }
+    const products = [
+      ...manifest.matchAll(
+        /\.product\(name: "(?<product>[^"]+)", package: "(?<package>[^"]+)"\)/gu,
+      ),
+    ].filter(({ groups }) => groups?.package === name);
+    for (const { groups } of products) {
+      const productName = groups?.product;
+      let product = Object.entries(
+        objects.XCSwiftPackageProductDependency,
+      ).find(
+        ([, dependency]) =>
+          dependency?.package === reference &&
+          dependency?.productName === productName,
+      )?.[0];
+      if (product === undefined) {
+        product = project.generateUuid();
+        objects.XCSwiftPackageProductDependency[product] = {
+          isa: 'XCSwiftPackageProductDependency',
+          package: reference,
+          productName,
+        };
+      }
+      if (
+        !app.packageProductDependencies.some(({ value }) => value === product)
+      ) {
+        app.packageProductDependencies.push({
+          value: product,
+          comment: productName,
+        });
+      }
+      const phase = objects.PBXFrameworksBuildPhase[frameworks.value];
+      if (
+        !phase.files.some(
+          ({ value }) => objects.PBXBuildFile[value]?.productRef === product,
+        )
+      ) {
+        const file = project.generateUuid();
+        objects.PBXBuildFile[file] = {
+          isa: 'PBXBuildFile',
+          productRef: product,
+        };
+        objects.PBXBuildFile[`${file}_comment`] =
+          `${productName} in Frameworks`;
+        objects.PBXFrameworksBuildPhase[frameworks.value].files.push({
+          value: file,
+          comment: `${productName} in Frameworks`,
+        });
+      }
+    }
+  }
+}
 
 module.exports = function privateInbox(config) {
   const withGooglePod = withPodfile(config, (result) => {
@@ -82,8 +175,27 @@ ${anchor}`,
     }
     return result;
   });
+  // The workspace builds exactly the Swift package graph Private Inbox resolved.
+  const withResolvedPackages = withDangerousMod(withPushWakes, [
+    'ios',
+    (result) => {
+      const destination = path.join(
+        result.modRequest.platformProjectRoot,
+        `${result.modRequest.projectName}.xcworkspace/xcshareddata/swiftpm`,
+      );
+      fs.mkdirSync(destination, { recursive: true });
+      fs.copyFileSync(
+        path.join(
+          privateInboxSource(result.modRequest.projectRoot),
+          'Package.resolved',
+        ),
+        path.join(destination, 'Package.resolved'),
+      );
+      return result;
+    },
+  ]);
   const scenarioSetting = JSON.stringify(scenario ?? '');
-  return withXcodeProject(withPushWakes, (result) => {
+  return withXcodeProject(withResolvedPackages, (result) => {
     const project = result.modResults;
     const target = project.getFirstTarget().uuid;
     for (const configuration of Object.values(
@@ -126,9 +238,11 @@ ${anchor}`,
       );
     }
     fs.rmSync(path.join(root, retired), { force: true });
-    const source = path.resolve(
-      result.modRequest.projectRoot,
-      '../../native/private-inbox',
+    const source = privateInboxSource(result.modRequest.projectRoot);
+    addSwiftPackages(
+      project,
+      target,
+      fs.readFileSync(path.join(source, 'Package.swift'), 'utf8'),
     );
     for (const folder of ['Sources/PrivateInbox', 'bridge']) {
       for (const name of fs.readdirSync(path.join(source, folder))) {

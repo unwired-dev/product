@@ -4,6 +4,12 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `apps/mobile/plugins/private-inbox.cjs.addSwiftPackages` treating an existing
+  package URL as a complete current link. Check incremental prebuild updates its
+  manifest revision and repairs missing app product/Frameworks links, without
+  duplication on another run; otherwise an engine upgrade builds stale source or
+  leaves a host using the unavailable engine stub.
+
 - `apps/mobile/plugins/private-inbox.cjs` leaving a removed test-only Swift source
   or its Compile Sources entry in an existing generated iOS project. Check the
   incremental prebuild as well as fresh generation, including repeated execution

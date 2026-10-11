@@ -23,6 +23,33 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `imap-inbox.ts.openFolder` or body-cache admission swallowing native access
+  failures as folder-specific retries or harmless cache-write refusals. Propagate
+  authentication to the shared repair notice, clear folder/message/body
+  presentation on lock, revocation or owner invalidation, and fence pending body
+  reads across recovery even when native generation is unchanged. Otherwise a
+  selected cached folder or a late downloaded body can remain visible after
+  access closes. Exercise folder reads, cache reopen and body commit separately.
+
+- IMAP folder reads or cached documents accepting zero UIDVALIDITY. Require
+  nonzero validity in each decoded checkpoint and message identity, and verify
+  that a rejected read commits no messages and remains retryable. Otherwise a
+  server whose identity was never established can reuse cached bodies by UID.
+
+- `createRegistration.register` using the first saved connection to decide Gmail
+  reauthorization. Select the saved Gmail connection independently of preceding
+  IMAP connections; otherwise provider choice works for new accounts but strands
+  an existing Gmail grant after sign-in in a mixed-provider account.
+
+- `mime.ts.multipartBodies` materializing all delimiter lines/parts before its
+  part limit, or `parseMime` walking siblings after refusal. Stop allocation and
+  traversal at the MIME budget, and reject oversized headers before splitting
+  their fields; otherwise a bounded raw message amplifies into an unbounded tree.
+- `imap-inbox.ts` admitting CID images directly through `presentation` instead of
+  the shared `BodyLoads` coordinator. Charge repeated rendered occurrences and
+  simultaneous readers across Gmail and IMAP, and release on cleanup/failure;
+  otherwise IMAP bypasses the device display budget despite bounded unique assets.
+
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.

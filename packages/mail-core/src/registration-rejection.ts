@@ -22,6 +22,9 @@ const CodeSchema = Schema.Literals([
   // Distinguished by the flow only; hosts see them as other codes.
   'apple-authorization-required',
   'pending-device-unavailable',
+  // An IMAP server refused the login, or offered no verified TLS.
+  'imap-refused',
+  'imap-insecure',
 ]);
 export type Code = typeof CodeSchema.Type;
 

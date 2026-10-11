@@ -30,7 +30,7 @@ import type {
   MessagePresentation,
 } from './message-body.ts';
 import type { MessageSegment } from './outgoing-message.ts';
-import type { MailProvider } from './registration.ts';
+import type { MailGrantProvider } from './registration.ts';
 
 import { rejectionCode, runLogged } from './diagnostics.ts';
 import {
@@ -997,7 +997,7 @@ export function createGmailInbox(
     shared?: Readonly<BodyLoads>;
     connection?: string;
     // Microsoft mail is read through Graph; organizing, online search and sending stay Gmail's.
-    provider?: MailProvider;
+    provider?: MailGrantProvider;
   }> = {},
 ) {
   const graph =

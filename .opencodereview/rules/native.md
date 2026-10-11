@@ -13,6 +13,18 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `SwiftMailImap` accepting SwiftMail's default zero UIDVALIDITY when EXAMINE
+  omits it. Require nonzero validity before any FETCH, including verification,
+  synchronization and body reads; exercise omission with the controlled TLS
+  server. Otherwise repeated default identities can reuse a different message's
+  encrypted cached body.
+
+- `SwiftMailImap` trusting RFC822.SIZE or checking a fetched body only after the
+  upstream parser buffered it. Bound body literals and response attributes in the
+  real engine parser before accepting payload bytes, with a controlled TLS server
+  declaring an oversized literal without sending it; otherwise an untrusted server
+  can exhaust native memory before the application size check runs.
+
 - `DeviceRevocation.proposal`, `confirmRevocation` or another removal-status path
   reporting `removed` or `superseded` from roster absence, a conflict or lost-key
   cleanup alone. Require an exact committed proposal receipt or a definite backend

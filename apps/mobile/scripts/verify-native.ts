@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as Schema from 'effect/Schema';
@@ -76,6 +78,34 @@ assert.deepEqual(
   ],
   'Unexpected React Native native modules.',
 );
+// Private Inbox's Swift packages, linked into this host by revision and resolved as recorded.
+const privateInbox = fileURLToPath(
+  new URL('../../../native/private-inbox/', import.meta.url),
+);
+const manifest = readFileSync(path.join(privateInbox, 'Package.swift'), 'utf8');
+const pinned = [
+  ...manifest.matchAll(
+    /url: "(?<url>[^"]+)",\s*revision: "(?<revision>[0-9a-f]{40})"/gu,
+  ),
+].map(({ groups }) => ({ url: groups?.url, revision: groups?.revision }));
+assert.deepEqual(
+  pinned.map(({ url }) => url),
+  [
+    'https://github.com/Cocoanetics/SwiftMail.git',
+    'https://github.com/apple/swift-log.git',
+  ],
+  'Review Swift packages before expanding the Private Inbox graph.',
+);
+const resolved = readFileSync(
+  path.join(privateInbox, 'Package.resolved'),
+  'utf8',
+);
+for (const { url, revision } of pinned) {
+  assert.ok(
+    revision !== undefined && resolved.includes(`"revision" : "${revision}"`),
+    `Package.resolved does not record ${url} at its pinned revision.`,
+  );
+}
 process.stdout.write(
   `Verified ${modules.length} Expo and ${Object.keys(dependencies).length} React Native autolinked modules.\n`,
 );

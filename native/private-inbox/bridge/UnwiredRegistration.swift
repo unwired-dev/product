@@ -312,14 +312,10 @@ final class UnwiredRegistration: NSObject {
       let value = try await Self.operations.perform { try await operation(store()) }
       resolve(value)
     } catch {
-      // Descriptions stay private: SDK and transport errors can echo request details.
-      let failure = error as NSError
-      Self.logger.error(
-        """
-        \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
-        \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
-        """)
+      // Foreign errors can echo account or server content even through private OSLog fields.
       let code = RegistrationStore.rejectionCode(error)
+      Self.logger.error(
+        "\(name, privacy: .public) failed: \(code, privacy: .public)")
       let message =
         switch code {
         case "cancelled": "Sign-in was cancelled."
@@ -644,6 +640,30 @@ final class UnwiredRegistration: NSObject {
   ) {
     performStep("confirmMailbox", resolve, reject: reject) { try $0.confirmMailbox(connection) }
   }
+  // `setup` names the reviewed endpoint, the mailbox address and the password, which goes no
+  // further than this device's registration record.
+  @objc(connectImap:resolver:rejecter:)
+  func connectImap(
+    _ setup: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("connectImap", resolve, reject: reject) {
+      guard let address = setup["address"] as? String, let host = setup["host"] as? String,
+        let port = (setup["port"] as? Double).flatMap({ Int(exactly: $0) }),
+        let username = setup["username"] as? String, let password = setup["password"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await $0.connectImap(
+        address: address, account: ImapAccount(host: host, port: port, username: username),
+        password: password)
+    }
+  }
+  @objc(verifyImap:resolver:rejecter:)
+  func verifyImap(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("verifyImap", resolve, reject: reject) { try await $0.verifyImap(connection) }
+  }
   @objc(storeMailbox:rejecter:)
   func storeMailbox(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
@@ -854,6 +874,8 @@ extension UnwiredRegistration {
     // A removal moved the account to a newer key epoch; TypeScript adopts it before retrying.
     case ProductSyncWriteFailure.keyRotationRequired:
       reject("key-rotation-required", "Private sync moved to newer keys.", nil)
+    case let error as ImapFailure:
+      reject(error.code, "The mail server could not be read.", nil)
     default:
       logger.error("\(name, privacy: .public) failed: unavailable")
       reject("unavailable", "Gmail could not be reached.", nil)
@@ -1063,6 +1085,64 @@ extension UnwiredRegistration {
       return try await $0.gmailSend(
         segments: segments, threadId: message["threadId"] as? String, connection: connection,
         address: address, generation: generation)
+    }
+  }
+
+  @objc(imapFolders:resolver:rejecter:)
+  func imapFolders(
+    _ scope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapFolders", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapFolders(
+        connection: connection, address: address, generation: generation)
+    }
+  }
+
+  // `request` names the folder, how many of its newest messages to keep, and optionally the
+  // checkpoint `{ uidValidity, uidNext, known }` the last committed synchronization reached.
+  @objc(imapSynchronize:request:resolver:rejecter:)
+  func imapSynchronize(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapSynchronize", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let window = (request["window"] as? Double).flatMap({ Int(exactly: $0) })
+      else { throw RegistrationError.unavailable }
+      var from: ImapCheckpoint?
+      if let checkpoint = request["from"] as? [String: Any] {
+        guard let validity = (checkpoint["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+          let next = (checkpoint["uidNext"] as? Double).flatMap({ UInt32(exactly: $0) }),
+          let known = checkpoint["known"] as? [Double]
+        else { throw RegistrationError.unavailable }
+        let uids = known.compactMap { UInt32(exactly: $0) }
+        guard uids.count == known.count else { throw RegistrationError.unavailable }
+        from = ImapCheckpoint(uidValidity: validity, uidNext: next, known: uids)
+      }
+      return try await $0.imapSynchronize(
+        connection: connection, address: address, generation: generation, folder: folder,
+        from: from, window: window)
+    }
+  }
+
+  // `message` names `{ folder, uidValidity, uid }`; a changed UIDVALIDITY reads nothing.
+  @objc(imapMessage:message:resolver:rejecter:)
+  func imapMessage(
+    _ scope: [String: Any], message: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapMessage", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = message["folder"] as? String,
+        let validity = (message["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let uid = (message["uid"] as? Double).flatMap({ UInt32(exactly: $0) })
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapMessage(
+        connection: connection, address: address, generation: generation, folder: folder,
+        uidValidity: validity, uid: uid)
     }
   }
 

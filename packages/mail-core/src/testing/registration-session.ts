@@ -396,6 +396,8 @@ export function createMockRegistrationSession(
       snapshot = withMailboxes(snapshot, connecting(current, address));
       return Promise.resolve(snapshot);
     },
+    // The synthetic session has no IMAP server; IMAP journeys use the registration vault fixture.
+    connectImap: () => rejection('Synthetic IMAP unavailable', 'unavailable'),
     authorizeMailbox: (connection) => {
       if (
         snapshot.kind === 'signed-out' ||

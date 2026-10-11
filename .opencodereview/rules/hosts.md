@@ -15,6 +15,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
   use the selected connection's provider or neutral aggregate wording, or the
   interface labels Microsoft mail as Gmail despite independent authorization.
+- IMAP password repair in `RegistrationGate` available only when saved registration
+  says authorization, while a current Inbox read can refuse a saved connected
+  credential. Trace the Inbox notice through account settings without relaunch;
+  every IMAP connection must offer repair, and IMAP waiting rows must never invoke
+  Gmail consent. Otherwise refusal strands the connection or grants another provider.
 
 - Application logic in a component, hook or adapter: decoding a native result, deciding a registration or enrollment transition, retrying, merging or filtering mail state. That logic belongs in a `mail-core` store so both hosts and its tests share it.
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.

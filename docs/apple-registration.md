@@ -24,11 +24,12 @@ qualification.
 as a second Product Sign-In choice on iPhone, iPad and Mac. It follows
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
 Apple identifies the Product Account only. After device admission, setup offers
-Gmail or, when configured for this build, [Microsoft mail](microsoft-mail.md). Selecting Gmail starts the existing
-[resumable Gmail authorization](google-registration.md); selecting Microsoft mail
-requires no Google account. The onboarding copy says Apple sign-in does not give
-access to mail. No connected Inbox appears until the selected mailbox passes its
-provider's grant and Inbox verification.
+Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an
+[IMAP mailbox](imap-mailboxes.md), none started until chosen. Selecting Gmail
+starts the existing [resumable Gmail authorization](google-registration.md);
+Microsoft mail and IMAP require no Google account. The onboarding copy says Apple
+sign-in does not give access to mail. No connected Inbox appears until the
+selected mailbox is verified: its provider's grant and Inbox, or an IMAP login.
 
 ## Identity boundaries
 

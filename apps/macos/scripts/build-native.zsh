@@ -12,6 +12,10 @@ mkdir -p "$artifact_root"
 export PATH="$(ruby -e 'print Gem.bindir'):$PATH"
 pnpm native:generate
 pnpm native:pods
+# The Swift package graph Private Inbox resolved, so the host builds exactly those revisions.
+mkdir -p macos/UnwiredMail.xcworkspace/xcshareddata/swiftpm
+cp ../../native/private-inbox/Package.resolved macos/UnwiredMail.xcworkspace/xcshareddata/swiftpm/
 xcodebuild build -workspace macos/UnwiredMail.xcworkspace -scheme UnwiredMail \
+  -onlyUsePackageVersionsFromResolvedFile \
   -configuration "$configuration" -destination 'platform=macOS' \
   -derivedDataPath "$artifact_root/DerivedData" CODE_SIGN_IDENTITY="${UNWIRED_SIGNING_IDENTITY:--}" ARCHS=arm64 ENABLE_HARDENED_RUNTIME=NO
