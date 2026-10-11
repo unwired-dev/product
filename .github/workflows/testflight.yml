@@ -32,6 +32,9 @@ on:
         required: true
       GMAIL_OAUTH_CLIENT_ID:
         required: true
+      # Optional: without a topic, builds register no Gmail push routes.
+      GMAIL_PUBSUB_TOPIC:
+        required: false
 
 permissions:
   contents: read
