@@ -341,6 +341,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   APNs token. Pending proof does not establish push coverage. Keep the pending
   opaque route available for a late wake, retry proof at a later verification,
   and suppress fallback polling only for registered, proven, current routes.
+
 #### Remote content retrieval
 
 - `RemoteContent.swift` classifying a NAT64 destination only by its globally

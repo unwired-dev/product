@@ -1254,7 +1254,14 @@ polling, partial registration teardown, renewal after a refused destructive oper
 offline removal deferring relay deletion until Product Sync acknowledgement, and a
 synchronized removal stopping the watch before discarding its credential.
 All 50 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
-Xcode 27.0 for #781.
+Xcode 27.0 for #781 before integration with #763.
+#763 adds six native tests for destination and NAT64 admission, redirect and
+response bounds, a fixture TLS exchange authenticating the original host, and
+encrypted remote-cache isolation, eviction, clearing and mailbox removal.
+After merging #763 and #781, all 56 tests passed together on a fresh iOS 27
+simulator with Xcode 27.0, real Keychain storage, CryptoKit and the filesystem.
+The hosted runner requires all 56; the provider and relay boundaries remain
+synthetic, and the controlled TLS exchange does not qualify real remote hosts.
 All 43 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
 Xcode 27.0 for #610. Before it, all 41 tests passed in
 the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain
