@@ -803,9 +803,10 @@ The application, not a window or screen, owns Gmail synchronization
 
 - **Mac.** Synchronization continues after the last window closes, and a
   reopened window shows the committed mail at once. Push wakes synchronize each
-  routed mailbox. While a usable mailbox has no current route, every five minutes
-  the running app verifies registration and synchronizes every open mailbox.
-  Activation still catches up. Explicit Quit ends it with the process. No helper
+  routed mailbox. Every five minutes the running app verifies registration and
+  synchronizes every open mailbox while it is the active application, because a
+  wake can be dropped or delayed, and otherwise only while a usable mailbox has no
+  current route. Activation still catches up. Explicit Quit ends it with the process. No helper
   process runs.
 - **iPhone and iPad.** A background task asks iOS for refresh opportunities at
   most every 15 minutes. iOS decides whether and when each runs, and none runs
@@ -842,7 +843,8 @@ For each verified connection without a current route, it then:
 
 A pending Pub/Sub proof keeps the route available for late wakes, retries at the
 next verification, and leaves polling enabled. Only verified routes covering every
-usable mailbox with a current registered device token suppress the Mac interval.
+usable mailbox with a current registered device token suppress the Mac interval,
+and only while the Mac app is not active.
 
 The watch renews within a day of expiring, and each renewal also renews the
 relay's record of this device. The identity token, access token, address and
@@ -1127,14 +1129,15 @@ read state; simulator background tasks remain restricted.
 The #781 shared tests settle host wakes through the real stores: a routed wake
 synchronizes only its mailbox and completes once; unknown and inherited route names
 complete as ignored; a failed or unreadable route lookup completes as failed without
-logging the address or history ID; and a replaced reader stops. The Mac interval
+logging the address or history ID; and a replaced reader stops. The shared interval
 skips while wakes cover every usable mailbox and resumes when a route lapses or the
 lookup is unreadable. Stopping during an asynchronous coverage lookup starts no
 new refresh. Registration tests route after each verification with a
 verified mailbox, never offline, never fail verification on a routing failure, purge
 on a revoked one, and stop watches before sign-out unregisters the device and
 before deletion. The mobile headless-entry test settles a wake that launched the
-app, and the Mac host test leaves new mail to its wake until a mailbox loses its
+app. The Mac host test leaves new mail to its wake in the background, polls while
+the app is active even with full coverage, and polls again when a mailbox loses its
 route.
 
 Real iOS background scheduling, APNs delivery and packaged Mac journeys with no

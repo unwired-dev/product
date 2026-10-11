@@ -7,7 +7,7 @@ import {
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import { waitFor } from '@testing-library/react-native';
-import { TurboModuleRegistry } from 'react-native';
+import { AppState, TurboModuleRegistry } from 'react-native';
 
 import type { keepGmailFresh as KeepGmailFresh } from '../src/freshness.ts';
 import type { gmailMailboxes as HostMailboxes } from '../src/registration.ts';
@@ -30,7 +30,7 @@ const subjects = (mailboxes: typeof HostMailboxes) => {
 };
 
 describe('application-scoped Gmail freshness', () => {
-  it('relies on push wakes while every mailbox is routed and polls again when one is not', async () => {
+  it('polls while active, relies on push wakes in the background while every mailbox is routed, and polls again when one is not', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
     await createRegistration(createRegistrationFlow(vault)).register('google');
@@ -58,6 +58,8 @@ describe('application-scoped Gmail freshness', () => {
       .spyOn(TurboModuleRegistry, 'getEnforcing')
       .mockReturnValue(native);
     jest.useFakeTimers();
+    const initial = AppState.currentState;
+    AppState.currentState = 'background';
     try {
       const { keepGmailFresh } = jest.requireActual<{
         readonly keepGmailFresh: typeof KeepGmailFresh;
@@ -80,15 +82,27 @@ describe('application-scoped Gmail freshness', () => {
       });
       expect(subjects(gmailMailboxes)).toStrictEqual(['Left to its wake']);
 
+      // While the app is active the interval supplements wakes, which can be dropped or delayed.
+      AppState.currentState = 'active';
+      gmail.deliver({ subject: 'Polled while active' });
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(subjects(gmailMailboxes)).toStrictEqual([
+        'Polled while active',
+        'Left to its wake',
+      ]);
+      AppState.currentState = 'background';
+
       // A mailbox without a current route brings the interval back.
       routes = { routes: {}, complete: false };
       gmail.deliver({ subject: 'Polled' });
       await jest.advanceTimersByTimeAsync(5 * 60_000);
       expect(subjects(gmailMailboxes)).toStrictEqual([
         'Polled',
+        'Polled while active',
         'Left to its wake',
       ]);
     } finally {
+      AppState.currentState = initial;
       jest.useRealTimers();
       bridge.mockRestore();
     }
