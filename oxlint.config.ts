@@ -71,7 +71,7 @@ export default buildOxlintConfig({
       },
       {
         // Metro loads repository build helpers as CommonJS modules.
-        files: ['scripts/**/*.cjs'],
+        files: ['scripts/**/*.cjs', 'packages/draft-editor/build.cjs'],
         rules: {
           'import/unambiguous': 'allow',
           'typescript/no-require-imports': 'allow',
@@ -80,7 +80,7 @@ export default buildOxlintConfig({
       },
       {
         // Repository tooling runs as short-lived Node scripts and configures itself from the environment.
-        files: ['scripts/**'],
+        files: ['scripts/**', 'packages/draft-editor/build.cjs'],
         rules: {
           'node/no-process-env': 'allow',
           'node/no-sync': 'allow',

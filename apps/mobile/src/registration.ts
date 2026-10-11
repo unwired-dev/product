@@ -11,7 +11,10 @@ import type { TurboModule } from 'react-native';
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  microsoftMailAvailable,
+} from '@private-email/mail-core/registration';
 import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import { TurboModuleRegistry } from 'react-native';
 
@@ -26,16 +29,17 @@ interface RegistrationModule
     NativeWakes {
   // Cancels a Gmail or Microsoft Graph read by its request name.
   readonly cancelGmailRequest: (request: string) => void;
-  readonly getConstants: () => Readonly<{ microsoftMail?: boolean }>;
 }
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
 
 // Whether this build can authorize Microsoft mail; without the native module it cannot.
 export const microsoftMail = () =>
-  TurboModuleRegistry.get<RegistrationModule>(
-    'UnwiredRegistration',
-  )?.getConstants().microsoftMail === true;
+  microsoftMailAvailable(
+    TurboModuleRegistry.get<RegistrationModule>(
+      'UnwiredRegistration',
+    )?.getConstants?.(),
+  );
 
 export const registration = createRegistration(
   createRegistrationFlow({

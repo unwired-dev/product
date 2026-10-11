@@ -23,6 +23,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [On-device translation](message-translation.md)
 - [On-device Draft rewrites and reply suggestions](draft-assistance.md)
 - [Local rich-text Drafts and the composer](drafts.md)
+- [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Product Sync and the Recovery Key](private-product-sync.md)

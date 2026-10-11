@@ -136,6 +136,42 @@ const withoutTrailingPunctuation = (address: string) => {
   return address.slice(0, end);
 };
 
+const blank = (line = '') => line.trim() === '';
+const quotedLine = (line: string) => /^\s*>/u.test(line);
+const quoteLine = (line = '') => quotedLine(line) || blank(line);
+const originalMessage = /^-{2,}\s*Original Message\s*-{2,}$/iu;
+
+const trailingQuoteStart = (lines: readonly string[]) => {
+  let start = lines.length;
+  while (start > 0 && quoteLine(lines[start - 1])) {
+    start -= 1;
+  }
+  if (
+    !lines.slice(start).some(quotedLine) ||
+    lines.slice(0, start).some(quotedLine)
+  ) {
+    return lines.length;
+  }
+  const above = start - 1;
+  return lines[above]?.trimEnd().endsWith(':') === true ? above : start;
+};
+
+// A plain-text body without its quoted history: everything from an "Original Message" marker,
+// or the trailing run of `>` lines with the attribution line directly above it. Undefined when
+// there is none, or when nothing but quoted history would remain.
+export function withoutQuotedText(content: string): string | undefined {
+  const lines = content.replaceAll(/\r\n?/gu, '\n').split('\n');
+  let start = lines.findIndex((line) => originalMessage.test(line.trim()));
+  if (start === -1) {
+    start = trailingQuoteStart(lines);
+    if (start === lines.length) {
+      return undefined;
+    }
+  }
+  const kept = lines.slice(0, start).join('\n').trimEnd();
+  return hasVisibleText(kept) ? kept : undefined;
+}
+
 // Plain text keeps its line breaks; blank lines separate paragraphs and addresses become links.
 export function readableText(content: string): ReadableBody {
   const builder = paragraphBuilder();

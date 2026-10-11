@@ -161,7 +161,10 @@ export const listedMessage = (message: GraphListed) => {
   const name = sender?.name?.trim() ?? '';
   return {
     id: message.id,
-    threadId: message.conversationId ?? message.id,
+    threadId:
+      message.conversationId === ''
+        ? message.id
+        : (message.conversationId ?? message.id),
     sender: name === '' ? address : name,
     address,
     subject: message.subject ?? '',

@@ -236,6 +236,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `microsoft-graph.ts.listedMessage` retaining an empty conversation identity
+  instead of falling back to the message ID. Trace the decoded provider metadata
+  through `gmail-inbox.ts.threadMessages` and reopened caches; otherwise unrelated
+  messages with empty conversation identities appear in one Thread. Preserve newest-first grouping
+  for nonempty provider conversation identities.
 - `src/testing/registration-session.ts.withMailboxes` hardcoding one provider's
   authorization failure for a connection from another provider. Compare the
   synthetic projection with `registration-flow.ts.pending` and the shared
@@ -763,6 +768,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   Preserve that authorization rejection through the reader, cached completion
   and download error paths without parsing oversized MIME metadata; otherwise
   a message over budget hides the reauthorization needed by the whole Inbox.
+- `html-sanitizer.ts.sanitizeHtml` classifying quoted history as trailing by
+  inspecting only later text. Visible images outside a quote also constitute
+  inline replies; preserve their quoted questions in the full presentation,
+  including image-only replies. Otherwise collapsing removes the context of an
+  answer that remains visible.
 
 - MIME parsing in `message-body.ts` or `gmail-inbox.ts` that runs before
   `withinMetadataBudgets` admits the whole message, including discarded subtrees.
@@ -778,7 +788,7 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   reject a message deliberately admitted near the part limit. Verify both
   over-budget rejection across parts and successful reads of admitted trees,
   including the existing large-attachment journeys in both host test suites.
-- `message-body.ts.presentation` rebuilding the same blocked-only document on
+- `message-presentation.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,
   including fresh arrays containing those objects; Content-IDs alone do not bind

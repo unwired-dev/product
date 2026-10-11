@@ -74,6 +74,9 @@ Trusted Devices through End-to-End Encrypted Product Sync.
 
 Links, the Slash Command Menu and recipient suggestions are later slices.
 
+The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
+of the body editor for comparison with this composer; it does not change it.
+
 ## Saving
 
 Every edit is saved as it happens, in order: an edit made while an earlier one is

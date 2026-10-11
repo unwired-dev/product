@@ -485,6 +485,17 @@ const searchUnavailable = (
   reason: Extract<GmailSearchPage, { kind: 'unavailable' }>['reason'],
 ): GmailSearchPage => ({ kind: 'unavailable', reason });
 
+// A presentation's plain-text fallback after its rich view failed, still collapsible.
+const readableOnly = ({
+  readable,
+  withoutQuotedHistory,
+}: MessagePresentation): MessagePresentation => ({
+  readable,
+  ...(withoutQuotedHistory === undefined
+    ? {}
+    : { withoutQuotedHistory: { readable: withoutQuotedHistory.readable } }),
+});
+
 const bodyFailure = (kind: SyncFailure['kind']): MessageBodyState => {
   let reason: Extract<MessageBodyState, { kind: 'unavailable' }>['reason'] =
     'download';
@@ -505,6 +516,30 @@ const sender = (from: string) => {
   const name = match?.name?.trim() ?? '';
   return { sender: name === '' ? address : name, address };
 };
+
+// The cached conversation for a message in this mailbox; listed metadata wins over search copies.
+export function threadMessages(state: GmailInboxState, id: string) {
+  if (state.kind !== 'ready') {
+    return [];
+  }
+  const messages = new Map(
+    [...(state.found ?? []), ...state.messages].map((message) => [
+      message.id,
+      message,
+    ]),
+  );
+  const opened = messages.get(id);
+  return opened === undefined
+    ? []
+    : Arr.sort(
+        [...messages.values()].filter(
+          (message) =>
+            message.id === opened.id ||
+            (opened.threadId !== '' && message.threadId === opened.threadId),
+        ),
+        newestFirst,
+      );
+}
 
 const labelsOf = (message: GmailMessage) =>
   message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
@@ -4182,7 +4217,7 @@ export function createGmailInbox(
           imageReservations.delete(reader);
           viewBodies.set(reader, {
             kind: 'ready',
-            presentation: { readable: expected.readable },
+            presentation: readableOnly(expected),
           });
           releaseUnshownRemote(id);
           refreshRemoteInterest(id);
@@ -4196,7 +4231,7 @@ export function createGmailInbox(
         imageReservations.delete(id);
         const fallback = {
           kind: 'ready',
-          presentation: { readable: expected.readable },
+          presentation: readableOnly(expected),
         } as const;
         bodies.set(id, fallback);
         releaseUnshownRemote(id);

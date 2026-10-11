@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
 
-import { Composer } from './composer.tsx';
+import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { InboxProvider } from './mailbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
@@ -56,7 +56,7 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
               onCompose={compose}
             />
           ) : (
-            <Composer
+            <DraftComposer
               id={composing}
               onClose={() => {
                 setComposing(undefined);

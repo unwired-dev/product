@@ -334,6 +334,86 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
+  // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
+  private func draftEditorJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Google"].tap()
+    let recoveryKey = app.staticTexts["recovery-key"]
+    XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
+    let presented = recoveryKey.label
+    app.buttons["Choose another Google mailbox"].tap()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    let entry = app.textFields["Last four characters"]
+    entry.tap()
+    // Confirm each character reached the controlled field before sending the next one.
+    var confirmation = ""
+    for character in presented.suffix(4) {
+      entry.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
+        .completed)
+    }
+    entry.typeText("\n")
+    app.buttons["Confirm Recovery Key"].tap()
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    // The disposable Draft belongs to this run's synthetic Product Account only.
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["From other@example.invalid"].exists)
+    let body = app.webViews.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // Focus: typing reaches the page only once its editable body holds keyboard focus.
+    // The empty editor fills the page; focus its first paragraph rather than the blank center.
+    body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24)).tap()
+    body.typeText("Evaluation paragraph")
+    let typed = app.webViews.staticTexts["Evaluation paragraph"]
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 10))
+    let focused = XCTAttachment(screenshot: app.screenshot())
+    focused.name = "Evaluation editor typed"
+    focused.lifetime = .keepAlways
+    add(focused)
+    // Resize: the page follows a rotation without reloading or losing its text.
+    let portrait = app.webViews.firstMatch.frame
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let rotated = NSPredicate { _, _ in app.webViews.firstMatch.frame.width != portrait.width }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: rotated, object: nil)], timeout: 10),
+      .completed)
+    XCTAssertTrue(typed.exists)
+    let landscape = XCTAttachment(screenshot: app.screenshot())
+    landscape.name = "Evaluation editor rotated"
+    landscape.lifetime = .keepAlways
+    add(landscape)
+    XCUIDevice.shared.orientation = .portrait
+    let restored = NSPredicate { _, _ in app.webViews.firstMatch.frame.width == portrait.width }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: restored, object: nil)], timeout: 10),
+      .completed)
+    // Teardown: Close saves and removes the page's web view.
+    app.buttons["Close"].tap()
+    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
+    app.terminate()
+    app.launch()
+    let draft = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft.")).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 20))
+    draft.tap()
+    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.webViews.staticTexts["Evaluation paragraph"].waitForExistence(timeout: 15))
+    let reopened = XCTAttachment(screenshot: app.screenshot())
+    reopened.name = "Evaluation Draft after relaunch"
+    reopened.lifetime = .keepAlways
+    add(reopened)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -352,6 +432,7 @@ final class InboxTests: XCTestCase {
       case "registration-revocation": revocationJourney(app)
       case "registration-revoked": revokedJourney(app)
       case "registration-removal": removalJourney(app)
+      case "registration-draft-editor": draftEditorJourney(app)
       default:
         try registrationJourney(app)
       }

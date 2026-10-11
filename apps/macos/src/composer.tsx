@@ -259,7 +259,7 @@ const blockControls: ReadonlyArray<readonly [BlockKind, string, BlockName]> = [
 ];
 
 // React Native macOS exposes plain Text to accessibility only through an accessible parent.
-function Notice({
+export function Notice({
   children,
   alert = false,
   style,

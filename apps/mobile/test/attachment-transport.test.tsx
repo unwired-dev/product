@@ -8,7 +8,11 @@ import { syntheticMailboxes } from '@private-email/mail-core/testing/registratio
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import { TurboModuleRegistry } from 'react-native';
 
-import { gmailMailboxes, registration } from '../src/registration.ts';
+import {
+  gmailMailboxes,
+  microsoftMail,
+  registration,
+} from '../src/registration.ts';
 
 const required = <Value,>(value: Value | undefined): Value => {
   if (value === undefined) {
@@ -69,6 +73,44 @@ function holdAttachment(base: NativeGmailMailboxes) {
     },
   };
 }
+
+// Malformed native capabilities must hide the action without crashing setup.
+describe('native mailbox capabilities', () => {
+  it('offers Microsoft only for a decoded true capability', () => {
+    expect.hasAssertions();
+    const module = jest.spyOn(TurboModuleRegistry, 'get');
+    const available: boolean[] = [];
+    try {
+      for (const constants of [
+        undefined,
+        null,
+        {},
+        { microsoftMail: 'true' },
+        { microsoftMail: false },
+      ]) {
+        module.mockReturnValue({
+          getConstants: jest.fn().mockReturnValue(constants),
+        });
+        available.push(microsoftMail());
+      }
+      module.mockReturnValue({ getConstants: () => ({ microsoftMail: true }) });
+      available.push(microsoftMail());
+      module.mockReturnValue(null);
+      available.push(microsoftMail());
+      expect(available).toStrictEqual([
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+      ]);
+    } finally {
+      module.mockRestore();
+    }
+  });
+});
 
 // Real host adapter and stores; only the native module/provider boundary is synthetic.
 describe('attachment transfer cancellation bridge', () => {

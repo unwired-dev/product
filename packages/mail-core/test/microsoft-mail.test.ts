@@ -4,7 +4,7 @@ import type { GmailInboxState, MessageBodyState } from '../src/gmail-inbox.ts';
 
 import { sendingMailboxes } from '../src/drafts.ts';
 import { quickActions } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createGmailInbox, threadMessages } from '../src/gmail-inbox.ts';
 import {
   createGmailSearch,
   createMailboxes,
@@ -135,6 +135,74 @@ const repeatingDelta = (
 
 describe('reading Microsoft mail through Graph', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one synchronization path end to end. */
+  it('keeps messages without a conversation identity separate and orders shared conversations after relaunch', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 4 });
+    const native = {
+      ...graph.native,
+      graphRequest: async (
+        url: string,
+        scope: Parameters<typeof graph.native.graphRequest>[1],
+      ) => {
+        const reply = await graph.native.graphRequest(url, scope);
+        return {
+          ...reply,
+          body: reply.body
+            .replaceAll(
+              '"conversationId":"conversation-1"',
+              '"conversationId":""',
+            )
+            .replaceAll(
+              '"conversationId":"conversation-2"',
+              '"conversationId":""',
+            )
+            .replaceAll(
+              '"conversationId":"conversation-4"',
+              '"conversationId":"conversation-3"',
+            ),
+        };
+      },
+    };
+    const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+    await inbox.load();
+    const state = ready(inbox.getSnapshot());
+    const [newest, earlier] = pair(state.messages);
+    expect(threadMessages(state, newest.id).map(({ id }) => id)).toStrictEqual([
+      newest.id,
+      earlier.id,
+    ]);
+    for (const message of state.messages.slice(2)) {
+      expect(threadMessages(state, message.id)).toStrictEqual([message]);
+    }
+    // An older cache may already contain blank identities; offline reopening must isolate them too.
+    const reopened = createGmailInbox(
+      {
+        ...native,
+        openMailbox: async () => {
+          const cached = await native.openMailbox();
+          return {
+            ...cached,
+            availability: 'retry',
+            document: cached.document?.replaceAll(
+              /"threadId":"AAMk[^"]+"/gu,
+              '"threadId":""',
+            ),
+          };
+        },
+      },
+      { provider: 'microsoft-graph' },
+    );
+    await reopened.load();
+    expect(threadMessages(reopened.getSnapshot(), newest.id)).toStrictEqual(
+      threadMessages(state, newest.id),
+    );
+    for (const message of ready(reopened.getSnapshot()).messages.slice(2)) {
+      expect(threadMessages(reopened.getSnapshot(), message.id)).toStrictEqual([
+        message,
+      ]);
+    }
+  });
+
   it('bounds repeated delta continuation pages and resumes the saved checkpoint on retry', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 1 });

@@ -202,6 +202,83 @@ describe('reading Gmail message bodies', () => {
     ).toStrictEqual([`messages/${plain}/attachments/part-0-0`]);
   });
 
+  it('recognizes quoted reply history only where it ends the message', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const cited = gmail.deliver({
+      content: {
+        html: '<p>Sounds good.</p><blockquote type="cite"><p>Apple Mail quote</p></blockquote>',
+      },
+    });
+    const outlook = gmail.deliver({
+      content: {
+        text: 'Approved.\n\n-----Original Message-----\nFrom: Maya\nPlease approve.',
+      },
+    });
+    const onlyQuote = gmail.deliver({
+      content: { text: 'On Monday, Maya wrote:\n> Everything here is quoted.' },
+    });
+    const interleaved = gmail.deliver({
+      content: { text: '> Can you come?\nYes.\n> And bring notes?' },
+    });
+    const htmlOnlyQuote = gmail.deliver({
+      content: {
+        html: '<blockquote type="cite"><p>Everything here is quoted.</p></blockquote>',
+      },
+    });
+    const htmlInterleaved = gmail.deliver({
+      content: {
+        html: '<blockquote type="cite"><p>Can you come?</p></blockquote><p>Yes.</p><blockquote type="cite"><p>And bring notes?</p></blockquote><p>I will.</p>',
+      },
+    });
+    const imageReply = gmail.deliver({
+      content: {
+        html: '<p>Here is my reply.</p><blockquote type="cite"><p>Can you draw the layout?</p></blockquote><img src="https://images.invalid/layout.png" alt="My proposed layout">',
+      },
+    });
+    const alternative = gmail.deliver({
+      content: {
+        html: '<p>OK.</p><div class="gmail_quote">Old reply</div>',
+        text: 'OK.\n\nOld reply',
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const text = (state: MessageBodyState | undefined) =>
+      ready(state)
+        .withoutQuotedHistory?.readable.paragraphs.map((spans) =>
+          spans.map((span) => span.text).join(''),
+        )
+        .join('\n\n');
+
+    const reply = ready(await read(inbox, cited));
+    expect(reply.rich?.document).toContain('Apple Mail quote');
+    expect(reply.withoutQuotedHistory?.rich?.document).not.toContain(
+      'Apple Mail quote',
+    );
+    expect(text(await read(inbox, cited))).toBe('Sounds good.');
+    expect(text(await read(inbox, outlook))).toBe('Approved.');
+    // Collapsing would leave nothing, and an inline reply keeps every answer beside its question.
+    expect(
+      ready(await read(inbox, onlyQuote)).withoutQuotedHistory,
+    ).toBeUndefined();
+    expect(
+      ready(await read(inbox, interleaved)).withoutQuotedHistory,
+    ).toBeUndefined();
+    expect(
+      ready(await read(inbox, htmlOnlyQuote)).withoutQuotedHistory,
+    ).toBeUndefined();
+    expect(
+      ready(await read(inbox, htmlInterleaved)).withoutQuotedHistory,
+    ).toBeUndefined();
+    expect(
+      ready(await read(inbox, imageReply)).withoutQuotedHistory,
+    ).toBeUndefined();
+    const withAlternative = ready(await read(inbox, alternative));
+    inbox.discardRichMessage(alternative, withAlternative);
+    expect(text(inbox.messageBody(alternative))).toBe('OK.');
+  });
+
   it('reports bodies it cannot download and downloads them once Gmail allows it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

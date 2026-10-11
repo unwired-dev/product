@@ -52,6 +52,11 @@ const trustedDevicesText = Schema.NonEmptyString.check(
 export const MailProviderSchema = Schema.Literals(['gmail', 'microsoft-graph']);
 export type MailProvider = typeof MailProviderSchema.Type;
 
+// A malformed native capability cannot offer an authorization action.
+export const microsoftMailAvailable = Schema.is(
+  Schema.Struct({ microsoftMail: Schema.Literal(true) }),
+);
+
 // The lossless migrated Mail Profile. It owns every Mailbox Connection recorded before Profiles,
 // and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
 // connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
