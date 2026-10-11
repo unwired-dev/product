@@ -23,6 +23,13 @@ Documentation here is product truth that agents execute: an implementer follows 
   payloads such as a one-time sign-in link ticket. Otherwise blanket claims that
   no tokens cross the bridge conceal values TypeScript actually handles and can
   misdirect privacy review.
+- A Product Sync catch-up statement in `docs/private-product-sync.md`, its
+  architecture companion or ADR 0070 that omits or misassigns envelope retention
+  ownership. Trace `productSyncKeyEnvelopes` through activation, acknowledgement
+  and device deletion: Convex retains each device's latest complete ring envelope
+  until a newer activation replaces it or the device is removed, independently of
+  acknowledgements. Otherwise an offline survivor's catch-up requirement can be
+  assigned to a client that cannot receive the envelope while offline.
 - A Gmail organization summary in `docs/gmail-inbox.md` or a changeset calling every action a reader button, or promising pending intent remains until confirmation without accounting for permanent refusal and explicit discard. Check `MessageActions`/`OrganizeStatus` and `createGmailInbox` settlement/resolution: label checkboxes and Inbox Undo have different roles and locations, and terminal reconciliation removes pending intent. Wrong summaries misdirect accessibility use or misstate recovery behavior.
 - A required test-count gate or suite membership changed while documentation still cites an older run as current or final-tree evidence, falsely qualifying the changed suite. Check every such claim against the owning test runner and cited result log; label earlier runs with their historical scope and cite a passing run for the changed suite, or mark that evidence deferred.
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.

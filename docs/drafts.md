@@ -336,6 +336,26 @@ relaunch, a removed or unauthorized sending mailbox, and Product Account isolati
 including an edit started before an account change. They use
 `@private-email/mail-core/testing/drafts`, which follows the native owner and
 revision rules without encryption.
+
+In local measurements, a keystroke in one long paragraph costs about the same as
+in the same body split into paragraphs. A shared regression types, formats and
+reads marks beside a 1,000,000-character run and checks that the untouched run is
+reused rather than rebuilt from per-character objects. In local Node 24 measurements on an Apple-silicon Mac mini, typing
+into the middle of that paragraph took about 0.25 ms per edit (previously about 100 ms, peaking above
+300 ms), formatting and reading the selection's marks under 0.1 ms, and a
+10,000,000-character paragraph about 3.4 ms, the same as split text. Undo history
+still keeps each version of a changed block: three composers each holding 100
+history entries of a 1,000,000-character paragraph retained about 290 MiB of
+JavaScript heap above the starting heap after garbage collection (sampled peak
+growth about 310 MiB, previously over 1.5 GiB). Peak samples were taken after each
+edit, so they can miss transient allocations during an edit. These are Node
+measurements, not Hermes or native evidence. Deferred before release: typing,
+formatting, selection and Undo/Redo with long paragraphs in release Hermes builds
+on iPhone, iPad and the Mac host, including several open composers, with device,
+fixture and largest supported body recorded.
+Also measure peak and retained memory across 100 independent history entries of
+a changed long block with several composers and large admitted documents.
+
 The mobile and Mac component journeys create a Draft, enter recipients, format and
 undo, autosave, finish or refuse unfinished recipient text on Close, reopen the
 Draft after a remount, keep a Draft open while saving fails,

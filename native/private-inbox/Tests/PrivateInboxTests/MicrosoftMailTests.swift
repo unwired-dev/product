@@ -95,6 +95,7 @@ extension PrivateInboxTests {
       try? keys.remove("registration")
       try? keys.remove("product-sync." + account)
       try? keys.remove("product-sync-enrollment." + account)
+      try? keys.remove("product-sync-device-key." + account)
     }
     let google = SyntheticGoogleRegistrationProvider()
     google.scopes = [RegistrationStore.gmailScope]

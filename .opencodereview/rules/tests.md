@@ -110,6 +110,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - An absence check ("nothing happened") that passes because it did not wait long enough.
 - State shared between tests: a module-level store, a reused database, a global mock or environment variable not restored, a Keychain service or Simulator not owned by the run.
 - Dependence on the network, the wall clock, locale, time zone or test order.
+- A required regression test, such as the long-block editor guard in
+  `packages/mail-core/test/drafts.test.ts`, deciding pass/fail from elapsed
+  wall-clock samples. Relative ratios, fastest samples and sequential comparison
+  phases still admit scheduling, JIT and GC noise, so the test can fail or pass
+  independently of the regression. Guard the named risk with deterministic
+  structure, identity or instrumented work/allocation counts that fail without
+  the fix; keep wall-clock performance measurements in benchmarks or explicit
+  runtime qualification, labelled separately from functional suite evidence.
 - An Effect-returning API tested by calling `Effect.runPromise` by hand rather than `@effect/vitest` (`it.effect`, `layer`) with controlled layers.
 
 #### Evidence is labelled honestly

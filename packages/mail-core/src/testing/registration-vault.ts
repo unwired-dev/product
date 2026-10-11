@@ -800,6 +800,8 @@ export function createSyntheticVault(
     approveEnrollment: () => reject('enrollment-unavailable'),
     declineEnrollment: () => reject('enrollment-unavailable'),
     revokeTrustedDevice: () => reject('unavailable'),
+    confirmRevocation: () => reject('unavailable'),
+    cancelRevocation: () => reject('unavailable'),
   };
   return { vault, device, google, microsoft, apple, backend };
 }

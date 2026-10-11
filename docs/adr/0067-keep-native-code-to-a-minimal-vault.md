@@ -110,6 +110,13 @@ credentials stays exactly where [ADR 0001](0001-end-to-end-encrypted-product-syn
 
 ## Consequences
 
+- [ADR 0070](0070-seal-key-rotations-to-each-remaining-trusted-device.md#staged-native-coordination-exception)
+  records the narrow #753 exception for extending existing rotation coordination
+  and its native synthetic backend through the respective #757 and #758
+  migrations. Registration sequencing and recent-sign-in renewal moved to
+  TypeScript in #756. The exception does not change permanent flow ownership or
+  credential/key custody.
+
 - Splitting a flow across the bridge creates new failure points, for example the
   app being killed between storing a key and acknowledging it. Vault operations
   must store before they return, TypeScript acknowledges only after they succeed,

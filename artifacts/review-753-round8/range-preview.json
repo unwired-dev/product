@@ -1,0 +1,430 @@
+{
+  "schema_version": "1",
+  "mode": "range",
+  "repository": "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261010-1731",
+  "from": "8e6c31ad",
+  "to": "c6de0cde",
+  "merge_base": "7aba4677e556f922921e3f52a89e4b6e2ae5b8dc",
+  "total_files": 69,
+  "reviewable_count": 69,
+  "excluded_count": 0,
+  "total_insertions": 6034,
+  "total_deletions": 2995,
+  "reviewable_files": [
+    {
+      "path": ".changeset/753-seal-rotations-to-devices.md",
+      "status": "added",
+      "insertions": 16,
+      "deletions": 0
+    },
+    {
+      "path": ".opencodereview/rules/convex.md",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 1
+    },
+    {
+      "path": ".opencodereview/rules/hosts.md",
+      "status": "modified",
+      "insertions": 11,
+      "deletions": 0
+    },
+    {
+      "path": ".opencodereview/rules/mail-core.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0
+    },
+    {
+      "path": ".opencodereview/rules/native.md",
+      "status": "modified",
+      "insertions": 42,
+      "deletions": 4
+    },
+    {
+      "path": "apps/macos/native-tests/WindowTests.swift",
+      "status": "modified",
+      "insertions": 21,
+      "deletions": 11
+    },
+    {
+      "path": "apps/macos/src/registration-gate.tsx",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 124
+    },
+    {
+      "path": "apps/macos/src/registration-styles.ts",
+      "status": "added",
+      "insertions": 35,
+      "deletions": 0
+    },
+    {
+      "path": "apps/macos/src/registration.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "apps/macos/src/trusted-devices.tsx",
+      "status": "added",
+      "insertions": 194,
+      "deletions": 0
+    },
+    {
+      "path": "apps/macos/test/registration.test.tsx",
+      "status": "modified",
+      "insertions": 314,
+      "deletions": 37
+    },
+    {
+      "path": "apps/macos/test/windows.test.tsx",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 0
+    },
+    {
+      "path": "apps/mobile/native-tests/InboxTests.swift",
+      "status": "modified",
+      "insertions": 22,
+      "deletions": 12
+    },
+    {
+      "path": "apps/mobile/src/registration-gate.tsx",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 124
+    },
+    {
+      "path": "apps/mobile/src/registration-styles.ts",
+      "status": "added",
+      "insertions": 35,
+      "deletions": 0
+    },
+    {
+      "path": "apps/mobile/src/registration.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "apps/mobile/src/trusted-devices.tsx",
+      "status": "added",
+      "insertions": 193,
+      "deletions": 0
+    },
+    {
+      "path": "apps/mobile/test/inbox.test.tsx",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "apps/mobile/test/registration.test.tsx",
+      "status": "modified",
+      "insertions": 314,
+      "deletions": 37
+    },
+    {
+      "path": "docs/adr/0001-end-to-end-encrypted-product-sync.md",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0020-revoke-devices-with-sync-key-rotation.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0066-admit-devices-only-through-authorized-enrollment.md",
+      "status": "modified",
+      "insertions": 11,
+      "deletions": 1
+    },
+    {
+      "path": "docs/adr/0067-keep-native-code-to-a-minimal-vault.md",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md",
+      "status": "added",
+      "insertions": 211,
+      "deletions": 0
+    },
+    {
+      "path": "docs/adr/README.md",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 0
+    },
+    {
+      "path": "docs/architecture/README.md",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 1
+    },
+    {
+      "path": "docs/architecture/account-removal.md",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 3
+    },
+    {
+      "path": "docs/architecture/private-product-sync.md",
+      "status": "modified",
+      "insertions": 105,
+      "deletions": 70
+    },
+    {
+      "path": "docs/mock-mail-sessions.md",
+      "status": "modified",
+      "insertions": 13,
+      "deletions": 3
+    },
+    {
+      "path": "docs/private-product-sync.md",
+      "status": "modified",
+      "insertions": 99,
+      "deletions": 40
+    },
+    {
+      "path": "docs/product/identity.md",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 4
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/AccountRemoval.swift",
+      "status": "modified",
+      "insertions": 7,
+      "deletions": 17
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/DeviceRevocation.swift",
+      "status": "modified",
+      "insertions": 248,
+      "deletions": 59
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/DraftSync.swift",
+      "status": "modified",
+      "insertions": 8,
+      "deletions": 0
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/ProductSync.swift",
+      "status": "modified",
+      "insertions": 179,
+      "deletions": 45
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/ProductSyncKeys.swift",
+      "status": "modified",
+      "insertions": 52,
+      "deletions": 20
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/ProductSyncRecovery.swift",
+      "status": "modified",
+      "insertions": 11,
+      "deletions": 1
+    },
+    {
+      "path": "native/private-inbox/Sources/PrivateInbox/RegistrationStore.swift",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 2
+    },
+    {
+      "path": "native/private-inbox/Tests/PrivateInboxTests/ProductSyncTests.swift",
+      "status": "modified",
+      "insertions": 1142,
+      "deletions": 187
+    },
+    {
+      "path": "native/private-inbox/Tests/PrivateInboxTests/RegistrationFlowSupport.swift",
+      "status": "modified",
+      "insertions": 25,
+      "deletions": 0
+    },
+    {
+      "path": "native/private-inbox/bridge/SyntheticRegistration.swift",
+      "status": "modified",
+      "insertions": 98,
+      "deletions": 50
+    },
+    {
+      "path": "native/private-inbox/bridge/UnwiredRegistration.swift",
+      "status": "modified",
+      "insertions": 98,
+      "deletions": 28
+    },
+    {
+      "path": "native/private-inbox/bridge/UnwiredRegistrationBridge.m",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "native/private-inbox/integration/test.zsh",
+      "status": "modified",
+      "insertions": 1,
+      "deletions": 1
+    },
+    {
+      "path": "packages/contracts/src/productAccount.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "packages/contracts/src/productSync.ts",
+      "status": "modified",
+      "insertions": 26,
+      "deletions": 0
+    },
+    {
+      "path": "packages/convex/convex/http.ts",
+      "status": "modified",
+      "insertions": 34,
+      "deletions": 1
+    },
+    {
+      "path": "packages/convex/convex/productAccount.ts",
+      "status": "modified",
+      "insertions": 321,
+      "deletions": 330
+    },
+    {
+      "path": "packages/convex/convex/productAccountAuth.ts",
+      "status": "modified",
+      "insertions": 51,
+      "deletions": 13
+    },
+    {
+      "path": "packages/convex/convex/productAccountDeletionData.ts",
+      "status": "modified",
+      "insertions": 24,
+      "deletions": 0
+    },
+    {
+      "path": "packages/convex/convex/productSync.ts",
+      "status": "modified",
+      "insertions": 84,
+      "deletions": 8
+    },
+    {
+      "path": "packages/convex/convex/productSyncEnrollment.ts",
+      "status": "modified",
+      "insertions": 63,
+      "deletions": 68
+    },
+    {
+      "path": "packages/convex/convex/schema.ts",
+      "status": "modified",
+      "insertions": 35,
+      "deletions": 12
+    },
+    {
+      "path": "packages/convex/test/devices.ts",
+      "status": "modified",
+      "insertions": 108,
+      "deletions": 2
+    },
+    {
+      "path": "packages/convex/test/productAccount.test.ts",
+      "status": "modified",
+      "insertions": 845,
+      "deletions": 1369
+    },
+    {
+      "path": "packages/convex/test/productSync.test.ts",
+      "status": "modified",
+      "insertions": 141,
+      "deletions": 5
+    },
+    {
+      "path": "packages/convex/test/productSyncEnrollment.test.ts",
+      "status": "modified",
+      "insertions": 204,
+      "deletions": 135
+    },
+    {
+      "path": "packages/convex/test/scheduledSend.test.ts",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 1
+    },
+    {
+      "path": "packages/localization/catalogs.bundle/en.json",
+      "status": "modified",
+      "insertions": 10,
+      "deletions": 3
+    },
+    {
+      "path": "packages/mail-core/src/registration-flow.ts",
+      "status": "modified",
+      "insertions": 47,
+      "deletions": 80
+    },
+    {
+      "path": "packages/mail-core/src/registration-rejection.ts",
+      "status": "added",
+      "insertions": 60,
+      "deletions": 0
+    },
+    {
+      "path": "packages/mail-core/src/registration-vault.ts",
+      "status": "modified",
+      "insertions": 6,
+      "deletions": 1
+    },
+    {
+      "path": "packages/mail-core/src/registration.ts",
+      "status": "modified",
+      "insertions": 72,
+      "deletions": 7
+    },
+    {
+      "path": "packages/mail-core/src/testing/registration-session.ts",
+      "status": "modified",
+      "insertions": 101,
+      "deletions": 7
+    },
+    {
+      "path": "packages/mail-core/src/testing/registration-vault.ts",
+      "status": "modified",
+      "insertions": 2,
+      "deletions": 0
+    },
+    {
+      "path": "packages/mail-core/test/mailboxes.test.ts",
+      "status": "modified",
+      "insertions": 4,
+      "deletions": 0
+    },
+    {
+      "path": "packages/mail-core/test/registration-flow-fixture.ts",
+      "status": "added",
+      "insertions": 41,
+      "deletions": 0
+    },
+    {
+      "path": "packages/mail-core/test/registration-flow.test.ts",
+      "status": "modified",
+      "insertions": 38,
+      "deletions": 31
+    },
+    {
+      "path": "packages/mail-core/test/registration.test.ts",
+      "status": "modified",
+      "insertions": 137,
+      "deletions": 40
+    }
+  ],
+  "excluded_files": []
+}

@@ -47,8 +47,8 @@ final class WindowTests: XCTestCase {
     key(groups: 14, in: window)
   }
 
-  // This device created the keys; removing the account's iPad rotates them and replaces the
-  // Recovery Key, which is confirmed like the first one.
+  // This device created the keys; removing the account's iPad first proposes a replacement
+  // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication, first: XCUIElement) {
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
@@ -57,20 +57,30 @@ final class WindowTests: XCTestCase {
     initialEntry.click()
     initialEntry.typeText(String(presented.suffix(4)))
     first.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(first.buttons["Remove iPad"].waitForExistence(timeout: 15))
-    first.buttons["Remove iPad"].click()
-    XCTAssertTrue(text("cannot be erased remotely", in: first).waitForExistence(timeout: 15))
-    first.buttons["Remove iPad"].click()
-    XCTAssertTrue(text("The device was removed.", in: first).waitForExistence(timeout: 15))
-    XCTAssertFalse(first.buttons["Remove iPad"].exists)
+    // Private sync is ready, so the only selectable key is the proposed replacement.
+    func prepare() {
+      XCTAssertTrue(first.buttons["Remove iPad"].waitForExistence(timeout: 15))
+      first.buttons["Remove iPad"].click()
+      XCTAssertTrue(text("cannot be erased remotely", in: first).waitForExistence(timeout: 15))
+      first.buttons["Remove iPad"].click()
+      XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    }
+    prepare()
+    // Cancelling the prepared removal keeps the device.
+    first.buttons["Cancel"].click()
+    XCTAssertTrue(recoveryKey(in: first).waitForNonExistence(timeout: 15))
+    prepare()
     let replaced = recoveryKey(in: first).value as? String ?? ""
     XCTAssertEqual(replaced.count, 64)
     XCTAssertNotEqual(replaced, presented)
-    let entry = first.textFields["Last four characters"]
+    let entry = first.textFields["Last four characters of the new Recovery Key"]
     entry.click()
     entry.typeText(String(replaced.suffix(4)))
-    first.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    first.buttons["Remove iPad"].click()
+    XCTAssertTrue(text("The device was removed.", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(first.buttons["Remove iPad"].exists)
+    XCTAssertFalse(recoveryKey(in: first).exists)
+    XCTAssertTrue(text("Private sync is on", in: first).exists)
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
