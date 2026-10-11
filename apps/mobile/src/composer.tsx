@@ -33,6 +33,7 @@ import {
   isEmptyDraft,
   recipientLabel,
   draftSummary,
+  profileOf,
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
@@ -407,7 +408,10 @@ export function DraftList({
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
-  const senders = sendingMailboxes(account.mailboxes);
+  const senders = sendingMailboxes(
+    account.mailboxes,
+    profileOf(scope, account.mailboxes),
+  );
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
   // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
@@ -504,7 +508,11 @@ function SendingMailbox({
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
-  const senders = sendingMailboxes(mailboxes);
+  // Only the Draft's own Mail Profile can send it.
+  const senders = sendingMailboxes(
+    mailboxes,
+    profileOf(draft.connection, mailboxes),
+  );
   const from = clip(draft.from);
   return (
     <View style={styles.field}>

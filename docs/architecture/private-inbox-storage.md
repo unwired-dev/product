@@ -53,6 +53,43 @@ The [caller inventory and release evidence requirements](../private-inbox-storag
 remain implementer-readable. Multiple-Profile creation stays unavailable through
 #645 and #646; #647 owns synchronized assignments and incompatible-client fencing.
 
+## Drafts, delivery and notifications staging
+
+Issue #646 scopes shared TypeScript services to the decoded connection Profile:
+`sendingMailboxes` requires an explicit Profile; Draft creation validates the
+current sender; sender changes and received-attachment imports stay within the
+stored Draft's connection Profile; attachment-to-Draft navigation selects only
+the reader's Profile; and Reply All excludes only that Profile's own identities.
+Both hosts consume these shared boundaries for New Message, From choices and
+reader actions. Tests use a synthetic second Profile; production still projects
+every connection into the Default Profile.
+
+Draft records and windows do not persist a Profile. `profileOf` therefore resolves
+the current connection assignment and falls back to `defaultProfile` for an
+unlisted connection or unified Inbox. This is a staged Default Profile boundary,
+not proof of isolation during synchronized connection transfer or multi-Profile
+window restoration. Those ownership and lifetime fences belong to #647 before
+another Profile can be created.
+
+Existing encrypted Drafts/assets, Product Sync identifiers, exact Outbox payloads,
+originating Delivery Owners, pending claims and account cleanup retain their
+current representation and lifecycle. Convex `draftDelivery.ts`, `scheduledSend.ts`,
+`pushRelay.ts` and `apns.ts`, and native `PushRoutes.swift` and `DraftSync.swift`,
+continue using the Product Account namespace, which is the Default Profile's
+Profile Record Scope. Push wakes remain content-free and synchronization remains
+account-wide, including inactive Profiles once they exist. Recipient suggestions
+and user-visible notifications are not implemented in the replacement yet.
+
+The implementation decision panel (`claude-fable-5-1`, `gpt-6.1-sol`,
+`gpt-6-astra`) chose this TypeScript-only batch over threading an always-default
+Profile argument through backend and native APIs, 3–0. Without persisted ownership,
+that argument would add migration surface without proving routing isolation;
+it would also overlap the native registration migration in PR #866. This follows
+#644's staged projection decision. #647 must synchronize assignments and route
+the explicitly retained backend/native caller inventory by Profile Record Scope.
+The operational [Mail Profiles checklist](../private-inbox-storage.md#mail-profiles)
+retains that prerequisite and the required real-provider/native release evidence.
+
 ## Gmail mailbox cache
 
 Issue #604 added a separate encrypted `mailbox.enc` document; #606 gives each

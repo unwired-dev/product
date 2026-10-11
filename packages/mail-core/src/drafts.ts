@@ -60,7 +60,7 @@ import {
   readRecords,
 } from './draft-sync.ts';
 import { withoutComments } from './message-body.ts';
-import { canOpenInbox, mailboxesOf } from './registration.ts';
+import { canOpenInbox, defaultProfile, mailboxesOf } from './registration.ts';
 import {
   emptyDocument,
   clip,
@@ -327,9 +327,25 @@ export const threadOf = ({ connection, response }: Draft) =>
     ? response.thread.id
     : undefined;
 
-// The connections a Draft may send from: every one whose Gmail access is usable on this device.
-export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
-  mailboxes.filter(({ state }) => state !== 'authorization');
+// The Mail Profile owning `connection`, and so every Draft and Outbox entry sending from it.
+// shortcut: Draft records and the unified Inbox carry no Profile, so no connection, or one no
+// longer listed on this device, falls back to the Default Profile, the only one that exists;
+// #647 synchronizes Profile assignment and Mail Profile Windows.
+export const profileOf = (
+  connection: string | undefined,
+  mailboxes: ReadonlyArray<Pick<MailboxConnection, 'id' | 'profile'>>,
+) => mailboxes.find(({ id }) => id === connection)?.profile ?? defaultProfile;
+
+// The connections a Draft in `profile` may send from: that Mail Profile's connections whose Gmail
+// access is usable on this device. A Draft never sends from another Profile's connection.
+export const sendingMailboxes = (
+  mailboxes: readonly MailboxConnection[],
+  profile: string,
+) =>
+  mailboxes.filter(
+    (mailbox) =>
+      mailbox.profile === profile && mailbox.state !== 'authorization',
+  );
 
 // Files and images ------------------------------------------------------------------------------
 
@@ -1766,15 +1782,40 @@ export function createDrafts(
     return outcome;
   };
 
+  // Whether `next` sends from another Mail Profile than the stored Draft.
+  const leavesProfile = (stored: Draft | undefined, next: Draft) => {
+    if (stored === undefined || stored.connection === next.connection) {
+      return false;
+    }
+    const listed = mailboxesOf(registration.getSnapshot().snapshot);
+    return (
+      profileOf(stored.connection, listed) !==
+      profileOf(next.connection, listed)
+    );
+  };
+
   const fill = async (
     draft: string,
     edit: (draft: Draft) => Draft,
     imports: ReadonlyArray<Readonly<{ asset: Asset; source: AssetSource }>>,
   ) => {
     const current = generation;
+    const target =
+      state.kind === 'ready'
+        ? state.drafts.find(({ id }) => id === draft)
+        : undefined;
+    if (target === undefined) {
+      return false;
+    }
+    // A received attachment enters only a Draft in the Mail Profile that received it.
+    const listed = mailboxesOf(registration.getSnapshot().snapshot);
+    const profile = profileOf(target.connection, listed);
     if (
-      state.kind !== 'ready' ||
-      !state.drafts.some(({ id }) => id === draft)
+      imports.some(
+        ({ source }) =>
+          source.kind === 'received' &&
+          profileOf(source.mailbox.connection, listed) !== profile,
+      )
     ) {
       return false;
     }
@@ -2071,8 +2112,10 @@ export function createDrafts(
       }
       // The sender may have been chosen before an earlier composer finished saving; it must still
       // be one this Product Account can send from now.
+      const listed = mailboxesOf(registration.getSnapshot().snapshot);
       const usable = sendingMailboxes(
-        mailboxesOf(registration.getSnapshot().snapshot),
+        listed,
+        profileOf(mailbox.id, listed),
       ).some(
         ({ id, address }) => id === mailbox.id && address === mailbox.address,
       );
@@ -2116,6 +2159,7 @@ export function createDrafts(
     update: (draft: Draft, previous?: Draft, moved?: (id: string) => void) => {
       let copy: string | undefined = undefined;
       return change(
+        // fallow-ignore-next-line complexity -- Each refusal decides against the same stored snapshot.
         (drafts, { now }) => {
           // An editor that changed nothing writes nothing, even where the stored Draft moved on.
           if (previous !== undefined && sameContent(draft, previous)) {
@@ -2123,6 +2167,11 @@ export function createDrafts(
           }
           // Decide against the same snapshot this edit changes, before notifying any editor.
           const current = drafts.find((each) => each.id === draft.id);
+          // A sender change stays within the Draft's Mail Profile, so its recipients and assets
+          // never move into another Profile.
+          if (leavesProfile(current, draft)) {
+            return drafts;
+          }
           // An edit arriving after its Draft was deleted keeps any authored content as a copy.
           if (
             current === undefined &&

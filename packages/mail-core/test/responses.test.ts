@@ -19,6 +19,7 @@ import {
 } from '../src/drafts.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { attachmentLimit } from '../src/message-body.ts';
+import { defaultProfile } from '../src/registration.ts';
 import { respond, startResponse } from '../src/responses.ts';
 import {
   emptyDocument,
@@ -32,8 +33,16 @@ import {
 } from '../src/testing/gmail-mailbox.ts';
 
 // Two Mailbox Connections of one Product Account; mail is received in the second.
-const alex = { id: 'connection-alex', address: 'alex@example.invalid' };
-const work = { id: 'connection-work', address: 'alex.work@example.invalid' };
+const alex = {
+  id: 'connection-alex',
+  address: 'alex@example.invalid',
+  profile: defaultProfile,
+};
+const work = {
+  id: 'connection-work',
+  address: 'alex.work@example.invalid',
+  profile: defaultProfile,
+};
 
 const connected = (
   mailboxes: ReadonlyArray<
@@ -159,13 +168,17 @@ async function reader(
       : undefined,
     'the listed message',
   );
-  const start = (kind: ResponseKind, mailbox = work) =>
+  const start = (
+    kind: ResponseKind,
+    mailbox = work,
+    mailboxes: ReadonlyArray<typeof alex> = [alex, work],
+  ) =>
     startResponse({ navigation, drafts, inbox }, english, {
       kind,
       mailbox,
       message,
       received: 'Sep 1, 2026',
-      mailboxes: [alex, work],
+      mailboxes,
     });
   const draft = (draftId: string | undefined) =>
     present(
@@ -240,6 +253,16 @@ describe('replying to and forwarding a received message', () => {
       { address: 'carol@example.invalid' },
     ]);
     expect(all.response?.kind).toBe('replyAll');
+    // Only the sending Mail Profile's identities leave Reply All: another Profile's address is an
+    // ordinary participant of this conversation.
+    const separate = draft(
+      await start('replyAll', work, [{ ...alex, profile: 'personal' }, work]),
+    );
+    expect(separate.to.map(({ address }) => address)).toStrictEqual([
+      'maya.lists@example.invalid',
+      'bob@example.invalid',
+      'alex@example.invalid',
+    ]);
 
     // Editing keeps the response apart from the authored body, through a save and a reopen.
     await drafts.update(
