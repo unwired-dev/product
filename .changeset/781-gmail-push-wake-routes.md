@@ -16,4 +16,5 @@ window, and resumes when that coverage is lost.
 
 Register a newly received or rotated APNs token as soon as it arrives after
 restoring the account. Token changes cannot restart watches during sign-out or
-deletion, and a rejected device or deleted account clears its local access.
+deletion, and a rejected device or deleted account clears its local access. The
+next registration operation closes the account view with its removal notice.

@@ -199,10 +199,9 @@ extension RegistrationStore {
     guard !pushRoutingPaused, (try load())?.accountRemoval == nil else { return }
     do {
       try await routeMailboxes(device: device, topic: topic, now: now)
-    } catch RegistrationError.revoked {
-      try await purge(notice: "revoked")
-    } catch RegistrationError.deleted {
-      try await purge(notice: "deleted")
+    } catch let error as RegistrationError where error.endsAccess {
+      try await purge(notice: error.code)
+      pushRegistrationFailure = error
     }
   }
 

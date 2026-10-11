@@ -185,6 +185,13 @@ extension PrivateInboxTests {
       #expect(store.session == nil)
       #expect(store.verifiedMailboxes.isEmpty)
       #expect(try store.mailboxRoutes(now: 0)["routes"] as? [String: String] == [:])
+      let rejection: RegistrationError =
+        refusal == "TRUSTED_DEVICE_REVOKED" ? .revoked : .deleted
+      // Cleanup must retain the fixed rejection until the shared flow acknowledges its notice.
+      #expect(throws: rejection) { try store.registration() }
+      #expect(throws: rejection) { try store.registration() }
+      try await store.purge(notice: rejection.code)
+      #expect(try store.registration() == nil)
       if refusal == "TRUSTED_DEVICE_REVOKED" {
         relay.refusal = nil
         _ = try await store.signIn()

@@ -858,7 +858,8 @@ account restoration, including when restoration finished before the first token
 arrived. Token changes leave stopped watches stopped during sign-out or deletion;
 a later successful verification can resume them if removal was refused. A
 revoked-device or deleted-account response to token registration clears local
-access through the usual purge.
+access through the usual purge. Its next shared registration operation shows the
+revoked-device or deleted-account notice and closes the retained account view.
 
 APNs hands each background notification to a native queue, which keeps only a
 Gmail hint's route. JavaScript reads one wake at a time, looks its route up

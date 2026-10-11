@@ -329,6 +329,11 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   verified routing resumes. Handle structured revocation/deletion through the same
   local purge before releasing custody. Otherwise a callback recreates a watch
   whose credential teardown discards or retains access after definitive rejection.
+- `RegistrationStore.pushDeviceChanged` purging local custody without handing its
+  fixed revoked/deleted rejection to `registration()` until the shared flow
+  acknowledges it. Successful purge deletes the saved record, so retain only a
+  process-local rejection for that handoff; otherwise the next shared operation
+  loses the removal notice or keeps a stale connected account view.
 
 - `RegistrationStore.watch` or `stopWatch` using a refreshed Gmail credential
   without matching its subject to the connection's saved receipt. Check identity

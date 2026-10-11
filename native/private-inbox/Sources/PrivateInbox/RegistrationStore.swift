@@ -334,6 +334,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var verifiedMailboxes: Set<String> = []
   // Token callbacks must not restart watches between the shared flow's removal steps.
   var pushRoutingPaused = false
+  // A native callback purged custody; the shared flow still needs to present its removal notice.
+  var pushRegistrationFailure: RegistrationError?
   var cacheOnlyMailboxes: Set<String> = []
   // Only the current explicit consent can recreate a tombstone it encounters for the first time.
   var newlyAuthorizedMailboxes: Set<String> = []
@@ -393,6 +395,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
 
   // What TypeScript reads of the saved registration: no credential, token or provider subject.
   func registration() throws -> [String: Any]? {
+    if let pushRegistrationFailure { throw pushRegistrationFailure }
     guard let saved = try load() else { return nil }
     var result: [String: Any] = [
       "signInProvider": saved.provider.rawValue,
@@ -773,6 +776,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     }
     if let failure { throw failure }
     try keys.remove("registration")
+    pushRegistrationFailure = nil
   }
 
   // A Trusted Device's proof, or a Pending Device's for its own admission and removal.

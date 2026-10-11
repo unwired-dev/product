@@ -835,7 +835,12 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   ) =>
     Effect.gen(function* () {
       // An unreadable record skips the check; the operation reports that failure itself.
-      const value = yield* record.pipe(Effect.orElseSucceed(() => null));
+      const value = yield* record.pipe(
+        Effect.catchIf(
+          (error) => !endsAccess.has(error.code),
+          () => Effect.succeed(null),
+        ),
+      );
       if (
         value?.removal !== undefined &&
         (value.removal.acknowledged || value.removal.operation !== removing)

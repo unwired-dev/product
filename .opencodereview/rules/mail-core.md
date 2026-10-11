@@ -55,6 +55,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A log, annotation or error message that carries `cause`, `error.message`, `String(error)`, a payload, an email address, a token or an account, device or message identifier. Any field of a host or provider error can hold mail or account data; log only what `rejectionDiagnostic` and `decodeDiagnostic` in `src/diagnostics.ts` produce.
 - A new native rejection code handled in a store without being added to `nativeCodes` in `src/diagnostics.ts` (it logs as `unrecognized code` and cannot be diagnosed), or that allow-list widened to pass through arbitrary strings.
 - `Effect.catch`/`catchAll`-style recovery that swallows a failure the caller's contract does not permit recovering, or `Effect.orDie` on a failure a user can trigger.
+- `registration-flow.ts.guarded` swallowing revoked/deleted rejections while
+  reading `vault.registration`. A native callback can already have purged the
+  account; let those codes reach the existing purge-and-notice path before the
+  requested operation. Otherwise a later native step fails as unavailable and
+  leaves the shared store showing the removed account.
 
 #### Running programs and shared state
 
