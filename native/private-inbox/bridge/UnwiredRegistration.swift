@@ -540,15 +540,7 @@ final class UnwiredRegistration: NSObject {
   func routeMailboxes(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("routeMailboxes", resolve, reject: reject) { store in
-      // A fully qualified Cloud Pub/Sub topic; without one this build registers no routes.
-      let topic = (Bundle.main.object(forInfoDictionaryKey: "UnwiredGmailTopic") as? String)
-        .flatMap { topic in
-          topic.range(of: Self.topicPattern, options: .regularExpression) == nil ? nil : topic
-        }
-      try await store.routeMailboxes(
-        device: PushWakes.shared.device, topic: topic, now: Date().timeIntervalSince1970 * 1_000)
-    }
+    performStep("routeMailboxes", resolve, reject: reject) { try await Self.route($0) }
   }
   @objc(stopMailboxWatches:rejecter:)
   func stopMailboxWatches(
@@ -619,6 +611,28 @@ final class UnwiredRegistration: NSObject {
 
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  // Routes with this process's APNs registration and the build's Cloud Pub/Sub topic; without a
+  // fully qualified topic this build registers no routes.
+  @MainActor private static func route(_ store: RegistrationStore) async throws {
+    let topic = (Bundle.main.object(forInfoDictionaryKey: "UnwiredGmailTopic") as? String)
+      .flatMap { topic in
+        topic.range(of: topicPattern, options: .regularExpression) == nil ? nil : topic
+      }
+    try await store.routeMailboxes(
+      device: PushWakes.shared.device, topic: topic, now: Date().timeIntervalSince1970 * 1_000)
+  }
+
+  // A token that arrives or rotates after this process routed reaches the relay at once, rather
+  // than at the next verification. Before the store opens, that verification routes with it.
+  @MainActor static func pushDeviceChanged() {
+    guard let store = sharedStore else { return }
+    Task { @MainActor in
+      do { try await operations.perform { try await route(store) } } catch {
+        logger.error("Gmail push rerouting failed")
+      }
+    }
+  }
 
   private static let topicPattern =
     "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$"

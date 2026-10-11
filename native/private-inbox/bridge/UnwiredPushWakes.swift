@@ -4,9 +4,12 @@ import Foundation
 // it needs no generated Swift header.
 @objc(UnwiredPushWakes)
 final class UnwiredPushWakes: NSObject {
-  // Registration with the relay waits for the next verified Inbox, under the device's credential.
+  // A new or rotated token re-registers the routes this device holds under its credential.
   @MainActor @objc static func registerDeviceToken(_ token: Data) {
-    PushWakes.shared.device = PushDevice(token: token)
+    let device = PushDevice(token: token)
+    guard device != PushWakes.shared.device else { return }
+    PushWakes.shared.device = device
+    UnwiredRegistration.pushDeviceChanged()
   }
 
   // `complete` receives "synchronized", "ignored" or "failed" once JavaScript settles the wake.
