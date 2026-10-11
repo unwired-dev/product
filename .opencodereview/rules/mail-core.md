@@ -34,6 +34,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Distinguish an introduced regression from an existing non-text contrast
   limitation under R0; send a fix requiring new component behavior or a change
   to the locked design scope through the workflow's decision panel.
+- A change to `theme.ts.palette.separator` that checks only decorative dividers
+  and overlooks its use as the sole outline of controls in the mobile and Mac
+  hosts. Trace boundary roles to their actual adjacent surfaces and compare each
+  changed pair with the pinned baseline in both modes; a weaker outline can hide
+  a control even when its label still passes text contrast. Preserve the issue's
+  required visibility without treating an existing sub-3:1 boundary as a new
+  regression under R0.
+- Accepting a changed palette pair because its rounded contrast ratio meets a
+  rounded issue threshold when the requirement is to preserve baseline contrast.
+  Calculate the old and new ratios from their actual colors using full precision,
+  compare before rounding, and round only reported values. Check independent
+  numeric floors too; rounding must not turn a lower value into a pass. If a
+  rounded baseline summary conflicts with the locked mapping or baseline
+  requirement, report the discrepancy and use the workflow's decision panel.
 
 #### Untrusted boundaries fail closed
 
