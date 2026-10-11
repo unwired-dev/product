@@ -142,6 +142,7 @@ components:
   sidebar-item-selected:
     backgroundColor: '{colors.accent-selection-subtle}'
     textColor: '{colors.text-primary}'
+    typography: '{typography.macos-body-emphasized}'
     rounded: '{rounded.control}'
     padding: '0 8px'
     height: '28px'
@@ -153,6 +154,7 @@ components:
   category-chip-selected:
     backgroundColor: '{colors.accent-fill}'
     textColor: '{colors.accent-on-fill}'
+    typography: '{typography.macos-body-emphasized}'
     rounded: '14px'
     padding: '0 12px 0 10px'
     height: '28px'
@@ -203,9 +205,10 @@ moments such as Welcome and the Recovery Key.
 
 The palette is called "Graphite & Cinnabar". Graphite keeps selection, buttons
 and links close to Apple's own Graphite accent, so the interface recedes behind
-the mail. Cinnabar is the seal: it marks Mail Assistance output (summaries,
-translation, rewrites) as made on this device, and the one brand action on
-Welcome.
+the mail. Cinnabar is the seal: it marks summaries, incoming translations and
+unaccepted Mail Assistance previews and suggestions as made on this device,
+and the one brand action on Welcome. Accepted assistance becomes ordinary Draft
+content without the marker.
 
 **Key characteristics:**
 
@@ -286,19 +289,31 @@ styles) so the file stays editable.
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt
   narrow window hides the sidebar.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
-  then Favorites, one collapsible section per Mailbox Connection
-  ("Gmail · address"), Saved Searches, and a Settings item pinned to the bottom.
+  then the primary Unified Mailboxes, the secondary Archive, All Mail, Spam and
+  Trash, one collapsible section per Mailbox Connection ("Gmail · address") with
+  its folders and labels, Saved Searches, and Settings pinned to the bottom.
+  Synchronization and authorization problems appear beside the affected Mailbox
+  Connection. The reference mockups show Favorites and per-list banners and do
+  not yet include Archive, All Mail, Spam and Trash.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
   sync status, and a horizontally scrolling Category chip row.
-- **Search bar:** a floating glass bar centered at the bottom of the window. The
-  search field is 400pt wide, with New Message pinned to the trailing edge. On
-  iPhone it spans the screen width. Rows scroll under it behind a 72pt scroll
-  edge fade. It hides while the inline composer is open.
+- **Search bar:** search and New Message share one floating glass bar at the
+  bottom of the window, as the [organization requirements](docs/product/organization.md)
+  specify. The search field is 400pt wide and centered, with New Message pinned
+  to the trailing edge. On iPhone it spans the screen width. Rows scroll under it
+  behind a 72pt scroll edge fade. It hides while the composer is open.
 - **Toolbar:** glass button groups over the reading pane: Archive, Delete, Move;
   Reply, Reply All, Forward; Flag, Snooze.
-- **Compose:** a separate 760×640 window, or an inline composer docked in the
-  bottom 60% of the reading pane height. Order: body, attachments, Subject, To,
-  Cc. The sender is a From pop-up beside Send.
+- **Compose:** follows the
+  [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
+  On regular width it opens as a bottom-anchored, nonmodal overlay inside the
+  reading pane with 12pt outer insets and 70% of the available height, clamped
+  from 420 to 720pt. Expanding it takes over the whole app window with the same
+  Draft; there is no separate Compose window and no freeform resizing. On iPhone
+  the composer is pushed onto the navigation stack. Order: body, attachments,
+  Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
+  field reveals together. The sender is a From pop-up beside Send. The reference
+  mockups still show an earlier separate window and a 60% inline composer.
 - **Settings:** a 900×720 window with a glass sidebar grouped as Accounts, Mail,
   Composing, Automation and Application, and grouped forms on the right.
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
@@ -336,21 +351,30 @@ form accessories, keyboards, status bar).
 
 - **Button:** Primary (graphite), Secondary (quiet fill), Brand (cinnabar, Welcome
   "Continue" only). 28pt tall.
-- **Message Row:** Mail.app-style hierarchy: sender and time, subject, two-line
-  preview. Unread shows a bold sender and an accent dot; selected is the
-  graphite fill with white text. No avatars and no hover actions.
+- **Message Row:** Mail.app-style hierarchy: sender and time, subject, then the
+  preview. The preview is one line by default and follows the person's saved
+  density and zero-to-three-line preview preference; the reference mockups show
+  two lines. Unread shows a stronger sender and subject weight and an accent
+  dot; selected is the graphite fill with white text. No avatars and no hover
+  actions.
 - **Sidebar Item / Sidebar Section Header:** 28pt items with tinted SF Symbols
-  and counts. Section headers collapse with a trailing disclosure chevron; the
-  Settings sidebar turns that off.
+  and counts. A selected item uses the subtle selection fill and an emphasized
+  label, so selection does not rely on the low-contrast fill alone. Section
+  headers collapse with a trailing disclosure chevron; the Settings sidebar
+  turns that off.
 - **Profile Switcher / Profile Menu:** monogram, Mail Profile name and chevron.
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
   a checkmark, then New Mail Profile… and Manage Mail Profiles….
-- **Category Chip:** icon plus label, always both. The selected chip is graphite;
-  others use the quiet fill with an unread dot. System Categories: People,
+- **Category Chip:** icon plus label, always both. The selected chip is graphite
+  with an emphasized label; others use the quiet fill with an unread dot.
+  System Categories: People,
   Orders, Newsletters & Promotions, Invites, Flights.
 - **On Device Marker / Summary Card:** the cinnabar lock with "On device" marks
-  every piece of Mail Assistance output. The Summary card sits at the top of a
-  Thread; while summarizing it shows quiet placeholder lines.
+  Mail Assistance output while it is a summary, an incoming translation, or a
+  preview or suggestion awaiting acceptance. Accepted rewrites, Draft
+  translations and subjects become ordinary Draft content without the marker.
+  The Summary card sits at the top of a Thread; while summarizing it shows quiet
+  placeholder lines.
 - **Banners:** Translation, Remote Content and Authorization Needed use the quiet
   fill and 10pt radius. Actions stack under the message so long localized
   strings stay readable in the 340pt list.
@@ -359,8 +383,9 @@ form accessories, keyboards, status bar).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, lists, link, Rewrite, attach file, attach photo; no glass),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
-  From Pop-up. A suggested subject is Mail Assistance output and carries the On
-  device marker.
+  From Pop-up. A suggested subject carries the On device marker until explicit
+  Use Subject acceptance makes it ordinary Draft content. A subject the person
+  types is ordinary Draft content.
 - **Catch Up:** received bubbles show the avatar, sender, a muted subject, the
   summary or preview (up to three lines), time, unread dot and attachment icon.
   Sent bubbles are right-aligned in the accent fill. Also: the collapsed Category
@@ -377,8 +402,9 @@ form accessories, keyboards, status bar).
 - **Do** use cinnabar only for the On device seal and the Welcome "Continue"
   action. **Don't** use it on routine or destructive actions; it sits too close
   to system red.
-- **Do** mark every summary, translation, rewrite and suggested subject with the
-  On device marker.
+- **Do** mark summaries, incoming translations and unaccepted assistance
+  previews and suggestions with the On device marker. **Don't** keep the marker
+  on accepted Draft content.
 - **Do** pair every Category icon and color with its text label. **Don't**
   communicate meaning by color alone.
 - **Do** design Light and Dark explicitly, and check AA contrast in both.
