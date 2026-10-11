@@ -588,6 +588,24 @@ describe('connecting IMAP mailboxes', () => {
     },
   );
 
+  it('reopens the cache and reads a folder again after another store committed it', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Archived' });
+    const first = createImapInbox(imap.native);
+    await first.load();
+    // Another window's store commits the same connection's cache after this one opened it.
+    const second = createImapInbox(imap.native);
+    await second.load();
+    await first.openFolder('Archive');
+    expect(first.folder('Archive')).toMatchObject({
+      kind: 'ready',
+      status: 'current',
+    });
+    expect(firstMessage(first.folder('Archive')).subject).toBe('Archived');
+  });
+
   it('returns the same folder snapshot on consecutive reads after a reload drops its view', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

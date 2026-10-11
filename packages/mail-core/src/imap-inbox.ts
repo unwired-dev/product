@@ -646,19 +646,29 @@ export function createImapInbox(
       return load();
     }
     showFolder(name, 'syncing');
+    // Another window or process may have committed this cache since it opened; like `load`, the
+    // folder read reopens it and tries once more.
+    const read = Effect.fnUntraced(function* (reopen: boolean) {
+      if (forgotten) {
+        return;
+      }
+      if (reopen || opened === undefined) {
+        yield* open;
+      }
+      yield* synchronizeFolder(name);
+      showFolder(name, 'current');
+    });
     return runLogged(
       semaphore.withPermit(
-        Effect.gen(function* () {
-          if (forgotten) {
-            return;
-          }
-          if (opened === undefined) {
-            yield* open;
-          }
-          yield* synchronizeFolder(name);
-          showFolder(name, 'current');
+        read(false).pipe(
+          Effect.catchIf(
+            (failure) =>
+              failure.kind === 'conflict' || failure.kind === 'invalidated',
+            () => read(true),
+          ),
           // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
-        }).pipe(Effect.catch(folderFailed(name))),
+          Effect.catch(folderFailed(name)),
+        ),
       ),
     );
   };
