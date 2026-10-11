@@ -228,7 +228,8 @@ recognized infrastructure failures or zero-test success receive one fresh-device
 retry. The build and journey jobs each have a 25-minute timeout; the interaction
 step has a separate 18-minute limit for harness compilation, one simulator startup
 and its journey, including the bounded infrastructure retry. The storage job has
-a 20-minute timeout. Superseded pull-request runs are cancelled.
+a 34-minute timeout; its native integration step has a 26-minute limit, including
+the bounded infrastructure retry and cleanup. Superseded pull-request runs are cancelled.
 Logs and XCTest result bundles, including screenshots, run ownership, simulator
 IDs and exit results, are uploaded with seven-day retention, including on failure,
 as `expo-native-e2e-<device>-<run id>-<attempt>`,

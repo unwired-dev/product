@@ -45,7 +45,7 @@ jobs:
     name: Expo native storage checks
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 34
     defaults:
       run:
         shell: zsh -e -o pipefail {0}
@@ -78,8 +78,9 @@ jobs:
       - name: Verify native language matching and preferences
         run: node --test native/localization/test/native.test.mjs
       - name: Verify native encryption and credential removal
-        # Simulator boot and the probe build vary from 5 to over 8 minutes on hosted runners.
-        timeout-minutes: 14
+        # Simulator boot and the probe build, which compiles SwiftMail and its NIO packages, take
+        # from 5 to over 14 minutes on hosted runners.
+        timeout-minutes: 26
         run: zsh native/private-inbox/integration/test.zsh ios
       - name: Verify ordinary native project generation with cleared scenario
         run: |
