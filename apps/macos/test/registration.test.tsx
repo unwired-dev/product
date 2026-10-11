@@ -454,6 +454,8 @@ describe('product registration', () => {
         name: 'Unread. Rowan Hale. Garden plans',
       }),
     ).resolves.toBeVisible();
+    expect(screen.getByText('Encrypted on this device')).toBeVisible();
+    expect(screen.queryByText('Gmail · Encrypted on this device')).toBeNull();
   });
 
   it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {

@@ -38,7 +38,9 @@ import Testing
   }
 }
 
-@MainActor private func pushDevice(sync: SyntheticProductSyncBackend? = nil) -> (
+@MainActor private func pushDevice(
+  sync: SyntheticProductSyncBackend? = nil, microsoft: (any MicrosoftMailProvider)? = nil
+) -> (
   RegistrationStore, SyntheticGoogleRegistrationProvider, SyntheticRelay, DeviceKeychain
 ) {
   let keys = DeviceKeychain(service: "dev.unwired.push.tests.\(UUID().uuidString)")
@@ -47,7 +49,8 @@ import Testing
   let relay = SyntheticRelay()
   let store = RegistrationStore(
     keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-    provider: google, productSync: sync?.backend, transport: { try relay.send($0) },
+    provider: google, microsoft: microsoft, productSync: sync?.backend,
+    transport: { try relay.send($0) },
     connect: { identity, installation, _ in
       if let sync { return try sync.connect("account-" + identity.subject, device: installation) }
       return ProductRegistrationReceipt(
@@ -202,7 +205,9 @@ extension PrivateInboxTests {
   }
 
   @Test @MainActor func removingAMailboxStopsItsWatchRemovesItsRouteAndDropsItsWakes() async throws {
-    let (store, google, relay, keys) = pushDevice()
+    let microsoft = SyntheticMicrosoftMailProvider()
+    microsoft.subject = subject
+    let (store, google, relay, keys) = pushDevice(microsoft: microsoft)
     defer { try? keys.remove("registration") }
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
@@ -211,11 +216,26 @@ extension PrivateInboxTests {
     google.gmailResponse = watch(historyId: "1", expiration: 1_000_000_000)
     try await store.routeMailboxes(device: device, topic: topic, now: 0)
     var results: [String] = []
-    store.wakes.receive(["provider": "gmail", "routeId": route]) { results.append($0) }
     relay.requests = []
     google.gmailRequests = []
 
+    // Another provider can use the same subject; removing it must preserve Gmail's watch and route.
+    _ = try await store.signInMailbox(nil, suggest: true, provider: .microsoftGraph)
+    let verified = try await store.verifyMailbox()
+    let microsoftId = try #require(verified["connection"] as? String)
+    try store.storeMailbox()
+    let refreshes = google.refreshes
+    _ = try await store.flowRemoveMailbox(microsoftId)
+    #expect(google.refreshes == refreshes)
+    #expect(google.gmailRequests.isEmpty)
+    #expect(relay.requests.isEmpty)
+    #expect(try store.saved().connection(microsoftId) == nil)
+    #expect(try store.saved().connection(id)?.pushVerified == true)
+    #expect(try store.saved().pushDevice == device)
+    #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == true)
+
     // Its last route ends this device's wakes; a waiting wake for it reads nothing.
+    store.wakes.receive(["provider": "gmail", "routeId": route]) { results.append($0) }
     google.gmailResponse = (204, Data())
     _ = try await store.flowRemoveMailbox(id)
     #expect(results == ["ignored"])

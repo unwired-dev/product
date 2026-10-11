@@ -316,6 +316,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Gmail push lifecycle
 
+- `RegistrationStore.unroute`, watch routing or stopping dispatching by subject
+  alone instead of the connection's provider. Microsoft removals must not call
+  Gmail watch or relay cleanup, even when synthetic provider subjects coincide;
+  otherwise cleanup reaches the wrong provider or records unrelated relay work.
+- `GraphMailProvider.verified` or `exchange` reducing unsent or interrupted
+  transport failures to an authorization refusal. Preserve the retryable offline
+  code consumed by `registration-flow.ts.mailboxStatus`, while keeping definite
+  rejected grants distinct; otherwise a transient outage closes saved mail and
+  asks for consent that cannot repair connectivity. Exercise the production
+  transport's fixed rejection code alongside the shared restore journey.
+
 - `UnwiredPushWakes.registerDeviceToken` retaining a new or rotated APNs token only
   in memory after routing already ran. Queue authenticated registration under
   `RegistrationOperationGate` when the token arrives, including first-launch

@@ -899,7 +899,7 @@ export function Inbox({
         />
         <LanguageSelector />
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          {gmail ? t('inbox.footerGmail') : t('inbox.footer')}
+          {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
         </Text>
       </View>
     </View>

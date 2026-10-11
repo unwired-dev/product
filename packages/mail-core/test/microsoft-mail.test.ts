@@ -100,8 +100,67 @@ const reads = (graph: ReturnType<typeof createSyntheticGraph>) =>
     return url.pathname.includes('/delta') ? 'delta' : 'message';
   });
 
+const repeatingDelta = (
+  graph: ReturnType<typeof createSyntheticGraph>,
+  state: { pages: number; repeated: boolean; requested: string[] },
+  link: string,
+) =>
+  interceptGraph(graph, (url) => {
+    if (!url.includes('/delta')) {
+      return undefined;
+    }
+    state.requested.push(url);
+    if (!state.repeated) {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          value: [],
+          '@odata.deltaLink': link.replace(
+            '$skiptoken=repeated',
+            '$deltatoken=done',
+          ),
+        }),
+      };
+    }
+    state.pages += 1;
+    // A final refusal makes the unfenced implementation settle rather than hang this regression.
+    return state.pages > 200
+      ? { status: 503, body: '{}' }
+      : {
+          status: 200,
+          body: JSON.stringify({ value: [], '@odata.nextLink': link }),
+        };
+  });
+
 describe('reading Microsoft mail through Graph', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one synchronization path end to end. */
+  it('bounds repeated delta continuation pages and resumes the saved checkpoint on retry', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    const link =
+      'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=repeated';
+    const requested: string[] = [];
+    const state = { pages: 0, repeated: true, requested };
+    const native = repeatingDelta(graph, state, link);
+    const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+    await inbox.load();
+    expect(state.pages).toBeLessThanOrEqual(200);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'retry',
+      messages: [{ subject: 'Synthetic message 0' }],
+    });
+    expect(graph.commits.at(-1)).toContain(link);
+    const completed = state.requested.length;
+    state.repeated = false;
+    const resumed = createGmailInbox(native, { provider: 'microsoft-graph' });
+    await resumed.load();
+    expect(state.requested[completed]).toBe(link);
+    expect(ready(resumed.getSnapshot())).toMatchObject({
+      sync: 'current',
+      messages: [{ subject: 'Synthetic message 0' }],
+    });
+  });
+
   it('lists the Inbox, completes its delta round and applies later changes after relaunch', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 4, pageSize: 2 });

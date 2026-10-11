@@ -25,7 +25,7 @@ or recovering device receives only the key ring.
   row metadata is not authenticated. Records with an unexpected schema are rejected.
 - **Record identifiers.** `mailbox.` followed by a truncated HMAC-SHA-256 of the
   provider-scoped subject (`microsoft-graph:<Graph subject>` for Microsoft,
-  unchanged Google subject for Gmail). The HMAC key is derived from the first epoch key. Identifiers
+  `gmail:<Google subject>` for Gmail, unchanged from existing records). The HMAC key is derived from the first epoch key. Identifiers
   are stable across devices and epochs. They reveal no address or subject, and
   they differ between Product Accounts.
 - **Recovery envelope.** The key ring encrypted with a key derived by HKDF from the

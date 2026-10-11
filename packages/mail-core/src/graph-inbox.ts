@@ -324,10 +324,22 @@ export function createGraphReader(
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
-  ) =>
-    document !== undefined && quiet.has(document)
-      ? Effect.succeedNone
-      : advanceRound(scope, document);
+    step: number,
+  ) => {
+    if (document !== undefined && quiet.has(document)) {
+      return Effect.succeedNone;
+    }
+    if (step >= 200) {
+      return Effect.fail(
+        new SyncFailure({
+          kind: 'retry',
+          cause: 'delta',
+          diagnostic: 'delta page limit',
+        }),
+      );
+    }
+    return advanceRound(scope, document);
+  };
 
   return { advance, partData, fullMessage } as const;
 }

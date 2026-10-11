@@ -235,6 +235,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `graph-inbox.ts.quietRound` or another incremental reader discarding a fresh
+  final checkpoint because its page contains no changes. Persist every new
+  provider checkpoint, end the current pass after that commit and use it on the
+  next synchronization, including after relaunch and storage conflict recovery.
+  Otherwise a quiet mailbox keeps consuming an ageing token until it expires.
+- `graph-inbox.ts.advance` following delta continuations without a per-pass
+  bound. Count empty and repeated pages too, retain the last durable checkpoint
+  and release synchronization with retry state at the bound; a later pass must
+  resume it. Otherwise a repeated continuation holds the Inbox semaphore forever.
+
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

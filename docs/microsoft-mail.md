@@ -44,7 +44,8 @@ new or changed messages, read state and messages that left the Inbox, and saves
 the newest delta link Graph returns even when nothing changed. An
 interrupted delta round resumes after relaunch. Losing a message from a full cache
 admits the next older one. Expired delta state restarts synchronization while
-saved mail stays visible; repeated expiry offers retry. This slice does not claim
+saved mail stays visible; repeated expiry offers retry. A long or repeated delta
+continuation pauses with its saved progress available for the next retry. This slice does not claim
 complete historical metadata backfill.
 
 Opening a message reads its decoded HTML or text body, reply headers and paginated
@@ -94,6 +95,7 @@ read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository
 
 Shared tests drive the Microsoft Inbox through a controlled Graph mailbox: the
 first list and delta round, later changes after relaunch, partial and repeated delta identities, an expired delta link,
+bounded delta continuation work with saved progress for retry,
 refilling a full cache, an HTML body with an inline image, an attachment download
 by its decoded size, hidden/unreferenced images, optional image and attachment-metadata failures with
 retry after relaunch, a refused grant, and a unified Inbox where only Gmail searches

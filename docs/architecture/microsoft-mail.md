@@ -70,6 +70,9 @@ connection's encrypted document. Its final delta link is retained after relistin
 to cover changes during initialization. Later rounds preserve that checkpoint
 and restart boundedly on expired delta state. This is the bounded whole-document
 cache already used by Gmail, not complete indexed Historical Metadata Backfill.
+Each synchronization admits at most 200 Graph advancement steps, including empty
+or repeated delta continuations. The last admitted checkpoint remains durable for
+retry; a quiet round's final-link commit ends the pass without another request.
 
 [Graph delta](https://learn.microsoft.com/en-us/graph/delta-query-overview)
 can repeat identities, omit unchanged properties and supply removals in no

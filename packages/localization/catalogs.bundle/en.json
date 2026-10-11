@@ -12,7 +12,7 @@
     "gmail": "Gmail",
     "allInboxes": "All inboxes",
     "account": "Account",
-    "footerGmail": "Gmail · Encrypted on this device",
+    "footerConnected": "Encrypted on this device",
     "inMailbox": "In {{mailbox}}",
     "about": "{{address}}: {{text}}",
     "rowLabel": "{{row}}",

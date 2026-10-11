@@ -288,7 +288,7 @@ extension RegistrationStore {
   // removes its route. A route the relay could not remove is kept to retry without the credential.
   @discardableResult func unroute(_ id: String, deferRemoval: Bool = false) async throws -> String? {
     guard transport != nil, let saved = try load(), let product = saved.product,
-      let connection = saved.connection(id)
+      let connection = saved.connection(id), connection.receipt.mailProvider == .gmail
     else { return nil }
     if let route = connection.pushRoute { wakes.drop([route]) }
     try await attempt { try await self.stopWatch(connection, product) }

@@ -1159,9 +1159,10 @@ export function createGmailInbox(
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
+    step: number,
   ) => {
     if (graph !== undefined) {
-      return graph.advance(scope, document);
+      return graph.advance(scope, document, step);
     }
     if (document === undefined) {
       return startListing(scope, undefined, []).pipe(Effect.asSome);
@@ -3389,11 +3390,11 @@ export function createGmailInbox(
     }
     yield* ready(cache, document, 'syncing');
     let restarts = 0;
-    for (;;) {
+    for (let step = 0; ; step += 1) {
       if (document !== undefined) {
         ({ cache, document } = yield* sendPending(cache, document));
       }
-      const next = yield* advance(cache, document);
+      const next = yield* advance(cache, document, step);
       if (Option.isNone(next)) {
         break;
       }
