@@ -279,7 +279,8 @@ styles) so the file stays editable.
   timestamps and section headers; Title 3 Emphasized 15/20 for list and page
   titles.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
-  long-form reading) and Reading Subject 20/25 bold for the Thread subject.
+  long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
+  reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
 - **iOS:** Large Title 34/41 bold, Headline 17/22 semibold, Body 17/22,
   Subheadline 15/20 for bubble text, Footnote 13/18 for subjects and times.
 - UI emphasis comes from weight, not size. Never set long UI text in bold.
@@ -323,6 +324,8 @@ styles) so the file stays editable.
   then every message expanded newest to oldest with compact sender-and-date headers,
   disclosed recipients, bodies and thin separators, per the
   [reader loading and image requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior).
+  Received attachments sit below their message body, with availability and actions
+  following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane, per the
   [conversation reader requirements](docs/product/messages-and-delivery.md):
@@ -376,8 +379,10 @@ content.
 - Controls 6pt, message rows 7pt, cards and banners 10pt, windows 16pt.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
-- Monograms and avatars are circles. Avatars appear only in Catch Up bubbles and
-  the Thread view, as neutral initials, never photos.
+- Monograms and avatars are circles. Message list rows show a real contact photo
+  only when the contact-images preference is on and a photo exists, and never
+  generate initials. Catch Up bubbles and the Thread view show the contact photo
+  or neutral initials.
 
 ## Components
 
@@ -391,11 +396,13 @@ form accessories, keyboards, status bar).
   preview. The preview is one line by default and follows the person's saved
   density and zero-to-three-line preview preference; the reference mockups show
   two lines. Essential attachment, Pin, Category and source-connection status
-  accompany the preview; every unified-list Thread identifies its Mailbox Connection,
+  accompany the preview, with Category badges and attachment indicators following
+  the saved Inbox presentation preferences; every unified-list Thread identifies its Mailbox Connection,
   per the [list requirements](docs/product/mailboxes.md#unified-list-behavior).
   Unread shows a stronger sender and subject weight and an accent
-  dot; selected is the graphite fill with white text. No avatars and no hover
-  actions.
+  dot; selected is the graphite fill with white text. No generated initials and
+  no hover actions; a real contact photo may appear, per the
+  [list requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Sidebar Item / Sidebar Section Header:** 28pt items with tinted SF Symbols
   and counts. A selected item uses the subtle selection fill and an emphasized
   label, so selection does not rely on the low-contrast fill alone. Section
@@ -422,7 +429,10 @@ form accessories, keyboards, status bar).
   placeholder lines with Cancel. Dismissible, non-authoritative previews sit beside unchanged mail
   and show source, truncation and unavailable-state explanations, per
   [message summaries](docs/message-summaries.md#behavior) and
-  [translation](docs/message-translation.md#behavior). Reader Summarize and Translate
+  [translation](docs/message-translation.md#behavior). Thread summary items follow
+  the source-linking and disclosure contract for
+  [Understanding Assistance](docs/product/assistance.md#assistance-inputs-previews-and-acceptance).
+  Reader Summarize and Translate
   sit side by side when the body is local and assistance is enabled. Hide explicit
   assistance controls while device-local, default-off
   [Mail Assistance Enablement](docs/message-summaries.md#mail-assistance-enablement)
@@ -468,7 +478,11 @@ form accessories, keyboards, status bar).
 - **Draft assistance panels:** Rewrite, Translate and Suggest reply show progress,
   Cancel, Keep original and Replace text, Replace selection or Use reply, per
   [Draft assistance](docs/draft-assistance.md#behavior) and
-  [Draft translation](docs/message-translation.md#behavior).
+  [Draft translation](docs/message-translation.md#behavior). In a Reply or Reply
+  All Draft, the [Response Assistance](docs/domain/assistance.md) chooser offers
+  three concise directions and one full contextual reply; each opens an editable
+  preview with a read-only, source-linked check of addressed and unresolved
+  questions.
 - **Catch Up:** received bubbles show the avatar, sender, a muted subject, the
   summary or preview (up to three lines), time, unread dot and attachment icon.
   Sent bubbles are right-aligned in the accent fill. Also: the collapsed category
@@ -476,8 +490,9 @@ form accessories, keyboards, status bar).
   Inbox View Toggle in the Inbox header. The list is default; the timeline is
   newest-at-bottom, per the [Catch Up requirements](docs/catch-up.md#behavior).
   Quick reply uses a bottom composer bar with
-  a quote/recipient chip; long-press offers archive, delete, mark unread, reply and
-  open Thread. Quoted history is collapsed and expandable.
+  a quote/recipient chip. Long-press offers Reply and Open Thread for the pressed
+  message, then Archive, Delete and Mark Unread labelled as acting on the whole
+  Thread. Quoted history is collapsed and expandable.
   [Background-summary states](docs/catch-up.md#summaries) show a preview with
   Summary coming soon while pending, or a preview alone when assistance is disabled
   or unavailable.
@@ -503,4 +518,4 @@ form accessories, keyboards, status bar).
   content, cards or the compose format bar.
 - **Do** keep hit targets at 28pt on the Mac and 44pt on iPhone, and test layouts
   with German strings.
-- **Don't** add avatars or hover actions to message list rows.
+- **Don't** generate initials avatars or add hover actions in message list rows.
