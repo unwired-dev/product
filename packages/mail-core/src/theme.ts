@@ -14,11 +14,11 @@ export const palette = {
   dark: {
     background: '#1E1E1E',
     sidebar: '#2A2A2C',
-    foreground: '#DDDDDD',
-    secondary: '#A8A8AC',
+    foreground: '#EBEBEB',
+    secondary: '#C8C8CC',
     separator: '#353535',
-    accent: '#C8CBD2',
-    destructive: '#FF7B72',
-    selected: '#38393C',
+    accent: '#D8DBE2',
+    destructive: '#FFA29A',
+    selected: '#4A4B50',
   },
 };

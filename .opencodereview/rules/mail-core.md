@@ -21,6 +21,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   exercise absent `.groups` in a regression and validate changed parsing in the
   packaged host when its transform differs from the test runtime.
 
+#### Shared palette and visible states
+
+- A change to `theme.ts.palette` that checks text contrast but overlooks the
+  surfaces and state indicators in its mobile and Mac consumers. Trace text,
+  unread dots and selection/focus indicators against their actual adjacent
+  backgrounds in both modes, including selected rows after focus leaves.
+  Recheck the issue's text and non-text contrast thresholds, and compare the
+  changed selection indicator with the pinned baseline: weaker selected/sidebar
+  separation can hide the selected Inbox message or Draft even when every text
+  role passes AA. A focus-only border does not identify persistent selection.
+  Distinguish an introduced regression from an existing non-text contrast
+  limitation under R0; send a fix requiring new component behavior or a change
+  to the locked design scope through the workflow's decision panel.
+
 #### Untrusted boundaries fail closed
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
