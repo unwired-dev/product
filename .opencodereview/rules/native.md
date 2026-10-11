@@ -251,7 +251,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - State from one Product Account, sign-in provider, device or deployment reused after any of them changes; an enrollment or recovery step that proceeds on a stale epoch or a stale authentication.
 - Recovery Key verification that sends the key, an envelope encryption key or any derived secret beyond ADR 0066's explicit purpose-specific admission proof off the device, or a rejected key that leaves the device without its current enrollment status.
 - A recent-authentication requirement removed from an operation that needs it.
-- A rotation sealed with an earlier shared account key or an enrollment/recovery secret the removed device held. Follow ADR 0069: seal the complete ring with HPKE independently to every surviving Trusted Device's bound key, including the initiator, and authenticate account, exact recipient/key, epoch and protocol version. Never omit an unbound survivor. Otherwise backend read access plus removed secrets exposes the removal epoch or strands a survivor.
+- A rotation sealed with an earlier shared account key or an enrollment/recovery secret the removed device held. Follow ADR 0070: seal the complete ring with HPKE independently to every surviving Trusted Device's bound key, including the initiator, and authenticate account, exact recipient/key, epoch and protocol version. Never omit an unbound survivor. Otherwise backend read access plus removed secrets exposes the removal epoch or strands a survivor.
 - `RegistrationStore.confirmRevocation` or `cancelRevocation` treating a tombstone, current epoch or duplicate success as proof that this proposal's Recovery Key is current. Use the freshest exact durable proposal receipt observed during adoption, including when a lost device key permits restoring only the original proposal's ring. Its recovery-current result must also agree with the latest durable epoch after subsequent synchronization; a newer observed ring supersedes its earlier current-key result. Unreadable local state cannot justify that assertion or reject an already settled removal. Otherwise an old confirmed key is presented as current recovery access.
 - `RegistrationStore.confirmRevocation`, `cancelRevocation` or `adoptRotation`
   rejecting after durable adoption has cleared the proposal because a follow-up
@@ -259,7 +259,10 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   for the result before that local transition; keep post-adoption acknowledgement
   failures nonfatal and retry them during later synchronization, while preserving
   revoked/deleted rejections and purge. Exercise Confirm and Cancel with failures
-  at those boundaries. Otherwise the host retains a proposal whose native locator
+  at those boundaries. If a native or shared-flow status refresh rejected after
+  settlement, Confirm/Cancel retries with readable registration but no native
+  proposal must allow a notice-free current-state refresh without activation or
+  a Recovery Key claim. Otherwise the host retains a proposal whose native locator
   is gone, so neither action can settle it.
 - `RegistrationStore.confirmRevocation` clearing a definitely rejected proposal
   before fallible conflict renewal finishes. Retain it as unsubmitted and

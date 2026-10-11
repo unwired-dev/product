@@ -1,6 +1,6 @@
 # Revoke devices with Product Sync key rotation
 
-> For the replacement hosts, [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+> For the replacement hosts, [ADR 0070](0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 > supersedes the shared-key pending transitions, pending-or-committed write
 > acceptance, acknowledgement-gated commitment and delayed recovery publication
 > below. It requires per-device sealing and confirmation of the replacement

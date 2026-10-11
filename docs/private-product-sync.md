@@ -313,7 +313,10 @@ is explicitly removed.
 - When this removal applied but another removal replaced its Recovery Key before
   its reply was reconciled, the host reports that the prepared key is not current.
   The proposal is cleared only after its receipt and the committed ring have been
-  durably adopted; a failed post-activation synchronization cannot discard the locator.
+  durably adopted; a failure before that adoption keeps the locator for retry.
+- If a failed status refresh leaves a settled proposal on screen, either Confirm
+  or Cancel refreshes the current state without another activation or a claim that
+  the earlier Recovery Key is still current.
 
 A device that was offline during one or more removals reads only its latest
 envelope when it reconnects. It adopts the newest key ring directly, keeps every

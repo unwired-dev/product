@@ -1,12 +1,28 @@
-# Apple registration and Gmail authorization
+# Apple registration and mailbox authorization
 
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/apple-registration.md).
 
+## Launch first-connection requirement
+
+At the [power-user launch](product/power-user-launch.md#first-mailbox-after-product-sign-in),
+Apple Product Sign-In continues to a Mail Provider choice after device admission.
+The first mailbox may be Gmail, iCloud Mail, Fastmail, manual IMAP/SMTP or Microsoft
+mail. Selecting a non-Gmail provider skips Gmail authorization entirely. Apple
+sign-in and its contact or relay address grant no mailbox access.
+
+Cancelling or failing mailbox setup retains the Product Account and offers retry
+or another provider. An Inbox requires a verified connection to the selected
+provider and completed setup; it does not require Gmail. Keep pending setup
+resumable across relaunch. These are launch requirements, not implemented or
+qualified behavior claimed by the evidence below.
+
+## Current Gmail implementation
+
 [#597](https://github.com/unwired-dev/product/issues/597) adds Sign in with Apple
 as a second Product Sign-In choice on iPhone, iPad and Mac. It follows
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
-Apple identifies the Product Account only. Registration continues straight into the
+Apple identifies the Product Account only. The current Gmail implementation continues straight into the
 existing [resumable Gmail authorization](google-registration.md). The onboarding
 copy says Apple sign-in does not give access to mail. No connected Inbox appears
 until a Google account grants Gmail access and passes Gmail verification.
@@ -65,8 +81,10 @@ credentials.
 
 Native Apple authorization uses the system sheet and has no redirect URL or URL
 scheme. Google still needs its reversed client-ID URL scheme and configured
-`UNWIRED_GOOGLE_CLIENT_ID` for the Gmail step. Apple-first registration therefore
+`UNWIRED_GOOGLE_CLIENT_ID` for the Gmail step. The current Apple-first Gmail path therefore
 needs the same [Google host configuration](google-registration.md#configure-the-hosts).
+At launch, authorizing a non-Gmail mailbox after Apple sign-in must not require
+a Google account or Gmail consent from the person.
 
 `APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience,
 `dev.unwired.mail`, which the Swift prototype shares. It has no default: a
@@ -120,3 +138,9 @@ Account IDs differ. Revoke the app in Apple ID settings and confirm restore offe
 Sign in again with Apple without losing the Product Account. Record the results
 separately from deterministic evidence. No real Apple sign-in pass is claimed
 until this path has run.
+
+Launch qualification must additionally exercise Apple-first registration with
+each non-Gmail provider and no Gmail grant, including cancellation, choosing a
+different provider, retry and connected relaunch. Track that evidence in
+[#855](https://github.com/unwired-dev/product/issues/855); the Gmail scenarios
+above do not qualify those paths.

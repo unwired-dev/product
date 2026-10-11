@@ -91,4 +91,5 @@ ADRs take the next number after the highest in this index.
 | 0066   | [Admit devices only through authorized enrollment](0066-admit-devices-only-through-authorized-enrollment.md)                                   |
 | 0067   | [Keep native code to a minimal vault](0067-keep-native-code-to-a-minimal-vault.md)                                                             |
 | 0068   | [Allow device-local Background Message Summaries](0068-allow-device-local-background-message-summaries.md)                                     |
-| 0069   | [Seal key rotations to each remaining Trusted Device](0069-seal-key-rotations-to-each-remaining-trusted-device.md)                             |
+| 0069   | [Expand the Apple launch to power-user mail](0069-expand-the-apple-launch-to-power-user-mail.md)                                               |
+| 0070   | [Seal key rotations to each remaining Trusted Device](0070-seal-key-rotations-to-each-remaining-trusted-device.md)                             |

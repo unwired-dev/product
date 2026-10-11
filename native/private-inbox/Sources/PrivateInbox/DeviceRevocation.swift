@@ -37,9 +37,11 @@ extension RegistrationStore {
   // and returns its notice. A sign-in that is no longer recent rejects as stale authentication, so
   // the flow renews it and confirms again. Temporary until #758.
   func confirmRevocation(_ entry: String) async throws -> String? {
-    guard let backend = productSync, let saved = try load(), let product = saved.product,
-      var vault = try loadVault(product.productAccountId), var pending = vault.revocation
+    guard let backend = productSync, let saved = try load(), let product = saved.product
     else { throw RegistrationError.unavailable }
+    // A failed status refresh can leave the host showing a proposal already settled here.
+    guard var vault = try loadVault(product.productAccountId), var pending = vault.revocation
+    else { return nil }
     guard try RecoveryKey(bytes: pending.recoveryKey).confirms(entry) else {
       throw RegistrationError.recoveryKeyMismatch
     }
@@ -122,9 +124,10 @@ extension RegistrationStore {
   // Discards the prepared removal and returns its notice; an activation sent without a reply is
   // settled first. Temporary until #758.
   func cancelRevocation() async throws -> String? {
-    guard let saved = try load(), let product = saved.product,
-      var vault = try loadVault(product.productAccountId), let pending = vault.revocation
+    guard let saved = try load(), let product = saved.product
     else { throw RegistrationError.unavailable }
+    guard var vault = try loadVault(product.productAccountId), let pending = vault.revocation
+    else { return nil }
     if pending.submitted {
       // Read before adopting, so a failed read leaves the proposal in place.
       if let backend = productSync, let session = identity ?? session,

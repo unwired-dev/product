@@ -4,7 +4,7 @@ status: accepted
 
 # Admit devices only through authorized enrollment
 
-> [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md) supersedes
+> [ADR 0070](0070-seal-key-rotations-to-each-remaining-trusted-device.md) supersedes
 > this decision's pending-rotation mechanics and temporary previous-Recovery-Key
 > allowance for already-trusted devices. Rotation and replacement recovery now
 > activate atomically without waiting for adoption acknowledgements. It adds an
@@ -22,7 +22,7 @@ previously unseen device identifier once an account has a revocation tombstone.
 That rule stopped a removed device from rejoining under an invented identifier,
 and it also stopped every legitimate new device. It also supersedes ADR 0020's
 identifier migration, which served that rule. The rest of ADR 0020 stands except
-where subsequently superseded by ADR 0069.
+where subsequently superseded by ADR 0070.
 Issue #750 owns the implementation.
 
 ## Decision

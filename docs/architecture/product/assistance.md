@@ -16,7 +16,8 @@ come from the accepted replacement decisions.
 
 ## Decisions and scope
 
-- [Accepted replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Keep Mail Assistance on device and input-bound](../../adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
 - [Keep Mail Assistance enablement device-local](../../adr/0053-keep-mail-assistance-enablement-device-local.md)
 - [Allow device-local Background Message Summaries](../../adr/0068-allow-device-local-background-message-summaries.md)

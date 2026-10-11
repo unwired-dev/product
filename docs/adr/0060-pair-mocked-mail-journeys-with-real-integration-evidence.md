@@ -4,6 +4,13 @@ status: accepted
 
 # Pair mocked mail journeys with real integration evidence
 
+## Launch scope amendment — 2026-10-11
+
+The power-user Apple launch extends the first-release real-integration scope to
+IMAP/SMTP and Microsoft mail alongside Gmail. The Gmail-only scope below records
+the earlier beta plan; mocked journeys still do not qualify real providers. See
+[ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
+
 Amended on 2026-09-29 at the maintainer's request: the prototype's required
 checks no longer stay in force until their replacements exist. Legacy Swift
 build, performance, Core Mail Loop, mail-assistance and SwiftMail

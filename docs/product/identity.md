@@ -5,9 +5,10 @@ The review agent owns the separate [architecture companion](../architecture/prod
 
 [Vocabulary](../domain/identity.md) · [Domain index](../../GLOSSARY.md)
 
-Product Account identity and device trust apply to the replacement. Advanced
-Profiles are follow-up work; Default Profile and the deployed Profile Record
-Scope describe prototype migration behavior.
+Product Account identity and device trust apply to the replacement. Optional
+Mail Profiles are required by the [power-user launch scope](power-user-launch.md).
+Default Profile and the deployed Profile Record Scope also describe prototype
+migration behavior; their definitions do not prove replacement implementation.
 
 These observable requirements were separated from the former monolithic glossary
 and its implementation notes. The reviewer owns the separate architecture companion
@@ -42,7 +43,7 @@ implemented.
 - An approval opens only on the requesting device for its current request; replayed, expired, declined, superseded, revoked or mismatched approvals are refused without replacing account keys
 - Only the current **Recovery Key** admits a **Pending Device**. A **Device Revocation** replaces it in the same step that activates its new key epoch, so the previous Recovery Key admits nobody and opens nothing of that epoch or later. A person who loses every **Trusted Device** and the current Recovery Key cannot regain access, and deleting the **Product Account** is the only path left
 - Each **Trusted Device** binds a long-lived encryption key of its own when it creates the account's keys, confirms admission, or, never having bound one, unlocks with the current **Recovery Key**. A bound key is never replaced and a **Product Sign-In** alone binds none; a device that loses its key enrolls again as a new device, and its earlier registration remains until it is removed
-- A device installation has at most one **Pending Device** and a **Product Account** at most three; a **Pending Device** ends with its **Enrollment Code**, does not count toward the **Trusted Device** limit or receive key ring envelopes, and the **Trusted Device** limit is enforced at admission
+- A device installation has at most one **Pending Device** and a **Product Account** at most three; a **Pending Device** ends with its **Enrollment Code**, does not count toward the **Trusted Device** limit or receive rotation envelopes, and the **Trusted Device** limit is enforced at admission
 
 ## Sign-in and mailbox permission
 

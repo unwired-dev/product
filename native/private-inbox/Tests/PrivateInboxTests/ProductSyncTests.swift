@@ -2056,6 +2056,16 @@ extension PrivateInboxTests {
     #expect(try remover.loadVault(account)?.revocation == nil)
     #expect(try remover.loadVault(account)?.ring.current == 2)
     #expect(backend.activations == 1)
+
+    // A host that missed the settled status can retry either control without a native proposal.
+    let confirmedAgain = try await remover.flowConfirmRevocation(String(key.suffix(4)))
+    let cancelledAgain = try await remover.flowCancelRevocation()
+    for result in [confirmedAgain, cancelledAgain] {
+      #expect(result["revocationNotice"] == nil)
+      #expect(result["revocationRecoveryKey"] == nil)
+    }
+    #expect(try remover.loadVault(account)?.ring.current == 2)
+    #expect(backend.activations == 1)
   }
 
   @Test(arguments: [false, true], [(false, false), (true, false), (false, true)]) @MainActor
@@ -2115,6 +2125,14 @@ extension PrivateInboxTests {
       try KeyRingEnvelope.openRecovery(
         #require(backend.recovery[account]), key: RecoveryKey(parsing: key), account: account)
     }
+
+    let confirmedAgain = try await remover.flowConfirmRevocation(String(key.suffix(4)))
+    let cancelledAgain = try await remover.flowCancelRevocation()
+    for result in [confirmedAgain, cancelledAgain] {
+      #expect(result["revocationNotice"] == nil)
+      #expect(result["revocationRecoveryKey"] == nil)
+    }
+    #expect(backend.activations == 2)
   }
 
   @Test(arguments: [false, true]) @MainActor

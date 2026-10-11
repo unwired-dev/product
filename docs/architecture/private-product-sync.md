@@ -5,7 +5,7 @@ Read under the [implementation and review workflow](../agents/implementation-rev
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 
-[ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+[ADR 0070](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 owns the accepted #753 protocol below, recorded before runtime implementation.
 It supersedes #602's shared-key pending transitions, acknowledgement-gated
 commitment, post-removal Recovery Key confirmation and #750's temporary
@@ -22,7 +22,7 @@ or recovering device receives only the key ring.
 
 - **Key ring.** A random 256-bit AES key per epoch, starting at epoch 1. Earlier
   epochs stay in the ring for older records, matching
-  [ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md) rotation.
+  [ADR 0070](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md) rotation.
 - **Device encryption key.** An account-scoped, long-lived X25519 key pair per
   installation, separate from the one-time enrollment key. Its device-only
   private key remains native. Setup or authorized admission binds the public key
@@ -254,7 +254,7 @@ provider qualification remain deferred.
 
 ## Device revocation
 
-[ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+[ADR 0070](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 replaces the shared-key transition protocol shipped by
 [#602](https://github.com/unwired-dev/product/issues/602) / PR #751. The removed
 device's secrets plus read access to every current or retained backend payload
@@ -362,7 +362,7 @@ identifier-history migration. Issue #750 removes the lock, migration gate,
 migration mutation and registration history. The removed installation identifier
 and credential stay refused; an invented identifier gains only Pending Device
 access. Hosts show the enrollment gate and permit Gmail authorization only after
-admission. ADR 0069 supersedes the temporary previous-Recovery-Key allowance;
+admission. ADR 0070 supersedes the temporary previous-Recovery-Key allowance;
 only the current key provides current recovery access.
 
 Issue #756 moves registration sequencing and the revocation guard to TypeScript.

@@ -110,7 +110,7 @@ credentials stays exactly where [ADR 0001](0001-end-to-end-encrypted-product-syn
 
 ## Consequences
 
-- [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md#staged-native-coordination-exception)
+- [ADR 0070](0070-seal-key-rotations-to-each-remaining-trusted-device.md#staged-native-coordination-exception)
   records the narrow #753 exception for extending existing rotation coordination
   and its native synthetic backend through the respective #757 and #758
   migrations. Registration sequencing and recent-sign-in renewal moved to

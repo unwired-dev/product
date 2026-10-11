@@ -1,6 +1,6 @@
 # End-to-end encrypted product sync
 
-> For the replacement hosts, [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+> For the replacement hosts, [ADR 0070](0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 > supersedes removal's post-activation Recovery Key confirmation and the
 > pending-rotation recovery/sign-out exceptions below. Removal confirms the
 > proposed key before atomic activation; recovery changes in that transaction,
