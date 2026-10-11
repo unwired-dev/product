@@ -19,6 +19,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
+  failed-Close feedback after accepting another authored edit. Retire the stale
+  notice and its recovery controls on every accepted editing path, while keeping
+  the current save status visible. Malformed messages and retired-owner callbacks
+  must not clear feedback. Exercise blocked Close, resumed editing and notice
+  removal on each affected host; otherwise successful autosave can appear beside
+  an obsolete save-failure notice and Retry action.
+
 - `evaluation-composer.tsx` or another host view reusing notice copy that promises
   a recovery action its failure state does not offer. Trace each advertised action
   to a reachable control and handler in that view, including its storage and

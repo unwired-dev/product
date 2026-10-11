@@ -180,7 +180,14 @@ describe('the Tiptap evaluation composer', () => {
         'This Draft could not be saved, so it stays open. Try again once storage is available.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    // Editing again clears the failed Close's notice.
+    await typed('Hello from Tiptap, again');
+    expect(
+      screen.queryByText(
+        'This Draft could not be saved, so it stays open. Try again once storage is available.',
+      ),
+    ).not.toBeOnTheScreen();
+    await press('Close');
     expect(screen.queryByText('Evaluation editor')).not.toBeOnTheScreen();
     // WebKit can queue a callback before Close removes the page. Retired pages cannot edit.
     await act(async () => {

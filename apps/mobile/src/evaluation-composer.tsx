@@ -196,6 +196,8 @@ function EvaluationEditor({
             if (body === undefined) {
               return;
             }
+            // Editing again replaces a failed Close's notice, as in the current composer.
+            setClosing(undefined);
             const previous = authored.current;
             authored.current = { ...previous, body };
             void store.update(authored.current, previous, rebind);
