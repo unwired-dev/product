@@ -762,7 +762,7 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   reject a message deliberately admitted near the part limit. Verify both
   over-budget rejection across parts and successful reads of admitted trees,
   including the existing large-attachment journeys in both host test suites.
-- `message-body.ts.presentation` rebuilding the same blocked-only document on
+- `message-presentation.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,
   including fresh arrays containing those objects; Content-IDs alone do not bind
