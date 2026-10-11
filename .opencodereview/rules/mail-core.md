@@ -236,6 +236,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `src/testing/registration-session.ts.withMailboxes` hardcoding one provider's
+  authorization failure for a connection from another provider. Compare the
+  synthetic projection with `registration-flow.ts.pending` and the shared
+  `mailbox-authorization.ts` mapping, including all connections needing
+  authorization and no saved connections. Otherwise Mock Mail Sessions display
+  Gmail recovery for a refused Microsoft grant and misrepresent production behavior.
 - `graph-inbox.ts.quietRound` or another incremental reader discarding a fresh
   final checkpoint because its page contains no changes. Persist every new
   provider checkpoint, end the current pass after that commit and use it on the

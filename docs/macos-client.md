@@ -7,8 +7,7 @@ The review agent owns the separate [architecture companion](architecture/macos-c
 with AppKit windows and React Native macOS views. It reads the same synthetic
 mailbox as Expo through `@private-email/mail-core`, with
 [native encrypted read-state persistence](private-inbox-storage.md). Production
-registration now creates a Convex Product Account and authorizes Gmail through
-the native adapter. Production mailboxes use [Gmail synchronization](gmail-inbox.md) or the
+registration now creates a Convex Product Account. Production mailboxes use [Gmail synchronization](gmail-inbox.md) or the
 [Microsoft Inbox](microsoft-mail.md);
 sending is a later slice.
 

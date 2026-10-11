@@ -602,6 +602,20 @@ describe('reading Microsoft mail through Graph', () => {
     expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
   });
 
+  it('reports a refused Microsoft grant of the only connection as Microsoft mail being unavailable', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const registration = createRegistration(session.native);
+    await registration.register('apple');
+    await registration.addMailbox('microsoft-graph');
+    session.expire('casey@example.invalid');
+    await registration.restore();
+    expect(registration.getSnapshot().snapshot).toMatchObject({
+      kind: 'mailbox-needed',
+      reason: 'microsoft-unavailable',
+    });
+  });
+
   it('shows Gmail and Microsoft mail together while only Gmail searches online and sends', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'other@example.invalid' });

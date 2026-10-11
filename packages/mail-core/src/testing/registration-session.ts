@@ -10,6 +10,7 @@ import type {
   SignInProvider,
 } from '../registration.ts';
 
+import { unavailableReason } from '../mailbox-authorization.ts';
 import { defaultProfile, mailboxesOf } from '../registration.ts';
 
 // The Mock Mail Session scenarios this fake implements, each one also in
@@ -149,7 +150,8 @@ const withoutRequest = (snapshot: SignedIn): SignedIn => {
 };
 
 // The account with these connections: connected while one verified, saved-Inbox-only while every
-// usable one is cached, and otherwise waiting for Gmail.
+// usable one is cached, and otherwise waiting for the first connection's provider, as the
+// registration flow reports.
 const withMailboxes = (
   snapshot: SignedIn,
   mailboxes: readonly MailboxConnection[],
@@ -183,7 +185,9 @@ const withMailboxes = (
     ...rest,
     ...listed,
     ...synchronized,
-    ...(mailboxes.length === 0 ? {} : { reason: 'gmail-unavailable' }),
+    ...(mailboxes[0] === undefined
+      ? {}
+      : { reason: unavailableReason(mailboxes[0].provider) }),
   };
 };
 
@@ -636,7 +640,8 @@ export function createMockRegistrationSession(
     choose: (address: SyntheticAddress) => {
       chosen = address;
     },
-    // Gmail refuses this connection's grant at its next verification; the others stay as they are.
+    // The provider refuses this connection's grant at its next verification; the others stay as
+    // they are.
     expire: (address: SyntheticAddress) => {
       if (
         snapshot.kind !== 'signed-out' &&

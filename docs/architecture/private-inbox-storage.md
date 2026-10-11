@@ -257,7 +257,7 @@ other known private data. Completed per-connection cleanup clears its retry mark
 The saved registration is one device-only Keychain record per host and Google client.
 It holds the Product Sign-In's renewal credential, this installation's identifier,
 the Product Account receipt with its Trusted or Pending Device credential, each
-Mailbox Connection's Gmail credential and receipt, and any removal waiting for its
+Mailbox Connection's provider credential and receipt, and any removal waiting for its
 answer. Product Sync keys and an open enrollment request are separate Keychain items
 of the same account.
 

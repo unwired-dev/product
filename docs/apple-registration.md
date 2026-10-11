@@ -105,9 +105,10 @@ App ID group.
 ## Deterministic evidence
 
 Shared application and rendered host tests run the Apple-first path for every
-Gmail consent failure. They check cancellation, the Apple-specific copy, and the
-relay address shown only as contact information. They also check that the
-connected address comes from the Gmail grant. Convex tests prove an Apple identity
+Gmail consent failure and for connecting Microsoft mail first. They check
+cancellation, the Apple-specific copy, and the relay address shown only as
+contact information. They also check that the connected address comes from the
+mailbox grant. Convex tests prove an Apple identity
 and a Google identity sharing a relay address remain separate Product Accounts.
 Neither persists that address.
 
@@ -135,7 +136,7 @@ the [protected Gmail test tenant](gmail-provider-test-tenant.md). Do not record
 identity tokens, relay addresses or mailbox content in screenshots or artifacts.
 
 On iPhone, iPad and Mac, register with Apple, choosing both shared and hidden
-email. Confirm Gmail authorization is required before any connected status. Cancel
+email. Confirm a mailbox must be authorized before any connected status. Cancel
 the Apple sheet, cancel and decline Gmail, then relaunch and finish. Register
 Google first on a separate installation using the same email. Confirm the Product
 Account IDs differ. Revoke the app in Apple ID settings and confirm restore offers
