@@ -149,6 +149,99 @@ describe('connecting IMAP mailboxes', () => {
     expect(offline.getSnapshot().snapshot.kind).toBe('cached');
   });
 
+  it('reads a refused IMAP Inbox again once its password is repaired, without a relaunch', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const store = createRegistration(
+      createRegistrationFlow(createSyntheticVault(device).vault),
+    );
+    await store.register('google');
+    await store.connectImap(setup(device.imap.password));
+    const [connection] = mailboxesOf(store.getSnapshot().snapshot);
+    Vitest.assert.isDefined(connection);
+    await store.connectImap({
+      ...setup(device.imap.password),
+      host: 'other.example.invalid',
+    });
+    const [, otherConnection] = mailboxesOf(store.getSnapshot().snapshot);
+    Vitest.assert.isDefined(otherConnection);
+    const imap = createSyntheticImap();
+    const other = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    const folders = vi.fn<typeof imap.native.imapFolders>(
+      imap.native.imapFolders,
+    );
+    const mailboxes = createMailboxes(
+      syntheticConnections(
+        {},
+        {
+          [connection.id]: { ...imap.native, imapFolders: folders },
+          [otherConnection.id]: other.native,
+        },
+      ),
+      store,
+    );
+    await mailboxes.load();
+    // A live read refuses the password while registration still lists the connection.
+    imap.server.failure = 'gmail-unavailable';
+    other.server.failure = 'gmail-unavailable';
+    await mailboxes.load();
+    expect(ready(imapInbox(mailboxes).getSnapshot()).status).toBe(
+      'authentication',
+    );
+    // Drain each Inbox's serialized work with one explicit read so extra automatic reads count.
+    let reads = imap.server.reads.length;
+    await store.refreshPrivateSync();
+    await mailboxes.load();
+    expect(imap.server.reads).toHaveLength(reads + 1);
+    reads = imap.server.reads.length;
+    device.imap.outcome = 'offline';
+    await store.refreshInbox(mailboxes.load, 'explicit');
+    device.imap.outcome = undefined;
+    expect(store.getSnapshot().snapshot.kind).toBe('cached');
+    expect(imap.server.reads).toHaveLength(reads + 1);
+    reads = imap.server.reads.length;
+    await store.connectImap(setup('wrong-password'));
+    await mailboxes.load();
+    expect(imap.server.reads).toHaveLength(reads + 1);
+    reads = imap.server.reads.length;
+    device.imap.outcome = 'cancelled';
+    await store.connectImap(setup(device.imap.password));
+    device.imap.outcome = undefined;
+    await mailboxes.load();
+    expect(imap.server.reads).toHaveLength(reads + 1);
+
+    const otherReads = other.server.reads.length;
+    reads = imap.server.reads.length;
+    const { logins } = device.imap;
+    // Native password repair rotates this connection's cache generation.
+    imap.cache.generation = 'generation-2';
+    imap.server.failure = undefined;
+    imap.deliver('INBOX', { subject: 'Read after password repair' });
+    await store.connectImap({
+      ...setup(device.imap.password),
+      host: 'IMAP.EXAMPLE.INVALID',
+    });
+    await vi.waitFor(() => {
+      expect(ready(imapInbox(mailboxes).getSnapshot()).status).toBe('current');
+    });
+    expect(ready(imapInbox(mailboxes).getSnapshot()).messages[0]?.subject).toBe(
+      'Read after password repair',
+    );
+    expect(folders).toHaveBeenLastCalledWith(
+      expect.objectContaining({ generation: 'generation-2' }),
+    );
+    expect(imap.server.reads).toHaveLength(reads + 2);
+    expect(device.imap.logins).toBe(logins + 1);
+    const otherInbox = mailboxes.getConnections()[1]?.inbox;
+    Vitest.assert.isDefined(otherInbox);
+    await otherInbox.load();
+    expect(other.server.reads).toHaveLength(otherReads + 1);
+    expect(otherInbox.getSnapshot()).toMatchObject({
+      status: 'authentication',
+    });
+  });
+
   it('keeps connected mailboxes open when adding an IMAP mailbox cannot confirm sign-in offline', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();

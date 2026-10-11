@@ -504,14 +504,19 @@ export function createRegistration(
   // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   type MailboxLoading = 'automatic' | 'explicit';
-  const listeners = new Set<(mailboxLoading?: MailboxLoading) => void>();
+  type Listener = (
+    mailboxLoading?: MailboxLoading,
+    repairedImap?: string,
+  ) => void;
+  const listeners = new Set<Listener>();
   const publish = (
     next: RegistrationState,
     mailboxLoading: MailboxLoading = 'automatic',
+    repairedImap?: string,
   ) => {
     state = next;
     for (const listener of listeners) {
-      listener(mailboxLoading);
+      listener(mailboxLoading, repairedImap);
     }
   };
   const execute = (
@@ -537,10 +542,12 @@ export function createRegistration(
       foreground = false,
       accountChange,
       mailboxLoading = 'automatic',
+      imapSetup,
     }: Readonly<{
       foreground?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
+      imapSetup?: ImapSetup;
     }> = {},
   ) =>
     runLogged(
@@ -564,8 +571,22 @@ export function createRegistration(
               : { snapshot: state.snapshot, busy: true, failed: false },
           );
         }
+        let repairedImap: string | undefined = undefined;
         const next = yield* operation.pipe(
-          Effect.map(settled),
+          Effect.map((snapshot) => {
+            if (imapSetup !== undefined) {
+              repairedImap = mailboxesOf(snapshot).find(
+                (mailbox) =>
+                  mailbox.provider === 'imap' &&
+                  mailbox.state === 'connected' &&
+                  mailbox.address === imapSetup.address &&
+                  mailbox.imap?.host === imapSetup.host.toLowerCase() &&
+                  mailbox.imap.port === imapSetup.port &&
+                  mailbox.imap.username === imapSetup.username,
+              )?.id;
+            }
+            return settled(snapshot);
+          }),
           Effect.catchTags({
             RegistrationCancelled: () =>
               Effect.sync(() => settled(state.snapshot)),
@@ -617,6 +638,7 @@ export function createRegistration(
             ? { ...previous, busy: false }
             : next,
           mailboxLoading,
+          repairedImap,
         );
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
@@ -658,7 +680,7 @@ export function createRegistration(
   };
   return {
     getSnapshot: () => state,
-    subscribe: (listener: (mailboxLoading?: MailboxLoading) => void) => {
+    subscribe: (listener: Listener) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -746,6 +768,7 @@ export function createRegistration(
             onSome: ({ code }) => code,
           }),
         }),
+        { imapSetup: setup },
       ),
     removeMailbox: (connection: string) =>
       execute(request(() => native.removeMailbox(connection))),

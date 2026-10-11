@@ -116,6 +116,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `createMailboxes` retaining a ready/authentication IMAP Inbox after successful
+  password repair without reopening its native generation, or inferring repair
+  from every newly published registration snapshot. Send a success-only,
+  connection-scoped signal from `createRegistration.connectImap`, reconcile owners
+  before loading that Inbox, and preserve explicit scoped-wake suppression.
+  Otherwise repair keeps the stale refusal until relaunch, or unrelated Product
+  Sync/Profile changes retry unchanged passwords on other connections. Exercise
+  generation rotation and two refused connections through the public stores.
+
 - `imap-inbox.ts.openFolder` retrying a cache CAS conflict with the revision it
   already held, or leaving recovery to an unrelated Inbox load. Reopen the native
   cache before one bounded folder retry, preserving generation/lifetime fences

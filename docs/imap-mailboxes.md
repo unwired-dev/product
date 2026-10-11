@@ -53,6 +53,11 @@ Trusted Devices list its address as a synchronized mailbox. Connecting it on ano
 device still requires choosing its provider and reviewing its endpoint as well as
 entering its password; the synchronized address alone grants no server access.
 
+After a successful password repair, a retained Inbox that reported authentication
+failure reloads immediately on both hosts. Only the repaired connection retries;
+Product Sync checks, Profile changes and failed repairs do not retry other refused
+IMAP Inboxes.
+
 ## Failures and recovery
 
 Setup failures keep the Product Account. A first mailbox that fails records why, so the

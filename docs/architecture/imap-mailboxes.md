@@ -68,6 +68,11 @@ remain filtered at their own boundaries. IMAP authorization notices route to
 password repair, including a refused connection whose saved registration still says
 connected, and never to Gmail consent.
 
+After a successful decoded `connectImap` result, the registration subscription
+publishes the matched connection ID as repair metadata. `createMailboxes` reconciles
+owners first, then reloads only that retained authentication-refused Inbox to reopen
+its native generation. Snapshot identity alone never dispatches repair reads.
+
 ## Evidence and release limits
 
 The implementation handoff recorded Swift package build/tests, plaintext refusal,

@@ -395,11 +395,31 @@ export function createMailboxes(
     }
     return added.length > 0;
   };
+  // Password repair renews the native generation without changing the connection's listing, so
+  // its Inbox, if the server refused the old password, reads again.
+  const reloadRepaired = (connection: string | undefined) => {
+    const repaired =
+      connection === undefined ? undefined : inboxes.get(connection);
+    const state = repaired?.inbox.getSnapshot();
+    if (
+      started &&
+      repaired?.provider === 'imap' &&
+      state?.kind === 'ready' &&
+      'status' in state &&
+      state.status === 'authentication'
+    ) {
+      void repaired.inbox.load();
+    }
+  };
   // A connection moved to another Profile keeps its Inbox and changes only its owner here.
-  const follow = (mailboxLoading: 'automatic' | 'explicit' = 'automatic') => {
+  const follow = (
+    mailboxLoading: 'automatic' | 'explicit' = 'automatic',
+    repairedImap?: string,
+  ) => {
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
+    reloadRepaired(repairedImap);
     if (
       closed ||
       opened ||
