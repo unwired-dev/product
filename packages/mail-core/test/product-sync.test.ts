@@ -155,8 +155,17 @@ describe('product sync', () => {
   // Replaces ProductSyncTests.newAccountInitializesProductSyncOnceAndRelaunchKeepsItsKeys.
   it('initializes a new account once, keeps its keys across relaunch and stores only opaque records', async () => {
     expect.hasAssertions();
-    const { flow, relaunch, sync, device, google, ring, record, records } =
-      setup();
+    const {
+      flow,
+      relaunch,
+      vault,
+      sync,
+      device,
+      google,
+      ring,
+      record,
+      records,
+    } = setup();
     const registered = await flow.signIn('google');
     expect(registered).toMatchObject({
       privateSync: 'recovery-key',
@@ -196,6 +205,12 @@ describe('product sync', () => {
     const confirmed = await flow.confirmRecoveryKey(ring().id.slice(-4));
     expect(confirmed).toMatchObject({ privateSync: 'ready' });
     expect(confirmed).not.toHaveProperty('recoveryKey');
+    // The confirmed key no longer crosses from native storage at all.
+    await expect(vault.registration()).resolves.not.toHaveProperty([
+      'productSync',
+      'vault',
+      'recoveryKey',
+    ]);
 
     // A record sealed for another Product Account is never presented as this account's mailbox.
     storeDescriptor(sync, {

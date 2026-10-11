@@ -622,7 +622,8 @@ extension RegistrationStore {
         return entry
       },
     ]
-    if let recoveryKey = vault.recoveryKey {
+    // Only an unconfirmed Recovery Key is shown; a confirmed one never leaves native storage.
+    if let recoveryKey = vault.recoveryKey, !vault.recoveryKeyConfirmed {
       entry["recoveryKey"] = try RecoveryKey(bytes: recoveryKey).display
     }
     if let revocation = vault.revocation {

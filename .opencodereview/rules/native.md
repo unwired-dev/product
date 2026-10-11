@@ -103,6 +103,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `RegistrationStore.productSyncState` or another native projection retaining
+  sensitive presentation fields after their display state ends when status
+  derivation moves to TypeScript. Preserve the native field's state gate across
+  the move: a retained full Recovery Key crosses only while unconfirmed, even
+  when JavaScript hides it after confirmation. Trace the stored state, raw bridge
+  projection and synthetic vault together, and require a regression assertion
+  against the raw projection after the transition. Otherwise a hidden secret
+  still enters the JavaScript heap outside its permitted presentation window.
+
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
   operation and distinct fields for each admitted context source,

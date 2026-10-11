@@ -2100,6 +2100,10 @@ extension PrivateInboxTests {
     try store.recordInitialization(true)
     #expect(try store.loadVault(account)?.published == true)
     #expect(throws: RegistrationError.unavailable) { try store.createKeyRing() }
+    // Once confirmed, the Recovery Key no longer crosses to TypeScript.
+    try store.confirmRecoveryKey(RecoveryKey(bytes: #require(unpublished.recoveryKey)).lastGroup)
+    #expect((try syncState(store)["vault"] as? [String: Any])?["recoveryKey"] == nil)
+    #expect(try store.loadVault(account)?.recoveryKeyConfirmed == true)
 
     // Sealed and opened only under its own identifier, for this account at a known epoch.
     let ring = unpublished.ring

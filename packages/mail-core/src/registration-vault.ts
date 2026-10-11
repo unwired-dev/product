@@ -49,7 +49,7 @@ const ProductSyncStateSchema = Schema.Struct({
       keyEpoch: Schema.Finite,
       published: Schema.Boolean,
       recoveryKeyConfirmed: Schema.Boolean,
-      // Held by the device that created the keys until its setup is confirmed.
+      // Shown by the device that created the keys only until its setup is confirmed.
       recoveryKey: Schema.optionalKey(Schema.NonEmptyString),
       revocation: Schema.optionalKey(
         Schema.Struct({

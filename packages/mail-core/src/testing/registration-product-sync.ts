@@ -287,7 +287,7 @@ export function createSyntheticSyncVault(
               keyEpoch: vault.ring.current,
               published: vault.published,
               recoveryKeyConfirmed: vault.recoveryKeyConfirmed,
-              ...(vault.recoveryKey === undefined
+              ...(vault.recoveryKey === undefined || vault.recoveryKeyConfirmed
                 ? {}
                 : { recoveryKey: vault.recoveryKey }),
               ...(vault.revocation === undefined
