@@ -1,18 +1,50 @@
+import type { Command, Update } from '@private-email/draft-editor/messages';
+import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
 
 import { supported } from '@private-email/draft-editor/conversion';
-import { decodeChange } from '@private-email/draft-editor/messages';
+import {
+  commandScript,
+  decodeUpdate,
+} from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
+import {
+  canRewrite,
+  canSuggestReply,
+  captureDraftText,
+  draftReplacement,
+  sameDraftAssistanceSource,
+} from '@private-email/mail-core/assistance';
 import { draftOf, isEmptyDraft } from '@private-email/mail-core/drafts';
+import {
+  replaceSelection,
+  selectedText,
+} from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import {
+  hasTranslatableText,
+  translationInputLimit,
+} from '@private-email/mail-core/translation';
+import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import { Action, Composer, Notice } from './composer.tsx';
+import {
+  Action,
+  blockControls,
+  CapturedAssistance,
+  Composer,
+  markControls,
+  Notice,
+  retires,
+  rewriteLabel,
+} from './composer.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { useComposerNavigation, useDrafts, useDraftStore } from './mailbox.tsx';
+import { AssistanceContext } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
+import { TranslationContext } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -34,11 +66,135 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '600' },
   status: { fontSize: 13 },
   notice: { fontSize: 14 },
+  format: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
   body: { flex: 1 },
 });
 
-// The Tiptap evaluation editor for one Draft: the packaged page edits plain paragraphs, and each
-// change saves through the Draft store like the current composer's edits.
+type PageState = Omit<Update, 'type' | 'document'>;
+
+// The current composer's formatting, history and assistance controls, acting on the page. Each
+// press is one page command; the page reports the formatting at its selection.
+function Toolbar({
+  page,
+  draft,
+  run,
+  capture,
+}: {
+  readonly page: PageState;
+  readonly draft: Draft;
+  readonly run: (command: Command) => void;
+  readonly capture: (purpose: CapturedDraftText['purpose']) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
+  const { selection } = page;
+  return (
+    <View
+      accessibilityLabel={t('drafts.formatting')}
+      accessibilityRole="toolbar"
+      style={styles.bar}>
+      <Action
+        disabled={!page.undo}
+        label={t('drafts.undo')}
+        onPress={() => {
+          run({ type: 'undo' });
+        }}
+      />
+      <Action
+        disabled={!page.redo}
+        label={t('drafts.redo')}
+        onPress={() => {
+          run({ type: 'redo' });
+        }}
+      />
+      {markControls.map(([mark, label, name, style]) => (
+        <Pressable
+          key={mark}
+          accessibilityLabel={t(name)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: page.marks.includes(mark) }}
+          onPress={() => {
+            run({ type: 'mark', mark });
+          }}
+          style={[
+            styles.format,
+            page.marks.includes(mark) && {
+              backgroundColor: colors.selected,
+              borderWidth: 2,
+              borderColor: colors.foreground,
+            },
+          ]}>
+          <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
+        </Pressable>
+      ))}
+      {blockControls.map(([kind, label, name]) => (
+        <Pressable
+          key={kind}
+          accessibilityLabel={t(name)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: page.kind === kind }}
+          onPress={() => {
+            run({ type: 'block', kind });
+          }}
+          style={[
+            styles.format,
+            page.kind === kind && {
+              backgroundColor: colors.selected,
+              borderWidth: 2,
+              borderColor: colors.foreground,
+            },
+          ]}>
+          <Text style={{ color: colors.foreground }}>{label}</Text>
+        </Pressable>
+      ))}
+      {translation === undefined ? null : (
+        <Action
+          disabled={
+            !hasTranslatableText(
+              selectedText(draft.body, selection, translationInputLimit + 1),
+            )
+          }
+          label={t('translation.translate')}
+          accessibilityLabel={t('translation.translateSelectionLabel')}
+          onPress={() => {
+            capture('translate');
+          }}
+        />
+      )}
+      {assistance === undefined ? null : (
+        <Action
+          disabled={!canRewrite(draft.body, selection)}
+          label={t('assistance.rewrite')}
+          accessibilityLabel={t(rewriteLabel(selection))}
+          onPress={() => {
+            capture('rewrite');
+          }}
+        />
+      )}
+      {assistance !== undefined && canSuggestReply(draft) ? (
+        <Action
+          label={t('assistance.suggestReply')}
+          accessibilityLabel={t('assistance.suggestReplyLabel')}
+          onPress={() => {
+            capture('reply');
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// The Tiptap evaluation editor for one Draft: the packaged page edits the body, and each change
+// saves through the Draft store like the current composer's edits. Assistance captures the body
+// the page last reported, and an accepted result replaces it in the page as one undoable edit.
 function EvaluationEditor({
   page,
   initial,
@@ -56,6 +212,14 @@ function EvaluationEditor({
   const { t } = useLocalization();
   // Page messages can arrive before React commits an earlier edit or a rebind.
   const authored = useRef(initial);
+  const [draft, setDraft] = useState(initial);
+  // Undefined until the page reports that it is ready for commands.
+  const [pageState, setPageState] = useState<PageState>();
+  const pageNow = useRef<PageState>(undefined);
+  const view = useRef<WebView>(null);
+  const pageStopped = useRef(false);
+  const [closing, setClosing] = useState<'saving' | 'blocked'>();
+  const [stopped, setStopped] = useState(false);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
   useLayoutEffect(() => {
@@ -74,6 +238,77 @@ function EvaluationEditor({
       store.release(rebind);
     };
   }, [rebind, store]);
+  // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
+  // its result is applied or the original kept.
+  const [captured, setCaptured] = useState<
+    CapturedDraftText & { readonly id: number }
+  >();
+  const captureNow = useRef<typeof captured>(undefined);
+  const captureGeneration = useRef(0);
+  const forget = useCallback(() => {
+    captureNow.current = undefined;
+    setCaptured(undefined);
+  }, []);
+  const assistanceEnabled = useMailAssistanceLifetime(forget);
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
+  if (
+    captured !== undefined &&
+    retires(captured, draft, { assistance, translation })
+  ) {
+    setCaptured(undefined);
+  }
+  const stop = () => {
+    pageStopped.current = true;
+    pageNow.current = undefined;
+    forget();
+    setStopped(true);
+  };
+  const run = (command: Command) => {
+    if (mounted.current && !pageStopped.current) {
+      view.current?.injectJavaScript(commandScript(command));
+    }
+  };
+  const capture = (purpose: CapturedDraftText['purpose']) => {
+    const reported = pageNow.current;
+    if (!mounted.current || !assistanceEnabled() || reported === undefined) {
+      return;
+    }
+    captureGeneration.current += 1;
+    const next = {
+      ...captureDraftText(purpose, authored.current, reported.selection),
+      id: captureGeneration.current,
+    };
+    captureNow.current = next;
+    setCaptured(next);
+  };
+  // Replaces exactly the captured text with its reviewed result, in the body revision it was
+  // captured from. The page saves the result through its next update.
+  const applyCaptured = (replacement: string) => {
+    const latest = authored.current;
+    const reported = pageNow.current;
+    if (
+      !mounted.current ||
+      reported === undefined ||
+      captured === undefined ||
+      captureNow.current !== captured ||
+      !sameDraftAssistanceSource(captured.draft, latest, captured.purpose)
+    ) {
+      return;
+    }
+    forget();
+    const result = replaceSelection(
+      latest.body,
+      captured.selection,
+      draftReplacement(captured.text, replacement),
+    );
+    run({
+      type: 'replace',
+      revision: reported.revision,
+      document: result.document,
+      selection: result.selection ?? captured.selection,
+    });
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
@@ -82,8 +317,6 @@ function EvaluationEditor({
     () =>
       `window.draftEditor = ${JSON.stringify({ document: initial.body, label: t('drafts.body') })}; true;`,
   );
-  const [closing, setClosing] = useState<'saving' | 'blocked'>();
-  const [stopped, setStopped] = useState(false);
   const close = useCallback(async () => {
     if (!mounted.current) {
       return false;
@@ -161,9 +394,29 @@ function EvaluationEditor({
             {t('drafts.evaluation.stopped')}
           </Notice>
         ) : null}
+        {/* Controls appear once the page reports that it is ready for commands. */}
+        {stopped || pageState === undefined ? null : (
+          <Toolbar
+            page={pageState}
+            draft={draft}
+            run={run}
+            capture={capture}
+          />
+        )}
+        {captured === undefined ? null : (
+          <CapturedAssistance
+            key={captured.id}
+            captured={captured}
+            assistance={assistance}
+            translation={translation}
+            onApply={applyCaptured}
+            onClose={forget}
+          />
+        )}
       </View>
       {stopped ? null : (
         <WebView
+          ref={view}
           allowsInlineMediaPlayback={false}
           allowsLinkPreview={false}
           cacheEnabled={false}
@@ -172,24 +425,29 @@ function EvaluationEditor({
           injectedJavaScriptBeforeContentLoaded={injected}
           javaScriptCanOpenWindowsAutomatically={false}
           mediaPlaybackRequiresUserAction
-          onContentProcessDidTerminate={() => {
-            setStopped(true);
-          }}
-          onError={() => {
-            setStopped(true);
-          }}
+          onContentProcessDidTerminate={stop}
+          onError={stop}
           onMessage={({ nativeEvent }) => {
-            if (!mounted.current) {
+            if (!mounted.current || pageStopped.current) {
               return;
             }
-            const body = decodeChange(nativeEvent.data);
+            const update = decodeUpdate(nativeEvent.data);
+            if (update === undefined) {
+              return;
+            }
+            const { document: body, type: _, ...next } = update;
+            pageNow.current = next;
+            setPageState(next);
             if (body === undefined) {
               return;
             }
-            // Editing again replaces a failed Close's notice, as in the current composer.
+            // Editing again replaces a failed Close's notice, as in the current composer, and
+            // retires captured text.
             setClosing(undefined);
+            forget();
             const previous = authored.current;
             authored.current = { ...previous, body };
+            setDraft(authored.current);
             void store.update(authored.current, previous, rebind);
           }}
           // Only the page itself loads; every navigation it could start is cancelled.

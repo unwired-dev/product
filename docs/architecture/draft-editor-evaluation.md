@@ -23,9 +23,11 @@ non-persistent (`incognito`), cache-free, cannot open windows, and cancels every
 navigation except its own page. No cloud collaboration, vendor AI, remote asset
 service, browser persistence or paid editor service is used.
 
-The page receives the opened body before its script runs and posts the whole body
-after each edit. The host decodes each message against the Semantic Message Document
-schema; a malformed message changes nothing. The page never receives encryption
+The page receives the opened body before its script runs and reports its revision,
+display selection, active marks, block kind and history availability after every
+transaction, including an initial ready update. It includes the whole body after
+each authored edit. The shared message decoder validates every update, including
+its optional body, against Effect Schema; a malformed message changes nothing. The page never receives encryption
 keys, account identifiers or other Drafts.
 
 `src/conversion.ts` is the only boundary between the Semantic Message Document and
@@ -44,3 +46,47 @@ renderer's module graph, or if the page appears in any bundle other than
 `react-native-webview` 13.16.1, which supports AppKit through `react-native-macos`.
 One page and one bridge serve all three hosts. TenTap targets iOS and Android and
 would add a second bridge for iPhone and iPad without covering the Mac.
+
+## Formatting fidelity (#819)
+
+### Editor configuration
+
+No vendor package needed a patch. The editor configures Tiptap to the document's
+rules instead:
+
+- List items and quotes hold paragraphs only, and each further paragraph of a list
+  item becomes an item of its own, because the document has no nesting.
+- A code block is one code line per textblock, as the document stores it, with
+  marks allowed; Return in code always starts another line, so leaving a code block
+  uses the **Code block** control.
+- Inline code combines with the other marks, which Tiptap's default excludes.
+- Tiptap's own input and paste rules are off; the page applies the documented
+  shortcuts itself so that Undo restores the literal marker.
+- **Links are not representable.** The current Semantic Message Document has no link,
+  so the editor offers no link authoring and drops pasted destinations. Adding links
+  to the document for both composers is
+  [#878](https://github.com/unwired-dev/product/issues/878) (see
+  [Decisions](#decisions)).
+- Tiptap's extra keyboard shortcuts (for example Command-E for inline code and
+  Command-Option-1 for a heading) also work in the page; the current composer
+  documents only Command-B, Command-I and Command-U.
+
+### Decisions
+
+Links (decision panel, 2026-10-11). Option A extended the durable document with
+validated link destinations for both composers, storage, sync and outgoing mail
+within #819; option B kept the document unchanged, records links as a semantic
+mismatch, and moves link support to a follow-up issue that blocks the adoption
+decision. B won 3–0 (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`): adding
+durable link semantics is a product-format change for both composers that deserves
+its own slice, and the evaluation should expose the gap rather than close it.
+
+**#819 finding.** Tiptap can hold every block kind and mark the current Semantic
+Message Document has, with Markdown shortcuts, word-step history and assistance
+results that match the current composer, without patching any vendor package. It
+needed configuration to stay within the document: no nesting, one textblock per code
+line, inline code combined with other marks, its own shortcuts in place of Tiptap's
+input rules, and a normalizer after each edit. Links are the gap: the document cannot
+store them, so link editing waits for
+[#878](https://github.com/unwired-dev/product/issues/878), which blocks #823. The Mac
+host remains unproven for formatting too.
