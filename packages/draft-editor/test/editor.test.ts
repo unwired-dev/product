@@ -119,6 +119,13 @@ async function open(body: SemanticDocument): Promise<Page> {
   };
 }
 
+// Exercises the page's key handlers; Tiptap's keyboardShortcut command would keep only the
+// document steps of its handler, not the caret it places.
+const press = ({ editor }: Page, key: string) =>
+  editor.view.someProp('handleKeyDown', (handle) =>
+    handle(editor.view, new KeyboardEvent('keydown', { key })),
+  );
+
 // The body the page last posted.
 const bodyOf = ({ posted }: Page) =>
   posted.findLast(({ document: body }) => body !== undefined)?.document;
@@ -313,7 +320,7 @@ describe('the Tiptap evaluation page', () => {
     const { editor } = page;
     for (const block of [0, 1, 2]) {
       editor.commands.setTextSelection(nth(textblocks(editor), block * 2).to);
-      editor.commands.keyboardShortcut('Enter');
+      press(page, 'Enter');
       page.type('next');
     }
     expect(bodyOf(page)).toStrictEqual([
@@ -326,10 +333,45 @@ describe('the Tiptap evaluation page', () => {
     ]);
     // Deleting into the second item's marker makes it a paragraph between the lists.
     editor.commands.setTextSelection(nth(textblocks(editor), 1).from);
-    editor.commands.keyboardShortcut('Backspace');
+    press(page, 'Backspace');
     expect(bodyOf(page)?.slice(0, 2)).toStrictEqual([
       { kind: 'bulleted', spans: [{ text: 'a' }] },
       paragraph('next'),
+    ]);
+  });
+
+  it('continues an empty list item or quote line with Return, as the current composer does', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'bulleted', spans: [{ text: 'a' }] },
+      { kind: 'numbered', spans: [{ text: 'n' }] },
+      { kind: 'quote', spans: [{ text: 'b' }] },
+    ]);
+    const { editor } = page;
+    for (const line of ['a', 'n', 'b']) {
+      const block = textblocks(editor).find(({ text }) => text === line);
+      ok(block, `Expected the line ${line}`);
+      editor.commands.setTextSelection(block.to);
+      press(page, 'Enter');
+      const first = bodyOf(page);
+      press(page, 'Enter');
+      const continued = bodyOf(page);
+      page.command({ type: 'undo' });
+      expect(bodyOf(page)).toStrictEqual(first);
+      page.command({ type: 'redo' });
+      expect(bodyOf(page)).toStrictEqual(continued);
+      page.type('c');
+    }
+    expect(bodyOf(page)).toStrictEqual([
+      { kind: 'bulleted', spans: [{ text: 'a' }] },
+      { kind: 'bulleted', spans: [] },
+      { kind: 'bulleted', spans: [{ text: 'c' }] },
+      { kind: 'numbered', spans: [{ text: 'n' }] },
+      { kind: 'numbered', spans: [] },
+      { kind: 'numbered', spans: [{ text: 'c' }] },
+      { kind: 'quote', spans: [{ text: 'b' }] },
+      { kind: 'quote', spans: [] },
+      { kind: 'quote', spans: [{ text: 'c' }] },
     ]);
   });
 

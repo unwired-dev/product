@@ -68,7 +68,8 @@ the current composer's:
 - **Markdown shortcuts.** `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three
   backticks at the start of a paragraph apply that block kind and remove the marker;
   one **Undo** restores the literal marker. Return continues a list, quote or code
-  block; deleting into a list marker turns the item into a paragraph. Inline Markdown
+  block, including an empty list item or quote line; deleting into a list marker turns
+  the item into a paragraph. Inline Markdown
   such as `**bold**` is not a shortcut, as in the current composer.
 - **Undo and Redo.** One step per activation, a word of typing at a time; a space
   and every other edit are steps of their own. Repeated commands before the host

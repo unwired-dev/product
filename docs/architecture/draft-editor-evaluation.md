@@ -56,6 +56,9 @@ rules instead:
 
 - List items and quotes hold paragraphs only, and each further paragraph of a list
   item becomes an item of its own, because the document has no nesting.
+- The page handles Return in empty list items and quote lines before Tiptap's
+  default keymaps can lift them into paragraphs, preserving the current composer's
+  continuation behavior and placing the caret in the new item or line.
 - A code block is one code line per textblock, as the document stores it, with
   marks allowed; Return in code always starts another line, so leaving a code block
   uses the **Code block** control.

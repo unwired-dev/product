@@ -171,11 +171,42 @@ const normalized = (state: EditorState) => {
   return tr.docChanged ? tr : null;
 };
 
+// Return in an empty list item or quote line continues it, as in the current composer; Tiptap's
+// own Return would lift it out of the list or quote.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this dispatches through its view.
+const continueEmpty = ({ state, view }: TiptapEditor) => {
+  const { $from, empty } = state.selection;
+  const container = $from.node(-1);
+  if (
+    !empty ||
+    $from.parent.content.size > 0 ||
+    !['listItem', 'blockquote'].includes(container.type.name)
+  ) {
+    return false;
+  }
+  const item = container.type.name === 'listItem';
+  const paragraph = $from.parent.copy();
+  const at = item ? $from.after(-1) : $from.after();
+  const tr = state.tr.insert(
+    at,
+    item ? container.type.create(null, paragraph) : paragraph,
+  );
+  view.dispatch(
+    tr.setSelection(TextSelection.create(tr.doc, at + (item ? 2 : 1))),
+  );
+  return true;
+};
+
 // Undo steps a word of typing at a time; every other edit is a step of its own. A Markdown
 // shortcut first stores its literal marker, so one Undo restores it. Text never keeps an Inline
 // Image's character, a code line never keeps a line break, and a list item holds one paragraph.
 const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   name: 'draftBehavior',
+  // Ahead of the list item's own Return.
+  priority: 1000,
+  addKeyboardShortcuts() {
+    return { Enter: ({ editor }) => continueEmpty(editor) };
+  },
   addProseMirrorPlugins() {
     const { editor } = this;
     return [
