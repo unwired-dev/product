@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  symlink,
   writeFile,
   readFile,
 } from 'node:fs/promises';
@@ -48,7 +49,14 @@ test('package boundaries reject deep imports across source scopes and TypeScript
     for (const name of ['one', 'two']) {
       await write(
         `packages/${name}/package.json`,
-        '{"exports":{".":"./src/index.ts"}}',
+        `{"name":"@fixture/${name}","exports":{".":"./src/index.ts"}}`,
+      );
+      await mkdir(path.join(directory, 'node_modules/@fixture'), {
+        recursive: true,
+      });
+      await symlink(
+        path.join(directory, 'packages', name),
+        path.join(directory, 'node_modules/@fixture', name),
       );
       await write(
         `packages/${name}/src/index.ts`,
@@ -62,12 +70,9 @@ test('package boundaries reject deep imports across source scopes and TypeScript
     await write('packages/one/test/fixture.ts', 'export const fixture = 1;\n');
     await write(
       'packages/one/test/public.test.ts',
-      "import '../src/index.ts';\nimport './fixture.ts';\nimport '../../two/src/index.ts';\n",
+      "import '../src/index.ts';\nimport './fixture.ts';\nimport '@fixture/two';\n",
     );
-    await write(
-      'scripts/public.ts',
-      "import '../packages/one/src/index.ts';\n",
-    );
+    await write('scripts/public.ts', "import '@fixture/one';\n");
     assert.equal(cruise().status, 0);
     for (const [file, body, rule] of [
       [
@@ -84,6 +89,21 @@ test('package boundaries reject deep imports across source scopes and TypeScript
         'packages/two/src/other.ts',
         "import '../../one/src/private.ts';\n",
         'entrypoint-boundary-across-packages',
+      ],
+      [
+        'scripts/relative.ts',
+        "import '../packages/one/src/index.ts';\n",
+        'package-by-name-from-app',
+      ],
+      [
+        'packages/two/src/relative.ts',
+        "import '../../one/src/index.ts';\n",
+        'package-by-name-across-packages',
+      ],
+      [
+        'packages/two/test/relative.test.ts',
+        "import '../../one/src/index.ts';\n",
+        'package-by-name-across-packages',
       ],
       [
         'packages/one/test/private.test.ts',

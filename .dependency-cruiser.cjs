@@ -63,6 +63,22 @@ module.exports = {
       },
     },
     {
+      name: 'package-by-name-from-app',
+      comment:
+        'App/root code imports a package by its name, never by a relative path into its folder, even to an entry point.',
+      severity: 'error',
+      from: { pathNot: `^${R}/` },
+      to: { path: `^${R}/`, dependencyTypes: ['local'] },
+    },
+    {
+      name: 'package-by-name-across-packages',
+      comment:
+        'A package imports another package by its name, never by a relative path into its folder, even to an entry point.',
+      severity: 'error',
+      from: { path: `^${R}/([^/]+)/` },
+      to: { path: `^${R}/`, pathNot: `^${R}/$1/`, dependencyTypes: ['local'] },
+    },
+    {
       name: 'tests-through-entrypoints',
       comment:
         "A package's tests exercise it through its entry points: they may import any package's entry points and their own test/ fixtures, but never any package's internals, not even their own.",

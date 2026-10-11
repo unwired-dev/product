@@ -25,6 +25,8 @@ repository sources, including packages, apps and root tooling. It runs in CI thr
 
 - **Entry-point boundary.** Apps and other packages import only a package's
   entry points, never its other files.
+- **Import by name.** Apps and other packages import a package by its name,
+  never by a relative path into its folder, even when the path is an entry point.
 - **Intra-package freedom.** A package's own source files import each other
   freely.
 - **Tests through the entry points.** Files under `<name>/test/` import entry

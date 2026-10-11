@@ -118,6 +118,50 @@
   },
   {
     "type": "dependency",
+    "from": "packages/convex/test/productSync.test.ts",
+    "to": "packages/contracts/fixtures/productSync.payloadChanged.error.json",
+    "unresolvedTo": "../../contracts/fixtures/productSync.payloadChanged.error.json",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "package-by-name-across-packages"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "apps/mobile/plugins/localization.cjs",
+    "to": "packages/localization/catalogs.bundle/languages.json",
+    "unresolvedTo": "../../../packages/localization/catalogs.bundle/languages.json",
+    "dependencyTypes": ["local", "require"],
+    "rule": {
+      "severity": "error",
+      "name": "package-by-name-from-app"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "native/localization/test/native.test.mjs",
+    "to": "packages/localization/src/message-date-format.ts",
+    "unresolvedTo": "../../../packages/localization/src/message-date-format.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "package-by-name-from-app"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/mock-mail-build.cjs",
+    "to": "packages/draft-editor/build.cjs",
+    "unresolvedTo": "../packages/draft-editor/build.cjs",
+    "dependencyTypes": ["local", "require"],
+    "rule": {
+      "severity": "error",
+      "name": "package-by-name-from-app"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "packages/contracts/test/health.test.ts",
     "to": "packages/contracts/fixtures/health.response.json",
     "unresolvedTo": "../fixtures/health.response.json",
