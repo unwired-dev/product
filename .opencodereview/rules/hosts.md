@@ -19,6 +19,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `evaluation-composer.tsx` or another host view reusing notice copy that promises
+  a recovery action its failure state does not offer. Trace each advertised action
+  to a reachable control and handler in that view, including its storage and
+  capability refusals; otherwise shared copy can send the person toward an
+  unavailable escape such as Discard. Use view-specific copy when the action is
+  outside the view's authorized scope, and check the visible failure-and-retry
+  journey on each affected host rather than requiring extra product controls.
+
 - `trusted-devices.tsx.TrustedDevices` or registration/account routing hiding a
   native-retained actionable proposal behind a coarse capability gate such as
   `approvesDevices(privateSync)`. Read `revocationProposal` before that gate:

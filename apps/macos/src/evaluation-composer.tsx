@@ -144,7 +144,7 @@ function EvaluationEditor({
             <Notice
               alert
               style={[styles.notice, { color: colors.foreground }]}>
-              {t('drafts.saveBlocked')}
+              {t('drafts.evaluation.saveBlocked')}
             </Notice>
             <Action
               label={t('common.retry')}

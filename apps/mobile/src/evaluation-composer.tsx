@@ -152,7 +152,7 @@ function EvaluationEditor({
                 styles.grow,
                 { color: colors.foreground },
               ]}>
-              {t('drafts.saveBlocked')}
+              {t('drafts.evaluation.saveBlocked')}
             </Text>
             <Action
               label={t('common.retry')}

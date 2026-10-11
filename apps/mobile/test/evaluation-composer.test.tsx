@@ -177,7 +177,7 @@ describe('the Tiptap evaluation composer', () => {
     await press('Close');
     expect(
       screen.getByText(
-        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        'This Draft could not be saved, so it stays open. Try again once storage is available.',
       ),
     ).toBeOnTheScreen();
     await press('Try again');
