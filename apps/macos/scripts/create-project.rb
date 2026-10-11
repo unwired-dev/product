@@ -28,7 +28,7 @@ info['UnwiredCommit'] = ENV['UNWIRED_COMMIT'] unless ENV.fetch('UNWIRED_COMMIT',
 client_id = ENV.fetch('UNWIRED_GOOGLE_CLIENT_ID', '')
 raise 'Invalid native Google OAuth client ID' unless client_id.empty? || client_id.match?(/\A[0-9A-Za-z-]+\.apps\.googleusercontent\.com\z/)
 info['GIDClientID'] = client_id
-microsoft_client_id = ENV.fetch('UNWIRED_MICROSOFT_CLIENT_ID', '')
+microsoft_client_id = ENV.fetch('UNWIRED_MICROSOFT_CLIENT_ID', '').downcase
 raise 'Invalid Microsoft application client ID' unless microsoft_client_id.empty? || microsoft_client_id.match?(/\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/)
 info['UnwiredMicrosoftClientID'] = microsoft_client_id
 info['UnwiredConvexURL'] = ENV.fetch('UNWIRED_CONVEX_URL', '')

@@ -583,11 +583,14 @@ export function createSyntheticVault(
         ({ subject, address }) => connectionId(subject, address) === id,
       );
       const source = provider === 'gmail' ? google : microsoft;
+      // As native code hints: Gmail by Google account, Microsoft by the connection's address.
       source.hints.push(
-        existing?.subject ??
-          (suggest && record.provider === 'google'
-            ? record.subject
-            : undefined),
+        provider === 'gmail'
+          ? (existing?.subject ??
+              (suggest && record.provider === 'google'
+                ? record.subject
+                : undefined))
+          : existing?.address,
       );
       if (source.outcome !== undefined) {
         return reject(source.outcome);
@@ -661,8 +664,11 @@ export function createSyntheticVault(
         }
         live.authorization = undefined;
         const id = connectionId(pending.subject, pending.receipt.address);
+        // Native code keys a connection by its provider account.
         const existing = record.connections.find(
-          ({ subject }) => subject === pending.subject,
+          (connection) =>
+            connection.provider === pending.provider &&
+            connection.subject === pending.subject,
         );
         if (existing === undefined) {
           device.epochs += 1;

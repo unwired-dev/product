@@ -35,6 +35,9 @@ on:
       # Optional: without a topic, builds register no Gmail push routes.
       GMAIL_PUBSUB_TOPIC:
         required: false
+      # Optional: without it, builds cannot connect Microsoft mail.
+      MICROSOFT_GRAPH_CLIENT_ID:
+        required: false
 
 permissions:
   contents: read

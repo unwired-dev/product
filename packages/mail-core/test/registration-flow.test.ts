@@ -235,7 +235,7 @@ describe('registration flow', () => {
       await expect(
         relaunch().authorizeMailbox('synthetic-connection-casey'),
       ).resolves.toMatchObject({ kind: 'connected' });
-      expect(microsoft.hints.at(-1)).toBe('synthetic-microsoft-subject');
+      expect(microsoft.hints.at(-1)).toBe('casey@example.invalid');
       expect(google.hints).toStrictEqual(productHints);
     },
   );

@@ -35,7 +35,7 @@ if (
 // The public-client application ID; without it, Microsoft mail cannot be connected.
 if (
   microsoftClientID &&
-  !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u.test(microsoftClientID)
+  !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/iu.test(microsoftClientID)
 ) {
   throw new Error('Invalid Microsoft application client ID');
 }
@@ -80,7 +80,7 @@ const config: ExpoConfig = {
     infoPlist: {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,
-      UnwiredMicrosoftClientID: microsoftClientID,
+      UnwiredMicrosoftClientID: microsoftClientID.toLowerCase(),
       UnwiredConvexURL: convexURL,
       ...(gmailTopic ? { UnwiredGmailTopic: gmailTopic } : {}),
       UIBackgroundModes: ['remote-notification'],

@@ -137,8 +137,8 @@ struct MicrosoftTokens: Codable {
     let (status, data): (Int, Data)
     do {
       (status, data) = try await graph(identity, url: url)
-    } catch is GmailRequestInterrupted {
-      throw RegistrationError.unavailable
+    } catch {
+      throw Self.transportFailure(error)
     }
     if status == 429 || status >= 500 { throw URLError(.cannotConnectToHost) }
     guard status == 200 else { throw RegistrationError.gmailUnavailable }
@@ -157,8 +157,8 @@ struct MicrosoftTokens: Codable {
         token: nil, url: Self.authority.appendingPathComponent("token"),
         body: Data(Self.form(form).utf8), session: session, limit: 1024 * 1024,
         contentType: "application/x-www-form-urlencoded")
-    } catch is GmailRequestInterrupted {
-      throw URLError(.cannotConnectToHost)
+    } catch {
+      throw Self.transportFailure(error)
     }
     struct Reply: Decodable {
       let accessToken: String?
@@ -184,6 +184,17 @@ struct MicrosoftTokens: Codable {
       expiresAt: now().addingTimeInterval(expires),
       scopes: reply.scope.map { $0.split(separator: " ").map(String.init) } ?? previous?.scopes
         ?? [])
+  }
+
+  // A failed request is transient, so the flow opens the saved Inbox offline instead of asking for
+  // authorization: the transport reports a request that never left this device as unavailable,
+  // and one interrupted later as GmailRequestInterrupted.
+  static func transportFailure(_ error: any Error) -> any Error {
+    switch error {
+    case RegistrationError.unavailable: URLError(.notConnectedToInternet)
+    case is GmailRequestInterrupted: URLError(.networkConnectionLost)
+    default: error
+    }
   }
 
   // The code from the authorization callback for this request. A refused or cancelled consent is

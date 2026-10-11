@@ -25,6 +25,11 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
   override func startLoading() {
     Self.probe.record(request)
     let url = request.url!
+    // A request that cannot leave this device, as without a network.
+    if request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-offline" {
+      client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+      return
+    }
     let denied = request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-denied"
     let body: String
     if url.path.hasSuffix("/token") {
@@ -252,6 +257,15 @@ extension PrivateInboxTests {
     await #expect(throws: RegistrationError.gmailUnavailable) {
       _ = try await provider.verify(MicrosoftMailIdentity(
         credential: Data(), accessToken: "synthetic-denied", scopes: ["Mail.Read"]))
+    }
+    // Offline verification is transient, so the flow keeps the saved Inbox open instead of asking
+    // for Microsoft again.
+    do {
+      _ = try await provider.verify(MicrosoftMailIdentity(
+        credential: Data(), accessToken: "synthetic-offline", scopes: ["Mail.Read"]))
+      Issue.record("Offline verification succeeded")
+    } catch {
+      #expect(RegistrationStore.rejectionCode(error) == "offline")
     }
     for path in [
       "/v1.0/me/mailfolders('AQMk-id=')/messages/delta?$skiptoken=opaque",

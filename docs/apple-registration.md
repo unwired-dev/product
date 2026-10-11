@@ -122,9 +122,10 @@ presented as Apple. These are deterministic checks, not real Apple or Google
 evidence.
 
 The `registration-apple` Mock Mail Session drives the packaged journey: it signs
-in with a synthetic Apple identity and a relay address, and declines the Gmail
-session that follows. It then relaunches into pending setup, authorizes Gmail and
-relaunches connected. Its native provider and runner rules match the
+in with a synthetic Apple identity and a relay address, which leaves the mailbox
+choice pending without asking for any mailbox. It relaunches, connects the
+synthetic Microsoft mailbox first, adds Gmail from the account page and relaunches
+connected. It no longer covers a declined Gmail session after Apple sign-in. Its native provider and runner rules match the
 [Google registration sessions](google-registration.md#deterministic-evidence).
 
 ## Protected real qualification
