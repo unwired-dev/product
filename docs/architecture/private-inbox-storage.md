@@ -34,6 +34,25 @@ serializes operations with an Effect semaphore and publishes updates to all moun
 a random synthetic secret, uses it natively for a fixed local HMAC challenge,
 and removes it idempotently.
 
+## Default Profile foundation
+
+Issue #644 adds `profile` to the decoded `MailboxConnection` in
+`packages/mail-core/src/registration.ts`. `Schema.withDecodingDefaultKey` accepts
+the old JSON form and supplies the account-local `defaultProfile` sentinel;
+explicit nonempty ownership is retained and malformed ownership is rejected.
+The registration snapshot keeps the original JSON text. Decoding writes neither
+native storage nor Product Sync, and credentials and encryption keys remain
+native. The mock registration session deliberately emits the same old-form
+projection as native code.
+
+The Default Profile retains the Product Account's existing record namespace.
+Connections, Drafts, assets, Outbox attempts, caches and encrypted records retain
+their identities and locations. The staging decision and its panel outcome are
+recorded in [ADR 0048's replacement amendment](../adr/0048-separate-encrypted-mail-profile-ownership.md#replacement-staging-amendment--2026-10-11).
+The [caller inventory and release evidence requirements](../private-inbox-storage.md#mail-profiles)
+remain implementer-readable. Multiple-Profile creation stays unavailable through
+#645 and #646; #647 owns synchronized assignments and incompatible-client fencing.
+
 ## Gmail mailbox cache
 
 Issue #604 added a separate encrypted `mailbox.enc` document; #606 gives each
@@ -196,9 +215,10 @@ Issue #763 adds disposable remote image ciphertext under each connection's
 identity binds Product Account, connection, provider subject, mailbox address,
 message ID and source URL into both the digest filename and AES-GCM associated
 data. Gmail message content is immutable: the normalized request reference within that
-stable message identifies the resource revision. Profiles remain deferred under
-[ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md); their
-future migration must add Profile identity without reusing another Profile's
+stable message identifies the resource revision. The Default Profile foundation
+leaves this cache layout intact. Optional Profiles are launch work under
+[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md); their
+remaining migration must add Profile isolation without reusing another Profile's
 entries.
 
 The native file-locked vault counts all connection remote directories toward a

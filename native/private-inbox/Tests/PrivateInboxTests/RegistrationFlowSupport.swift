@@ -321,4 +321,29 @@ extension RegistrationStore {
     if let notice { result["revocationNotice"] = notice }
     return result
   }
+
+  // A sign-in that is no longer recent is renewed interactively, then the removal confirmed again.
+  func flowConfirmRevocation(_ entry: String) async throws -> [String: String] {
+    let notice: String?
+    do {
+      notice = try await confirmRevocation(entry)
+    } catch RegistrationError.staleAuthentication {
+      let saved = try saved()
+      guard
+        try await signInIdentity(saved.provider, hint: saved.provider == .google)["matches"]
+          as? Bool == true
+      else { throw RegistrationError.invalidIdentity }
+      notice = try await confirmRevocation(entry)
+    }
+    var result = try status()
+    if let notice { result["revocationNotice"] = notice }
+    return result
+  }
+
+  func flowCancelRevocation() async throws -> [String: String] {
+    let notice = try await cancelRevocation()
+    var result = try status()
+    if let notice { result["revocationNotice"] = notice }
+    return result
+  }
 }

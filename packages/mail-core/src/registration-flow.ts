@@ -3,6 +3,7 @@ import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 
+import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
   BackendCall,
   NativeRegistrationVault,
@@ -16,6 +17,7 @@ import type {
 } from './registration.ts';
 
 import { decodeDiagnostic, rejectionCode } from './diagnostics.ts';
+import { hostCodes, isCode, rejected } from './registration-rejection.ts';
 import {
   Deletion,
   EnrollmentStatus,
@@ -31,6 +33,7 @@ import {
   RegistrationRecordSchema,
 } from './registration-vault.ts';
 
+export { RegistrationRejected } from './registration-rejection.ts';
 export type { NativeRegistrationVault } from './registration-vault.ts';
 
 // What purging after each acknowledged removal tells the person.
@@ -39,65 +42,6 @@ const removalNotices = {
   signOut: 'signed-out',
   revoked: 'revoked',
 } as const;
-
-// Codes native operations and Convex replies end with; host-facing codes are a subset.
-const CodeSchema = Schema.Literals([
-  'busy',
-  'cancelled',
-  'declined',
-  'deleted',
-  'enrollment-code-invalid',
-  'enrollment-unavailable',
-  'gmail-unavailable',
-  'identity-owned',
-  'invalid-identity',
-  'locked',
-  // A transport failure that permits reading the last verified local state.
-  'offline',
-  'recovery-key-mismatch',
-  'removal-refused',
-  'revoked',
-  'stale-authentication',
-  'unavailable',
-  // Distinguished by the flow only; hosts see them as other codes.
-  'apple-authorization-required',
-  'pending-device-unavailable',
-]);
-type Code = typeof CodeSchema.Type;
-
-// The flow's own distinctions, as the codes hosts have always received.
-const hostCodes: Partial<Record<Code, Code>> = {
-  offline: 'unavailable',
-  'pending-device-unavailable': 'unavailable',
-  revoked: 'unavailable',
-  deleted: 'unavailable',
-  'apple-authorization-required': 'removal-refused',
-};
-
-// The fixed texts hosts have always received with each code.
-const messages: Partial<Record<Code, string>> = {
-  busy: 'Authorization is already running.',
-  cancelled: 'Sign-in was cancelled.',
-  'recovery-key-mismatch': 'That does not match the end of your Recovery Key.',
-  'enrollment-code-invalid': "That code does not match the new device's code.",
-  'enrollment-unavailable': 'That device request is no longer available.',
-  locked: 'Unlock your device to open your saved account.',
-};
-
-export class RegistrationRejected extends Schema.TaggedError<RegistrationRejected>()(
-  'RegistrationRejected',
-  { code: CodeSchema, message: Schema.String, cause: Schema.Defect() },
-) {}
-
-const rejected = (code: Code, cause?: unknown) =>
-  new RegistrationRejected({
-    code,
-    message:
-      messages[code] ??
-      'Registration could not finish. Retry with your saved account.',
-    cause,
-  });
-const isCode = Schema.is(CodeSchema);
 
 const gmailScopes = new Set([
   'https://www.googleapis.com/auth/gmail.modify',
@@ -133,6 +77,11 @@ const ErrorBody = Schema.fromJsonString(Schema.Struct({ code: Schema.String }));
 const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody);
 
 const failWith = (code: Code) => Effect.fail(rejected(code));
+const RevocationReply = Schema.Struct({
+  notice: Schema.optionalKey(
+    Schema.Literals(['removed', 'renewed', 'unconfirmed', 'superseded']),
+  ),
+});
 const sameIdentity = (value: Readonly<{ matches: boolean }>) =>
   value.matches ? Effect.void : failWith('invalid-identity');
 const unreadable = (error: Schema.SchemaError) =>
@@ -320,6 +269,26 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   const identity = (provider: SignInProvider, hint: boolean) =>
     native(() => vault.signInIdentity(provider, hint), Identity);
+  // A fresh interactive sign-in of this registration's own identity.
+  const renewSignIn = saved.pipe(
+    Effect.flatMap((value) =>
+      identity(value.signInProvider, value.signInProvider === 'google'),
+    ),
+    Effect.flatMap(sameIdentity),
+  );
+  // A removal step's notice, shown with the status the step leaves.
+  const noticed = (operation: () => Promise<unknown>) =>
+    native(operation, RevocationReply).pipe(
+      Effect.flatMap(({ notice }) =>
+        current.pipe(
+          Effect.map((snapshot) =>
+            notice === undefined
+              ? snapshot
+              : { ...snapshot, revocationNotice: notice },
+          ),
+        ),
+      ),
+    );
   // Saves the latest matching sign-in even if the backend is interrupted, then connects it.
   const establish = (replacing = false) =>
     step(() => vault.saveIdentity(replacing)).pipe(
@@ -921,31 +890,29 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       program(thenStatus(() => vault.approveEnrollment(requestId, code))),
     declineEnrollment: (requestId) =>
       program(thenStatus(() => vault.declineEnrollment(requestId))),
-    // Removes another Trusted Device after a fresh interactive Product Sign-In.
+    // Prepares the removal of another Trusted Device after a fresh interactive Product Sign-In.
     revokeTrustedDevice: (trustedDeviceId) =>
       program(
-        Effect.gen(function* () {
-          const value = yield* saved;
-          yield* sameIdentity(
-            yield* identity(
-              value.signInProvider,
-              value.signInProvider === 'google',
-            ),
-          );
-          const { notice } = yield* native(
-            () => vault.revokeTrustedDevice(trustedDeviceId),
-            Schema.Struct({
-              notice: Schema.optionalKey(
-                Schema.Literals(['removed', 'unconfirmed']),
-              ),
-            }),
-          );
-          const snapshot = yield* current;
-          return notice === undefined
-            ? snapshot
-            : { ...snapshot, revocationNotice: notice };
-        }),
+        renewSignIn.pipe(
+          Effect.andThen(
+            noticed(() => vault.revokeTrustedDevice(trustedDeviceId)),
+          ),
+        ),
       ),
+    // Activation needs a recent sign-in; one that aged while the key was saved is renewed once.
+    confirmRevocation: (entry) =>
+      program(
+        noticed(() => vault.confirmRevocation(entry)).pipe(
+          Effect.catchIf(
+            ({ code }) => code === 'stale-authentication',
+            () =>
+              renewSignIn.pipe(
+                Effect.andThen(noticed(() => vault.confirmRevocation(entry))),
+              ),
+          ),
+        ),
+      ),
+    cancelRevocation: () => program(noticed(vault.cancelRevocation)),
     // Checks for an approval of this device, or for another device waiting for one.
     refreshPrivateSync: () =>
       program(

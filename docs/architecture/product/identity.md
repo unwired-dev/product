@@ -8,9 +8,11 @@ replacement requirements or release qualification.
 ## Scope
 
 Product Account identity and device trust apply to the replacement. Optional
-Mail Profiles are launch work under ADR 0069. Default Profile and the deployed
-Profile Record Scope also describe prototype migration behavior; they do not
-prove replacement implementation.
+Mail Profiles are launch work under ADR 0069. The replacement's
+[Default Profile foundation](../private-inbox-storage.md#default-profile-foundation)
+is implemented in #644; multiple-Profile creation and synchronized assignments
+remain unavailable until #645–#647. The deployed prototype Profile Record Scope
+does not establish replacement multi-Profile implementation or qualification.
 
 ## Decisions and scope
 

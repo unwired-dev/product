@@ -56,6 +56,7 @@ import {
   responseHeadersOf,
   singleReadablePart,
   unescapeHtml,
+  withinMetadataBudgets,
 } from './message-body.ts';
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
@@ -2408,6 +2409,23 @@ export function createGmailInbox(
     return message.payload;
   });
 
+  // An explicit read's full message. MIME metadata over its budgets is never parsed, so the body
+  // fails instead of stalling the reader; prefetch leaves such a message on demand.
+  const boundedMessage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+  ) {
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    if (!withinMetadataBudgets(payload)) {
+      return yield* new SyncFailure({
+        kind: 'failed',
+        cause: 'metadata',
+        diagnostic: 'oversized MIME metadata',
+      });
+    }
+    return payload;
+  });
+
   // Resolves visible Content-ID references against the message's MIME scopes. Each image fails
   // independently; a transient failure leaves the resolution unrecorded so a later open retries.
   const resolveImages = Effect.fnUntraced(function* (
@@ -2450,7 +2468,7 @@ export function createGmailInbox(
     Readonly<{ document: BodyDocument; authentication: boolean }>,
     SyncFailure | GmailNotFound
   > {
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
     const document: BodyDocument = {
       version: 2,
@@ -2495,9 +2513,7 @@ export function createGmailInbox(
     if (!needsImages && !needsAttachments) {
       return { document, changed: false, authentication: false };
     }
-    const payload = yield* fullMessage(scope, document.id, [
-      ['format', 'full'],
-    ]);
+    const payload = yield* boundedMessage(scope, document.id);
     const withList = needsAttachments
       ? {
           ...document,
@@ -2704,7 +2720,7 @@ export function createGmailInbox(
     id: string,
     listedAttachment: NonNullable<BodyDocument['attachments']>[number],
   ) {
-    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const payload = yield* boundedMessage(scope, id);
     const current = receivedAttachments(payload).find((candidate) =>
       sameAttachment(candidate, listedAttachment),
     );

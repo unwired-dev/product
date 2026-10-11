@@ -67,6 +67,8 @@ export const registration = createRegistration(
     declineEnrollment: (requestId) => native().declineEnrollment(requestId),
     revokeTrustedDevice: (trustedDeviceId) =>
       native().revokeTrustedDevice(trustedDeviceId),
+    confirmRevocation: (entry) => native().confirmRevocation(entry),
+    cancelRevocation: () => native().cancelRevocation(),
   }),
 );
 

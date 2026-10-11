@@ -24,7 +24,8 @@ extension RegistrationStore {
   }
 
   // Whether this Trusted Device may sign out with the latest sign-in: it never discards a published
-  // or unanswered Recovery Key the person has not backed up, and adopts a pending key epoch first.
+  // or unanswered Recovery Key the person has not backed up, or an unanswered removal, and adopts
+  // its latest key epoch first.
   func prepareSignOut() async throws -> Bool {
     guard let identity else { throw RegistrationError.unavailable }
     let saved = try saved()
@@ -38,21 +39,10 @@ extension RegistrationStore {
     if vault.published {
       vault = try await adoptRotation(vault, backend: backend, session: identity, product)
     }
-    if vault.recoveryKey != nil, !vault.recoveryKeyConfirmed || !vault.published {
-      return false
-    }
-    if let bytes = vault.recoveryKey {
-      if let rotation = try await backend.keyRotation(identity, product) {
-        guard rotation.keyEpoch == vault.ring.current else { throw RegistrationError.unavailable }
-      } else {
-        let envelope = try await backend.recoveryEnvelope(identity, product).encryptedPayload
-        guard
-          try KeyRingEnvelope.openRecovery(
-            envelope, key: RecoveryKey(bytes: bytes), account: product.productAccountId
-          ) == vault.ring
-        else { throw RegistrationError.unavailable }
-      }
-    }
-    return true
+    // An unanswered removal stays until it is settled; its proposal is the only way to learn whether
+    // its confirmed Recovery Key is current.
+    if vault.revocation?.submitted == true { return false }
+    // Never discard a published or unanswered Recovery Key the person has not backed up.
+    return !(vault.recoveryKey != nil && (!vault.recoveryKeyConfirmed || !vault.published))
   }
 }

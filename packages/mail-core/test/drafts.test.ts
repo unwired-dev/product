@@ -26,7 +26,7 @@ import {
   unsendableAssets,
   withSender,
 } from '../src/drafts.ts';
-import { mailboxesOf } from '../src/registration.ts';
+import { defaultProfile, mailboxesOf } from '../src/registration.ts';
 import {
   applyText,
   BlockKindSchema,
@@ -386,6 +386,38 @@ describe('editing a Semantic Message Document', () => {
     // The child process may take up to its own 20 s limit on a busy CI runner.
     30_000,
   );
+
+  it('edits beside a long run of text without rebuilding it', () => {
+    expect.hasAssertions();
+    // Rebuilding an edited block from one object per code unit cost about 100 ms per keystroke
+    // in a 1,000,000-character paragraph. Reusing the untouched run is the deterministic sign
+    // that an edit costs the block's runs, not its characters.
+    const long = { text: 'x'.repeat(1_000_000) };
+    const before: SemanticDocument = [
+      { kind: 'paragraph', spans: [long, { text: 'tail', marks: ['bold'] }] },
+    ];
+    const end = 1_000_004;
+    const typed = applyText(before, `${displayOf(before).text}s`, {
+      selection: { start: end, end },
+    }).document;
+    expect(typed[0].spans[0]).toBe(long);
+    expect(typed[0].spans[1]).toStrictEqual({ text: 'tails', marks: ['bold'] });
+    const italic = toggleMark(
+      typed,
+      { start: 1_000_000, end: end + 1 },
+      'italic',
+    );
+    expect(italic[0].spans).toStrictEqual([
+      long,
+      { text: 'tails', marks: ['bold', 'italic'] },
+    ]);
+    expect(italic[0].spans[0]).toBe(long);
+    expect(marksAt(italic, { start: 1_000_000, end: end + 1 })).toStrictEqual([
+      'bold',
+      'italic',
+    ]);
+    expect(marksAt(italic, { start: 500_000, end: 500_000 })).toStrictEqual([]);
+  });
 
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
     expect.hasAssertions();
@@ -764,6 +796,10 @@ describe('storing Drafts', () => {
     expect(reopened.subject).toBe('Studio review on Thursday');
     expect(plainText(reopened.body)).toBe('Notes');
     expect(reopened.connection).toBe(alex.id);
+    // A connection listed before Mail Profiles, and so its Draft, belongs to the Default Profile.
+    expect(
+      session.mailboxes().find(({ id }) => id === reopened.connection)?.profile,
+    ).toBe(defaultProfile);
   });
 
   it('starts no Draft from a sender that stopped sending while the open composer saved', async () => {
@@ -2192,7 +2228,9 @@ describe('adding files and images to Drafts', () => {
     };
     const creating = navigation.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [
+        { ...alex, state: 'connected' as const, profile: defaultProfile },
+      ],
       saved,
     });
     await prepared;
@@ -2209,7 +2247,9 @@ describe('adding files and images to Drafts', () => {
     const replacement = createComposerNavigation();
     const preparing = replacement.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [
+        { ...alex, state: 'connected' as const, profile: defaultProfile },
+      ],
       saved,
     });
     await secondPrepared;

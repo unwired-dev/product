@@ -560,6 +560,87 @@ describe('reading Gmail message bodies', () => {
     });
   });
 
+  it('fails a message whose MIME metadata exceeds its budgets and reads one within them promptly', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const text = (headers: ReadonlyArray<{ name: string; value: string }>) => ({
+      mimeType: 'text/plain',
+      headers,
+      body: { size: 7, data: Buffer.from('Bounded').toString('base64url') },
+    });
+    const value = 256 * 1024;
+    const payloads = new Map<string, unknown>([
+      [
+        gmail.deliver(),
+        {
+          mimeType: 'multipart/mixed',
+          parts: [50_000, 50_001].map((length) =>
+            text(Array.from({ length }, () => ({ name: 'X-A', value: '' }))),
+          ),
+        },
+      ],
+      [gmail.deliver(), text([{ name: 'X'.repeat(999), value: '' }])],
+      [gmail.deliver(), text([{ name: 'X-A', value: 'a'.repeat(value + 1) }])],
+      [
+        gmail.deliver(),
+        {
+          mimeType: 'multipart/mixed',
+          parts: [
+            text([]),
+            {
+              mimeType: 'message/rfc822',
+              parts: [
+                text([{ name: 'Content-ID', value: `<${'a'.repeat(997)}>` }]),
+              ],
+            },
+          ],
+        },
+      ],
+      [gmail.deliver(), { ...text([]), mimeType: `text/${'a'.repeat(251)}` }],
+      [
+        gmail.deliver(),
+        {
+          mimeType: 'multipart/mixed',
+          parts: Array.from({ length: 17 }, () =>
+            text([{ name: 'X-A', value: 'a'.repeat(value) }]),
+          ),
+        },
+      ],
+    ]);
+    // A Content-Type at the value budget whose quoted string never closes. Measure the read
+    // explicitly: a synchronous parser stall can prevent the test timeout from firing.
+    const bounded = gmail.deliver();
+    const prefix = 'text/plain; x=';
+    payloads.set(
+      bounded,
+      text([
+        {
+          name: 'Content-Type',
+          value: prefix + '"\\'.repeat((value - prefix.length) / 2),
+        },
+      ]),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    substituteFull(gmail, (path) => {
+      const id = path.slice('messages/'.length);
+      return Promise.resolve({
+        status: 200,
+        body: JSON.stringify({ id, payload: payloads.get(id) }),
+      });
+    });
+    for (const id of [...payloads.keys()].filter((key) => key !== bounded)) {
+      await expect(read(inbox, id)).resolves.toStrictEqual({
+        kind: 'unavailable',
+        reason: 'failed',
+      });
+    }
+    const started = performance.now();
+    const body = await read(inbox, bounded);
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(readyBody(body).paragraphs).toStrictEqual([[{ text: 'Bounded' }]]);
+  });
+
   it('keeps forwarded attachments out of the body and falls back to readable plain alternatives', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

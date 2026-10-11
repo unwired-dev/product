@@ -71,6 +71,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `registration-flow.ts.confirmRevocation` consuming stale authentication without renewing the saved identity and retrying the same confirmation at most once, or skipping the `guarded` preflight for preparation, confirmation or cancellation. Trace the native fixed rejection code and Schema-decoded notice/projection together; renewal must not submit a different proposal or bypass saved-key confirmation. Otherwise a form left open cannot activate its confirmed removal, or retries authorize new material without consent.
 - `remote-content.ts.createRemoteContentSettings` or another privacy-relevant
   settings store publishing permissive defaults before persisted choices load.
   Keep readers closed while the policy is unresolved, including cache-only
@@ -747,6 +748,20 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   including image-only replies. Otherwise collapsing removes the context of an
   answer that remains visible.
 
+- MIME parsing in `message-body.ts` or `gmail-inbox.ts` that runs before
+  `withinMetadataBudgets` admits the whole message, including discarded subtrees.
+  Bound names before case folding and values before comment, parameter and CID
+  parsing; count headers and text across all parts. Preserve semantic headers
+  without truncation, and reject explicit reads or exclude speculative bodies
+  through their existing states. Delimiter scans must avoid eager match arrays
+  and repeated suffix scans on unterminated quoted strings; otherwise a compact
+  sender-controlled header can stall or exhaust every host's shared runtime.
+- `message-body.ts.metadataLimits` aggregate header-count or text budgets chosen
+  without checking `mimeTreeLimits.parts` and supported attachment trees. Several
+  ordinary headers belong to each part; independent numeric caps can otherwise
+  reject a message deliberately admitted near the part limit. Verify both
+  over-budget rejection across parts and successful reads of admitted trees,
+  including the existing large-attachment journeys in both host test suites.
 - `message-body.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,
