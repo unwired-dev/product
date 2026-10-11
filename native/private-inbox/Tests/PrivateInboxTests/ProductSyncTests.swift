@@ -142,19 +142,46 @@ import Testing
     return device
   }
 
+  // Convex's initialization: the first recovery envelope becomes the account's key material.
+  func initialize(
+    _ product: ProductRegistrationReceipt, envelope: EncryptedPayload, verifier: String,
+    deviceKey: Data
+  ) throws -> Bool {
+    try trusted(product)
+    let account = product.productAccountId
+    if let existing = recovery[account] { return existing == envelope }
+    recovery[account] = envelope
+    verifiers[account] = verifier
+    recoveryUpdatedAt[account] = clock
+    deviceKeys[product.trustedDeviceId] = deviceKey
+    initializations += 1
+    return true
+  }
+
+  // The Convex calls TypeScript names for Product Sync, answered as Convex would.
+  func transport(_ request: BackendRequest) throws -> (Int, Data) {
+    guard request.path == "productSync:initialize", request.identity != nil,
+      let product = request.product,
+      let payload = request.args["encryptedPayload"],
+      let verifier = request.args["recoveryVerifier"] as? String,
+      let deviceKey = (request.args["deviceEncryptionPublicKey"] as? String)
+        .flatMap({ Data(base64Encoded: $0) })
+    else { throw RegistrationError.unavailable }
+    let initialized = try initialize(
+      product,
+      envelope: JSONDecoder().decode(
+        EncryptedPayload.self, from: JSONSerialization.data(withJSONObject: payload)),
+      verifier: verifier, deviceKey: deviceKey)
+    return (
+      200,
+      try JSONSerialization.data(withJSONObject: [
+        "status": "success", "value": ["initialized": initialized],
+      ])
+    )
+  }
+
   var backend: ProductSyncBackend {
     ProductSyncBackend(
-      initialize: { [self] _, product, envelope, verifier, deviceKey in
-        try trusted(product)
-        let account = product.productAccountId
-        if let existing = recovery[account] { return existing == envelope }
-        recovery[account] = envelope
-        verifiers[account] = verifier
-        recoveryUpdatedAt[account] = clock
-        deviceKeys[product.trustedDeviceId] = deviceKey.rawRepresentation
-        initializations += 1
-        return true
-      },
       list: { [self] _, product, prefix in
         try trusted(product)
         try beforeList?(product.productAccountId, prefix)
@@ -406,6 +433,7 @@ import Testing
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend,
       deviceRevoked: { [self] product in revoked.contains(product.trustedDeviceId) },
+      transport: { [self] request in try transport(request) },
       connect: { [self] identity, device, _ in
         try connect("account-" + identity.subject, device: device)
       })
@@ -419,6 +447,14 @@ private func device() -> DeviceKeychain {
 // The final group with its first digit changed.
 private func wrongGroup(_ key: RecoveryKey) -> String {
   (key.lastGroup.first == "0" ? "1" : "0") + key.lastGroup.dropFirst()
+}
+
+// This device's Product Sync projection, as TypeScript reads it.
+@MainActor private func syncState(_ store: RegistrationStore) throws -> [String: Any] {
+  guard let saved = try store.load(), let state = try store.productSyncState(saved) else {
+    throw RegistrationError.unavailable
+  }
+  return state
 }
 
 private func remove(_ keys: DeviceKeychain, accounts: [String]) {
@@ -629,308 +665,6 @@ extension PrivateInboxTests {
     }
   }
 
-  @Test @MainActor func newAccountInitializesProductSyncOnceAndRelaunchKeepsItsKeys() async throws {
-    let keys = device()
-    defer { remove(keys, accounts: ["account-synthetic-product-subject"]) }
-    let google = SyntheticGoogleRegistrationProvider()
-    let backend = SyntheticProductSyncBackend()
-    let registered = try await backend.store(keys: keys, google: google).signIn()
-    #expect(registered["privateSync"] == "recovery-key")
-    let shown = try RecoveryKey(parsing: try #require(registered["recoveryKey"]))
-    // The published envelope restores the device-held keys with the displayed Recovery Key only.
-    let account = "account-synthetic-product-subject"
-    let ring = try KeyRingEnvelope.openRecovery(
-      try #require(backend.recovery[account]), key: shown, account: account)
-    #expect(try backend.store(keys: keys, google: google).loadVault(account)?.ring == ring)
-    #expect(backend.initializations == 1)
-    // Its verifier, published with it, lets the Recovery Key admit a Pending Device later.
-    #expect(backend.verifiers[account] == KeyRingEnvelope.recoveryVerifier(shown, account: account))
-
-    google.scopes = [RegistrationStore.gmailScope]
-    google.subject = "synthetic-mailbox-subject"
-    let store = backend.store(keys: keys, google: google)
-    let connected = try await store.authorizeGmail()
-    #expect(connected["kind"] == "connected")
-    #expect(connected["privateSyncMailboxes"] == "same@example.invalid")
-    // Signing in again, as offered for pending setup, rechecks the mailbox without new consent.
-    google.subject = "synthetic-product-subject"
-    let sessions = google.hints.count
-    #expect(try await backend.store(keys: keys, google: google).signIn() == connected)
-    #expect(google.hints.count == sessions + 1)
-    google.subject = "synthetic-mailbox-subject"
-    let records = try #require(backend.records[account])
-    #expect(records.count == 1)
-    // Convex holds only opaque identifiers and ciphertext; no address, subject or credential.
-    let visible =
-      try String(decoding: JSONEncoder().encode(records), as: UTF8.self)
-      + String(decoding: JSONEncoder().encode(backend.recovery), as: UTF8.self)
-    for secret in [
-      "same@example.invalid", "synthetic-mailbox-subject", "synthetic-access-token",
-      shown.display,
-    ] {
-      #expect(!visible.contains(secret))
-    }
-
-    #expect(throws: RegistrationError.recoveryKeyMismatch) {
-      try store.flowConfirmRecoveryKey(wrongGroup(shown))
-    }
-    let confirmed = try store.flowConfirmRecoveryKey(shown.lastGroup.lowercased())
-    #expect(confirmed["privateSync"] == "ready")
-    #expect(confirmed["recoveryKey"] == nil)
-
-    // A record sealed for another Product Account is never presented as this account's mailbox.
-    let foreign = ProductSyncKeyRing.create()
-    backend.records[account]?["mailbox.foreign"] = StoredPayload(
-      payloadIdentifier: "mailbox.foreign",
-      encryptedPayload: try foreign.seal(
-        record: JSONEncoder().encode(
-          MailboxDescriptor(provider: "gmail", address: "x@example.invalid")),
-        account: "account-other", identifier: "mailbox.foreign", schemaVersion: 1),
-      updatedAt: 1)
-
-    // Relaunch recovers the same keys and the decrypted record without generating anything.
-    let relaunched = try await backend.store(keys: keys, google: google).restore()
-    var expected = connected.merging(["privateSync": "ready"]) { $1 }
-    expected["recoveryKey"] = nil
-    #expect(relaunched == expected)
-    #expect(backend.initializations == 1)
-    #expect(try backend.store(keys: keys, google: google).loadVault(account)?.ring == ring)
-  }
-
-  @Test @MainActor func mailboxDescriptorsThisDeviceCannotOpenAreNeverReplaced() async throws {
-    let keys = device()
-    let account = "account-synthetic-product-subject"
-    defer { remove(keys, accounts: [account]) }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-    _ = try await backend.store(keys: keys, google: google).signIn()
-    google.subject = "synthetic-mailbox-subject"
-    _ = try await backend.store(keys: keys, google: google).authorizeGmail()
-    google.subject = "synthetic-product-subject"
-    let ring = try #require(try backend.store(keys: keys, google: google).loadVault(account)?.ring)
-    let identifier = try ring.identifier("mailbox", "gmail:synthetic-mailbox-subject")
-    #expect(backend.records[account]?.keys.sorted() == [identifier])
-
-    func sealed(_ address: String, with keys: ProductSyncKeyRing = ring, schema: Int = 1) throws
-      -> EncryptedPayload
-    {
-      try keys.seal(
-        record: JSONEncoder().encode(MailboxDescriptor(provider: "gmail", address: address)),
-        account: account, identifier: identifier, schemaVersion: schema)
-    }
-    // Stores the record in place of this device's descriptor, then signs in to synchronize.
-    func signInOver(_ payload: EncryptedPayload) async throws -> (StoredPayload, [String: String]) {
-      let stored = StoredPayload(
-        payloadIdentifier: identifier, encryptedPayload: payload, updatedAt: 1)
-      backend.records[account]?[identifier] = stored
-      return (stored, try await backend.store(keys: keys, google: google).signIn())
-    }
-
-    // A newer client's schema, an epoch this device lacks and a record failing authentication at
-    // the current schema and epoch are all read-only: never shown, never replaced.
-    let rotated = ProductSyncKeyRing(
-      current: 2, keys: ring.keys + [.init(version: 2, key: ProductSyncSeal.randomKey())])
-    let current = try sealed("tampered@example.invalid")
-    var ciphertext = try #require(Data(base64Encoded: current.ciphertextBase64))
-    ciphertext[0] ^= 1
-    let tampered = EncryptedPayload(
-      ciphertextBase64: ciphertext.base64EncodedString(), keyVersion: current.keyVersion,
-      nonceBase64: current.nonceBase64, schemaVersion: current.schemaVersion,
-      tagBase64: current.tagBase64)
-    for payload in [
-      try sealed("newer@example.invalid", schema: MailboxDescriptor.schemaVersion + 1),
-      try sealed("rotated@example.invalid", with: rotated), tampered,
-    ] {
-      let (stored, signedIn) = try await signInOver(payload)
-      #expect(backend.records[account]?[identifier] == stored)
-      #expect(signedIn["kind"] == "connected")
-      #expect(signedIn["privateSyncMailboxes"] == nil)
-    }
-
-    // A record that opens at the current schema and differs is replaced and read back.
-    let (stale, signedIn) = try await signInOver(sealed("stale@example.invalid"))
-    let replaced = try #require(backend.records[account]?[identifier])
-    #expect(replaced != stale)
-    #expect(signedIn["privateSyncMailboxes"] == "same@example.invalid")
-  }
-
-  @Test @MainActor func missingLocalKeysNeverReplaceAnExistingAccountsKeyMaterial() async throws {
-    let first = device()
-    let second = device()
-    let account = "account-synthetic-product-subject"
-    defer {
-      remove(first, accounts: [account])
-      remove(second, accounts: [account])
-    }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-
-    // An interrupted first publication keeps the saved keys and finishes them later.
-    backend.offline = true
-    let pending = try await backend.store(keys: first, google: google).signIn()
-    #expect(pending["privateSync"] == "setup-pending")
-    let saved = try #require(try backend.store(keys: first, google: google).loadVault(account))
-    #expect(backend.recovery[account] == nil)
-
-    // Another installation waits as a Pending Device and never creates keys of its own.
-    backend.offline = false
-    let waiting = try await backend.store(keys: second, google: google).signIn()
-    #expect(waiting["kind"] == "device-pending")
-    #expect(waiting["privateSync"] == "setup-pending")
-    #expect(waiting["enrollmentCode"] == nil)
-    #expect(try backend.store(keys: second, google: google).loadVault(account) == nil)
-    #expect(backend.initializations == 0)
-
-    // Meanwhile the backend reports key material this device did not publish.
-    let key = RecoveryKey.generate()
-    let ring = ProductSyncKeyRing.create()
-    backend.recovery[account] = try KeyRingEnvelope.recovery(ring, key: key, account: account)
-    backend.verifiers[account] = KeyRingEnvelope.recoveryVerifier(key, account: account)
-    let published = try #require(backend.recovery[account])
-    #expect(published != saved.recoveryEnvelope)
-
-    // The first device discards its unpublished keys instead of replacing the account's.
-    let resumed = try await backend.store(keys: first, google: google).restore()
-    #expect(resumed["privateSync"] == "enrollment-needed")
-    #expect(resumed["recoveryKey"] == nil)
-    #expect(try backend.store(keys: first, google: google).loadVault(account) == nil)
-    #expect(backend.recovery[account] == published)
-    #expect(backend.initializations == 0)
-
-    // Gmail stays authorizable, but no record is written without the account's keys.
-    let connected = try await backend.store(keys: first, google: google).authorizeGmail()
-    #expect(connected["kind"] == "connected")
-    #expect(connected["privateSync"] == "enrollment-needed")
-    #expect(backend.records[account] == nil)
-    #expect(throws: RegistrationError.unavailable) {
-      try backend.store(keys: first, google: google).flowConfirmRecoveryKey("0000")
-    }
-
-    // The account's Recovery Key unlocks this Trusted Device from the recovery envelope directly,
-    // and binds the encryption key this Trusted Device never bound.
-    let firstId = try #require(
-      try backend.store(keys: first, google: google).load()?.product?.trustedDeviceId)
-    #expect(backend.deviceKeys[firstId] == nil)
-    let unlocked = try await backend.store(keys: first, google: google).flowRecover(with: key.display)
-    #expect(unlocked["privateSync"] == "ready")
-    #expect(
-      backend.deviceKeys[firstId]
-        == (try backend.store(keys: first, google: google).deviceKey(account).publicKey
-          .rawRepresentation))
-    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
-    #expect(try backend.store(keys: first, google: google).loadVault(account)?.ring == ring)
-    #expect(backend.recovery[account] == published)
-
-    // The waiting installation now asks a Trusted Device for the keys.
-    let requested = try await backend.store(keys: second, google: google).refreshPrivateSync()
-    #expect(requested["kind"] == "device-pending")
-    #expect(requested["privateSync"] == "enrollment-pending")
-    #expect(requested["enrollmentCode"] != nil)
-    #expect(backend.initializations == 0)
-  }
-
-  @Test @MainActor func unknownProductSyncStateWaitsForVerificationWithoutCreatingKeys()
-    async throws
-  {
-    let keys = device()
-    let account = "account-synthetic-apple-subject"
-    defer { remove(keys, accounts: [account]) }
-    let google = SyntheticGoogleRegistrationProvider()
-    let apple = SyntheticAppleRegistrationProvider()
-    let backend = SyntheticProductSyncBackend()
-    var legacy = true
-    func store() -> RegistrationStore {
-      RegistrationStore(
-        keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-        provider: google, apple: apple, productSync: backend.backend,
-        connect: { identity, device, _ in
-          var receipt = try backend.connect("account-" + identity.subject, device: device)
-          if legacy { receipt.productSyncMaterialInitialized = nil }
-          return receipt
-        })
-    }
-    // A receipt without Product Sync state, as saved before this slice, neither creates keys
-    // nor demands enrollment; Apple restore cannot reconnect, so it offers sign-in again.
-    #expect(try await store().signIn(with: .apple)["privateSync"] == "setup-pending")
-    #expect(try await store().restore()["privateSync"] == "setup-pending")
-    #expect(try store().loadVault(account) == nil)
-    #expect(backend.initializations == 0)
-    // Signing in again reports the account's actual state, which initializes it.
-    legacy = false
-    #expect(try await store().signIn(with: .apple)["privateSync"] == "recovery-key")
-    #expect(backend.initializations == 1)
-  }
-
-  @Test @MainActor func unreadableProductSyncKeysLeaveRegistrationAndGmailUsable() async throws {
-    let keys = device()
-    let account = "account-synthetic-product-subject"
-    defer { remove(keys, accounts: [account]) }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let backend = SyntheticProductSyncBackend()
-    _ = try await backend.store(keys: keys, google: google).signIn()
-    let ring = try #require(try backend.store(keys: keys, google: google).loadVault(account)).ring
-    // A malformed item, then another Product Account's keys stored under this account's item.
-    for vault in [
-      Data("malformed".utf8),
-      try JSONEncoder().encode(ProductSyncVault(productAccountId: "account-other", ring: ring)),
-    ] {
-      try keys.save(vault, account: "product-sync." + account)
-      google.subject = "synthetic-mailbox-subject"
-      let connected = try await backend.store(keys: keys, google: google).authorizeGmail()
-      #expect(connected["kind"] == "connected")
-      #expect(connected["privateSync"] == "unavailable")
-      #expect(try await backend.store(keys: keys, google: google).restore() == connected)
-      google.subject = "synthetic-product-subject"
-      #expect(try await backend.store(keys: keys, google: google).signIn() == connected)
-      #expect(try backend.store(keys: keys, google: google).load()?.mailboxSetupReason == nil)
-      // The unreadable keys are kept, never replaced.
-      #expect(try keys.read("product-sync." + account) == vault)
-    }
-    #expect(backend.initializations == 1)
-  }
-
-  @Test @MainActor func appleRelaunchAsksToSignInAgainBeforeSavingANewMailbox() async throws {
-    let keys = device()
-    let account = "account-synthetic-apple-subject"
-    defer { remove(keys, accounts: [account]) }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let apple = SyntheticAppleRegistrationProvider()
-    let backend = SyntheticProductSyncBackend()
-    func store() -> RegistrationStore {
-      RegistrationStore(
-        keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-        provider: google, apple: apple, productSync: backend.backend,
-        connect: { identity, device, _ in
-          try backend.connect("account-" + identity.subject, device: device)
-        })
-    }
-    let first = store()
-    _ = try await first.signIn(with: .apple)
-    google.subject = "synthetic-mailbox-subject"
-    #expect(try await first.authorizeGmail()["privateSyncPending"] == nil)
-    // An Apple relaunch cannot reach Convex but still shows the list it last decrypted.
-    #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
-    // After relaunch Apple has no backend session, so a newly chosen mailbox waits for sign-in.
-    google.mailboxAddresses = [
-      "synthetic-mailbox-subject": "same@example.invalid",
-      "synthetic-other-mailbox": "other@example.invalid",
-    ]
-    google.subject = "synthetic-other-mailbox"
-    let reselected = try await store().authorizeGmail(chooseAccount: true)
-    #expect(reselected["kind"] == "connected")
-    #expect(reselected["privateSyncPending"] == "mailbox")
-    #expect(backend.records[account]?.count == 1)
-    // Signing in again saves the descriptor and reads both back.
-    let signedIn = try await store().signIn(with: .apple)
-    #expect(signedIn["privateSyncPending"] == nil)
-    #expect(signedIn["privateSyncMailboxes"] == "other@example.invalid\nsame@example.invalid")
-    #expect(backend.records[account]?.count == 2)
-  }
-
   @Test @MainActor func trustedDeviceApprovalUnlocksANewDeviceWithoutReplacingAccountKeys()
     async throws
   {
@@ -1035,7 +769,6 @@ extension PrivateInboxTests {
     #expect(unlocked["privateSync"] == "ready")
     #expect(unlocked["recoveryKey"] == nil)
     #expect(unlocked["enrollmentCode"] == nil)
-    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
     #expect(try enrolling.loadVault(account)?.ring == ring)
     #expect(try new.read("product-sync-enrollment." + account) == nil)
     let admitted = try #require(try enrolling.load()?.product)
@@ -1129,7 +862,6 @@ extension PrivateInboxTests {
     #expect(unlocked["privateSync"] == "ready")
     #expect(unlocked["recoveryKey"] == nil)
     #expect(unlocked["enrollmentCode"] == nil)
-    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
     #expect(try recovering.loadVault(account)?.ring == ring)
     #expect(try recovering.loadVault(account)?.recoveryKey == nil)
     #expect(try recovering.load()?.product?.pending == nil)
@@ -1141,7 +873,6 @@ extension PrivateInboxTests {
     #expect(try lost.loadVault(account)?.ring == ring)
     let restored = try await backend.store(keys: new, google: google).restore()
     #expect(restored["privateSync"] == "ready")
-    #expect(restored["privateSyncMailboxes"] == "same@example.invalid")
 
     // This account's synthetic Apple sign-in reaches the same account on another installation.
     let apple = SyntheticAppleRegistrationProvider()
@@ -1170,7 +901,7 @@ extension PrivateInboxTests {
     apple.outcome = nil
     #expect(try await appleRecovery.flowRecover(with: shown)["privateSync"] == "ready")
     #expect(try appleRecovery.loadVault(account)?.ring == ring)
-    #expect(try await appleStore().restore()["privateSyncMailboxes"] == "same@example.invalid")
+    #expect(try await appleStore().restore()["privateSync"] == "ready")
     #expect(backend.recovery[account] == recovery)
     #expect(backend.initializations == 1)
 
@@ -1375,19 +1106,21 @@ extension PrivateInboxTests {
     #expect(try await newcomer.refreshPrivateSync()["privateSync"] == "ready")
     #expect(try newcomer.loadVault(account)?.ring == ring)
 
-    // A mailbox saved at the new epoch reaches the survivor, but not the removed device's keys.
-    google.subject = "synthetic-other-mailbox"
-    google.address = "other@example.invalid"
-    #expect(try await remover.authorizeGmail(chooseAccount: true)["kind"] == "connected")
-    google.subject = "synthetic-product-subject"
-    #expect(
-      try await survivor.refreshPrivateSync()["privateSyncMailboxes"]
-        == "other@example.invalid\nsame@example.invalid")
-    let saved = try #require(
-      backend.records[account]?.values.first { $0.encryptedPayload.keyVersion == 2 })
+    // A record sealed at the new epoch opens for the survivor, but not with the removed device's
+    // keys. Synchronizing descriptors at that epoch is covered in packages/mail-core.
+    let record = try ring.identifier("mailbox", "gmail:synthetic-other-mailbox")
+    let sealed = try remover.sealMailboxDescriptor(
+      record, ["provider": "gmail", "address": "other@example.invalid"])
+    #expect(sealed["keyVersion"] as? Int == 2)
+    let opened = try survivor.openMailboxDescriptors([
+      ["payloadIdentifier": record, "encryptedPayload": sealed]
+    ])
+    #expect((opened.first as? [String: Any])?["address"] as? String == "other@example.invalid")
+    let payload = try JSONDecoder().decode(
+      EncryptedPayload.self, from: JSONSerialization.data(withJSONObject: sealed))
     #expect(throws: ProductSyncError.rejected) {
       try oldRing.open(
-        record: saved.encryptedPayload, account: account, identifier: saved.payloadIdentifier,
+        record: payload, account: account, identifier: record,
         schemaVersion: MailboxDescriptor.schemaVersion)
     }
   }
@@ -1592,7 +1325,6 @@ extension PrivateInboxTests {
     // Reconnecting, it adopts epoch 3 directly, without a Recovery Key, and reads older data.
     let caught = try await absent.refreshPrivateSync()
     #expect(caught["privateSync"] == "ready")
-    #expect(caught["privateSyncMailboxes"] == "same@example.invalid")
     let ring = try #require(try absent.loadVault(account)?.ring)
     #expect(try ring == remover.loadVault(account)?.ring)
     #expect(ring.keys.map(\.version).sorted() == [1, 2, 3])
@@ -1864,7 +1596,9 @@ extension PrivateInboxTests {
         == other.loadVault(account)?.ring)
   }
 
-  @Test @MainActor func writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt()
+  // The native Draft half of the retired writesSealedAtAnOvertakenEpoch test remains here;
+  // mailbox retry coordination is covered in packages/mail-core/test/product-sync.test.ts.
+  @Test @MainActor func draftWritesAtAnOvertakenEpochAdoptBeforeRetrying()
     async throws
   {
     let (creator, kept, lost) = (device(), device(), device())
@@ -1906,30 +1640,6 @@ extension PrivateInboxTests {
     #expect(
       backend.records[account]?.values.allSatisfy { $0.encryptedPayload.keyVersion == 2 } == true)
 
-    // A mailbox write that a removal overtakes mid-synchronization is sealed again in the same run.
-    google.subject = "synthetic-mailbox-subject"
-    let writerId = try #require(try writer.load()?.product?.trustedDeviceId)
-    let ring = try #require(try writer.loadVault(account)?.ring)
-    let next = ProductSyncKeyRing(
-      current: 3, keys: ring.keys + [.init(version: 3, key: ProductSyncSeal.randomKey())])
-    backend.removalBeforeMailboxPut = (
-      3,
-      [
-        writerId: try KeyRingEnvelope.rotation(
-          next,
-          to: .init(
-            account: account, device: writerId,
-            publicKey: Curve25519.KeyAgreement.PublicKey(
-              rawRepresentation: #require(backend.deviceKeys[writerId]))))
-      ]
-    )
-    #expect(try await writer.authorizeGmail()["kind"] == "connected")
-    #expect(backend.removalBeforeMailboxPut == nil)
-    #expect(try writer.loadVault(account)?.ring == next)
-    #expect(
-      backend.records[account]?.values.contains {
-        $0.payloadIdentifier.hasPrefix("mailbox.") && $0.encryptedPayload.keyVersion == 3
-      } == true)
   }
 
   @Test(arguments: [false, true]) @MainActor
@@ -1954,7 +1664,7 @@ extension PrivateInboxTests {
     if !retainsRing { try original.remove("product-sync." + account) }
     try original.remove("product-sync-device-key." + account)
     #expect(
-      try lostStore.privateSync(#require(try lostStore.load()))["privateSync"]
+      try lostStore.privateSyncStatus(#require(try lostStore.load()))["privateSync"]
         == "enrollment-needed")
     #expect(throws: RegistrationError.unavailable) {
       try lostStore.deviceKey(account)
@@ -2349,6 +2059,143 @@ extension PrivateInboxTests {
     #expect(try await remover.flowRecover(with: currentKey)["privateSync"] == "ready")
     #expect(try remover.loadVault(account)?.ring.current == (superseded ? 3 : 2))
   }
+
+  // The native half of initialization and descriptor synchronization, which TypeScript sequences
+  // (packages/mail-core/test/product-sync.test.ts): keys are stored before anything is published,
+  // a retry returns the same keys, unpublished keys never replace other key material, and a
+  // descriptor opens only under its own identifier, account and epoch.
+  @Test @MainActor func vaultOperationsStoreKeysFirstAndOpenRecordsOnlyWhereTheyWereSealed()
+    async throws
+  {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    #expect(try store.load()?.product?.productSyncMaterialInitialized == false)
+
+    // Created and stored before publication; a relaunch returns the same keys.
+    let created = try store.createKeyRing()
+    let unpublished = try #require(try store.loadVault(account))
+    #expect(!unpublished.published)
+    let relaunched = backend.store(keys: keys, google: google)
+    let again = try relaunched.createKeyRing()
+    #expect(NSDictionary(dictionary: again).isEqual(to: created))
+    #expect(try relaunched.loadVault(account)?.ring == unpublished.ring)
+    let projection = try syncState(store)
+    let text = String(
+      decoding: try JSONSerialization.data(withJSONObject: projection), as: UTF8.self)
+    for secret in unpublished.ring.keys.map({ $0.key.base64EncodedString() }) {
+      #expect(!text.contains(secret))
+    }
+    #expect((projection["vault"] as? [String: Any])?["published"] as? Bool == false)
+    #expect(
+      (projection["vault"] as? [String: Any])?["recoveryKey"] as? String
+        == (try RecoveryKey(bytes: #require(unpublished.recoveryKey)).display))
+    try store.recordInitialization(true)
+    #expect(try store.loadVault(account)?.published == true)
+    #expect(throws: RegistrationError.unavailable) { try store.createKeyRing() }
+
+    // Sealed and opened only under its own identifier, for this account at a known epoch.
+    let ring = unpublished.ring
+    let record = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
+    let descriptor: [String: Any] = ["provider": "gmail", "address": "same@example.invalid"]
+    let sealed = try store.sealMailboxDescriptor(record, descriptor)
+    var tampered = sealed
+    tampered["tagBase64"] = Data(repeating: 0, count: 16).base64EncodedString()
+    let foreign = try JSONSerialization.jsonObject(
+      with: JSONEncoder().encode(
+        ProductSyncKeyRing.create().seal(
+          record: JSONEncoder().encode(
+            MailboxDescriptor(provider: "gmail", address: "x@example.invalid")),
+          account: account, identifier: record, schemaVersion: 1)))
+    let opened = try store.openMailboxDescriptors([
+      ["payloadIdentifier": record, "encryptedPayload": sealed],
+      ["payloadIdentifier": "mailbox.other", "encryptedPayload": sealed],
+      ["payloadIdentifier": record, "encryptedPayload": tampered],
+      ["payloadIdentifier": record, "encryptedPayload": foreign],
+      ["payloadIdentifier": record],
+    ])
+    #expect((opened.first as? [String: Any])?["address"] as? String == "same@example.invalid")
+    #expect(opened.dropFirst().allSatisfy { $0 is NSNull })
+    #expect(throws: RegistrationError.unavailable) {
+      try store.sealMailboxDescriptor("draft.other", descriptor)
+    }
+
+    // A new connection records which descriptor epoch this device had last read for it.
+    try store.recordMailboxReadback(addresses: [], confirmed: [:], epochs: [record: "observed"])
+    _ = try await store.signInMailbox(nil, suggest: false)
+    _ = try await store.verifyGmail()
+    try store.storeMailbox()
+    let connection = try #require(try store.load()?.connections.first)
+    #expect(connection.observed == true)
+    #expect(connection.observedEpoch == "observed")
+    // Synchronization's changes apply to the stored connection; a null epoch clears it.
+    try store.recordMailboxChanges(
+      connections: [["id": connection.id, "epoch": "adopted", "published": true]],
+      settledRemovals: [])
+    #expect(try store.load()?.connections.first?.epoch == "adopted")
+    #expect(try store.load()?.connections.first?.published == true)
+    try store.recordMailboxChanges(
+      connections: [["id": connection.id, "epoch": NSNull()]], settledRemovals: [])
+    #expect(try store.load()?.connections.first?.epoch == nil)
+    let mailbox = try #require(
+      ((try syncState(store)["vault"] as? [String: Any])?["mailboxes"] as? [[String: Any]])?.first)
+    #expect(mailbox["record"] as? String == record)
+    #expect(mailbox["newlyAuthorized"] as? Bool == true)
+    store.finishSynchronization()
+    #expect(
+      ((try syncState(store)["vault"] as? [String: Any])?["mailboxes"] as? [[String: Any]])?.first?[
+        "newlyAuthorized"] as? Bool == false)
+
+    // Another account's key material already published: these unpublished keys are discarded.
+    let other = device()
+    defer { remove(other, accounts: [account]) }
+    let second = backend.store(keys: other, google: google)
+    var saved = try #require(try store.load())
+    saved.product?.productSyncMaterialInitialized = false
+    try other.save(JSONEncoder().encode(saved), account: "registration")
+    _ = try second.createKeyRing()
+    try second.recordInitialization(false)
+    #expect(try second.loadVault(account) == nil)
+    #expect(try second.load()?.product?.productSyncMaterialInitialized == true)
+    // An unknown state never creates keys.
+    saved.product?.productSyncMaterialInitialized = nil
+    try other.save(JSONEncoder().encode(saved), account: "registration")
+    #expect(throws: RegistrationError.unavailable) { try second.createKeyRing() }
+
+    // Unreadable keys never fail registration; TypeScript reports Product Sync unavailable.
+    try keys.save(Data("malformed".utf8), account: "product-sync." + account)
+    #expect(try store.registration()?["productSync"] as? String == "unreadable")
+  }
+
+  // Product Sync initialization and mailbox descriptor synchronization moved to TypeScript
+  // (packages/mail-core/test/product-sync.test.ts). Each retired test names its replacement there;
+  // the native half is vaultOperationsStoreKeysFirstAndOpenRecordsOnlyWhereTheyWereSealed above:
+  // - newAccountInitializesProductSyncOnceAndRelaunchKeepsItsKeys: "initializes a new account
+  //   once, keeps its keys across relaunch and stores only opaque records"
+  // - mailboxDescriptorsThisDeviceCannotOpenAreNeverReplaced: "never shows or replaces a descriptor
+  //   this device cannot open"
+  // - missingLocalKeysNeverReplaceAnExistingAccountsKeyMaterial: "resumes an interrupted
+  //   initialization with the same keys …" and "discards unpublished keys when the account already
+  //   holds other key material"; its recovery and approval steps stay in the journeys above
+  // - unknownProductSyncStateWaitsForVerificationWithoutCreatingKeys: "waits for verification
+  //   without creating keys while the account state is unknown"
+  // - unreadableProductSyncKeysLeaveRegistrationAndGmailUsable: "keeps registration and Gmail usable
+  //   while Product Sync keys are unreadable"
+  // - appleRelaunchAsksToSignInAgainBeforeSavingANewMailbox: "saves a mailbox chosen after an Apple
+  //   relaunch once Apple sign-in renews the session"
+  // - writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt: "seals a write again at the
+  //   newest epoch after a removal overtakes it"; its native Draft half remains in
+  //   draftWritesAtAnOvertakenEpochAdoptBeforeRetrying
+  // The descriptor read-back the approval, recovery and removal journeys above asserted is "enrolls
+  // again as a new device after losing its key …" and "reads every 100-record page of
+  // descriptors" there.
 
   // Guarding every operation against a revoked device is the TypeScript flow's job now. These
   // retired tests are replaced in packages/mail-core/test/registration-flow.test.ts:

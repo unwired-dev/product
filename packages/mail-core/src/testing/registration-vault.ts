@@ -1,8 +1,35 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
 import type { NativeRegistrationVault } from '../registration-flow.ts';
 import type { SignInProvider } from '../registration.ts';
+import type { SyntheticProductSync } from './registration-product-sync.ts';
+import type {
+  Call,
+  Identity,
+  Presented,
+  Receipt,
+  SavedRecord,
+  SyncVault,
+} from './registration-vault-state.ts';
 
+import {
+  createSyntheticSyncVault,
+  mailboxRecord,
+} from './registration-product-sync.ts';
 import { syntheticMailboxes } from './registration-session.ts';
+import {
+  attempt,
+  refusal,
+  success,
+  unavailable,
+} from './registration-vault-state.ts';
+
+export {
+  createSyntheticProductSyncBackend,
+  mailboxRecord,
+  storeDescriptor,
+  storedDescriptor,
+} from './registration-product-sync.ts';
+export type { SyntheticProductSync } from './registration-product-sync.ts';
 
 // An in-memory native vault with synthetic Google, Apple and Convex behavior, for the TypeScript
 // registration flow. It keeps what native code keeps from TypeScript: credentials, tokens and
@@ -10,64 +37,15 @@ import { syntheticMailboxes } from './registration-session.ts';
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 
-interface Identity {
-  provider: SignInProvider;
-  subject: string;
-  email?: string;
-  authorizationCode?: string;
-}
-interface Receipt {
-  productAccountId: string;
-  trustedDeviceId: string;
-  pending?: true;
-  signInProviders?: SignInProvider[];
-}
-interface Connection {
-  subject: string;
-  address: string;
-  // Renewed with each live.authorization, as native credentials are.
-  credential: number;
-  authorizationNeeded?: true;
-  epoch: string;
-}
-interface SavedRecord {
-  clientID: string;
-  deviceIdentifier: string;
-  provider: SignInProvider;
-  subject: string;
-  credential: number;
-  contactEmail?: string;
-  product?: Receipt;
-  mailboxSetupReason?: string;
-  connections: Connection[];
-  removal?: {
-    operation: 'signOut' | 'deletion' | 'revoked';
-    acknowledged: boolean;
-  };
-}
-type Call = Readonly<{
-  endpoint: string;
-  path: string;
-  args: Readonly<Record<string, unknown>>;
-  identity?: true;
-  device?: true;
-  installation?: true;
-  appleAuthorization?: true;
-}>;
-
 const reject = (code: string): Promise<never> =>
   Promise.reject(Object.assign(new Error(`Synthetic ${code}`), { code }));
-const success = (value: unknown) => ({
-  status: 200,
-  body: JSON.stringify({ status: 'success', value }),
-});
-const refusal = (code: string) => ({
-  status: 200,
-  body: JSON.stringify({ status: 'error', errorData: { code } }),
-});
-
-// Runs a native operation, rejecting with whatever it throws.
-const attempt = async <A>(operation: () => A) => operation();
+const opens = (
+  record: Readonly<SavedRecord> | undefined,
+  signedIn: Readonly<Identity>,
+) =>
+  record !== undefined &&
+  record.provider === signedIn.provider &&
+  record.subject === signedIn.subject;
 
 // What outlives a relaunch: the device's Keychain, the providers and the backend.
 export function createSyntheticDevice() {
@@ -77,9 +55,23 @@ export function createSyntheticDevice() {
     record: undefined as SavedRecord | undefined,
     // Whether this device's Recovery Key is backed up, so sign-out may discard it.
     recoveryKeyConfirmed: true,
-    privateSync: {} as Readonly<Record<string, string>>,
-    installations: 0,
-    epochs: 0,
+    // The Keychain's Product Sync items: the key ring, this installation's encryption key and an
+    // open enrollment request. `unreadable` makes them fail to read.
+    productSync: {
+      vault: undefined as SyncVault | undefined,
+      deviceKey: false,
+      enrollment: undefined as
+        | { code: string; notice?: 'renewed' | 'rejected' }
+        | undefined,
+      unreadable: false,
+      // Other devices' requests and Trusted Devices, as this process last listed them.
+      requests: [] as Array<{ id: string; device: string; expiresAt: number }>,
+      trustedDevices: [] as Array<{
+        id: string;
+        name: string;
+        registeredAt: number;
+      }>,
+    },
     connectionIds: new Map<string, string>(),
   };
   // The Google Sign-In SDK and Gmail profile, for Product Sign-In and Gmail alike.
@@ -118,6 +110,9 @@ export function createSyntheticDevice() {
     revocationOffline: false,
     connectFailure: undefined as string | undefined,
     devices: 0,
+    // Installation identifiers and connection epochs, unique across devices like native UUIDs.
+    installations: 0,
+    epochs: 0,
     deleted: new Set<string>(),
     // An unanswered request: the backend applies it, and the reply is lost.
     loseReply: false,
@@ -133,6 +128,8 @@ export function createSyntheticDevice() {
     // Native push steps, in order with `calls`: each verified mailbox's routing and every watch
     // stopped before this device's routes leave the backend.
     push: [] as Array<'route' | 'stop'>,
+    // Convex's Product Sync, absent where the host has none.
+    productSync: undefined as SyntheticProductSync | undefined,
   };
   return { device, google, apple, backend };
 }
@@ -158,6 +155,8 @@ export function createSyntheticVault(
   };
   const verified = new Set<string>();
   const cached = new Set<string>();
+  // Connections explicit consent stored in this process, until synchronization ends.
+  const newlyAuthorized = new Set<string>();
 
   // Opaque like native connection IDs; the known synthetic mailboxes keep their host IDs.
   const connectionId = (subject: string, address?: string) => {
@@ -190,13 +189,6 @@ export function createSyntheticVault(
     }
     return live.identity;
   };
-  const opens = (
-    record: Readonly<SavedRecord> | undefined,
-    signedIn: Readonly<Identity>,
-  ) =>
-    record !== undefined &&
-    record.provider === signedIn.provider &&
-    record.subject === signedIn.subject;
   const productIdentity = (provider: SignInProvider, hint?: string) => {
     if (provider === 'google') {
       google.hints.push(hint);
@@ -217,8 +209,25 @@ export function createSyntheticVault(
     apple.email = undefined;
     return Promise.resolve(signedIn);
   };
+  // With Product Sync, an installation of an account that holds keys waits for admission.
+  const admission = (account: string, installation: string) => {
+    const sync = backend.productSync;
+    const keys = sync?.accounts.get(account);
+    const admitted =
+      keys === undefined ||
+      keys.admitted.has(installation) ||
+      (keys.admitted.size === 0 && keys.recovery === undefined);
+    if (sync !== undefined && admitted && !backend.pendingDevices) {
+      const entry = keys ?? { records: new Map(), admitted: new Set<string>() };
+      entry.admitted.add(installation);
+      sync.accounts.set(account, entry);
+    }
+    return { sync, admitted };
+  };
+  // fallow-ignore-next-line complexity -- Mirrors Convex's ownership, deletion and admission refusals.
   const connect = (
     signedIn: Readonly<Identity>,
+    installation: string,
     previous?: Readonly<Receipt>,
   ): Receipt => {
     const existing = backend.owners.get(signedIn.subject);
@@ -241,21 +250,23 @@ export function createSyntheticVault(
       backend.linked.set(account, [signedIn.provider]);
     }
     backend.connected.push(signedIn);
+    const { sync, admitted } = admission(account, installation);
     return {
       productAccountId: account,
       trustedDeviceId: `synthetic-device-${(backend.devices += 1)}`,
-      ...(backend.pendingDevices ? { pending: true as const } : {}),
+      ...(backend.pendingDevices || !admitted
+        ? { pending: true as const }
+        : {}),
       signInProviders: [...(backend.linked.get(account) ?? [])],
+      ...(sync === undefined || sync.legacyReceipts
+        ? {}
+        : {
+            materialInitialized:
+              sync.accounts.get(account)?.recovery !== undefined,
+          }),
     };
   };
 
-  // What Convex answers for each call, given the credentials native code attached.
-  type Presented = Readonly<{
-    call: Call;
-    product?: Readonly<Receipt> | undefined;
-    signedIn?: Readonly<Identity> | undefined;
-    installation?: string | undefined;
-  }>;
   const registered = () => {
     const record = saved();
     if (record.product === undefined) {
@@ -263,14 +274,19 @@ export function createSyntheticVault(
     }
     return record;
   };
+  const presentedIdentity = (call: Call) =>
+    call.identity === true ? latestIdentity() : undefined;
   const present = (call: Call): Presented => {
     if (call.path === 'productAccount:connect') {
+      throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
+    }
+    if (call.session === true && live.session === undefined) {
       throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
     }
     return {
       call,
       product: call.device === true ? registered().product : undefined,
-      signedIn: call.identity === true ? latestIdentity() : undefined,
+      signedIn: call.session === true ? live.session : presentedIdentity(call),
       installation:
         call.installation === true ? registered().deviceIdentifier : undefined,
     };
@@ -286,6 +302,16 @@ export function createSyntheticVault(
     }
     return success({ registered: false });
   };
+  const syncAdapter = createSyntheticSyncVault(shared, {
+    saved,
+    connectionId,
+    newlyAuthorized,
+    live,
+    connect,
+    verified,
+    cached,
+  });
+
   const handlers: Readonly<
     Record<
       string,
@@ -358,6 +384,7 @@ export function createSyntheticVault(
       backend.pendingExpired
         ? refusal('PENDING_DEVICE_UNAVAILABLE')
         : success({ state: 'pending' }),
+    ...syncAdapter.handlers,
     '/product-account/delete': ({ product, signedIn }) => {
       if (backend.deletionStatus !== 200) {
         return {
@@ -382,8 +409,9 @@ export function createSyntheticVault(
     return cached.has(id) ? 'cached' : 'unverified';
   };
 
-  const vault: NativeRegistrationVault = {
+  const operations: NativeRegistrationVault = {
     registration: () =>
+      // fallow-ignore-next-line complexity -- Each optional field mirrors the native projection.
       attempt(() => {
         const record = load();
         if (record === undefined) {
@@ -414,13 +442,17 @@ export function createSyntheticVault(
             return {
               id,
               address: connection.address,
-              epoch: connection.epoch,
+              ...(connection.epoch === undefined
+                ? {}
+                : { epoch: connection.epoch }),
               authorizationNeeded: connection.authorizationNeeded === true,
               access: accessOf(id),
             };
           }),
-          mailboxRemovalPending: false,
-          privateSync: record.product === undefined ? {} : device.privateSync,
+          mailboxRemovalPending: (record.removals?.length ?? 0) > 0,
+          ...(backend.productSync === undefined || record.product === undefined
+            ? {}
+            : { productSync: syncAdapter.project(record) }),
           session: live.session !== undefined,
         };
       }),
@@ -475,12 +507,9 @@ export function createSyntheticVault(
           });
         }
         const retained = replacing ? undefined : existing;
-        if (retained === undefined) {
-          device.installations += 1;
-        }
         const next: SavedRecord = retained ?? {
           clientID: device.clientID,
-          deviceIdentifier: `synthetic-installation-${device.installations}`,
+          deviceIdentifier: `synthetic-installation-${(backend.installations += 1)}`,
           provider: signedIn.provider,
           subject: signedIn.subject,
           credential: 0,
@@ -508,7 +537,11 @@ export function createSyntheticVault(
         if (backend.offline) {
           throw Object.assign(new Error('Synthetic'), { code: 'offline' });
         }
-        const product = connect(signedIn, record.product);
+        const product = connect(
+          signedIn,
+          record.deviceIdentifier,
+          record.product,
+        );
         if (mode === 'switch') {
           record.provider = signedIn.provider;
           record.subject = signedIn.subject;
@@ -522,11 +555,7 @@ export function createSyntheticVault(
         }
         return null;
       }),
-    synchronize: () =>
-      attempt(() => {
-        saved();
-        return null;
-      }),
+    ...syncAdapter.operations,
     forgetMailboxAccess: () =>
       attempt(() => {
         verified.clear();
@@ -616,6 +645,7 @@ export function createSyntheticVault(
         return null;
       }),
     storeMailbox: () =>
+      // fallow-ignore-next-line complexity -- Mirrors native consent, repair and observation bookkeeping.
       attempt(() => {
         const record = saved();
         const pending = live.authorization;
@@ -632,12 +662,24 @@ export function createSyntheticVault(
           ({ subject }) => subject === pending.subject,
         );
         if (existing === undefined) {
-          device.epochs += 1;
+          // The descriptors this device last read; absent before it ever read them.
+          const { vault } = device.productSync;
+          const sync = backend.productSync;
+          const observedEpoch =
+            vault === undefined || sync === undefined
+              ? undefined
+              : vault.descriptorEpochs?.[
+                  mailboxRecord(sync, vault.ring.id, pending.subject)
+                ];
           record.connections.push({
             subject: pending.subject,
             address: pending.receipt.address,
             credential: 1,
-            epoch: `synthetic-epoch-${device.epochs}`,
+            epoch: `synthetic-epoch-${(backend.epochs += 1)}`,
+            ...(vault?.descriptorEpochs === undefined
+              ? {}
+              : { observed: true }),
+            ...(observedEpoch === undefined ? {} : { observedEpoch }),
           });
         } else {
           existing.credential += 1;
@@ -647,6 +689,7 @@ export function createSyntheticVault(
         delete record.mailboxSetupReason;
         verified.add(id);
         cached.delete(id);
+        newlyAuthorized.add(id);
         return null;
       }),
     markMailbox: (id, access) =>
@@ -713,7 +756,11 @@ export function createSyntheticVault(
         live.identity = undefined;
         live.authorization = undefined;
         device.record = undefined;
-        device.privateSync = {};
+        device.productSync.vault = undefined;
+        device.productSync.deviceKey = false;
+        device.productSync.enrollment = undefined;
+        device.productSync.requests = [];
+        device.productSync.trustedDevices = [];
         return null;
       }),
     call: async (call) => {
@@ -743,15 +790,53 @@ export function createSyntheticVault(
     removeMailbox: (id) =>
       attempt(() => {
         const record = saved();
-        record.connections = record.connections.filter(
-          ({ subject, address }) => connectionId(subject, address) !== id,
+        const removed = record.connections.find(
+          ({ subject, address }) => connectionId(subject, address) === id,
         );
+        if (removed === undefined) {
+          throw unavailable();
+        }
+        record.connections = record.connections.filter(
+          (connection) => connection !== removed,
+        );
+        // Its descriptor is then marked removed through Product Sync.
+        if (backend.productSync !== undefined) {
+          record.removals = [
+            ...(record.removals ?? []).filter(
+              ({ subject }) => subject !== removed.subject,
+            ),
+            {
+              subject: removed.subject,
+              address: removed.address,
+              ...(removed.epoch === undefined ? {} : { epoch: removed.epoch }),
+            },
+          ];
+        }
         verified.delete(id);
         cached.delete(id);
         return null;
       }),
-    confirmRecoveryKey: () =>
+    confirmRecoveryKey: (entry) =>
       attempt(() => {
+        const { vault } = device.productSync;
+        if (backend.productSync !== undefined) {
+          if (vault?.published !== true) {
+            throw unavailable();
+          }
+          // The entry matches the end of the Recovery Key shown for setup.
+          if (!vault.recoveryKeyConfirmed) {
+            if (
+              vault.recoveryKey === undefined ||
+              entry.length === 0 ||
+              !vault.recoveryKey.toLowerCase().endsWith(entry.toLowerCase())
+            ) {
+              throw Object.assign(new Error('Synthetic'), {
+                code: 'recovery-key-mismatch',
+              });
+            }
+            vault.recoveryKeyConfirmed = true;
+          }
+        }
         device.recoveryKeyConfirmed = true;
         return null;
       }),
@@ -763,7 +848,7 @@ export function createSyntheticVault(
     confirmRevocation: () => reject('unavailable'),
     cancelRevocation: () => reject('unavailable'),
   };
-  return { vault, device, google, apple, backend };
+  return { vault: operations, device, google, apple, backend };
 }
 
 export type SyntheticVault = ReturnType<typeof createSyntheticVault>;

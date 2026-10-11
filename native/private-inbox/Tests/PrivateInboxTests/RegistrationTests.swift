@@ -264,7 +264,7 @@ extension PrivateInboxTests {
     // The fields TypeScript decodes, and no others.
     #expect(
       Set(projection.keys) == [
-        "signInProvider", "product", "mailboxes", "mailboxRemovalPending", "privateSync", "session",
+        "signInProvider", "product", "mailboxes", "mailboxRemovalPending", "session",
       ])
     #expect(
       (projection["product"] as? [String: Any]).map { Set($0.keys) } == [
@@ -319,6 +319,14 @@ extension PrivateInboxTests {
     #expect(sent.last?.identity?.subject == "synthetic-product-subject")
     #expect(sent.last?.args["trustedDeviceCredential"] as? String == String(repeating: "a", count: 64))
     #expect(sent.last?.args["deviceIdentifier"] as? String == (try store.load()?.deviceIdentifier))
+    // Product Sync presents this process's verified sign-in, and none after the session ends.
+    let session: [String: Any] = [
+      "endpoint": "mutation", "path": "productSync:initialize", "args": [:], "session": true,
+    ]
+    _ = try await store.call(session)
+    #expect(sent.last?.identity?.subject == "synthetic-product-subject")
+    store.endSession()
+    await #expect(throws: RegistrationError.unavailable) { _ = try await store.call(session) }
     // Only the purpose-specific connect operation may receive an issued credential.
     for request: [String: Any] in [
       ["endpoint": "mutation", "path": "productAccount:connect", "args": [:]],
@@ -329,7 +337,7 @@ extension PrivateInboxTests {
     ] {
       await #expect(throws: RegistrationError.unavailable) { _ = try await store.call(request) }
     }
-    #expect(sent.count == 2)
+    #expect(sent.count == 3)
   }
 
   // Covers the connect obligations #715 carried over: native validates the receipt it stores.

@@ -77,6 +77,14 @@ installation identifiers and provider subjects never cross the bridge. Replies t
 the credentialed calls TypeScript names return to it, such as the one-time sign-in
 link ticket it presents to complete a link.
 
+The Product Sync key ring, the unconfirmed Recovery Key, this installation's
+encryption key and an open enrollment request are separate device-only Keychain
+items. Native operations create and store keys before returning what TypeScript
+publishes, and seal or open each record; TypeScript reads their status and opaque
+record identifiers and sequences [Product Sync](private-product-sync.md#keys-and-envelopes).
+A key item that cannot be read reports Product Sync as unavailable without failing
+registration.
+
 A saved sign-in survives interruption before backend registration and resumes
 without replacing a committed Product Account or its encrypted Inbox. A record for
 another deployment or Google client is ignored. Purging attempts every account

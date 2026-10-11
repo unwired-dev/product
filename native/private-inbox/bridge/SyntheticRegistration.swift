@@ -319,19 +319,24 @@
     }
     func initialized(_ account: String) throws -> Bool { try state().recovery[account] != nil }
 
+    // Convex's initialization: the first recovery envelope becomes the account's key material.
+    func initialize(
+      _ product: ProductRegistrationReceipt, envelope: EncryptedPayload, verifier: String,
+      deviceKey: Data
+    ) throws -> Bool {
+      try update { state in
+        if let existing = state.recovery[product.productAccountId] {
+          return existing == envelope
+        }
+        state.recovery[product.productAccountId] = envelope
+        state.verifiers[product.productAccountId] = verifier
+        state.deviceKeys[product.trustedDeviceId] = deviceKey
+        return true
+      }
+    }
+
     var backend: ProductSyncBackend {
       ProductSyncBackend(
-        initialize: { [self] _, product, envelope, verifier, deviceKey in
-          try update { state in
-            if let existing = state.recovery[product.productAccountId] {
-              return existing == envelope
-            }
-            state.recovery[product.productAccountId] = envelope
-            state.verifiers[product.productAccountId] = verifier
-            state.deviceKeys[product.trustedDeviceId] = deviceKey.rawRepresentation
-            return true
-          }
-        },
         list: { [self] _, product, prefix in
           try state().records[product.productAccountId, default: [:]].values
             .filter { $0.payloadIdentifier.hasPrefix(prefix) }
@@ -580,6 +585,44 @@
           return try reply(["registered": false])
         case "productSyncEnrollment:status":
           return try reply(["state": "pending"])
+        // Product Sync's initialization and mailbox descriptors, which TypeScript sequences.
+        case "productSync:initialize":
+          guard let payload = request.args["encryptedPayload"],
+            let verifier = request.args["recoveryVerifier"] as? String,
+            let deviceKey = (request.args["deviceEncryptionPublicKey"] as? String)
+              .flatMap({ Data(base64Encoded: $0) })
+          else { return try refusal("UNAVAILABLE") }
+          return try reply([
+            "initialized": try productSync.initialize(
+              product,
+              envelope: JSONDecoder().decode(
+                EncryptedPayload.self, from: JSONSerialization.data(withJSONObject: payload)),
+              verifier: verifier, deviceKey: deviceKey)
+          ])
+        case "productSync:listEncryptedPayloadsForTrustedDevice":
+          guard let identity = request.identity,
+            let prefix = request.args["payloadIdentifierPrefix"] as? String
+          else { return try refusal("UNAVAILABLE") }
+          let records = try await productSync.backend.list(identity, product, prefix)
+          return try reply([
+            "page": try JSONSerialization.jsonObject(with: JSONEncoder().encode(records)),
+            "isDone": true, "continueCursor": "",
+          ])
+        case "productSync:putEncryptedPayloadIfUnchanged":
+          guard let identity = request.identity,
+            let identifier = request.args["payloadIdentifier"] as? String,
+            let payload = request.args["encryptedPayload"]
+          else { return try refusal("UNAVAILABLE") }
+          do {
+            let stored = try await productSync.backend.put(
+              identity, product, identifier,
+              JSONDecoder().decode(
+                EncryptedPayload.self, from: JSONSerialization.data(withJSONObject: payload)),
+              request.args["expectedUpdatedAt"] as? Double)
+            return try reply(JSONSerialization.jsonObject(with: JSONEncoder().encode(stored)))
+          } catch let failure as ProductSyncWriteFailure {
+            return try refusal(failure.rawValue)
+          }
         case "/product-account/delete":
           _ = try productSync.update { $0.deleted.insert(product.productAccountId) }
           return (200, Data(#"{"deleted":true}"#.utf8))

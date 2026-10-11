@@ -14,7 +14,10 @@ import {
   RegistrationSnapshotSchema,
 } from '../src/registration.ts';
 import { syntheticRecoveryKey } from '../src/testing/registration-session.ts';
-import { createSyntheticVault } from '../src/testing/registration-vault.ts';
+import {
+  createSyntheticProductSyncBackend,
+  createSyntheticVault,
+} from '../src/testing/registration-vault.ts';
 import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
 
 const { it } = Vitest;
@@ -89,7 +92,7 @@ describe('registration flow', () => {
       .mockRejectedValueOnce(
         Object.assign(new Error('stale'), { code: 'stale-authentication' }),
       )
-      .mockResolvedValueOnce({ notice: 'removed' });
+      .mockResolvedValueOnce({ notice: 'superseded' });
     const flow = createRegistrationFlow({
       ...vault,
       signInIdentity,
@@ -102,7 +105,7 @@ describe('registration flow', () => {
       flow.revokeTrustedDevice('device-ipad'),
     ).resolves.not.toHaveProperty('revocationNotice');
     await expect(flow.confirmRevocation('ABCD')).resolves.toMatchObject({
-      revocationNotice: 'removed',
+      revocationNotice: 'superseded',
     });
     await expect(flow.cancelRevocation()).resolves.toMatchObject({
       revocationNotice: 'unconfirmed',
@@ -591,16 +594,21 @@ describe('registration flow', () => {
     const installation = device.record?.deviceIdentifier;
     // Signing out cannot discard the only Recovery Key before its backup is confirmed.
     device.recoveryKeyConfirmed = false;
-    device.privateSync = {
-      privateSync: 'recovery-key',
+    backend.productSync = createSyntheticProductSyncBackend();
+    device.productSync.deviceKey = true;
+    device.productSync.vault = {
+      ring: { id: 'ring', epochs: [1], current: 1 },
+      published: true,
       recoveryKey: syntheticRecoveryKey,
+      recoveryKeyConfirmed: false,
     };
     await expect(relaunch().signOut()).resolves.toMatchObject({
+      privateSync: 'recovery-key',
       recoveryKey: syntheticRecoveryKey,
     });
     expect(backend.unregistered).toHaveLength(0);
     device.recoveryKeyConfirmed = true;
-    device.privateSync = { privateSync: 'ready' };
+    backend.productSync = undefined;
     // Offline, sign-out changes nothing on the backend and can be retried.
     backend.unregisterFailure = 'offline';
     await expect(relaunch().signOut()).rejects.toMatchObject({
