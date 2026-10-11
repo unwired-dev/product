@@ -243,7 +243,7 @@ Graphite neutrals with a single warm seal.
 | Quiet fill        | `fill/quiet`              | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
 | Track             | `fill/track`              | black 9%      | white 16%     | Off switch track                                              |
 | Separator         | `separator`               | black 10%     | white 10%     | Hairlines between rows and panes                              |
-| Warning           | `status/warning`          | `#C93400`     | `#FFB340`     | Authorization needed, flags                                   |
+| Warning           | `status/warning`          | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                           |
 | Destructive       | `status/destructive`      | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
@@ -302,8 +302,15 @@ styles) so the file stays editable.
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On iPhone it spans the screen width. Rows scroll under it
   behind a 72pt scroll edge fade. It hides while the composer is open.
-- **Toolbar:** glass button groups over the reading pane: Archive, Delete, Move;
-  Reply, Reply All, Forward; Flag, Snooze.
+- **Toolbar:** one fixed reader toolbar of glass button groups over the reading
+  pane, per the
+  [conversation reader requirements](docs/product/messages-and-delivery.md):
+  Reply, Reply All, Forward and the multi-select Category control, which target
+  the newest message; Archive, Delete, Move, Spam, Pin, Muted Thread, and Mark
+  Read or Unread target the whole Thread. Snooze also targets the whole Thread,
+  per the [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes). The reference
+  mockups show only Archive, Delete, Move, Reply, Reply All, Forward, a flag and
+  Snooze.
 - **Compose:** follows the
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
