@@ -76,9 +76,12 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
   attribution line above it. Inline replies and Outlook HTML quotes stay
   shown. A body that would be empty without its quote shows in full.
 
-Bodies currently start loading in newest-first mount order within the shared
-store's concurrency limits. Viewport priority, immediate reprioritization and
-off-screen distance ordering remain required follow-up work in
+Every cached message of the Thread is mounted at once, each with its own body
+view, so a long Thread creates that many native views and rich documents. Bodies
+currently start loading in newest-first mount order within the shared store's
+concurrency limits. Bounded rendering of mounted messages, viewport priority,
+immediate reprioritization and off-screen distance ordering remain required
+follow-up work in
 [#862](https://github.com/unwired-dev/product/issues/862); an older opened
 message can wait behind off-screen bodies. This slice does not qualify the full
 [conversation reader loading behavior](product/messages-and-delivery.md#thread-identity-and-reader-behavior).
