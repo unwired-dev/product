@@ -14,7 +14,6 @@ import {
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -37,6 +36,7 @@ import {
   AttachContext,
   GmailMessageBody,
   LinkConfirmationProvider,
+  ReaderScrollView,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
@@ -409,7 +409,8 @@ function MailboxMessage({
 }) {
   const state = useInbox();
   const actions = useInboxActions();
-  const address = useMailbox()?.address;
+  const mailbox = useMailbox();
+  const address = mailbox?.address;
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
@@ -473,7 +474,7 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           id={message.id}>
-          <ScrollView contentContainerStyle={styles.content}>
+          <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable
                 accessibilityRole="button"
@@ -540,6 +541,7 @@ function MailboxMessage({
                 id={message.id}
                 inbox={actions}
                 subject={message.subject}
+                connection={mailbox?.id}
               />
             ) : (
               <>
@@ -561,7 +563,7 @@ function MailboxMessage({
                 </Text>
               </>
             )}
-          </ScrollView>
+          </ReaderScrollView>
         </LinkConfirmationProvider>
       )}
     </SafeAreaView>

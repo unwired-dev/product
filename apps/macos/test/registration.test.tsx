@@ -11,6 +11,7 @@ import {
   createRegistration,
   mailboxesOf,
 } from '@private-email/mail-core/registration';
+import { createRemoteContentSettings } from '@private-email/mail-core/remote-content';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -382,6 +383,59 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Add another Gmail mailbox' }),
+    ).toBeVisible();
+  });
+
+  it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-declined');
+    const saved: string[] = [];
+    const remoteContent = createRemoteContentSettings({
+      remoteContentSettings: () => Promise.resolve({ settings: null }),
+      setRemoteContentSettings: (settings) => {
+        saved.push(settings);
+        return Promise.resolve(null);
+      },
+      clearRemoteContent: () => Promise.resolve(null),
+    });
+    await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}
+        remoteContent={remoteContent}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Sign in with Apple');
+    await press('Choose another Google mailbox');
+    const choice = (name: string) => screen.getByRole('radio', { name });
+    expect(choice('On this device: Ask')).toBeChecked();
+    expect(
+      choice('Remote images for other@example.invalid: Use device setting'),
+    ).toBeChecked();
+    await act(async () => {
+      await fireEvent.press(choice('On this device: Always load'));
+    });
+    await act(async () => {
+      await fireEvent.press(
+        choice('Remote images for other@example.invalid: Never'),
+      );
+    });
+    expect(
+      choice('Remote images for other@example.invalid: Never'),
+    ).toBeChecked();
+    expect(saved.at(-1)).toBe(
+      '{"policy":"always","overrides":{"synthetic-connection-other":"never"}}',
+    );
+    await press('Clear remote content');
+    // The confirmation appears only after the native clear resolved.
+    expect(
+      screen.getByText('Remote content saved on this device was removed.'),
     ).toBeVisible();
   });
 

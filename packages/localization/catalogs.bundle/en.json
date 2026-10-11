@@ -165,6 +165,21 @@
     "confirm": "Removing {{address}} deletes its Gmail access and the mail saved for it from this device, including changes still waiting for Gmail, and removes it from your other devices when they next connect. Your mail stays in Gmail.",
     "cancel": "Cancel"
   },
+  "remoteContent": {
+    "title": "Remote images",
+    "description": "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
+    "device": "On this device",
+    "mailbox": "Remote images for {{address}}",
+    "policies": {
+      "ask": "Ask",
+      "never": "Never",
+      "always": "Always load",
+      "device": "Use device setting"
+    },
+    "clear": "Clear remote content",
+    "cleared": "Remote content saved on this device was removed.",
+    "clearFailed": "Remote content could not be removed. Try again."
+  },
   "privateSync": {
     "setup-pending": {
       "title": "Private sync",
@@ -249,6 +264,8 @@
     "failed": "This message could not be opened. Your saved mail has been kept.",
     "empty": "This message has no text.",
     "images": "Images in this message are not loaded.",
+    "remoteImages": "Images in this message are not loaded. Loading them shows the sender your device's IP address and when you opened this message.",
+    "loadImages": "Load images",
     "confirmLink": "Open this link in your browser?",
     "cautionLink": "Check this link before opening it:",
     "openLink": "Open link",

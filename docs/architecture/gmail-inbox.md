@@ -245,6 +245,68 @@ performance constraints. Remote Message Content remains owned by #763; its
 consent, policy, viewport-plus-margin, isolated transport and separate encrypted
 cache rules are unchanged and do not authorize retrieval in #605.
 
+## Authorized remote message content
+
+Issue [#763](https://github.com/unwired-dev/product/issues/763) implements the
+remote-content contract in [ADR 0029](../adr/0029-sanitize-html-before-webkit-rendering.md).
+Request-equivalent ASCII references normalize host/scheme case, the default HTTPS
+port, fragments and an empty root path while preserving path and query bytes.
+The shared store owns consent-independent cache admission, six permits per
+message, twelve account-wide, and presentation-bound request sessions. Retiring a
+session aborts queued effects and cancels its native tasks. Permits survive a
+close/reopen while old work drains. Admission checks the current owner and reader
+ledger again before publication. The shared account ledger includes displayed
+resources from every connection and window. Each reader contributes its own
+viewport and authorization; the union keeps another window from revoking an
+eligible source. Losing a source's last authorization retires active work even
+when another window authorizes different sources. Each presentation schedules at
+most twenty network-authorized sources; cache-only reads are bounded per batch
+and do not spend that network budget. Each cache-only batch probes at most twenty
+sources; even all-miss batches continue within the same Effect run using the live
+reader ledger, without re-registering an earlier viewport. Settings remain
+unresolved until the first native read settles. Both hosts gate readers with Never
+during that interval; a missing, unreadable or failed initial read publishes Ask.
+
+The native bridge maintains a shared byte/deadline budget per request session.
+It resolves every HTTPS destination, refuses the hostname if any answer is
+definitely non-public, discards ambiguous IPv6 answers and pins the first remaining
+admitted IP. An empty admitted set refuses the destination. Proxy use is disabled
+and TLS 1.2 or later authenticates the original host. Globally formatted IPv6
+destinations must have public embedded IPv4 under all six RFC 6052 layouts,
+skipping reserved byte 8, to be admitted; otherwise they are ambiguous and never
+connected to.
+RFC 7050 discovery cannot expose destination-specific translation prefixes, so
+matching only discovered prefixes cannot close the private-network boundary.
+The [2026-10-10 ADR 0029 amendment](../adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-10)
+records the superseded round-2 2–1 whole-host refusal and round-3 3–0 filtering
+decision after live DNS showed false refusals for 16 of 18 common image hosts.
+Dual-stack names can use admitted public IPv4; names with only ambiguous IPv6
+answers remain refused. No discovery lookup is needed. Well-known NAT64 addresses
+keep their direct embedded-IPv4 check and refuse the name when it is non-public.
+The transport uses a numeric endpoint without re-resolution or fallback to an
+unchecked answer. This classifies addresses, not arbitrary network routing; the
+DNS sample does not qualify real fetches or native networks.
+Each of at most
+three redirects repeats that process. The minimal HTTP/1.1 client sends no cookie,
+authorization, referrer or user-agent headers and shares no browser session. Raw
+received bytes, including framing, redirects and rejected responses, consume the
+20 MiB budget; concurrent receives reserve capacity before reading. Cancellation
+stops the connection and fences resolver completion. HTTP parsing rejects
+ambiguous length/chunk framing and malformed chunk arithmetic without trapping.
+The native operation gate checks the mailbox before and after the fetch without
+holding it during network work; only a 200 response is used. Mock scenario builds
+refuse network retrieval.
+
+Sanitized remote occurrences retain an app-owned index on both their placeholder
+and validated local image. The initial inline-only document remains the WebView's
+stable source. A native string prop carries only sanitized replacement nodes,
+and application-owned `callAsyncJavaScript` in `WKContentWorld.defaultClientWorld`
+replaces those marked image/placeholder nodes in place. Page JavaScript stays
+disabled, browser storage stays non-persistent, and the existing CSP admits no
+remote sources. Updating images preserves link markers and document/scroll
+identity, and remeasures positions after image decoding. Source and update revision
+fences discard completion from an earlier document.
+
 ## Evidence limits
 
 Controlled transport and cache integration tests, rendered host journeys and
