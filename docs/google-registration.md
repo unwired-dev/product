@@ -69,10 +69,11 @@ The native vault owns Google and Apple SDKs, device-only credentials and storage
 and backend calls that carry credentials. Tokens, credentials, installation
 identifiers and provider subjects never enter TypeScript. Native stores every
 issued device credential before returning its non-secret receipt. A reconnect
-must open the retained Product Account. Product Sync, enrollment, recovery and
-revocation remain temporary native operations until
-[#757](https://github.com/unwired-dev/product/issues/757) and
-[#758](https://github.com/unwired-dev/product/issues/758) move them.
+must open the retained Product Account. The flow also sequences
+[Product Sync](private-product-sync.md#initialization-and-relaunch) initialization
+and mailbox descriptor synchronization, and derives the Product Sync status it shows.
+Enrollment, recovery, key rotation adoption and revocation remain temporary native
+operations until [#758](https://github.com/unwired-dev/product/issues/758) moves them.
 
 Offline restore retains the Product Account and opens a previously verified
 mailbox's saved Inbox when available. Without one, it reports mailbox setup as

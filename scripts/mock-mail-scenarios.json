@@ -12,7 +12,8 @@
     "registration-recovery",
     "registration-revocation",
     "registration-revoked",
-    "registration-removal"
+    "registration-removal",
+    "registration-draft-editor"
   ],
   "nativeJourney": [
     "open-read-relaunch",
@@ -26,6 +27,7 @@
     "registration-recovery",
     "registration-revocation",
     "registration-revoked",
-    "registration-removal"
+    "registration-removal",
+    "registration-draft-editor"
   ]
 }

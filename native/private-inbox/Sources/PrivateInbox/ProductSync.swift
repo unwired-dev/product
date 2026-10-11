@@ -31,17 +31,11 @@ enum RevocationFailure: String, Error {
   case targetRemoved = "TRUSTED_DEVICE_ALREADY_REMOVED"
 }
 
-// Backend steps for End-to-End Encrypted Product Sync. Every call presents this device's proof:
-// a Trusted Device's, or for its own admission, a Pending Device's.
+// Backend steps for End-to-End Encrypted Product Sync that native code still sequences. Every call
+// presents this device's proof: a Trusted Device's, or for its own admission, a Pending Device's.
+// TypeScript initializes Product Sync and synchronizes mailbox descriptors through the credentialed
+// call; record listing and writes stay here for native Draft sync only.
 struct ProductSyncBackend {
-  // Stores the first recovery envelope with its Recovery Key verifier, binds this device's
-  // encryption key and marks the account initialized in one step. False when the account already
-  // holds other key material, which this device must not replace.
-  let initialize:
-    (
-      ProductSignInIdentity, ProductRegistrationReceipt, EncryptedPayload, String,
-      Curve25519.KeyAgreement.PublicKey
-    ) async throws -> Bool
   let list:
     (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> [StoredPayload]
   // Compare-and-set: returns the stored record, which differs from ours when another write won.
@@ -221,8 +215,6 @@ struct MailboxDescriptor: Codable, Equatable {
 }
 
 extension RegistrationStore {
-  // The epoch every device gives a descriptor written before epochs, so their upgrades agree.
-  static let legacyMailboxEpoch = "legacy"
   static let productSyncLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "product-sync")
 
@@ -283,125 +275,218 @@ extension RegistrationStore {
     return enrollment
   }
 
-  // Only uninitialized accounts create keys; losing initialization discards unpublished keys.
-  // Initialization, enrollment and descriptor publication share one ordered account/session flow.
-  // swiftlint:disable:next cyclomatic_complexity
-  func synchronize(_ saved: SavedRegistration) async throws -> SavedRegistration {
-    guard let backend = productSync, let session, var product = saved.product else { return saved }
-    let account = product.productAccountId
-    var saved = try await retryMailboxCleanup(saved)
-    do {
-      var retained = try loadVault(account)
-      if product.pending != true,
-        product.productSyncMaterialInitialized == true || retained?.published == true,
-        try keys.read(deviceKeyAccount(account)) == nil
-      {
-        if let vault = retained, vault.revocation?.submitted == true {
-          retained = try await adoptRotation(vault, backend: backend, session: session, product)
-        }
-        // Never discard the only copy of an unconfirmed Recovery Key or an unanswered removal.
-        if retained?.holdsUnsettledKeys == true { return saved }
-        // A lost private key cannot replace its immutable registration. Retain that row and
-        // durably choose a new installation before asking for fresh authorization.
-        saved.deviceIdentifier = UUID().uuidString
-        product.pending = true
-        saved.product = product
-        try save(saved)
-        try keys.remove(vaultAccount(account))
-        try keys.remove(enrollmentAccount(account))
-        let rejoined = try await connect(session, saved.deviceIdentifier, product)
-        guard rejoined.productAccountId == account else { throw RegistrationError.invalidIdentity }
-        product = rejoined
-        saved.product = product
-        try save(saved)
-        forgetMailboxAccess()
-        enrollmentRequests[account] = nil
-        trustedDevices[account] = nil
-      }
-      // A Pending Device first has to be admitted; until then it reads and writes nothing.
-      if product.pending == true {
-        guard product.productSyncMaterialInitialized == true,
-          let admitted = try await admit(saved, backend: backend, session: session),
-          let receipt = admitted.product
-        else { return saved }
-        saved = admitted
-        product = receipt
-      }
-      var vault = try loadVault(account)
-      if vault == nil {
-        guard product.productSyncMaterialInitialized == false else { return saved }
-        let ring = ProductSyncKeyRing.create()
-        let recovery = RecoveryKey.generate()
-        let created = ProductSyncVault(
-          productAccountId: account, ring: ring, recoveryKey: recovery.bytes,
-          recoveryEnvelope: try KeyRingEnvelope.recovery(ring, key: recovery, account: account))
-        // Saved before publication so an interrupted attempt resumes with the same keys.
-        try saveVault(created)
-        vault = created
-      }
-      guard var current = vault else { return saved }
-      if current.published {
-        current = try await adoptRotation(current, backend: backend, session: session, product)
-      } else {
-        guard let envelope = current.recoveryEnvelope, let recoveryKey = current.recoveryKey else {
-          throw RegistrationError.unavailable
-        }
-        let verifier = try KeyRingEnvelope.recoveryVerifier(
-          RecoveryKey(bytes: recoveryKey), account: account)
-        guard
-          try await backend.initialize(
-            session, product, envelope, verifier,
-            deviceKey(account, creatingIfMissing: true).publicKey)
-        else {
-          try keys.remove(vaultAccount(account))
-          var next = saved
-          product.productSyncMaterialInitialized = true
-          next.product = product
-          try save(next)
-          return next
-        }
-        current.published = true
-        try saveVault(current)
-      }
-      // swiftlint:disable large_tuple
-      let mailboxes:
-        (
-          saved: SavedRegistration, addresses: [String], confirmed: [String: String],
-          epochs: [String: String]
-        )
-      // swiftlint:enable large_tuple
-      do {
-        mailboxes = try await synchronizeMailboxes(
-          saved, vault: current, backend: backend, session: session)
-      } catch ProductSyncWriteFailure.keyRotationRequired {
-        // A removal landed meanwhile: the pending changes are sealed again at its epoch.
-        current = try await adoptRotation(current, backend: backend, session: session, product)
-        mailboxes = try await synchronizeMailboxes(
-          (try load()) ?? saved, vault: current, backend: backend, session: session)
-      }
-      saved = mailboxes.saved
-      var next = current
-      next.readMailboxes = mailboxes.addresses
-      next.savedMailboxes = mailboxes.confirmed
-      next.descriptorEpochs = mailboxes.epochs
-      if next.readMailboxes != current.readMailboxes
-        || next.savedMailboxes != current.savedMailboxes
-        || next.descriptorEpochs != current.descriptorEpochs
-      {
-        try saveVault(next)
-      }
-      enrollmentRequests[account] = try await backend.pendingEnrollments(session, product)
-      trustedDevices[account] = try await backend.trustedDevices(session, product).filter {
-        $0.id != product.trustedDeviceId
-      }
-    } catch let error as RegistrationError where error.endsAccess {
-      throw error
-    } catch {
-      // Product Sync stays pending; registration and the mailbox remain usable.
-      Self.logProductSyncFailure("Product Sync failed", error)
+  // Creates the account's key ring and Recovery Key once and stores both before anything is
+  // published, then returns what initialization sends: the recovery envelope, its Recovery Key
+  // verifier and this device's public encryption key. A retry after an interruption returns the
+  // same keys; only an account known to hold no key material creates them.
+  func createKeyRing() throws -> [String: Any] {
+    guard let product = try saved().product, product.pending != true else {
+      throw RegistrationError.unavailable
     }
-    // A descriptor purge may have durably removed credentials before a later step failed.
-    return (try load()) ?? saved
+    let account = product.productAccountId
+    var vault = try loadVault(account)
+    if vault == nil {
+      guard product.productSyncMaterialInitialized == false else {
+        throw RegistrationError.unavailable
+      }
+      let ring = ProductSyncKeyRing.create()
+      let recovery = RecoveryKey.generate()
+      let created = ProductSyncVault(
+        productAccountId: account, ring: ring, recoveryKey: recovery.bytes,
+        recoveryEnvelope: try KeyRingEnvelope.recovery(ring, key: recovery, account: account))
+      try saveVault(created)
+      vault = created
+    }
+    guard let vault, !vault.published, let envelope = vault.recoveryEnvelope,
+      let recoveryKey = vault.recoveryKey
+    else { throw RegistrationError.unavailable }
+    return [
+      "recoveryEnvelope": try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)),
+      "recoveryVerifier": try KeyRingEnvelope.recoveryVerifier(
+        RecoveryKey(bytes: recoveryKey), account: account),
+      "deviceKey": try deviceKey(account, creatingIfMissing: true).publicKey.rawRepresentation
+        .base64EncodedString(),
+    ]
+  }
+
+  // Convex's answer to initialization: this device's keys became the account's, or the account
+  // already holds other key material, which these unpublished keys never replace.
+  func recordInitialization(_ initialized: Bool) throws {
+    var saved = try saved()
+    guard var product = saved.product, var vault = try loadVault(product.productAccountId),
+      !vault.published
+    else { throw RegistrationError.unavailable }
+    if initialized {
+      vault.published = true
+      try saveVault(vault)
+      return
+    }
+    try keys.remove(vaultAccount(product.productAccountId))
+    product.productSyncMaterialInitialized = true
+    saved.product = product
+    try save(saved)
+  }
+
+  // A Trusted Device that lost its encryption key cannot replace its immutable registration. It
+  // retains that row, durably chooses a new installation and connects again with the verified
+  // Product Sign-In as a Pending Device of the same account. Never discards the only copy of an
+  // unconfirmed Recovery Key or an unanswered removal.
+  func reenroll() async throws {
+    guard let session else { throw RegistrationError.unavailable }
+    var saved = try saved()
+    guard var product = saved.product, product.pending != true else {
+      throw RegistrationError.unavailable
+    }
+    let account = product.productAccountId
+    guard try keys.read(deviceKeyAccount(account)) == nil,
+      try loadVault(account)?.holdsUnsettledKeys != true
+    else { throw RegistrationError.unavailable }
+    saved.deviceIdentifier = UUID().uuidString
+    product.pending = true
+    saved.product = product
+    try save(saved)
+    try keys.remove(vaultAccount(account))
+    try keys.remove(enrollmentAccount(account))
+    let rejoined = try await connect(session, saved.deviceIdentifier, product)
+    guard rejoined.productAccountId == account else { throw RegistrationError.invalidIdentity }
+    saved.product = rejoined
+    try save(saved)
+    forgetMailboxAccess()
+    enrollmentRequests[account] = nil
+    trustedDevices[account] = nil
+  }
+
+  // Temporary until #758 moves enrollment: this Pending Device's admission. True once it is a
+  // Trusted Device.
+  func admitPendingDevice() async throws -> Bool {
+    guard let backend = productSync, let session, let saved = try load(),
+      saved.product?.pending == true
+    else { throw RegistrationError.unavailable }
+    return try await admit(saved, backend: backend, session: session) != nil
+  }
+
+  // Temporary until #758 moves rotation: adopts this device's newest key ring.
+  func adoptLatestRotation() async throws {
+    guard let backend = productSync, let session, let product = try saved().product,
+      let vault = try loadVault(product.productAccountId)
+    else { throw RegistrationError.unavailable }
+    _ = try await adoptRotation(vault, backend: backend, session: session, product)
+  }
+
+  // Temporary until #758 moves enrollment and revocation: other devices' enrollment requests and
+  // the account's other Trusted Devices, kept for approval and removal in this process.
+  func refreshDevices() async throws {
+    guard let backend = productSync, let session, let product = try saved().product else {
+      throw RegistrationError.unavailable
+    }
+    let account = product.productAccountId
+    enrollmentRequests[account] = try await backend.pendingEnrollments(session, product)
+    trustedDevices[account] = try await backend.trustedDevices(session, product).filter {
+      $0.id != product.trustedDeviceId
+    }
+  }
+
+  // Only now may an explicit consent adopt a removed descriptor it encounters for the first time.
+  func finishSynchronization() {
+    newlyAuthorizedMailboxes = []
+  }
+
+  // The published keys of the signed-in Trusted Device.
+  func publishedVault() throws -> ProductSyncVault {
+    guard let product = try saved().product, product.pending != true,
+      let vault = try loadVault(product.productAccountId), vault.published
+    else { throw RegistrationError.unavailable }
+    return vault
+  }
+
+  // Seals a mailbox descriptor under its record identifier at the newest key epoch.
+  func sealMailboxDescriptor(_ record: String, _ descriptor: [String: Any]) throws -> [String: Any]
+  {
+    let vault = try publishedVault()
+    guard record.hasPrefix("mailbox."),
+      let value = try? JSONDecoder().decode(
+        MailboxDescriptor.self, from: JSONSerialization.data(withJSONObject: descriptor))
+    else { throw RegistrationError.unavailable }
+    let sealed = try vault.ring.seal(
+      record: JSONEncoder().encode(value), account: vault.productAccountId, identifier: record,
+      schemaVersion: MailboxDescriptor.schemaVersion)
+    guard
+      let payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sealed))
+        as? [String: Any]
+    else { throw RegistrationError.unavailable }
+    return payload
+  }
+
+  // Each stored record's descriptor when it opens for this account under its own identifier,
+  // otherwise null: a record that fails to open or decode is never shown and never replaced.
+  func openMailboxDescriptors(_ records: [Any]) throws -> [Any] {
+    let vault = try publishedVault()
+    return records.map { record in
+      guard let record = record as? [String: Any],
+        let identifier = record["payloadIdentifier"] as? String,
+        let payload = record["encryptedPayload"],
+        let data = try? JSONSerialization.data(withJSONObject: payload),
+        let sealed = try? JSONDecoder().decode(EncryptedPayload.self, from: data),
+        let plaintext = try? vault.ring.open(
+          record: sealed, account: vault.productAccountId, identifier: identifier,
+          schemaVersion: MailboxDescriptor.schemaVersion),
+        let descriptor = try? JSONDecoder().decode(MailboxDescriptor.self, from: plaintext),
+        let object = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(descriptor))
+      else { return NSNull() }
+      return object
+    }
+  }
+
+  // What synchronization learned about this device's connections: each changed descriptor epoch,
+  // each connection read back, and the removals Product Sync now records. Applied to the record as
+  // stored now, so work interleaved between TypeScript's steps is kept.
+  func recordMailboxChanges(connections: [[String: Any]], settledRemovals: [String]) throws {
+    var saved = try saved()
+    for change in connections {
+      guard let id = change["id"] as? String else { throw RegistrationError.unavailable }
+      saved.update(id) {
+        // A null epoch, as an adopted winner from before epochs carries, clears it.
+        if change.keys.contains("epoch") { $0.epoch = change["epoch"] as? String }
+        if change["published"] as? Bool == true { $0.published = true }
+      }
+    }
+    if !settledRemovals.isEmpty, let product = saved.product,
+      let vault = try loadVault(product.productAccountId)
+    {
+      saved.mailboxRemovals = try saved.mailboxRemovals?.filter {
+        !settledRemovals.contains(try vault.ring.identifier("mailbox", "gmail:" + $0.subject))
+      }
+    }
+    if saved.mailboxRemovals?.isEmpty == true { saved.mailboxRemovals = nil }
+    try save(saved)
+  }
+
+  // A connection another device removed, or added again since this one authorized it, leaves this
+  // device: its watch stops while its credential still exists, then the credential and cached mail
+  // go. A failed relay or cache cleanup stays in the checkpoint for retry.
+  func purgeMailbox(_ id: String) async throws {
+    try await unroute(id)
+    var saved = try saved()
+    saved.connections = saved.connections.filter { $0.id != id }
+    saved.mailboxCacheRemovals = Array(Set((saved.mailboxCacheRemovals ?? []) + [id])).sorted()
+    try save(saved)
+    _ = try await retryMailboxCleanup(saved)
+  }
+
+  // The descriptors last read back: every live address, the confirmed address of each of this
+  // device's connections and every readable descriptor's epoch, by record identifier.
+  func recordMailboxReadback(
+    addresses: [String], confirmed: [String: String], epochs: [String: String]
+  ) throws {
+    guard let product = try saved().product, var vault = try loadVault(product.productAccountId)
+    else { throw RegistrationError.unavailable }
+    guard vault.readMailboxes != addresses || vault.savedMailboxes != confirmed
+      || vault.descriptorEpochs != epochs
+    else { return }
+    vault.readMailboxes = addresses
+    vault.savedMailboxes = confirmed
+    vault.descriptorEpochs = epochs
+    try saveVault(vault)
   }
 
   // Asks a Trusted Device to approve this Pending Device, and adopts the keys sealed to it once they
@@ -486,317 +571,71 @@ extension RegistrationStore {
     return next
   }
 
-  // Marks this device's removals in Product Sync, purges connections another device removed or
-  // added again since this device authorized them, publishes descriptors Product Sync lacks, and
-  // reads every descriptor back. Returns the saved registration, the decrypted addresses and the
-  // descriptors confirmed for this device's connections.
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
-  func synchronizeMailboxes(
-    _ saved: SavedRegistration, vault: ProductSyncVault, backend: ProductSyncBackend,
-    session: ProductSignInIdentity
-  ) async throws -> (
-    saved: SavedRegistration, addresses: [String], confirmed: [String: String],
-    epochs: [String: String]
-  ) {
-    guard let product = saved.product else { return (saved, [], [:], [:]) }
-    func identifier(_ subject: String) throws -> String {
+  // What TypeScript reads of this device's Product Sync state: no key, credential or provider
+  // subject. The Recovery Key and Enrollment Code cross only as text for display. Record
+  // identifiers are the opaque names Product Sync stores descriptors under.
+  func productSyncState(_ saved: SavedRegistration) throws -> [String: Any]? {
+    guard productSync != nil, let product = saved.product else { return nil }
+    let account = product.productAccountId
+    var result: [String: Any] = [
+      "pending": product.pending == true,
+      "deviceKey": try keys.read(deviceKeyAccount(account)) != nil,
+      "requests": (enrollmentRequests[account] ?? []).map {
+        ["id": $0.pendingDeviceId, "device": $0.deviceName, "expiresAt": $0.expiresAt]
+      },
+      "trustedDevices": (trustedDevices[account] ?? []).map {
+        ["id": $0.id, "name": $0.name, "registeredAt": $0.registeredAt]
+      },
+    ]
+    if let initialized = product.productSyncMaterialInitialized {
+      result["materialInitialized"] = initialized
+    }
+    if let enrollment = try loadEnrollment(product) {
+      var entry: [String: Any] = ["code": try EnrollmentCode(parsing: enrollment.code).display]
+      if let notice = enrollment.notice { entry["notice"] = notice }
+      result["enrollment"] = entry
+    }
+    guard let vault = try loadVault(account) else { return result }
+    func record(_ subject: String) throws -> String {
       try vault.ring.identifier("mailbox", "gmail:" + subject)
     }
-    var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-    @discardableResult
-    func put(_ identifier: String, _ descriptor: MailboxDescriptor) async throws -> MailboxDescriptor? {
-      let sealed = try vault.ring.seal(
-        record: JSONEncoder().encode(descriptor), account: vault.productAccountId,
-        identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-      let result = try await backend.put(
-        session, product, identifier, sealed, stored[identifier]?.updatedAt)
-      guard result.payloadIdentifier == identifier else { throw RegistrationError.unavailable }
-      return try? JSONDecoder().decode(
-        MailboxDescriptor.self,
-        from: vault.ring.open(
-          record: result.encryptedPayload, account: vault.productAccountId,
-          identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion))
+    var entry: [String: Any] = [
+      "keyEpoch": vault.ring.current,
+      "published": vault.published,
+      "recoveryKeyConfirmed": vault.recoveryKeyConfirmed,
+      "mailboxes": try saved.connections.map { connection in
+        var mailbox: [String: Any] = [
+          "id": connection.id, "record": try record(connection.receipt.subject),
+          "published": connection.published == true,
+          "newlyAuthorized": newlyAuthorizedMailboxes.contains(connection.id),
+        ]
+        if let observed = connection.observed { mailbox["observed"] = observed }
+        if let observedEpoch = connection.observedEpoch { mailbox["observedEpoch"] = observedEpoch }
+        return mailbox
+      },
+      "removals": try (saved.mailboxRemovals ?? []).map { removal in
+        var entry: [String: Any] = [
+          "id": MailboxConnection.id(subject: removal.subject),
+          "record": try record(removal.subject), "address": removal.address,
+        ]
+        if let epoch = removal.epoch { entry["epoch"] = epoch }
+        return entry
+      },
+    ]
+    // Only an unconfirmed Recovery Key is shown; a confirmed one never leaves native storage.
+    if let recoveryKey = vault.recoveryKey, !vault.recoveryKeyConfirmed {
+      entry["recoveryKey"] = try RecoveryKey(bytes: recoveryKey).display
     }
-    // Pre-epoch removal intent names the legacy incarnation, including after another device's
-    // upgrade. It is never a wildcard over later additions.
-    func matches(_ removal: MailboxRemoval, _ descriptor: MailboxDescriptor) -> Bool {
-      descriptor.epoch == nil
-        || (removal.epoch ?? Self.legacyMailboxEpoch) == descriptor.epoch
-    }
-    // A removal marks only the epoch it removed; a later addition from another device stays.
-    func removes(_ removal: MailboxRemoval) throws -> MailboxDescriptor? {
-      guard let live = stored[try identifier(removal.subject)]?.descriptor, live.removed != true,
-        matches(removal, live)
-      else { return nil }
-      return live
-    }
-    var next = saved
-    for removal in saved.mailboxRemovals ?? [] {
-      let key = try identifier(removal.subject)
-      if stored[key] == nil {
-        try await put(
-          key, MailboxDescriptor(
-            provider: "gmail", address: removal.address, epoch: removal.epoch ?? Self.legacyMailboxEpoch,
-            removed: true))
-      } else if let live = try removes(removal) {
-        var removed = live
-        removed.removed = true
-        try await put(try identifier(removal.subject), removed)
-      }
-    }
-    if !(saved.mailboxRemovals ?? []).isEmpty {
-      stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-    }
-    var purged: [MailboxConnection] = []
-    var wrote = false
-    func publish(
-      _ connection: MailboxConnection, key: String, descriptor: MailboxDescriptor,
-      canAdopt: Bool
-    ) async throws {
-      next.update(connection.id) { $0.epoch = descriptor.epoch }
-      guard let winner = try await put(key, descriptor) else { wrote = true; return }
-      if winner.removed == true || (winner.epoch != descriptor.epoch && !canAdopt) {
-        purged.append(connection)
-      } else {
-        // Only fresh consent or a matching retained recreation can adopt a losing CAS's winner.
-        next.update(connection.id) {
-          $0.epoch = winner.epoch
-          $0.published = true
-        }
-        // A later list failure must not lose the confirmed CAS winner across relaunch.
-        try save(next)
-      }
-      wrote = true
-    }
-    func purgeConnections() async throws {
-      for connection in purged {
-        next.connections = next.connections.filter { $0.id != connection.id }
-        next.mailboxCacheRemovals = Array(Set(
-          (next.mailboxCacheRemovals ?? []) + [connection.id])).sorted()
-        // Stop while this credential still exists; retain any failed relay cleanup in the checkpoint.
-        try await unroute(connection.id)
-        let push = try self.saved()
-        next.pushRouteRemovals = push.pushRouteRemovals
-        next.pushDevice = push.pushDevice
-        try save(next)
-      }
-      if !purged.isEmpty {
-        try save(next)
-        next = try await retryMailboxCleanup(next)
-        purged = []
-      }
-    }
-    for connection in saved.connections {
-      // A later connection's failed write must not discard a removal already learned.
-      try await purgeConnections()
-      let key = try identifier(connection.receipt.subject)
-      let usable = connection.authorizationNeeded != true
-      guard let record = stored[key] else {
-        if usable {
-          let epoch = connection.epoch ?? UUID().uuidString
-          try await publish(
-            connection, key: key,
-            descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch),
-            canAdopt: connection.published != true && newlyAuthorizedMailboxes.contains(connection.id))
-        }
-        continue
-      }
-      // A record that fails to open or decode is never shown and never replaced.
-      guard let descriptor = record.descriptor else { continue }
-      let published = connection.published == true
-      let sameEpoch = descriptor.epoch == connection.epoch
-      // Only a known descriptor still at its observed epoch proves no intervening removal.
-      // An absent descriptor cannot rule out an add/remove/re-add while this device was offline.
-      let unchanged =
-        connection.observed == true
-        && connection.observedEpoch != nil
-        && connection.observedEpoch == (descriptor.epoch ?? "")
-      // A descriptor without an epoch predates epochs and is the same incarnation; once upgraded
-      // it carries the fixed legacy epoch. A connection without an epoch predates epochs too, so
-      // only that legacy epoch, or an observation, shows it was not removed and added again.
-      let compatible =
-        sameEpoch || descriptor.epoch == nil
-        || (connection.epoch == nil
-          && (descriptor.epoch == Self.legacyMailboxEpoch || unchanged))
-      let recreation = saved.mailboxRemovals?.contains {
-          $0.subject == connection.receipt.subject
-            && matches($0, descriptor)
-        } == true
-      if descriptor.removed == true {
-        if published || (connection.epoch != nil && sameEpoch)
-          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation) {
-          purged.append(connection)
-        } else if usable {
-          // Added on this device after the removal: the connection starts a new epoch.
-          let epoch = connection.epoch ?? UUID().uuidString
-          try await publish(
-            connection, key: key,
-            descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch), canAdopt: true)
-        }
-      } else if !compatible {
-        // An authorization from before a removal and a later addition is not carried over.
-        if published
-          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation && !unchanged) {
-          purged.append(connection)
-        } else if connection.epoch != nil, recreation {
-          // Explicit recreation advances the epoch even if the old removal was never published.
-          try await publish(
-            connection, key: key,
-            descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: connection.epoch),
-            canAdopt: true)
-        } else {
-          next.update(connection.id) { $0.epoch = descriptor.epoch }
-        }
-      } else {
-        // First authorization on a new device also upgrades an epochless descriptor to legacy;
-        // using its fresh UUID would make existing legacy devices lose their valid grants.
-        // Published epochs survive older-client rewrites, and retained recreation advances them.
-        let epoch = descriptor.epoch == nil && !published && !recreation
-          ? Self.legacyMailboxEpoch
-          : connection.epoch ?? descriptor.epoch ?? Self.legacyMailboxEpoch
-        next.update(connection.id) { $0.epoch = epoch }
-        if usable, descriptor.address != connection.receipt.address || descriptor.epoch != epoch {
-          try await publish(
-            connection, key: key,
-            descriptor: MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: epoch),
-            canAdopt: false)
-        }
-      }
-    }
-    try await purgeConnections()
-    if !(saved.mailboxRemovals ?? []).isEmpty || wrote {
-      stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-    }
-    // A removal that is marked, or overtaken by another addition, is done.
-    next.mailboxRemovals = try (saved.mailboxRemovals ?? []).filter {
-      // Missing or unreadable is no evidence that this removal committed.
-      guard let descriptor = stored[try identifier($0.subject)]?.descriptor else { return true }
-      if descriptor.removed == true { return false }
-      return try removes($0) != nil
-    }
-    if next.mailboxRemovals?.isEmpty == true { next.mailboxRemovals = nil }
-    var confirmed: [String: String] = [:]
-    for connection in next.connections {
-      let key = try identifier(connection.receipt.subject)
-      guard let descriptor = stored[key]?.descriptor else { continue }
-      // An older client may rewrite the descriptor without an epoch; that keeps the incarnation.
-      if descriptor.removed == true
-        || (descriptor.epoch != nil && descriptor.epoch != connection.epoch)
-      {
-        // Read-back may observe a removal/recreation after our successful write or CAS adoption.
-        // It cannot extend that consent to yet another incarnation.
-        purged.append(connection)
-        continue
-      }
-      next.update(connection.id) { $0.published = true }
-      if descriptor.address == connection.receipt.address {
-        confirmed[key] = connection.receipt.address
-      }
-    }
-    try await purgeConnections()
-    try save(next)
-    try await removeQueuedPushRoutes()
-    next = try self.saved()
-    let readable = stored.compactMapValues { $0.descriptor }
-    let live = readable.values.filter { $0.removed != true }
-    return (
-      next, Set(live.map(\.address)).sorted(), confirmed,
-      readable.mapValues { $0.epoch ?? "" }
-    )
-  }
-
-  func mailboxDescriptors(
-    _ vault: ProductSyncVault, backend: ProductSyncBackend, session: ProductSignInIdentity,
-    _ product: ProductRegistrationReceipt
-  ) async throws -> [String: (descriptor: MailboxDescriptor?, updatedAt: Double)] {
-    var result: [String: (descriptor: MailboxDescriptor?, updatedAt: Double)] = [:]
-    for record in try await backend.list(session, product, "mailbox.") {
-      // A record that fails to open or decode is never shown and never replaced.
-      let descriptor = try? JSONDecoder().decode(
-        MailboxDescriptor.self,
-        from: vault.ring.open(
-          record: record.encryptedPayload, account: vault.productAccountId,
-          identifier: record.payloadIdentifier, schemaVersion: MailboxDescriptor.schemaVersion))
-      result[record.payloadIdentifier] = (descriptor, record.updatedAt)
-    }
-    return result
-  }
-
-  func privateSync(_ saved: SavedRegistration) throws -> [String: String] {
-    guard productSync != nil, let product = saved.product else { return [:] }
-    var result: [String: String] = [:]
-    // A Pending Device shows its Enrollment Code until it is admitted, even with keys it stored.
-    if product.pending == true {
-      if product.productSyncMaterialInitialized != true {
-        result["privateSync"] = "setup-pending"
-      } else if let enrollment = try loadEnrollment(product) {
-        result["privateSync"] = "enrollment-pending"
-        result["enrollmentCode"] = try EnrollmentCode(parsing: enrollment.code).display
-        if let notice = enrollment.notice { result["enrollmentNotice"] = notice }
-      } else {
-        result["privateSync"] = "enrollment-needed"
-      }
-      return result
-    }
-    guard let vault = try loadVault(product.productAccountId) else {
-      // A Trusted Device without local keys never creates replacements for existing key material;
-      // its Recovery Key unlocks it. An unknown state, such as a receipt saved before Product Sync,
-      // waits for verification.
-      result["privateSync"] =
-        product.productSyncMaterialInitialized != true ? "setup-pending" : "enrollment-needed"
-      return result
-    }
-    let missingDeviceKey = try keys.read(deviceKeyAccount(product.productAccountId)) == nil
-    // Unsettled material stays visible, but does not confer device-key custody.
-    if vault.published, !vault.holdsUnsettledKeys, missingDeviceKey {
-      return ["privateSync": "enrollment-needed"]
-    }
-    if !vault.published {
-      result["privateSync"] = "setup-pending"
-    } else if !vault.recoveryKeyConfirmed, let recoveryKey = vault.recoveryKey {
-      result["privateSync"] = "recovery-key"
-      result["recoveryKey"] = try RecoveryKey(bytes: recoveryKey).display
-    } else if missingDeviceKey {
-      result["privateSync"] = "enrollment-needed"
-    } else {
-      result["privateSync"] = "ready"
-    }
-    // The newest request Convex listed as open; it rejects an approval that arrives too late.
-    if vault.published, !missingDeviceKey,
-      let request = enrollmentRequests[product.productAccountId]?.max(by: {
-        $0.expiresAt < $1.expiresAt
-      })
-    {
-      result["enrollmentRequest"] = request.pendingDeviceId
-      result["enrollmentDevice"] = request.deviceName
-    }
-    // Other devices this one can remove; it re-encrypts with keys and a Recovery Key it holds.
-    if vault.published, !missingDeviceKey,
-      let devices = trustedDevices[product.productAccountId], !devices.isEmpty
-    {
-      result["trustedDevices"] = String(decoding: try JSONEncoder().encode(devices), as: UTF8.self)
-    }
-    // A prepared removal shows its replacement Recovery Key until it is confirmed or cancelled.
     if let revocation = vault.revocation {
-      result["revocationDevice"] = revocation.request.trustedDeviceId
-      result["revocationRecoveryKey"] = try RecoveryKey(bytes: revocation.recoveryKey).display
+      entry["revocation"] = [
+        "device": revocation.request.trustedDeviceId,
+        "recoveryKey": try RecoveryKey(bytes: revocation.recoveryKey).display,
+        "submitted": revocation.submitted,
+      ]
     }
-    if let mailboxes = vault.readMailboxes, !mailboxes.isEmpty {
-      result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
-    }
-    // A usable mailbox not yet read back needs a backend session, such as after an Apple relaunch.
-    if vault.published,
-      try saved.usableConnections.contains(where: {
-        try vault.savedMailboxes?[vault.ring.identifier("mailbox", "gmail:" + $0.receipt.subject)]
-          != $0.receipt.address
-      })
-    {
-      result["privateSyncPending"] = "mailbox"
-    }
+    if let mailboxes = vault.readMailboxes { entry["readMailboxes"] = mailboxes }
+    if let mailboxes = vault.savedMailboxes { entry["savedMailboxes"] = mailboxes }
+    result["vault"] = entry
     return result
   }
 

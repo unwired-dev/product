@@ -115,7 +115,7 @@ function showMail(profile: string) {
 describe('profile-scoped mobile routes', () => {
   it.each([
     { name: 'legacy Default', profile: defaultProfile, params: {} },
-    { name: 'Work', profile: 'work', params: { profile: 'work' } },
+    { name: 'Work', profile: 'work', params: { profileId: 'work' } },
   ])(
     'retains $name ownership through selection and reader close',
     async ({ profile, params }) => {
@@ -140,27 +140,34 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('rejects repeated Profile parameters instead of reading the Default mailbox', async () => {
-    expect.hasAssertions();
-    showMail(defaultProfile);
-    route.setParams({
-      profile: [defaultProfile, 'work'],
-      mailbox: 'garden',
-      id: 'message-1',
-    });
-    const app = await render(<RootLayout />);
-    expect(
-      screen.getByRole('header', { name: 'Message unavailable' }),
-    ).toBeVisible();
-    expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
-    await act(() => {
-      route.setParams({});
-    });
-    await expect(
-      screen.findByRole('button', { name: /Garden plan/u }),
-    ).resolves.toBeVisible();
-    await app.unmount();
-  });
+  it.each([
+    { name: 'empty', profileId: '' },
+    { name: 'null', profileId: null },
+    { name: 'repeated', profileId: [defaultProfile, 'work'] },
+  ])(
+    'rejects $name profileId instead of reading the Default mailbox',
+    async ({ profileId }) => {
+      expect.hasAssertions();
+      showMail(defaultProfile);
+      route.setParams({
+        profileId,
+        mailbox: 'garden',
+        id: 'message-1',
+      });
+      const app = await render(<RootLayout />);
+      expect(
+        screen.getByRole('header', { name: 'Message unavailable' }),
+      ).toBeVisible();
+      expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
+      await act(() => {
+        route.setParams({});
+      });
+      await expect(
+        screen.findByRole('button', { name: /Garden plan/u }),
+      ).resolves.toBeVisible();
+      await app.unmount();
+    },
+  );
 
   it('clears the previous Profile’s search when the same window targets another Profile', async () => {
     expect.hasAssertions();
@@ -173,7 +180,7 @@ describe('profile-scoped mobile routes', () => {
     );
     showMail('work');
     await act(() => {
-      route.setParams({ profile: 'work' });
+      route.setParams({ profileId: 'work' });
     });
     await expect(
       screen.findByLabelText('Search senders and subjects'),

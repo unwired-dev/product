@@ -71,7 +71,7 @@ export default buildOxlintConfig({
       },
       {
         // Metro loads repository build helpers as CommonJS modules.
-        files: ['scripts/**/*.cjs'],
+        files: ['scripts/**/*.cjs', 'packages/draft-editor/build.cjs'],
         rules: {
           'import/unambiguous': 'allow',
           'typescript/no-require-imports': 'allow',
@@ -79,8 +79,20 @@ export default buildOxlintConfig({
         },
       },
       {
+        // dependency-cruiser loads its configuration synchronously as CommonJS, which reads each package manifest.
+        files: ['.dependency-cruiser.cjs'],
+        rules: {
+          'import/unambiguous': 'allow',
+          'import/no-dynamic-require': 'allow',
+          'node/global-require': 'allow',
+          'node/no-sync': 'allow',
+          'typescript/no-require-imports': 'allow',
+          'typescript/no-var-requires': 'allow',
+        },
+      },
+      {
         // Repository tooling runs as short-lived Node scripts and configures itself from the environment.
-        files: ['scripts/**'],
+        files: ['scripts/**', 'packages/draft-editor/build.cjs'],
         rules: {
           'node/no-process-env': 'allow',
           'node/no-sync': 'allow',

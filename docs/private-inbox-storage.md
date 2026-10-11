@@ -77,6 +77,14 @@ installation identifiers and provider subjects never cross the bridge. Replies t
 the credentialed calls TypeScript names return to it, such as the one-time sign-in
 link ticket it presents to complete a link.
 
+The Product Sync key ring, the unconfirmed Recovery Key, this installation's
+encryption key and an open enrollment request are separate device-only Keychain
+items. Native operations create and store keys before returning what TypeScript
+publishes, and seal or open each record; TypeScript reads their status and opaque
+record identifiers and sequences [Product Sync](private-product-sync.md#keys-and-envelopes).
+A key item that cannot be read reports Product Sync as unavailable without failing
+registration.
+
 A saved sign-in survives interruption before backend registration and resumes
 without replacing a committed Product Account or its encrypted Inbox. A record for
 another deployment or Google client is ignored. Purging attempts every account
@@ -98,7 +106,7 @@ another Profile stays unavailable until both migration batches below finish and
 Reading and search name their Profile explicitly
 ([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and
 the iPhone/iPad window shows one Mail Profile. Native Mac windows currently open
-the Default Profile. On iPhone/iPad, a message link with a `profile` parameter
+the Default Profile. On iPhone/iPad, a message link with a `profileId` parameter
 opens only in that Profile; an old-form link without one, from before Profiles,
 opens in the Default Profile. Closing a targeted reader returns to the same
 Profile's Inbox. Malformed Profile selectors, including repeated link parameters,
@@ -116,16 +124,33 @@ lists every connection of the Product Account for review and removal. Convex lea
 no Profile ownership: its Gmail connection list, connection and removal stay
 scoped to the Product Account and trusted device.
 
-Drafts, delivery and notifications still act without an explicit Profile until
-[#646](https://github.com/unwired-dev/product/issues/646) migrates them, and keep
-reading every connection through `mailboxesOf`:
+The Drafts, delivery and notifications batch,
+[#646](https://github.com/unwired-dev/product/issues/646), scopes shared Draft and
+sending services to a connection's Profile. `profileOf` in `@private-email/mail-core/drafts` gives a connection's
+Profile, which every Draft and Outbox entry sending from it shares, and
+`sendingMailboxes` requires one:
 
-- `packages/mail-core`: `drafts.ts`, `draft-sync.ts`, `outbox.ts`,
-  `responses.ts`, `outgoing-message.ts` and `composer-navigation.ts`.
-- Both Apple hosts: `composer.tsx`, `message-detail.tsx` (attachment-to-Draft),
-  `outbox.tsx`, `freshness.ts`, and the push wake routes in `registration.ts`.
+- The composer's **From** list, a new message, a reply and **Attach to New
+  Message** offer only senders in the Draft's or reader's Profile. A received
+  attachment never falls back to another Profile's sender.
+- The Draft store refuses a sender change into another Profile and a received
+  attachment from another Profile's connection.
+- **Reply All** leaves out only the sending Profile's own addresses.
+- A new message from the unified Inbox sends from the window's Profile. A
+  connection that is no longer listed falls back to the Default Profile.
+
+Storage, Product Sync records, Delivery Owners, Outbox claims and their payloads
+are unchanged. Push wakes carry no content and synchronize every connection. The
+replacement has no recipient suggestions or visible notifications yet. Before another Profile can be created,
+[#647](https://github.com/unwired-dev/product/issues/647) must synchronize Profile
+assignment and route the remaining backend and native callers by Profile Record Scope:
+
 - Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
 - Native: `PushRoutes.swift` and `DraftSync.swift`.
+
+These callers require synchronized ownership before they can distinguish Profiles;
+the [architecture companion](architecture/private-inbox-storage.md#drafts-delivery-and-notifications-staging)
+records the staging decision and its rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
 compatibility path through substituted provider and storage boundaries. Deterministic
@@ -135,6 +160,15 @@ release, verify Default Profile read/compose/relaunch on each maintained Apple
 host with real provider credentials, encrypted private state and queued work
 preserved. Mock tests and earlier native journeys do not qualify this combination.
 No setup or data reset is required for this slice.
+
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is a
+device-only Keychain item per Product Account listing its enabled Profiles. Every
+account purge removes it with the account's keys.
+
+Reader Mail Assistance uses the reading Profile’s device-local consent, including
+Translation, and cancels retained work when that consent is revoked or the reading
+Profile changes. Account settings and Draft consent retain their staged Default
+Profile paths until #647 supplies their ownership and lifecycle.
 
 ## Message body cache
 

@@ -14,10 +14,13 @@ export default function MessageRoute() {
       id={id}
       mailbox={mailbox}
       onClose={() => {
-        router.replace({ pathname: '/', params: { profile } });
+        router.replace({ pathname: '/', params: { profileId: profile } });
       }}
       onCompose={(draft) => {
-        router.replace({ pathname: '/compose/[draft]', params: { draft } });
+        router.replace({
+          pathname: '/compose/[draft]',
+          params: { draft, profileId: profile },
+        });
       }}
     />
   );

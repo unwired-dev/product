@@ -47,7 +47,11 @@ import Testing
   let relay = SyntheticRelay()
   let store = RegistrationStore(
     keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-    provider: google, productSync: sync?.backend, transport: { try relay.send($0) },
+    provider: google, productSync: sync?.backend,
+    transport: { request in
+      if let sync, request.path.hasPrefix("productSync:") { return try sync.transport(request) }
+      return try relay.send(request)
+    },
     connect: { identity, installation, _ in
       if let sync { return try sync.connect("account-" + identity.subject, device: installation) }
       return ProductRegistrationReceipt(
@@ -348,19 +352,11 @@ extension PrivateInboxTests {
     // A routing retry cannot delete before the pending removal has reached Product Sync.
     try await store.routeMailboxes(device: nil, topic: nil, now: 0)
     #expect(relay.requests.map(\.path) == ["pushRelay:shouldStopGmailWatch"])
-    backend.offline = false
-    backend.beforePut = { _, written in
-      if written == identifier {
-        #expect(!relay.requests.contains { $0.path == "pushRelay:removeGmailConnection" })
-      }
-    }
-    // Even with no mailbox or topic left, restoration flushes acknowledged cleanup.
-    _ = try await store.restore()
-    let stored = try #require(backend.records[account]?[identifier])
-    let descriptor = try JSONDecoder().decode(MailboxDescriptor.self, from: ring.open(
-      record: stored.encryptedPayload, account: account, identifier: identifier,
-      schemaVersion: MailboxDescriptor.schemaVersion))
-    #expect(descriptor.removed == true)
+    // Once Product Sync records the tombstone, the queued cleanup runs, even with no mailbox or
+    // topic left. TypeScript marks the tombstone (packages/mail-core/test/product-sync.test.ts).
+    try store.recordMailboxChanges(connections: [], settledRemovals: [identifier])
+    #expect(try store.saved().mailboxRemovals == nil)
+    try await store.removeQueuedPushRoutes()
     #expect(relay.requests.map(\.path) == [
       "pushRelay:shouldStopGmailWatch", "pushRelay:removeGmailConnection", "pushRelay:unregisterDevice",
     ])
@@ -381,20 +377,11 @@ extension PrivateInboxTests {
     _ = try await store.authorizeGmail()
     google.gmailResponse = watch(historyId: "1", expiration: 1_000_000_000)
     try await store.routeMailboxes(device: device, topic: topic, now: 0)
-    let ring = try #require(try store.loadVault(account)).ring
-    let identifier = try ring.identifier("mailbox", "gmail:" + subject)
-    let connection = try #require(try store.saved().connections.first)
-    let descriptor = MailboxDescriptor(
-      provider: "gmail", address: connection.receipt.address, epoch: connection.epoch, removed: true)
-    let sealed = try ring.seal(
-      record: JSONEncoder().encode(descriptor), account: account, identifier: identifier,
-      schemaVersion: MailboxDescriptor.schemaVersion)
-    backend.records[account, default: [:]][identifier] = StoredPayload(
-      payloadIdentifier: identifier, encryptedPayload: sealed, updatedAt: 2_000)
     relay.requests = []
     google.gmailRequests = []
     google.gmailResponse = (204, Data())
-    _ = try await store.restore()
+    // Another device removed it; synchronization purges the connection here.
+    try await store.purgeMailbox(MailboxConnection.id(subject: subject))
     #expect(try store.saved().connections.isEmpty)
     #expect(google.gmailRequests == [URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/stop")!])
     #expect(relay.requests.map(\.path) == [

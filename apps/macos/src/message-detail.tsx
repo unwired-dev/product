@@ -1,7 +1,7 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
-import { sendingMailboxes } from '@private-email/mail-core/drafts';
+import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -22,6 +22,7 @@ import {
 import type { SavedAttachment } from './message-body.tsx';
 
 import { useLocalization, useMessageDateFormat } from './localization.ts';
+import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
   MailboxScope,
   useComposerNavigation,
@@ -30,6 +31,7 @@ import {
   useInbox,
   useInboxActions,
   useMailbox,
+  useProfile,
 } from './mailbox.tsx';
 import {
   AttachContext,
@@ -128,8 +130,11 @@ function AttachToNewMessage({
   const mounted = useRef(true);
   const attaching = useRef(false);
   const [failed, setFailed] = useState(false);
-  // Only open Draft storage and an eligible sender can start a new message.
-  const canSend = sendingMailboxes(account?.mailboxes ?? []).length > 0;
+  // Only open Draft storage and an eligible sender in the reader's Mail Profile can start a new
+  // message.
+  const mailboxes = account?.mailboxes ?? [];
+  const canSend =
+    sendingMailboxes(mailboxes, profileOf(mailbox?.id, mailboxes)).length > 0;
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -148,7 +153,7 @@ function AttachToNewMessage({
     try {
       const draft = await navigation.attachReceived(store, {
         mailbox: mailbox.id,
-        mailboxes: account?.mailboxes ?? [],
+        mailboxes,
         saved,
       });
       if (mounted.current && draft !== undefined) {
@@ -234,6 +239,7 @@ export function MessageDetail({
   // Opens a Draft the reader started, such as one with a received attachment.
   readonly onCompose?: ((id: string) => void) | undefined;
 }) {
+  const profile = useProfile();
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
@@ -248,15 +254,17 @@ export function MessageDetail({
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      {onCompose === undefined ? (
-        message
-      ) : (
-        <AttachToNewMessage
-          key={`${mailbox}/${id}`}
-          onCompose={onCompose}>
-          {message}
-        </AttachToNewMessage>
-      )}
+      <ReaderMailAssistanceGate profile={profile}>
+        {onCompose === undefined ? (
+          message
+        ) : (
+          <AttachToNewMessage
+            key={`${mailbox}/${id}`}
+            onCompose={onCompose}>
+            {message}
+          </AttachToNewMessage>
+        )}
+      </ReaderMailAssistanceGate>
     </MailboxScope>
   );
 }
@@ -303,9 +311,11 @@ function ResponseActions({
       mounted.current = false;
     };
   }, []);
-  const sender = sendingMailboxes(account?.mailboxes ?? []).find(
-    ({ id }) => id === mailbox?.id,
-  );
+  const mailboxes = account?.mailboxes ?? [];
+  const sender = sendingMailboxes(
+    mailboxes,
+    profileOf(mailbox?.id, mailboxes),
+  ).find(({ id }) => id === mailbox?.id);
   if (
     !('readMessage' in inbox) ||
     !('threadId' in message) ||

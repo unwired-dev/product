@@ -16,7 +16,16 @@ catalog:
   '@rajzik/oxlint-config': ^4.0.4
   '@rajzik/tsconfig': ^4.0.4
   '@types/node': ^24.19.1
+  '@tiptap/core': 3.31.4
+  '@tiptap/extension-document': 3.31.4
+  '@tiptap/extension-paragraph': 3.31.4
+  '@tiptap/extension-text': 3.31.4
+  '@tiptap/extensions': 3.31.4
+  '@tiptap/pm': 3.31.4
+  'esbuild': 0.28.2
+  'happy-dom': 20.14.5
   convex: ^1.46.0
+  dependency-cruiser: ^18.5.0
   effect: 4.0.0
   i18next: 26.4.2
   react-i18next: 17.0.15
@@ -35,6 +44,13 @@ patchedDependencies:
 
 allowBuilds:
   esbuild: true
+
+# dependency-cruiser needs the TypeScript compiler API, which TypeScript 7 no longer exposes.
+# pnpm cannot resolve catalog: in an external package extension; keep this parser version here.
+packageExtensions:
+  dependency-cruiser@18:
+    dependencies:
+      typescript: 6.0.3
 
 minimumReleaseAgeExclude:
   - '@oxfmt/binding-android-arm-eabi@0.71.0'

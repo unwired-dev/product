@@ -180,6 +180,24 @@
     "cleared": "Remote content saved on this device was removed.",
     "clearFailed": "Remote content could not be removed. Try again."
   },
+  "mailAssistance": {
+    "title": "On-device assistance",
+    "description": "Summaries, rewrites, reply suggestions and translations use Apple's on-device models, and run only when you ask. This choice applies to this device and this account only. Signing out turns it off.",
+    "on": "On-device assistance is on.",
+    "off": "On-device assistance is off.",
+    "turnOn": "Turn on on-device assistance",
+    "turnOff": "Turn off on-device assistance",
+    "saving": "Saving this device's assistance choice…",
+    "saveFailed": "This device's assistance choice could not be saved. Try again before leaving this page.",
+    "retrySave": "Try saving assistance choice again",
+    "checkAvailability": "Check Apple Intelligence availability",
+    "checking": "Checking Apple Intelligence availability…",
+    "available": "Apple Intelligence is available for summaries, rewrites and reply suggestions.",
+    "checkFailed": "Apple Intelligence availability could not be checked. Try again.",
+    "device-ineligible": "This device does not support Apple Intelligence.",
+    "assistance-disabled": "Turn on Apple Intelligence in system settings.",
+    "unsupported-locale": "Apple Intelligence is not available in this device’s language yet."
+  },
   "privateSync": {
     "setup-pending": {
       "title": "Private sync",
@@ -281,7 +299,9 @@
     "linkLabel": "Open link: {{link}}",
     "warning": "• {{warning}}",
     "opening": "Opening message",
-    "message": "Message"
+    "message": "Message",
+    "showQuoted": "Show quoted text",
+    "hideQuoted": "Hide quoted text"
   },
   "attachment": {
     "oversized": "Too large to download on this device.",
@@ -641,6 +661,12 @@
       "forwardedCc": "Cc: {{value}}",
       "showQuoted": "Show quoted text",
       "hideQuoted": "Hide quoted text"
+    },
+    "evaluation": {
+      "title": "Evaluation editor",
+      "saveBlocked": "This Draft could not be saved, so it stays open. Try again once storage is available.",
+      "unsupported": "The evaluation editor opens plain paragraphs only, so this Draft stays unchanged. Close it to return to the Inbox.",
+      "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
     }
   },
   "outbox": {

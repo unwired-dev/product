@@ -373,11 +373,11 @@ export type ViewScope = Readonly<{
 
 const decodeProfile = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
-// Missing legacy selectors use Default; malformed selectors cannot name any decoded connection.
-export const readingProfile = (profile: unknown): string =>
-  profile === undefined
+// An absent profileId uses Default; malformed or repeated selectors cannot name any decoded connection.
+export const readingProfile = (profileId: unknown): string =>
+  profileId === undefined
     ? defaultProfile
-    : Option.getOrElse(decodeProfile(profile), () => '');
+    : Option.getOrElse(decodeProfile(profileId), () => '');
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
 export const profileMailboxes = <L extends Readonly<{ profile: string }>>(

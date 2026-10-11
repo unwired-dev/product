@@ -236,6 +236,38 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `product-sync.ts` mailbox reconciliation treating an epochless connection or queued removal as
+  compatible with every live epoch. Pre-epoch connections, descriptors and
+  removal intents name one fixed legacy incarnation; concurrent upgrades must
+  agree without purging other legacy devices. Preserve tombstones and fence
+  later re-adds, including retained offline recreation after another device's
+  legacy upgrade. Otherwise migration restores old authorization or removes a
+  later incarnation with stale intent.
+- `product-sync.ts` mailbox reconciliation treating a missing entry in `descriptorEpochs` as an
+  unchanged incarnation for offline consent, or discarding an authenticated
+  removal/different epoch from an address-update CAS when its later list fails.
+  Adopt an offline grant only against a known observed live epoch that still
+  matches, and durably purge a known removal before another fallible read or
+  another connection's publication. A batch that waits until all writes finish
+  loses learned removals when a later connection fails.
+  Absence cannot rule out an unseen add/remove/re-add; either gap retains stale
+  provider authorization after a synchronized removal.
+- `product-sync.ts` mailbox reconciliation discarding the descriptor returned by a losing CAS or
+  adopting any different epoch from a later list merely because it attempted a
+  write. Bind eligible fresh consent or matching retained recreation to the
+  live CAS winner, persist that epoch before later fallible reads, and require
+  final read-back to match it. Tombstones, ordinary offline restore, published
+  address updates and subsequent removals cannot extend an old grant to another
+  incarnation; otherwise concurrent additions lose valid mail or resurrect
+  authorization after removal.
+- `product-sync.ts` mailbox reconciliation acknowledging a queued removal from absent or unreadable
+  ciphertext, or discarding removal intent on a pre-publication re-add. Require a
+  read-back tombstone or an authoritative superseding incarnation, preserve
+  read-only unknown records, and fence pre-removal authorization with a new epoch.
+  Ordinary restore of unpublished credentials cannot resurrect a tombstone or
+  adopt another incarnation; only current explicit consent or a retained matching
+  recreation intent may do so. Otherwise an offline device restores a removed
+  connection's provider access.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence
@@ -514,6 +546,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- Profile-isolation guards in `createDrafts.update` or `fill` covering only the
+  stored Draft or the value before a caller-supplied edit. Check every path that
+  writes the guarded state, including deleted-Draft conflict copies, against the
+  edited value and its received-attachment sources. When the stored Draft is gone,
+  retain the editor's prior ownership evidence within the current account fence.
+  Otherwise a late edit or sender-changing fill can move content or assets into
+  another Profile despite passing the ordinary update/import guard.
 - `createDrafts.save` or another successful recovery action making retained edits
   durable without requesting downstream synchronization abandoned by a failed
   automatic pass. Exercise the debounced pass failing while storage is locked or
@@ -742,6 +781,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `html-sanitizer.ts.sanitizeHtml` classifying quoted history as trailing by
+  inspecting only later text. Visible images outside a quote also constitute
+  inline replies; preserve their quoted questions in the full presentation,
+  including image-only replies. Otherwise collapsing removes the context of an
+  answer that remains visible.
+
 - MIME parsing in `message-body.ts` or `gmail-inbox.ts` that runs before
   `withinMetadataBudgets` admits the whole message, including discarded subtrees.
   Bound names before case folding and values before comment, parameter and CID
@@ -756,7 +801,7 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   reject a message deliberately admitted near the part limit. Verify both
   over-budget rejection across parts and successful reads of admitted trees,
   including the existing large-attachment journeys in both host test suites.
-- `message-body.ts.presentation` rebuilding the same blocked-only document on
+- `message-presentation.ts.presentation` rebuilding the same blocked-only document on
   every remote-image batch or caching it under an incomplete admission key. Reuse
   preparation for the same immutable body and admitted inline-image objects,
   including fresh arrays containing those objects; Content-IDs alone do not bind

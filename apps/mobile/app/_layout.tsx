@@ -21,16 +21,16 @@ pollGmailWhileActive();
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);
-  const { id, mailbox, draft, profile } = useGlobalSearchParams<{
+  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
     draft?: string;
-    profile?: string | string[];
+    profileId?: string | string[];
   }>();
   // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
   // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
   // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
-  const shownProfile = readingProfile(profile);
+  const shownProfile = readingProfile(profileId);
   const detail = Boolean(id) || Boolean(draft);
 
   useEffect(() => {
@@ -42,14 +42,17 @@ export default function RootLayout() {
   function selectMessage(selection: Selection) {
     router.replace({
       pathname: '/message/[id]',
-      params: { ...selection, profile: shownProfile },
+      params: { ...selection, profileId: shownProfile },
     });
     splitView.current?.show('secondary');
   }
 
   // A Draft opens in the detail column, a destination of its own on iPhone.
   function compose(opened: string) {
-    router.replace({ pathname: '/compose/[draft]', params: { draft: opened } });
+    router.replace({
+      pathname: '/compose/[draft]',
+      params: { draft: opened, profileId: shownProfile },
+    });
     splitView.current?.show('secondary');
   }
 
@@ -69,7 +72,7 @@ export default function RootLayout() {
                 onClose={() => {
                   router.replace({
                     pathname: '/',
-                    params: { profile: shownProfile },
+                    params: { profileId: shownProfile },
                   });
                 }}
                 onCompose={compose}

@@ -1,15 +1,18 @@
 import * as Schema from 'effect/Schema';
 
+import type { NativeMailAssistance } from '../assistance-enablement.ts';
 import type { NativeAssistance } from '../assistance.ts';
 import type { NativeTranslation } from '../translation.ts';
 
 import { fixtureMessages } from '../index.ts';
+import { defaultProfile } from '../registration.ts';
 
 const Scenario = Schema.Literals([
   'open-read-relaunch',
   'identity-unavailable',
   'mail-unavailable',
   'assistance-unavailable',
+  'assistance-disabled',
 ]);
 
 // The fixed summary every available Mock Mail Session returns; native mock builds return the same.
@@ -51,6 +54,17 @@ export function createMockMailSession(selection: unknown) {
     scenario,
     identity: Object.freeze({ signIn }),
     mail: Object.freeze({ list }),
+    // Mail Assistance Enablement with a fixed outcome: the synthetic account's Default Profile is
+    // enabled, except in 'assistance-disabled'. Changes are confirmed but never stored.
+    mailAssistance: Object.freeze({
+      mailAssistance: () =>
+        Promise.resolve({
+          owner: identity.account,
+          profiles: scenario === 'assistance-disabled' ? [] : [defaultProfile],
+        }),
+      setMailAssistance: (owner: string, profiles: readonly string[]) =>
+        Promise.resolve({ owner, profiles }),
+    }) satisfies NativeMailAssistance,
     // The native assistance contract with fixed outcomes; it never reads the input it is given.
     assistance: Object.freeze({
       availability: () =>

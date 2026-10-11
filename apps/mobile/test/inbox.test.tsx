@@ -136,9 +136,9 @@ describe('preview Inbox', () => {
 
   it('shows a reused reader only in the Profile that owns its mailbox', async () => {
     expect.hasAssertions();
-    const link = (profile: string) => (
+    const link = (profileId: unknown) => (
       <InboxProvider>
-        <ProfileScope profile={profile}>
+        <ProfileScope profile={profileId}>
           <MessageDetail
             id="weekend-walk"
             mailbox={preview}
@@ -157,6 +157,10 @@ describe('preview Inbox', () => {
       screen.findByRole('header', { name: 'Message unavailable' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText('oliver@example.com')).toBeNull();
+    await app.rerender(link([defaultProfile, 'work']));
+    expect(
+      screen.getByRole('header', { name: 'Message unavailable' }),
+    ).toBeVisible();
   });
 
   it('commits a read change and recovers it after the view remounts', async () => {

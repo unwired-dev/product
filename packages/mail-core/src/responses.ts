@@ -418,10 +418,10 @@ export async function startResponse(
     current = () => true,
   }: Readonly<{
     kind: ResponseKind;
-    mailbox: Pick<MailboxConnection, 'id' | 'address'>;
+    mailbox: Pick<MailboxConnection, 'id' | 'address' | 'profile'>;
     message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
     received: string;
-    mailboxes?: ReadonlyArray<Pick<MailboxConnection, 'id' | 'address'>>;
+    mailboxes?: ReadonlyArray<Pick<MailboxConnection, 'address' | 'profile'>>;
     current?: () => boolean;
   }>,
 ) {
@@ -473,7 +473,10 @@ export async function startResponse(
         document,
         connection: mailbox.id,
         from: mailbox.address,
-        identities: mailboxes.map(({ address }) => address),
+        // Only the sending Mail Profile's own addresses leave the recipients.
+        identities: mailboxes
+          .filter(({ profile }) => profile === mailbox.profile)
+          .map(({ address }) => address),
         received,
         attachments,
         prepare: drafts.prepare,

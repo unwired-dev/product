@@ -6,7 +6,8 @@ Setup, coding rules, validation and observable requirements remain in this file.
 Inbox for getting through mail quickly. Except for collapsed category mail described
 below, each message appears as one bubble with its
 [Background Message Summary](domain/assistance.md), or its preview when no summary
-exists. Nothing here is implemented yet. The work is tracked in
+exists. Only the Thread view is implemented so far (see
+[Thread view](#thread-view)). The work is tracked in
 [#807](https://github.com/unwired-dev/product/issues/807) and its sub-issues.
 
 ## Behavior
@@ -56,6 +57,36 @@ exists. Nothing here is implemented yet. The work is tracked in
   the pressed message.
 - Mark unread changes Message Read State only; it does not clear seen markers or
   move the divider.
+
+## Thread view
+
+The Expo app's Thread view opens at `/thread/[id]?mailbox=<connection>`. The Inbox list
+still opens the single-message reader; Catch Up bubbles will open the Thread view.
+
+- It shows every locally cached message with the opened message's Gmail
+  `threadId` (the listed Inbox and any open search results), newest at the top.
+  A message that is not cached shows as unavailable.
+- It scrolls to the opened message once that message is first laid out and
+  highlights it (`accessibilityState.selected`). Bodies loading above it keep it in
+  place.
+- Each message starts with its quoted history collapsed behind **Show quoted
+  text**. Quoted history is Gmail's `gmail_quote` container, a
+  `blockquote type="cite"` (Apple Mail, Thunderbird), everything from an
+  "Original Message" marker, or the trailing run of `>` lines with the
+  attribution line above it. Inline replies and Outlook HTML quotes stay
+  shown. A body that would be empty without its quote shows in full.
+
+Every cached message of the Thread is mounted at once, each with its own body
+view, so a long Thread creates that many native views and rich documents. Bodies
+currently start loading in newest-first mount order within the shared store's
+concurrency limits. Bounded rendering of mounted messages, viewport priority,
+immediate reprioritization and off-screen distance ordering remain required
+follow-up work in
+[#862](https://github.com/unwired-dev/product/issues/862); an older opened
+message can wait behind off-screen bodies. This slice does not qualify the full
+[conversation reader loading behavior](product/messages-and-delivery.md#thread-identity-and-reader-behavior).
+Native scroll-to, scroll anchoring as bodies resolve, and highlight accessibility
+still require iPhone and iPad validation.
 
 ## Summaries
 

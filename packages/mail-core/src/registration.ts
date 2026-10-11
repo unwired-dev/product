@@ -125,7 +125,7 @@ const Account = Schema.Struct({
     Schema.Literals(['removed', 'renewed', 'unconfirmed', 'superseded']),
   ),
 });
-// The account's Product Sync state, which native device storage reports.
+// The account's Product Sync status values, from this device's Product Sync state.
 export const PrivateSyncStateSchema = Schema.Struct({
   privateSync: Account.fields.privateSync,
   recoveryKey: Account.fields.recoveryKey,

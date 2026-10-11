@@ -8,10 +8,32 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
 - A native module result used in the host before the shared store decodes it. The adapter passes the raw result through; see `src/private-storage.ts`.
 - Effect imported into a component or hook. React code is plain TypeScript consuming stores.
+- `evaluation-composer.tsx` or another host component defining a WebView/page-message
+  Schema decoder instead of consuming a shared non-React decoder's plain result.
+  Trace the page producer, every host consumer and malformed-message rejection
+  through the shared package export; otherwise separate hosts can accept different
+  payloads and malformed messages can mutate Drafts. Keep the host decoder separate
+  from page-facing conversion code so Schema/Effect stays outside the packaged page.
 - An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
 - The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
 
 #### React correctness
+
+- `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
+  failed-Close feedback after accepting another authored edit. Retire the stale
+  notice and its recovery controls on every accepted editing path, while keeping
+  the current save status visible. Malformed messages and retired-owner callbacks
+  must not clear feedback. Exercise blocked Close, resumed editing and notice
+  removal on each affected host; otherwise successful autosave can appear beside
+  an obsolete save-failure notice and Retry action.
+
+- `evaluation-composer.tsx` or another host view reusing notice copy that promises
+  a recovery action its failure state does not offer. Trace each advertised action
+  to a reachable control and handler in that view, including its storage and
+  capability refusals; otherwise shared copy can send the person toward an
+  unavailable escape such as Discard. Use view-specific copy when the action is
+  outside the view's authorized scope, and check the visible failure-and-retry
+  journey on each affected host rather than requiring extra product controls.
 
 - `trusted-devices.tsx.TrustedDevices` or registration/account routing hiding a
   native-retained actionable proposal behind a coarse capability gate such as
@@ -131,6 +153,36 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   store's exact result before Retry or Cancel within that session too; a target
   change retires the previous request's controls. Otherwise stale input starts
   hidden inference or replaces, cancels or closes a later translation.
+
+- `MessageDetail` or `ThreadView` inheriting the Account/Draft gate’s Default
+  Profile consent for a reader of another Profile. Check the reader gate and
+  `useMailAssistanceLifetime` against the same explicit reading Profile, including
+  revocation and Profile replacement; otherwise Default consent exposes another
+  Profile’s mail to assistance or queued input revives a discarded preview.
+  Preserve staged Account settings and Draft consent until their ownership lands.
+
+- `mail-assistance.tsx.MailAssistanceSettings` presenting an Off choice as saved
+  after `setEnabled` catches a Keychain rejection. Keep the gate immediately off,
+  but show unsaved status and retry the desired choice with account ownership
+  intact; otherwise the person sees only Turn on while the persisted preference
+  remains On and cannot directly retry the failed Off save. Exercise native-save
+  failure and recovery through both rendered settings surfaces.
+
+- `mail-assistance.tsx.MailAssistanceSettings` adding the device-local opt-in
+  without ADR 0053's explicit Account Settings availability check and product-owned
+  status. Trace the settings route's injected `NativeAssistance` outside
+  `MailAssistanceGate`; opening settings or toggling On must not check availability,
+  prewarm or infer, and Off must refuse queued checks. Retire pending checks and
+  shown status on account/provider replacement, Off and unmount. Exercise the
+  rendered settings surface on both hosts, including unavailable outcomes and late
+  replies; a reader-only capability check leaves opted-in users unable to explain
+  system unavailability until they attempt generation.
+
+- `translation.tsx.useLanguages` querying native Translation from a pending passive
+  effect after Mail Assistance Enablement turns off. Reuse the request owner's
+  live enablement predicate at that call boundary; hiding the panel on a later
+  render does not retire its pending effect. Exercise Off between layout setup
+  and passive effects, or a disabled account can still reach Apple Translation.
 
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating
@@ -332,6 +384,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   fail-closed unresolved-policy state, and exercise the transition through the
   real settings store and reader rather than only checking the button.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
+- `message-detail.tsx.ThreadMessages` or another multi-message rich reader treating
+  bounded download concurrency, image reservations or viewport fetch priority as
+  a bound on mounted bodies. Trace mounted `GmailMessageBody`/WebView instances and
+  rich-document preparation separately from request scheduling; otherwise a long
+  conversation creates a native view and prepared document for every cached
+  message even while downloads are capped. Check the task's accepted scope before
+  requiring windowing: #809 explicitly defers bounded rendering to #862, and its
+  operational docs and changeset must retain that limitation until qualified.
 - `composer.tsx.DraftRowView` or a message row flattening an entire body before
   native `numberOfLines` truncation. Bound preview traversal and intermediate
   strings before rendering, including a single large span and many empty blocks;
@@ -367,7 +427,8 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   descendants; place that state within the decoded Profile lifetime and exercise
   leaving and returning to the same Profile. Otherwise an old reader selection
   can reappear despite the Inbox clearing its query and mailbox choice. Preserve
-  connection-owned stores and the staged unscoped Draft/delivery APIs.
+  connection-owned stores and #646’s staged connection-Profile Draft/delivery
+  boundaries.
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
 
@@ -433,9 +494,22 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `message-detail.tsx.ThreadMessage` or another selected reader section marked
+  only by a background color and `accessibilityState.selected`. Require a visible
+  non-color cue such as a border, icon or text as well as assistive-technology
+  state; otherwise sighted users in grayscale or with color-vision differences
+  cannot identify the opened message. Check the cue against both palettes and
+  the section's padding/radius, and retain increased-contrast native qualification
+  as deferred when unavailable; component style assertions do not prove it.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
+- A mobile Profile selector whose parameter name disagrees with ADR 0050’s
+  `profileId` route contract. Trace targeted entry, in-app message selection,
+  composing and reader/composer close through the layout’s decoded selector;
+  absent values use Default, while malformed or repeated values fail closed.
+  Exercise a non-Default target through real reading stores and route replacement
+  so a renamed or dropped parameter cannot silently open Default.
 - A deployment target, entitlement, Info.plist privacy string or App Transport Security setting lowered or broadened in `app.config.ts`, a config plugin or the Mac project.
 - A Metro, Babel or config-plugin change that lets mock-session code (`UNWIRED_MOCK_SCENARIO`, `UNWIRED_REGISTRATION_MOCK`) into a build that did not select a scenario.
 
@@ -463,6 +537,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Verify queued keyboard and WebKit choices after forget, message/account replacement
   and reader unmount in both hosts, including the commit before passive cleanup;
   stale Copy/Proceed callbacks must remain blocked too.
+- `message-body.tsx.GmailMessageBody` dismissing a shared `LinkConfirmationProvider`
+  confirmation without comparing its owning Inbox and message ID. Body replacement,
+  reader cleanup and quote toggles must clear only that body's pending choice,
+  using the latest pending state; otherwise message B dismisses message A's still
+  valid destination. When a provider admits several messages, exercise a sibling
+  transition with A's confirmation open and A's own invalidation, while preserving
+  the existing stale-owner Copy/Proceed fences.
 
 #### Bundle and workspace boundary
 

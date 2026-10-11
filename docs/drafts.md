@@ -42,8 +42,9 @@ Trusted Devices through End-to-End Encrypted Product Sync.
   editing; its title and From choices also use bounded previews and announce
   shortening. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
-- **From** always shows the sending mailbox and lists every mailbox that can send.
-  A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
+- **From** always shows the sending mailbox and lists every mailbox in the Draft's
+  [Mail Profile](private-inbox-storage.md#mail-profiles) that can send; a Draft never
+  moves to another Profile's mailbox. A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
   needs authorization again, is removed from the account, or changes its address, the Draft keeps it and
   explains why it cannot send; another mailbox is used only after the person chooses
   it. When its address changes, choose that mailbox again in From to use the current
@@ -73,6 +74,9 @@ Trusted Devices through End-to-End Encrypted Product Sync.
   composer redraws.
 
 Links, the Slash Command Menu and recipient suggestions are later slices.
+
+The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
+of the body editor for comparison with this composer; it does not change it.
 
 ## Saving
 
@@ -140,7 +144,7 @@ controls:
   as usual. The app reads only files the person chose or dropped.
 - **Received attachments:** a Downloaded Attachment in the reader offers **Attach
   to New Message**. It starts a Draft from the reader's mailbox when that mailbox
-  can send, otherwise the first one that can, and copies the downloaded bytes
+  can send, otherwise the first one in the same Mail Profile that can, and copies the downloaded bytes
   through that mailbox's current generation. The Draft keeps only its copy of the
   bytes: no mailbox, generation, file name or Gmail authorization of the source.
 
@@ -258,7 +262,7 @@ reopening, **Undo** and **Discard** work as for any Draft.
 - **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
   sent is answered to its original To recipients. **Reply All** adds the original
   To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
-  addresses belonging to the Product Account are left out, unless the message was
+  addresses of the sending Mail Profile are left out, unless the message was
   sent to the active sender alone. An excluded address can be added manually. Each address appears
   once, compared without case, and a group keeps its members without its display
   name. Folded headers, comments and quoted group names retain their valid addresses.
@@ -418,8 +422,9 @@ Asset coverage (#612): shared store tests insert, delete, round-trip and Undo an
 inline image; store verified bytes through relaunch, Undo and Draft deletion;
 keep cancelled, failed and interrupted imports unsendable while their stray bytes
 are removed; refuse files over the limits; read damaged or missing bytes as
-unavailable; and copy a received attachment without its mailbox, for its Product
-Account only. Both hosts' component journeys attach files and an inline image
+unavailable; copy a received attachment without its mailbox, for its Product
+Account only; and keep a Draft's sender choices, sender changes and received
+attachments within its Mail Profile, using a test-only second Profile. Both hosts' component journeys attach files and an inline image
 through the pickers, cancel an import, edit while an import completes without a
 conflict copy, show an interrupted import and the stored files after relaunch,
 show damaged image bytes, remove and restore an inline image with **Undo**, and
@@ -440,7 +445,8 @@ imports and preserve similarly named directories containing user files.
 Response coverage (#613): shared integration tests open a message through the real
 Gmail Inbox and synthetic Gmail, then start responses with the real Draft store and
 composer navigation. They check the receiving identity among two mailboxes, Reply
-and Reply All recipients with duplicates, groups and the sender's own address, threading
+and Reply All recipients with duplicates, groups, the sender's own address and another
+Mail Profile's address, threading
 headers, quoted text apart from the body, and a save and reopen. They also check a
 sender change, messages this mailbox sent, malformed headers, and forwarded text,
 inline images and attachments read back byte for byte. Failed oversized and damaged

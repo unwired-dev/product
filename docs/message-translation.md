@@ -59,8 +59,9 @@ fallback and nothing is downloaded by the app.
   offered except for an unsupported pair or the same language. A device that
   reports no languages says that translation is unavailable.
 
-Mail Assistance Enablement, the per-Profile opt-in, is not part of this slice; see
-[#788](https://github.com/unwired-dev/product/issues/788).
+**Translate**, in the reader and the composer, appears only while
+[Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is on;
+turning it off cancels a pending translation and forgets a shown one.
 
 ## Native binding
 

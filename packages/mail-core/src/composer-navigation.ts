@@ -2,7 +2,7 @@ import type { Drafts } from './drafts.ts';
 import type { GmailInbox } from './gmail-inbox.ts';
 import type { MailboxConnection } from './registration.ts';
 
-import { sendingMailboxes } from './drafts.ts';
+import { profileOf, sendingMailboxes } from './drafts.ts';
 
 // Navigation away from an open composer: the composer registers how it finishes (completing
 // recipients and saving), and every other destination asks to leave first. One request runs at a
@@ -98,7 +98,11 @@ export function createComposerNavigation(): ComposerNavigation {
     },
     create,
     attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
-      const senders = sendingMailboxes(mailboxes);
+      // The new Draft sends from the reader's Mail Profile, never moving the file into another.
+      const senders = sendingMailboxes(
+        mailboxes,
+        profileOf(mailbox, mailboxes),
+      );
       const sender = senders.find(({ id }) => id === mailbox) ?? senders[0];
       if (sender === undefined) {
         return undefined;

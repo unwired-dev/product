@@ -8,7 +8,7 @@ import type {
   MessagePresentation,
   ReadableBody,
 } from '@private-email/mail-core/message-body';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { LayoutChangeEvent, ScrollViewProps } from 'react-native';
 import type {
   ShouldStartLoadRequest,
@@ -106,8 +106,14 @@ interface PendingLink {
 
 const noSubscription = () => () => undefined;
 
+// Discards a pending confirmation chosen in one message's body, keeping one another message of
+// the same reader owns.
+const withoutLinkFrom =
+  (inbox: GmailInbox, id: string) => (pending: PendingLink | undefined) =>
+    pending?.inbox === inbox && pending.id === id ? undefined : pending;
+
 const LinkConfirmationContext = createContext<
-  ((pending: PendingLink | undefined) => void) | undefined
+  Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
 async function openLink(href: string) {
@@ -198,18 +204,20 @@ function LinkConfirmation({
 export function LinkConfirmationProvider({
   children,
   inbox,
-  id,
+  ids,
 }: {
   readonly children: ReactNode;
   readonly inbox: object;
-  readonly id: string;
+  // The messages the reader shows.
+  readonly ids: readonly string[];
 }) {
   const colors = usePalette();
   const [pending, setPending] = useState<PendingLink>();
   // Compare the render owner too: layout cleanup has not invalidated the old reader yet.
   const shown = useSyncExternalStore(
     pending?.subscribe ?? noSubscription,
-    () => pending?.inbox === inbox && pending?.id === id && pending.current(),
+    () =>
+      pending?.inbox === inbox && ids.includes(pending.id) && pending.current(),
   );
   return (
     <LinkConfirmationContext value={setPending}>
@@ -343,17 +351,27 @@ interface ReaderViewport {
   readonly content: () =>
     | ReturnType<ScrollView['getNativeScrollRef']>
     | undefined;
+  readonly scrollTo: (offset: number) => void;
 }
 
 const ReaderViewportContext = createContext<ReaderViewport | undefined>(
   undefined,
 );
 
+// Scrolls the enclosing reader to a content offset.
+export function useReaderScrollTo() {
+  return use(ReaderViewportContext)?.scrollTo;
+}
+
 // The reader's scrolling content, reporting its visible range to the documents inside it.
 export function ReaderScrollView({
   children,
   contentContainerStyle,
-}: Pick<ScrollViewProps, 'children' | 'contentContainerStyle'>) {
+  maintainVisibleContentPosition,
+}: Pick<
+  ScrollViewProps,
+  'children' | 'contentContainerStyle' | 'maintainVisibleContentPosition'
+>) {
   const scroll = useRef<ScrollView>(null);
   // oxlint-disable-next-line react/hook-use-state -- The viewport store is created once and updates its listeners.
   const [viewport] = useState(() => {
@@ -368,6 +386,9 @@ export function ReaderScrollView({
       },
       get: () => visible,
       content: () => scroll.current?.getNativeScrollRef(),
+      scrollTo: (offset: number) => {
+        scroll.current?.scrollTo({ y: offset, animated: false });
+      },
       update: (next: Partial<typeof visible>) => {
         visible = { ...visible, ...next };
         for (const listener of listeners) {
@@ -381,6 +402,7 @@ export function ReaderScrollView({
       <ScrollView
         ref={scroll}
         contentContainerStyle={contentContainerStyle}
+        maintainVisibleContentPosition={maintainVisibleContentPosition}
         scrollEventThrottle={100}
         onLayout={({ nativeEvent }) => {
           viewport.update({ height: nativeEvent.layout.height });
@@ -834,6 +856,12 @@ function ReceivedAttachments({
   );
 }
 
+// How readers inside show a body's quoted history: in full, or collapsed behind Show quoted text
+// as the Thread view does.
+export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
+  'shown',
+);
+
 // The opened Gmail message's body, from this device or downloaded on demand. Links open only
 // after the person confirms the destination shown here.
 export function GmailMessageBody({
@@ -851,6 +879,9 @@ export function GmailMessageBody({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const quotes = use(QuotedHistoryContext);
+  const [quotedRevision, setQuotedRevision] = useState(0);
+  const quotedShown = quotedRevision % 2 === 1;
   const policy = useRemoteContentPolicy(connection);
   // Consent under Ask belongs to this message's presentation; Gmail IDs repeat across mailboxes.
   const [consent, setConsent] = useState<{
@@ -887,13 +918,14 @@ export function GmailMessageBody({
     readonly id: string;
     readonly policy: typeof policy;
     readonly consented: boolean;
+    readonly quotedRevision: number;
   }>(undefined);
   useLayoutEffect(() => {
-    showing.current = { inbox, id, policy, consented };
+    showing.current = { inbox, id, policy, consented, quotedRevision };
     return () => {
       showing.current = undefined;
     };
-  }, [inbox, id, policy, consented]);
+  }, [inbox, id, policy, consented, quotedRevision]);
   useEffect(() => {
     const release = inbox.retainMessage(id, reader);
     void inbox.readMessage(id);
@@ -905,9 +937,9 @@ export function GmailMessageBody({
       return undefined;
     }
     return () => {
-      confirm?.(undefined);
+      confirm?.(withoutLinkFrom(inbox, id));
     };
-  }, [body, confirm]);
+  }, [body, confirm, inbox, id]);
 
   if (body === undefined || body.kind === 'loading') {
     return (
@@ -943,7 +975,11 @@ export function GmailMessageBody({
   const current = () =>
     showing.current?.inbox === inbox &&
     showing.current.id === id &&
+    showing.current.quotedRevision === quotedRevision &&
     inbox.messageBody(id, reader) === body;
+  const { withoutQuotedHistory } = body.presentation;
+  const collapsible =
+    quotes === 'collapsible' && withoutQuotedHistory !== undefined;
   return (
     <View style={styles.body}>
       <MessageSummary
@@ -958,7 +994,9 @@ export function GmailMessageBody({
         body={body.presentation.readable}
       />
       <Presentation
-        presentation={body.presentation}
+        presentation={
+          collapsible && !quotedShown ? withoutQuotedHistory : body.presentation
+        }
         // Never shows no remote content, even what an earlier authorization cached.
         onNear={(urls) => {
           if (
@@ -983,7 +1021,9 @@ export function GmailMessageBody({
             : undefined
         }
         onFailure={() => {
-          inbox.discardRichMessage(id, body.presentation, reader);
+          if (current()) {
+            inbox.discardRichMessage(id, body.presentation, reader);
+          }
         }}
         onChoose={(link) => {
           if (current()) {
@@ -991,6 +1031,25 @@ export function GmailMessageBody({
           }
         }}
       />
+      {collapsible ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: quotedShown }}
+          onPress={() => {
+            if (current() && showing.current !== undefined) {
+              confirm?.(withoutLinkFrom(inbox, id));
+              const next = quotedRevision + 1;
+              showing.current = { ...showing.current, quotedRevision: next };
+              setQuotedRevision(next);
+            }
+          }}>
+          <Text style={[styles.secondary, { color: colors.accent }]}>
+            {quotedShown
+              ? t('messageBody.hideQuoted')
+              : t('messageBody.showQuoted')}
+          </Text>
+        </Pressable>
+      ) : null}
       <ReceivedAttachments
         inbox={inbox}
         id={id}

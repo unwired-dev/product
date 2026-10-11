@@ -88,6 +88,7 @@ and developer-specific deployment values out of source control.
 
 ```sh
 mise exec -- pnpm lint
+mise exec -- pnpm lint:boundaries
 mise exec -- pnpm format
 mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test

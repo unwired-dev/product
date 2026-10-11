@@ -59,7 +59,8 @@ Issue #645 carries decoded ownership into `createMailboxes` snapshots and scopes
 `inboxMessages` and `createGmailSearch` with an explicit `{ profile, mailbox? }`.
 Both hosts filter reader access through their `ProfileScope` and `MailboxScope`;
 unknown or mismatched ownership has no readable mailbox. `readingProfile` decodes
-URL/native selectors: absent legacy values mean Default, malformed values use an
+the mobile `profileId` URL parameter and native selectors: absent legacy values
+mean Default, malformed or repeated values use an
 empty selector that cannot match a decoded nonempty connection owner. Mobile
 message selection and reader close carry that selector through their routes.
 Mac initial props can name a Profile while native windows still open Default.
@@ -70,14 +71,63 @@ Connection movement replaces the listing's ownership projection without changing
 the connection-owned Inbox or encrypted cache layout. Background synchronization
 continues account-wide. Reader/cache access and search remain confined to the
 currently projected owner. Account management and opaque Convex connection APIs
-remain Product Account-wide; Convex receives no Profile assignments. Drafts,
-delivery and notifications retain their compatibility paths until #646. Profile
+remain Product Account-wide; Convex receives no Profile assignments. Drafts and
+delivery consume the staged connection-Profile boundaries below. Profile
 creation, durable assignments, restoration preferences and older-client fencing
 remain #647 work; this is not qualification of that lifecycle protocol.
 
 The host tests exercise substituted ownership and routing with real shared
 stores. Native version-27 and real provider/Profile journeys remain required
 release evidence, independent of these deterministic checks.
+
+## Drafts, delivery and notifications staging
+
+Issue #646 scopes shared TypeScript services to the decoded connection Profile:
+`sendingMailboxes` requires an explicit Profile; Draft creation validates the
+current sender; sender changes and received-attachment imports stay within the
+stored Draft's connection Profile; attachment-to-Draft navigation selects only
+the reader's Profile; and Reply All excludes only that Profile's own identities.
+Both hosts consume these shared boundaries for New Message, From choices and
+reader actions. Tests use a synthetic second Profile; production still projects
+every connection into the Default Profile.
+
+Draft records and windows do not persist a Profile. `profileOf` therefore resolves
+the current connection assignment and falls back to `defaultProfile` for an
+unlisted connection. New Message from the unified Inbox uses the window’s explicit
+reading Profile, while a selected connection supplies its current Profile. This
+is a staged connection-Profile boundary,
+not proof of isolation during synchronized connection transfer or multi-Profile
+window restoration. Those ownership and lifetime fences belong to #647 before
+another Profile can be created.
+
+Existing encrypted Drafts/assets, Product Sync identifiers, exact Outbox payloads,
+originating Delivery Owners, pending claims and account cleanup retain their
+current representation and lifecycle. Convex `draftDelivery.ts`, `scheduledSend.ts`,
+`pushRelay.ts` and `apns.ts`, and native `PushRoutes.swift` and `DraftSync.swift`,
+continue using the Product Account namespace, which is the Default Profile's
+Profile Record Scope. Push wakes remain content-free and synchronization remains
+account-wide, including inactive Profiles once they exist. Recipient suggestions
+and user-visible notifications are not implemented in the replacement yet.
+
+The implementation decision panel (`claude-fable-5-1`, `gpt-6.1-sol`,
+`gpt-6-astra`) chose this TypeScript-only batch over threading an always-default
+Profile argument through backend and native APIs, 3–0. Without persisted ownership,
+that argument would add migration surface without proving routing isolation;
+it would also overlap the native registration migration in PR #866. This follows
+#644's staged projection decision. #647 must synchronize assignments and route
+the explicitly retained backend/native caller inventory by Profile Record Scope.
+The operational [Mail Profiles checklist](../private-inbox-storage.md#mail-profiles)
+retains that prerequisite and the required real-provider/native release evidence.
+
+Reader Mail Assistance uses the reading Profile’s device-local consent, including
+Translation, and cancels retained work when that consent is revoked or the reading
+Profile changes. Account settings and Draft consent retain their staged Default
+Profile paths until #647 supplies their ownership and lifecycle.
+
+The merge integration panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`)
+selected reader-specific consent and lifetime checks now, 2–1, over deferring them
+with the Account/Draft paths. This carries #788’s device-local consent into #645’s
+explicit reading scopes without enabling Profile creation or transfer.
 
 ## Gmail mailbox cache
 
@@ -303,3 +353,11 @@ a record that already received a Product Account, and it ignores a record for
 another deployment or client. Purging removes every connection's cache, then the
 Product Sync and enrollment items, and the registration record last, so a failed
 purge is retried.
+
+The Product Sync projection exposes publication/confirmation state, opaque descriptor
+identifiers, read-back bookkeeping and presentation text, never key-ring bytes or
+provider subjects. TypeScript derives status and sequences initialization and
+mailbox reconciliation through purpose-named operations; native persists keys
+before returning the publication payload and applies mailbox bookkeeping deltas to
+the latest saved record. Unreadable Product Sync items fail that projection closed
+without failing registration. See the [Product Sync companion](private-product-sync.md#initialization-and-relaunch).

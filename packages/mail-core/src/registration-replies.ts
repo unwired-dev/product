@@ -4,7 +4,13 @@ import type {
   SignInLinkResponse,
   TrustedDeviceUnregistrationResponse,
 } from '@private-email/contracts/productAccount';
-import type { ProductSyncEnrollmentStatus } from '@private-email/contracts/productSync';
+import type {
+  EncryptedProductSyncPayload,
+  EncryptedProductSyncPayloadBody,
+  EncryptedProductSyncPayloadPage,
+  ProductSyncEnrollmentStatus,
+  ProductSyncInitializationResponse,
+} from '@private-email/contracts/productSync';
 
 import * as Schema from 'effect/Schema';
 
@@ -35,3 +41,24 @@ export const EnrollmentStatus = Schema.Struct({
   expiresAt: Schema.optionalKey(Schema.Finite),
   state: Schema.Literals(['pending', 'approved', 'cancelled', 'expired']),
 }) satisfies Schema.Codec<ProductSyncEnrollmentStatus>;
+export const EncryptedPayload = Schema.Struct({
+  algorithm: Schema.Literal('AES-GCM-256'),
+  ciphertextBase64: Schema.String,
+  keyVersion: Schema.Finite,
+  nonceBase64: Schema.String,
+  schemaVersion: Schema.Finite,
+  tagBase64: Schema.String,
+}) satisfies Schema.Codec<EncryptedProductSyncPayloadBody>;
+export const StoredPayload = Schema.Struct({
+  encryptedPayload: EncryptedPayload,
+  payloadIdentifier: Schema.String,
+  updatedAt: Schema.Finite,
+}) satisfies Schema.Codec<EncryptedProductSyncPayload>;
+export const StoredPayloadPage = Schema.Struct({
+  continueCursor: Schema.String,
+  isDone: Schema.Boolean,
+  page: Schema.mutable(Schema.Array(StoredPayload)),
+}) satisfies Schema.Codec<EncryptedProductSyncPayloadPage>;
+export const Initialization = Schema.Struct({
+  initialized: Schema.Boolean,
+}) satisfies Schema.Codec<ProductSyncInitializationResponse>;

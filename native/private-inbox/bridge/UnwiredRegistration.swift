@@ -214,7 +214,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   // The deployment's Convex HTTP API for functions, or one of its HTTP action routes. The same
-  // transport serves TypeScript's credentialed calls and, until #757 and #758, native Product Sync,
+  // transport serves TypeScript's credentialed calls and, until #758, native Draft sync,
   // enrollment and revocation.
   @MainActor static func send(base: URL, _ request: BackendRequest) async throws -> (Int, Data) {
     var urlRequest: URLRequest
@@ -252,7 +252,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   // A successful null result is nil. Without an identity, only functions that take the Trusted
-  // Device credential as their proof can succeed. Temporary for native callers until #757 and #758.
+  // Device credential as their proof can succeed. Temporary for native callers until #758.
   @MainActor private static func optionalResult<Value: Decodable>(
     base: URL, identity: ProductSignInIdentity?, path: String, args: [String: Any],
     function: String = "mutation"
@@ -410,11 +410,104 @@ final class UnwiredRegistration: NSObject {
       try await $0.connectIdentity(mode)
     }
   }
-  @objc(synchronize:rejecter:)
-  func synchronize(
+  // Product Sync's native steps; TypeScript sequences synchronization.
+  @objc(createKeyRing:rejecter:)
+  func createKeyRing(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("synchronize", resolve, reject: reject) { try await $0.synchronizeRegistration() }
+    perform("createKeyRing", resolve, reject: reject) { try $0.createKeyRing() }
+  }
+  @objc(recordInitialization:resolver:rejecter:)
+  func recordInitialization(
+    _ initialized: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordInitialization", resolve, reject: reject) {
+      try $0.recordInitialization(initialized)
+    }
+  }
+  @objc(reenroll:rejecter:)
+  func reenroll(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("reenroll", resolve, reject: reject) { try await $0.reenroll() }
+  }
+  @objc(admitPendingDevice:rejecter:)
+  func admitPendingDevice(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("admitPendingDevice", resolve, reject: reject) {
+      ["admitted": try await $0.admitPendingDevice()]
+    }
+  }
+  @objc(adoptRotation:rejecter:)
+  func adoptRotation(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("adoptRotation", resolve, reject: reject) { try await $0.adoptLatestRotation() }
+  }
+  @objc(refreshDevices:rejecter:)
+  func refreshDevices(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("refreshDevices", resolve, reject: reject) { try await $0.refreshDevices() }
+  }
+  @objc(finishSynchronization:rejecter:)
+  func finishSynchronization(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("finishSynchronization", resolve, reject: reject) { $0.finishSynchronization() }
+  }
+  @objc(sealMailboxDescriptor:descriptor:resolver:rejecter:)
+  func sealMailboxDescriptor(
+    _ record: String, descriptor: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("sealMailboxDescriptor", resolve, reject: reject) {
+      try $0.sealMailboxDescriptor(record, descriptor)
+    }
+  }
+  @objc(openMailboxDescriptors:resolver:rejecter:)
+  func openMailboxDescriptors(
+    _ records: [Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("openMailboxDescriptors", resolve, reject: reject) {
+      try $0.openMailboxDescriptors(records)
+    }
+  }
+  @objc(recordMailboxChanges:settledRemovals:resolver:rejecter:)
+  func recordMailboxChanges(
+    _ connections: [[String: Any]], settledRemovals: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordMailboxChanges", resolve, reject: reject) {
+      try $0.recordMailboxChanges(connections: connections, settledRemovals: settledRemovals)
+    }
+  }
+  @objc(purgeMailbox:resolver:rejecter:)
+  func purgeMailbox(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("purgeMailbox", resolve, reject: reject) { try await $0.purgeMailbox(connection) }
+  }
+  @objc(removeQueuedPushRoutes:rejecter:)
+  func removeQueuedPushRoutes(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("removeQueuedPushRoutes", resolve, reject: reject) {
+      try await $0.removeQueuedPushRoutes()
+    }
+  }
+  @objc(recordMailboxReadback:confirmed:epochs:resolver:rejecter:)
+  func recordMailboxReadback(
+    _ addresses: [String], confirmed: [String: String], epochs: [String: String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordMailboxReadback", resolve, reject: reject) {
+      try $0.recordMailboxReadback(addresses: addresses, confirmed: confirmed, epochs: epochs)
+    }
   }
   @objc(forgetMailboxAccess:rejecter:)
   func forgetMailboxAccess(
@@ -604,7 +697,7 @@ final class UnwiredRegistration: NSObject {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("revokeTrustedDevice", resolve, reject: reject) {
-      try await $0.revoke(trustedDeviceId).map { ["notice": $0] } ?? [:]
+      try await $0.revoke(trustedDeviceId).object
     }
   }
   @objc(confirmRevocation:resolver:rejecter:)
@@ -613,7 +706,7 @@ final class UnwiredRegistration: NSObject {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("confirmRevocation", resolve, reject: reject) {
-      try await $0.confirmRevocation(entry).map { ["notice": $0] } ?? [:]
+      try await $0.confirmRevocation(entry).object
     }
   }
   @objc(cancelRevocation:rejecter:)
@@ -621,7 +714,7 @@ final class UnwiredRegistration: NSObject {
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("cancelRevocation", resolve, reject: reject) {
-      try await $0.cancelRevocation().map { ["notice": $0] } ?? [:]
+      try await $0.cancelRevocation().object
     }
   }
 }
@@ -1269,6 +1362,24 @@ extension UnwiredRegistration {
     resolve([:])
   }
 
+  // Mail Assistance Enablement for the signed-in Product Account, which `owner` names.
+  @objc(mailAssistance:rejecter:)
+  func mailAssistance(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("mailAssistance", resolve, reject: reject) { try $0.mailAssistance() }
+  }
+
+  @objc(setMailAssistance:profiles:resolver:rejecter:)
+  func setMailAssistance(
+    _ owner: String, profiles: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("setMailAssistance", resolve, reject: reject) {
+      try $0.setMailAssistance(owner: owner, profiles: profiles)
+    }
+  }
+
   @objc(saveAttachment:attachment:resolver:rejecter:)
   func saveAttachment(
     _ scope: [String: Any], attachment: [String: Any],
@@ -1374,16 +1485,6 @@ extension UnwiredRegistration {
       try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
     }
     return ProductSyncBackend(
-      initialize: { identity, product, envelope, verifier, deviceKey in
-        struct Response: Decodable { let initialized: Bool }
-        let response: Response = try await mutation(
-          base: base, identity: identity, path: "productSync:initialize",
-          args: proof(product).merging([
-            "encryptedPayload": try json(envelope), "recoveryVerifier": verifier,
-            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
-          ]) { $1 })
-        return response.initialized
-      },
       list: { identity, product, prefix in
         struct Page: Decodable {
           let page: [StoredPayload]
