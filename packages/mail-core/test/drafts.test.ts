@@ -26,7 +26,7 @@ import {
   unsendableAssets,
   withSender,
 } from '../src/drafts.ts';
-import { mailboxesOf } from '../src/registration.ts';
+import { defaultProfile, mailboxesOf } from '../src/registration.ts';
 import {
   applyText,
   BlockKindSchema,
@@ -796,6 +796,10 @@ describe('storing Drafts', () => {
     expect(reopened.subject).toBe('Studio review on Thursday');
     expect(plainText(reopened.body)).toBe('Notes');
     expect(reopened.connection).toBe(alex.id);
+    // A connection listed before Mail Profiles, and so its Draft, belongs to the Default Profile.
+    expect(
+      session.mailboxes().find(({ id }) => id === reopened.connection)?.profile,
+    ).toBe(defaultProfile);
   });
 
   it('starts no Draft from a sender that stopped sending while the open composer saved', async () => {
@@ -2224,7 +2228,9 @@ describe('adding files and images to Drafts', () => {
     };
     const creating = navigation.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [
+        { ...alex, state: 'connected' as const, profile: defaultProfile },
+      ],
       saved,
     });
     await prepared;
@@ -2241,7 +2247,9 @@ describe('adding files and images to Drafts', () => {
     const replacement = createComposerNavigation();
     const preparing = replacement.attachReceived(controlled, {
       mailbox: alex.id,
-      mailboxes: [{ ...alex, state: 'connected' as const }],
+      mailboxes: [
+        { ...alex, state: 'connected' as const, profile: defaultProfile },
+      ],
       saved,
     });
     await secondPrepared;

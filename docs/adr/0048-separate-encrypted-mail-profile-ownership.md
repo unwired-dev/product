@@ -4,6 +4,31 @@
 
 Accepted.
 
+## Replacement staging amendment — 2026-10-11
+
+The foundation in [#644](https://github.com/unwired-dev/product/issues/644)
+adds explicit ownership only to the decoded TypeScript `MailboxConnection`.
+An absent `profile` decodes as `defaultProfile = 'default'`, unique within one
+Product Account. It leaves native registration storage, synchronized mailbox
+descriptors, credentials, encrypted records and all existing identifiers intact.
+The Default Profile uses the existing Product Account record scope.
+
+The implementation decision panel (`claude-fable-5-1`, `gpt-6.1-sol`,
+`gpt-6-astra`) unanimously chose this staged projection over adding an optional
+ownership field to native connections and synchronized descriptors now. With
+multiple-Profile creation unavailable, ownership is deterministically Default;
+changing descriptor epoch/removal reconciliation to persist that same answer
+adds migration risk without useful behavior. The panel also unanimously chose
+the account-local `default` sentinel over a Product Account digest.
+
+Reading/search callers migrate in #645 and Drafts/delivery/notifications in #646.
+Synchronized connection-to-Profile assignments and incompatible-client fencing
+arrive with #647 before multiple-Profile creation is enabled. This amendment
+supersedes the deterministic digest identity and first-load assignment write
+below only for the replacement foundation. The dedicated encrypted ownership
+record and lifecycle behavior below describe the retained Swift prototype; this
+slice neither implements nor selects the replacement's multi-Profile protocol.
+
 ## Context
 
 Mail Profiles must partition Mailbox Connections and product-owned state inside one Product Account. Existing Product Sync records were deployed before Profiles and use Product Account-scoped identifiers. Moving or copying those records during the foundation migration would create duplication, partial-migration, rollback, and mixed-version risks. Embedding Profile ownership in the existing Mailbox Connection payload would also let an older client erase ownership fields when it rewrites the legacy schema.
