@@ -15,7 +15,8 @@ in the replacement.
 
 ## Decisions and scope
 
-- [Accepted replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Keep queued delivery on its originating device](../../adr/0062-keep-queued-delivery-on-its-originating-device.md)
 - [Model Outbox delivery as immutable attempts](../../adr/0016-durable-outbox-delivery-attempts.md)
 - [Use semantic rich-text Drafts with encrypted assets](../../adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)

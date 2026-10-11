@@ -4,6 +4,15 @@ status: accepted
 
 # Use local-first metadata and a bounded encrypted body cache
 
+## Launch scope amendment — 2026-10-11
+
+The power-user Apple launch requires a configurable ordinary body cache and
+explicit device-local Keep Offline retention independent of ordinary eviction.
+This supersedes the affected fixed-quota and retained-content eviction clauses
+below for the replacement launch, without changing current implementation claims
+or remote-content consent, encryption, resource bounds and cleanup. See
+[ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
+
 ## Amendment — 2026-10-06
 
 At the product owner's request in

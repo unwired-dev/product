@@ -7,13 +7,14 @@ replacement requirements or release qualification.
 
 ## Scope
 
-The replacement launches with Gmail. The engine dependency, certified
-Standards-Based Mail and legacy-provider terms describe the Swift prototype or
-future work; they do not establish support in the new client.
+The power-user replacement launches with Gmail, IMAP/SMTP and Microsoft mail
+under ADR 0069. Engine and provider terms also describe the Swift prototype;
+their presence does not establish implementation or certification in the new client.
 
 ## Decisions and scope
 
-- [Accepted replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Keep mailbox authorization device-local](../../adr/0010-device-local-mailbox-authorization.md)
 - [Preserve provider-native mail adapters](../../adr/0011-provider-native-mail-adapters.md)
 - [Require trustworthy mailbox role mapping](../../adr/0014-explicit-mailbox-role-mapping.md)

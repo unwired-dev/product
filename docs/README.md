@@ -6,6 +6,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 ## Replacement requirements and operations
 
+- [Confirmed power-user launch scope and delivery order](product/power-user-launch.md)
 - [Expo bootstrap, stack, setup and checks](expo-client.md)
 - [Native Mac windows, setup and checks](macos-client.md)
 - [On-demand and nightly TestFlight builds from CI and a Mac](testflight.md)
@@ -14,7 +15,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
-- [Apple registration continuing into Gmail authorization](apple-registration.md)
+- [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [On-device message summaries](message-summaries.md)
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)

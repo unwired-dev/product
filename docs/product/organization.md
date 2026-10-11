@@ -6,8 +6,9 @@ The review agent owns the separate [architecture companion](../architecture/prod
 [Vocabulary](../domain/organization.md) · [Domain index](../../GLOSSARY.md)
 
 These terms include prototype organization features and follow-up work.
-References to a feature's first release or v1 retain their original scope; they
-do not add that feature to the focused replacement release.
+References to a feature's first release or v1 retain their original scope. The
+[power-user launch specification](power-user-launch.md) identifies which
+organization workflows are required in the maintained clients.
 
 These observable requirements were separated from the former monolithic glossary
 and its implementation notes. The reviewer owns the separate architecture companion

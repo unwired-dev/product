@@ -5,13 +5,15 @@ The review agent owns the separate [architecture companion](../architecture/doma
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/identity.md)
 
-Product Account identity and device trust apply to the replacement. Advanced
-Profiles are follow-up work; Default Profile and the deployed Profile Record
-Scope describe prototype migration behavior.
+Product Account identity and device trust apply to the replacement. Optional
+Mail Profiles are required by the [power-user launch scope](../product/power-user-launch.md).
+Default Profile and the deployed Profile Record Scope also describe prototype
+migration behavior; their definitions do not prove replacement implementation.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
-[ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+[power-user launch specification](../product/power-user-launch.md)
+([ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md))
 for launch scope; a term's presence does not establish implementation or release.
 
 ## Language

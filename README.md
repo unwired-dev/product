@@ -4,8 +4,9 @@ Private email client and Convex backend.
 
 The repository contains the SwiftUI and Mac Catalyst prototype and an Expo mock
 Inbox for iPhone and iPad, plus a native React Native Mac mock Inbox. The approved
-replacement ships with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
-365 in later slices. Google and Apple Product Sign-In replace Apple-only login.
+replacement targets a [power-user Apple launch](docs/product/power-user-launch.md)
+with Gmail, IMAP/SMTP and Microsoft mail. Android and Windows remain later slices.
+Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the documentation index](docs/README.md)
 for requirements, setup and validation.

@@ -9,8 +9,10 @@ review agent follows architecture and ADR links under the
 [implementation and review workflow](docs/agents/implementation-review.md).
 Definitions include the Swift prototype, accepted replacement and future
 work. A term's presence does not establish first-release scope or implementation;
-use [the documentation index](docs/README.md) for current scope. The review agent
-verifies it against [ADR 0059](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md).
+use [the documentation index](docs/README.md) and the
+[power-user launch specification](docs/product/power-user-launch.md) for current
+scope. The review agent verifies it against
+[ADR 0069](docs/adr/0069-expand-the-apple-launch-to-power-user-mail.md).
 
 ## Language
 

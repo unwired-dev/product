@@ -1,5 +1,17 @@
 # Expo rewrite ticket coverage
 
+## Scope update — 2026-10-11
+
+The publication audit below preserves the earlier Gmail-beta scope and its
+original ticket graph. [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+and the [power-user launch specification](../product/power-user-launch.md)
+now govern public launch scope. Gmail, IMAP/SMTP, Microsoft mail and optional
+Profiles are launch work; Microsoft Product Sign-In remains follow-up work.
+Provider and Profile entry slices no longer wait for the Gmail beta, and public
+release waits for expanded provider/native qualification. GitHub owns current
+titles, status and native dependencies; the historical tables below are not the
+current launch dependency graph.
+
 Publication and scope audit: 2026-09-09.
 
 The accepted rewrite and its follow-ups are represented by **78 GitHub issues**:
