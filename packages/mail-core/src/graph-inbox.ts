@@ -79,6 +79,8 @@ const isGraphCheckpoint = (
 export function createGraphReader(
   native: Pick<NativeGmailMailbox, 'graphRequest'>,
 ) {
+  // Documents that saved the link of an empty delta round; their synchronization is current.
+  const quiet = new WeakSet<MailboxDocument>();
   // One Graph read; a delta link Graph no longer accepts is GmailInvalidPage.
   const graphRead =
     (scope: MailboxScope) =>
@@ -170,10 +172,24 @@ export function createGraphReader(
     } satisfies MailboxDocument;
   });
 
+  // An unchanged Inbox still saves the round's link, as Graph asks, so a quiet mailbox never waits
+  // on an expiring one; saving it ends this synchronization.
+  const quietRound = (document: MailboxDocument, link: string) => {
+    if ('link' in document.checkpoint && document.checkpoint.link === link) {
+      return Option.none();
+    }
+    const current: MailboxDocument = {
+      ...document,
+      checkpoint: { kind: 'graph-current', link },
+    };
+    quiet.add(current);
+    return Option.some(current);
+  };
+
   // A Microsoft Inbox lists its newest messages, runs one delta round to the link for later
   // changes and lists again, so nothing changed during the round is missed. Each later round
   // applies its pages; an expired link starts over with the cached messages still shown.
-  const advance = Effect.fnUntraced(function* (
+  const advanceRound = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
   ): Effect.fn.Return<
@@ -204,12 +220,11 @@ export function createGraphReader(
           : { ...document, checkpoint: { kind: 'graph-listing', link } },
       );
     }
-    // An unchanged Inbox keeps its link, which Graph accepts again.
-    return page.value.value.length === 0 && next === undefined
-      ? Option.none()
-      : Option.some(
+    return page.value.value.length > 0 || next !== undefined
+      ? Option.some(
           yield* applyDelta(scope, document, { items: page.value.value, link }),
-        );
+        )
+      : quietRound(document, link);
   });
 
   // A Graph attachment's bytes. Graph declares approximate attachment sizes, so the decoded bytes
@@ -304,6 +319,15 @@ export function createGraphReader(
       authentication,
     };
   });
+
+  // A document that saved a quiet round's link is current until the next synchronization.
+  const advance = (
+    scope: MailboxScope,
+    document: MailboxDocument | undefined,
+  ) =>
+    document !== undefined && quiet.has(document)
+      ? Effect.succeedNone
+      : advanceRound(scope, document);
 
   return { advance, partData, fullMessage } as const;
 }

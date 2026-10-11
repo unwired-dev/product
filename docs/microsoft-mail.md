@@ -40,7 +40,8 @@ and leaves the mail in Microsoft.
 The Microsoft Inbox joins the unified Inbox with the same encrypted mailbox cache,
 body cache, remote-content and attachment rules as Gmail. Synchronization follows initial listing and delta continuation pages. The initial
 cache retains the newest 200 Inbox messages; each later synchronization updates
-new or changed messages, read state and messages that left the Inbox. An
+new or changed messages, read state and messages that left the Inbox, and saves
+the newest delta link Graph returns even when nothing changed. An
 interrupted delta round resumes after relaunch. Losing a message from a full cache
 admits the next older one. Expired delta state restarts synchronization while
 saved mail stays visible; repeated expiry offers retry. This slice does not claim

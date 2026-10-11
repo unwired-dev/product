@@ -71,6 +71,9 @@ export function createSyntheticGraph({
   // Every change in order; a delta link names the change it was issued after.
   const changes: string[] = [];
   let expiredBefore = 0;
+  // Each later round, even an empty one, returns a link Graph has not issued before.
+  let rotating = false;
+  let rounds = 0;
   let nextId = 0;
   const failures: Failure[] = [];
   const requests: URL[] = [];
@@ -161,7 +164,7 @@ export function createSyntheticGraph({
   const delta = (url: URL) => {
     const token = url.searchParams.get('$deltatoken');
     if (token !== null) {
-      const after = Number(token);
+      const after = Number(token.split('r')[0]);
       if (after < expiredBefore) {
         return Promise.resolve({
           status: 410,
@@ -176,7 +179,11 @@ export function createSyntheticGraph({
             ? [listed(message)]
             : [{ id, '@removed': { reason: 'changed' } }];
         }),
-        '@odata.deltaLink': deltaLink(`$deltatoken=${changes.length}`),
+        '@odata.deltaLink': deltaLink(
+          rotating
+            ? `$deltatoken=${changes.length}r${(rounds += 1)}`
+            : `$deltatoken=${changes.length}`,
+        ),
       });
     }
     const [offset = 0, issued = changes.length] = (
@@ -340,6 +347,10 @@ export function createSyntheticGraph({
       change(id, (found) => {
         found.inbox = false;
       });
+    },
+    // Later delta rounds return a fresh link, even when nothing changed.
+    rotateDelta: () => {
+      rotating = true;
     },
     // Graph no longer accepts delta links issued so far.
     expireDelta: () => {
