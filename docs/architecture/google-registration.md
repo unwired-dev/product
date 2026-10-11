@@ -61,11 +61,16 @@ operation per call:
   installation identifier, or the Apple authorization code. Native attaches them and
   returns the HTTP status and body; TypeScript decodes the reply and maps Convex
   codes. Native refuses `productAccount:connect` through this path.
-- **Product Sync, enrollment, recovery and revocation** stay native as temporary
-  purpose-named operations until
-  [#757](https://github.com/unwired-dev/product/issues/757) and
-  [#758](https://github.com/unwired-dev/product/issues/758) move them. Until then they
-  keep their own Swift Convex transport.
+- **Product Sync initialization and synchronization** run in
+  `packages/mail-core/src/product-sync.ts`. The flow derives status from a
+  non-secret projection, selects descriptor reads and CAS writes, and calls native
+  operations to create/store keys and seal/open records. Credentialed calls attach
+  the process's verified Product Sign-In session when requested.
+- **Enrollment, recovery, rotation adoption, device-list refresh and revocation**
+  stay native as temporary purpose-named operations until
+  [#758](https://github.com/unwired-dev/product/issues/758). They keep their Swift
+  Convex transport. Native Draft sync also retains its list/put/get transport;
+  mailbox descriptor coordination uses the TypeScript call primitive.
 
 The registration rejection codes and texts hosts receive are unchanged. Transient
 transport failures reach the flow as `offline`, which lets a restore open the
@@ -74,5 +79,5 @@ last verified mailbox's saved Inbox; hosts still see them as `unavailable`.
 The TypeScript response schemas are checked against the types inferred by the
 `packages/contracts` Convex validators. Native void steps resolve with null and
 are decoded as null before the flow continues. The retained Swift Convex helper
-serves only purpose-specific connect and the native work awaiting #757/#758; this
+serves purpose-specific connect, native Draft sync and the work awaiting #758; this
 transitional transport reuse was approved by the #756 decision panel (3–0).

@@ -85,9 +85,9 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
 
 extension PrivateInboxTests {
   // A Microsoft mailbox is its own connection beside Gmail, even for an account identifier Gmail
-  // also uses: its own connection ID, credential and Product Sync descriptor. Graph reads reach
-  // only the person's own mail, Gmail never receives its credential, a refused grant asks for
-  // Microsoft again, and removal marks only its descriptor removed.
+  // also uses: its own connection ID, credential and Product Sync descriptor record. Graph reads
+  // reach only the person's own mail, Gmail never receives its credential, a refused grant asks
+  // for Microsoft again, and removal leaves only its own descriptor to mark removed.
   @Test @MainActor func microsoftMailConnectsBesideGmailAndReadsOnlyItsOwnMail() async throws {
     let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
     let account = "account-synthetic-product-subject"
@@ -123,20 +123,15 @@ extension PrivateInboxTests {
     #expect(listed.map { $0["provider"] as? String } == ["gmail", "microsoft-graph"])
     #expect(listed.map { $0["address"] as? String } == ["same@example.invalid", "casey@example.invalid"])
 
+    // TypeScript publishes each descriptor under the record native names, by provider account.
     let ring = try #require(try store.loadVault(account)).ring
-    func descriptor(_ key: String) throws -> MailboxDescriptor? {
-      let identifier = try ring.identifier("mailbox", key)
-      guard let record = backend.records[account]?[identifier] else { return nil }
-      return try JSONDecoder().decode(
-        MailboxDescriptor.self,
-        from: ring.open(
-          record: record.encryptedPayload, account: account, identifier: identifier,
-          schemaVersion: MailboxDescriptor.schemaVersion))
+    let gmailRecord = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
+    let microsoftRecord = try ring.identifier("mailbox", "microsoft-graph:synthetic-product-subject")
+    func synced(_ key: String) throws -> [[String: Any]] {
+      let state = try store.productSyncState(try #require(try store.load()))
+      return try #require((state?["vault"] as? [String: Any])?[key] as? [[String: Any]])
     }
-    let published = try #require(try descriptor("microsoft-graph:synthetic-product-subject"))
-    #expect(published.provider == "microsoft-graph")
-    #expect(published.address == "casey@example.invalid")
-    #expect(try descriptor("gmail:synthetic-product-subject")?.provider == "gmail")
+    #expect(try synced("mailboxes").map { $0["record"] as? String } == [gmailRecord, microsoftRecord])
 
     let generation = store.mailboxGeneration(id).uuidString
     let inbox = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=200"
@@ -191,8 +186,10 @@ extension PrivateInboxTests {
     #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == false)
 
     _ = try await store.flowRemoveMailbox(id)
-    #expect(try descriptor("microsoft-graph:synthetic-product-subject")?.removed == true)
-    #expect(try descriptor("gmail:synthetic-product-subject")?.removed == nil)
+    let removals = try synced("removals")
+    #expect(removals.map { $0["record"] as? String } == [microsoftRecord])
+    #expect(removals.map { $0["provider"] as? String } == ["microsoft-graph"])
+    #expect(removals.map { $0["id"] as? String } == [id])
     #expect(try store.load()?.connections.map(\.receipt.mailProvider) == [.gmail])
   }
 

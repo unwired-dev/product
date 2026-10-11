@@ -236,6 +236,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `testing/registration-vault.ts` and `testing/registration-product-sync.ts` deriving
+  connection IDs from a bare subject or address without its provider account.
+  Preserve established fixture IDs while scoping unfamiliar and shared addresses
+  by provider, and exercise synchronization and remote removal with those inputs.
+  Otherwise the map-by-ID join publishes another provider's descriptor or purges
+  both providers, while preset-address journeys hide the identity collision.
 - `microsoft-graph.ts.listedMessage` retaining an empty conversation identity
   instead of falling back to the message ID. Trace the decoded provider metadata
   through `gmail-inbox.ts.threadMessages` and reopened caches; otherwise unrelated
@@ -257,6 +263,38 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   and release synchronization with retry state at the bound; a later pass must
   resume it. Otherwise a repeated continuation holds the Inbox semaphore forever.
 
+- `product-sync.ts` mailbox reconciliation treating an epochless connection or queued removal as
+  compatible with every live epoch. Pre-epoch connections, descriptors and
+  removal intents name one fixed legacy incarnation; concurrent upgrades must
+  agree without purging other legacy devices. Preserve tombstones and fence
+  later re-adds, including retained offline recreation after another device's
+  legacy upgrade. Otherwise migration restores old authorization or removes a
+  later incarnation with stale intent.
+- `product-sync.ts` mailbox reconciliation treating a missing entry in `descriptorEpochs` as an
+  unchanged incarnation for offline consent, or discarding an authenticated
+  removal/different epoch from an address-update CAS when its later list fails.
+  Adopt an offline grant only against a known observed live epoch that still
+  matches, and durably purge a known removal before another fallible read or
+  another connection's publication. A batch that waits until all writes finish
+  loses learned removals when a later connection fails.
+  Absence cannot rule out an unseen add/remove/re-add; either gap retains stale
+  provider authorization after a synchronized removal.
+- `product-sync.ts` mailbox reconciliation discarding the descriptor returned by a losing CAS or
+  adopting any different epoch from a later list merely because it attempted a
+  write. Bind eligible fresh consent or matching retained recreation to the
+  live CAS winner, persist that epoch before later fallible reads, and require
+  final read-back to match it. Tombstones, ordinary offline restore, published
+  address updates and subsequent removals cannot extend an old grant to another
+  incarnation; otherwise concurrent additions lose valid mail or resurrect
+  authorization after removal.
+- `product-sync.ts` mailbox reconciliation acknowledging a queued removal from absent or unreadable
+  ciphertext, or discarding removal intent on a pre-publication re-add. Require a
+  read-back tombstone or an authoritative superseding incarnation, preserve
+  read-only unknown records, and fence pre-removal authorization with a new epoch.
+  Ordinary restore of unpublished credentials cannot resurrect a tombstone or
+  adopt another incarnation; only current explicit consent or a retained matching
+  recreation intent may do so. Otherwise an offline device restores a removed
+  connection's provider access.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

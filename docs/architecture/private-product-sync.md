@@ -74,8 +74,26 @@ in [the operational guide](../private-product-sync.md#keys-and-envelopes).
 `productAccount:connect` reports whether the Product Account already has Product
 Sync material.
 
-Native
-clients read records through every 100-record page.
+`packages/mail-core/src/product-sync.ts` owns initialization, synchronization,
+mailbox descriptor reconciliation and status derivation as Effect programs. Both
+hosts supply the same purpose-named native vault operations. Native creates and
+stores the key ring, Recovery Key and device key before returning the recovery
+envelope, verifier and public device key for TypeScript to publish. An interrupted
+attempt reuses that stored material; TypeScript records the initialization answer
+before any descriptor write.
+
+TypeScript names initialization, descriptor listing and conditional writes through
+`RegistrationStore.call`, requesting the process's verified Product Sign-In session
+and device proof. It follows every 100-record page until `isDone`, passing each
+`continueCursor`, and Schema-decodes every reply. Native opens and seals descriptors
+under their account and record bindings, returning null for unopenable records.
+A key item that cannot be read becomes the `productSync: unreadable` projection;
+registration and Gmail remain usable.
+
+Enrollment, recovery, rotation adoption, revocation and device-list refresh remain
+purpose-named native operations until #758. Native Draft synchronization retains
+its own list/put/get transport; mailbox descriptor coordination uses only the
+TypeScript credentialed-call path.
 
 `productSync:initialize` stores the first recovery envelope and its purpose-specific Recovery Key verifier and marks the account
 initialized in one mutation. It requires the authenticated Trusted Device proof
@@ -219,8 +237,9 @@ Product Account binding. Adoption also requires the declared current epoch to
 match the ring, its key to exist, and every key to have 32 bytes. Only then does
 the device save a published, confirmed vault with the account's existing ring. A Pending Device confirms the stored epoch before becoming trusted.
 It neither stores the Recovery Key nor initializes or replaces recovery material.
-It reads the encrypted mailbox descriptors; Gmail credentials remain device-local
-and require their own authorization.
+After native recovery succeeds, the TypeScript flow synchronizes and reads the
+encrypted mailbox descriptors; Gmail credentials remain device-local and require
+their own authorization.
 
 Reconnect may create or refresh an enrollment request before the key is checked.
 If the key cannot open the envelope, native recovery reports rejection; the
@@ -368,11 +387,13 @@ access. Hosts show the enrollment gate and permit Gmail authorization only after
 admission. ADR 0070 supersedes the temporary previous-Recovery-Key allowance;
 only the current key provides current recovery access.
 
-Issue #756 moves registration sequencing and the revocation guard to TypeScript.
-Product Sync, enrollment, recovery and rotation operations retain their native
-implementation until #757–758; native key custody, credentialed transport and
-persist-before-acknowledge guarantees remain in force. This slice does not claim
-those later migrations or live-provider qualification.
+Issue #756 moved registration sequencing and the revocation guard to TypeScript;
+#757 moves Product Sync initialization and synchronization. Native removal steps
+return settlement metadata; the shared flow synchronizes before deriving the
+removed/superseded notice against the latest durable epoch. Enrollment, recovery,
+rotation and revocation coordination remain native until #758. Native key custody,
+credentialed transport and persist-before-acknowledge guarantees remain in force;
+these migrations do not establish live-provider qualification.
 
 ## Mailbox Connections (#606)
 
@@ -433,9 +454,12 @@ its previous connection list. Unfinished removals/cleanup set the existing
 both publishing mailbox changes and finishing local cleanup. The bridge FIFO gate
 continues to span native credential and detached storage work.
 
-These additions extend the existing flow before ADR 0067's sequenced migration;
-issues #756–#759 still own moving registration and descriptor coordination into
-TypeScript. They do not authorize new native application subsystems.
+Issue #757 moves these reconciliation decisions into `product-sync.ts`. Native
+`recordMailboxChanges` applies the learned deltas to the latest saved registration,
+preserving native callback changes interleaved between TypeScript steps. Native
+purge retains watch, credential and cache cleanup custody. The shared registration
+store serializes host actions; the bridge gate serializes each native operation.
+The remaining #758–#759 migrations authorize no new native application subsystem.
 
 ## Synchronized Draft records and assets
 

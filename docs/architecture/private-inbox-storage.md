@@ -276,6 +276,14 @@ another deployment or client. Purging removes every connection's cache, then the
 Product Sync and enrollment items, and the registration record last, so a failed
 purge is retried.
 
+The Product Sync projection exposes publication/confirmation state, opaque descriptor
+identifiers, read-back bookkeeping and presentation text, never key-ring bytes or
+provider subjects. TypeScript derives status and sequences initialization and
+mailbox reconciliation through purpose-named operations; native persists keys
+before returning the publication payload and applies mailbox bookkeeping deltas to
+the latest saved record. Unreadable Product Sync items fail that projection closed
+without failing registration. See the [Product Sync companion](private-product-sync.md#initialization-and-relaunch).
+
 ## Microsoft mailbox cache
 
 Microsoft mail uses the same encrypted mailbox/body and protected attachment
