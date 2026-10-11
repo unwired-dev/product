@@ -38,7 +38,24 @@ export const registration = createRegistration(
     reuseSession: () => native().reuseSession(),
     saveIdentity: (replacing) => native().saveIdentity(replacing),
     connect: (mode) => native().connect(mode),
-    synchronize: () => native().synchronize(),
+    createKeyRing: () => native().createKeyRing(),
+    recordInitialization: (initialized) =>
+      native().recordInitialization(initialized),
+    reenroll: () => native().reenroll(),
+    admitPendingDevice: () => native().admitPendingDevice(),
+    adoptRotation: () => native().adoptRotation(),
+    refreshDevices: () => native().refreshDevices(),
+    finishSynchronization: () => native().finishSynchronization(),
+    sealMailboxDescriptor: (record, descriptor) =>
+      native().sealMailboxDescriptor(record, descriptor),
+    openMailboxDescriptors: (records) =>
+      native().openMailboxDescriptors(records),
+    recordMailboxChanges: (connections, settledRemovals) =>
+      native().recordMailboxChanges(connections, settledRemovals),
+    purgeMailbox: (connection) => native().purgeMailbox(connection),
+    removeQueuedPushRoutes: () => native().removeQueuedPushRoutes(),
+    recordMailboxReadback: (addresses, confirmed, epochs) =>
+      native().recordMailboxReadback(addresses, confirmed, epochs),
     forgetMailboxAccess: () => native().forgetMailboxAccess(),
     retryMailboxCleanup: () => native().retryMailboxCleanup(),
     refreshMailbox: (connection) => native().refreshMailbox(connection),

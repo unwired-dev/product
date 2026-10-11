@@ -192,8 +192,13 @@ unlock it for you. Nothing offers a reset, and mail in Gmail is not affected.
 
 ## Keys and envelopes
 
-The native module holds every key; JavaScript receives only status, the Recovery
-Key while unconfirmed, and decrypted mailbox addresses.
+The native module holds every key and seals and opens every record. The shared
+TypeScript flow in `packages/mail-core/src/product-sync.ts` decides what to
+initialize, read and write, and derives the status. It receives ciphertext, opaque
+record identifiers, decrypted mailbox descriptions and the Recovery Key text while
+unconfirmed, and never a key. Enrollment, recovery, key rotation adoption and
+revocation still run natively until
+[#758](https://github.com/unwired-dev/product/issues/758).
 
 Sealed records reject altered ciphertext, account, identifier, epoch and schema.
 Prototype recovery schemas are never opened. Enrollment keys unlock data only
@@ -379,6 +384,15 @@ saved for another Product Account. The keys are kept, never replaced, and the fa
 the saved mailbox state.
 
 ## Deterministic evidence
+
+`packages/mail-core/test/product-sync.test.ts` runs the shared synchronization over
+a synthetic native vault and Convex boundary. It covers one-time initialization,
+resuming an interrupted or unanswered initialization with the same keys, discarding
+unpublished keys when the account already holds key material, unknown state,
+unreadable keys, every 100-record page, compare-and-set winners, sealing again after
+a newer key epoch, removals and their tombstones, purging on other devices, offline
+authorization, incarnations from before epochs, enrolling again after a lost device
+key, and removal notices that depend on the epoch held after synchronizing.
 
 The hosted native storage suite (`native/private-inbox/integration/test.zsh`)
 runs the real Keychain, CryptoKit and registration store against a synthetic

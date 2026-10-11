@@ -10,9 +10,10 @@ extension RegistrationStore {
   // A Pending Device first proves the key with a value derived from it for this purpose only,
   // receives the newest envelope, stores the keys it opens and is then admitted. A key that does
   // not open it, or an interruption before the keys are saved, leaves the account keys and
-  // encrypted data intact. Returns whether the key was rejected. Temporary until #758.
+  // encrypted data intact. Returns whether the key was rejected; TypeScript synchronizes after an
+  // unlock. Temporary until #758.
   func recover(with entry: String) async throws -> Bool {
-    guard let backend = productSync, var saved = try load(), saved.product != nil else {
+    guard let backend = productSync, let saved = try load(), saved.product != nil else {
       throw RegistrationError.unavailable
     }
     guard let key = try? RecoveryKey(parsing: entry) else { return true }
@@ -52,11 +53,9 @@ extension RegistrationStore {
         productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true))
     if product.pending == true {
       // A rotation that started meanwhile voids the proof; the device stays pending and proves again.
-      guard let admitted = try await confirmAdmission(saved, backend: backend, session: session)
+      guard try await confirmAdmission(saved, backend: backend, session: session) != nil
       else { throw RegistrationError.unavailable }
-      saved = admitted
     }
-    _ = try await synchronize(saved)
     return false
   }
 }

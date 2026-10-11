@@ -1,11 +1,9 @@
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
-import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
-  BackendCall,
   NativeRegistrationVault,
   RegistrationRecord,
   SetupReason,
@@ -16,8 +14,16 @@ import type {
   SignInProvider,
 } from './registration.ts';
 
-import { decodeDiagnostic, rejectionCode } from './diagnostics.ts';
-import { hostCodes, isCode, rejected } from './registration-rejection.ts';
+import { createProductSyncProgram, privateSyncState } from './product-sync.ts';
+import {
+  backendCode,
+  backendCodes,
+  endsAccess,
+  failWith,
+  nativeSteps,
+  unreadable,
+} from './registration-native.ts';
+import { hostCodes, rejected } from './registration-rejection.ts';
 import {
   Deletion,
   EnrollmentStatus,
@@ -30,7 +36,6 @@ import {
   Identity,
   MailboxIdentity,
   MailboxReceipt,
-  RegistrationRecordSchema,
 } from './registration-vault.ts';
 
 export { RegistrationRejected } from './registration-rejection.ts';
@@ -48,47 +53,43 @@ const gmailScopes = new Set([
   'https://mail.google.com/',
 ]);
 
-// Convex error codes the flow distinguishes; others are unavailable.
-const backendCodes: Readonly<Record<string, Code>> = {
-  SIGN_IN_IDENTITY_OWNED: 'identity-owned',
-  SIGN_IN_PROVIDER_ALREADY_LINKED: 'identity-owned',
-  SIGN_IN_RECENT_AUTHENTICATION_REQUIRED: 'stale-authentication',
-  SIGN_IN_LINK_EXPIRED: 'stale-authentication',
-  SIGN_IN_NOT_LINKED: 'invalid-identity',
-  ENROLLMENT_REQUEST_UNAVAILABLE: 'enrollment-unavailable',
-  PENDING_DEVICE_UNAVAILABLE: 'pending-device-unavailable',
-  TRUSTED_DEVICE_REVOKED: 'revoked',
-  PRODUCT_ACCOUNT_DELETED: 'deleted',
-};
-const backendCode = (code: string | undefined) =>
-  (code !== undefined && Object.hasOwn(backendCodes, code)
-    ? backendCodes[code]
-    : undefined) ?? 'unavailable';
-
-const Envelope = Schema.fromJsonString(
-  Schema.Struct({
-    status: Schema.String,
-    value: Schema.optionalKey(Schema.Unknown),
-    errorData: Schema.optionalKey(Schema.Struct({ code: Schema.String })),
-  }),
-);
-const decodeEnvelope = Schema.decodeUnknownEffect(Envelope);
 const ErrorBody = Schema.fromJsonString(Schema.Struct({ code: Schema.String }));
 const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody);
 
-const failWith = (code: Code) => Effect.fail(rejected(code));
+const Settlement = Schema.Struct({
+  keyEpoch: Schema.optionalKey(Schema.Finite),
+  recoveryKeyCurrent: Schema.Boolean,
+  settledEpoch: Schema.Finite,
+});
+// A settled removal reports "removed" only while its Recovery Key belongs to the epoch this device
+// holds after synchronizing, which may adopt a later rotation. Unreadable state reports nothing.
+const settledNotice = (
+  value: RegistrationRecord,
+  settlement: typeof Settlement.Type,
+) => {
+  const sync =
+    value.productSync === 'unreadable' ? undefined : value.productSync;
+  const epoch =
+    sync?.vault?.keyEpoch ??
+    (sync?.pending === true ? settlement.settledEpoch : undefined);
+  if (epoch === undefined) {
+    return undefined;
+  }
+  return settlement.recoveryKeyCurrent && settlement.keyEpoch === epoch
+    ? ('removed' as const)
+    : ('superseded' as const);
+};
 const RevocationReply = Schema.Struct({
   notice: Schema.optionalKey(
-    Schema.Literals(['removed', 'renewed', 'unconfirmed', 'superseded']),
+    Schema.Literals(['renewed', 'unconfirmed', 'superseded']),
   ),
+  // Product Sync synchronizes before the status is read.
+  synchronize: Schema.optionalKey(Schema.Boolean),
+  // A settled removal; its notice depends on the key epoch this device then holds.
+  settlement: Schema.optionalKey(Settlement),
 });
 const sameIdentity = (value: Readonly<{ matches: boolean }>) =>
   value.matches ? Effect.void : failWith('invalid-identity');
-const unreadable = (error: Schema.SchemaError) =>
-  Effect.logError(
-    'Registration reply unreadable:',
-    decodeDiagnostic(error),
-  ).pipe(Effect.andThen(Effect.fail(rejected('unavailable', error))));
 // Deletion refusals Convex returns before fencing anything.
 const refusals: ReadonlySet<Code> = new Set([
   'stale-authentication',
@@ -96,7 +97,6 @@ const refusals: ReadonlySet<Code> = new Set([
   'apple-authorization-required',
   'pending-device-unavailable',
 ]);
-const endsAccess: ReadonlySet<Code> = new Set(['revoked', 'deleted']);
 
 const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
   if (mailbox.authorizationNeeded) {
@@ -133,7 +133,7 @@ const account = (value: RegistrationRecord) => {
       ? {}
       : { contactEmail: value.contactEmail }),
     ...(alternate === undefined ? {} : { alternateSignIn: alternate }),
-    ...value.privateSync,
+    ...privateSyncState(value),
     ...(value.mailboxRemovalPending
       ? { privateSyncPending: 'mailbox' as const }
       : {}),
@@ -184,46 +184,8 @@ const status = Effect.fnUntraced(function* (value: RegistrationRecord) {
 });
 
 export function createRegistrationFlow(vault: NativeRegistrationVault) {
-  const native = Effect.fnUntraced(function* <S extends Schema.Top>(
-    operation: () => Promise<unknown>,
-    schema: S,
-  ) {
-    const value = yield* Effect.tryPromise({
-      try: operation,
-      catch: (cause) => {
-        const code = rejectionCode(cause);
-        return rejected(isCode(code) ? code : 'unavailable', cause);
-      },
-    });
-    return yield* Schema.decodeUnknownEffect(schema)(value).pipe(
-      Effect.catch(unreadable),
-    );
-  });
-  const step = (operation: () => Promise<unknown>) =>
-    native(operation, Schema.Null).pipe(Effect.asVoid);
-  const record = native(
-    vault.registration,
-    Schema.NullOr(RegistrationRecordSchema),
-  );
-  const saved = record.pipe(
-    Effect.filterOrFail(Predicate.isNotNull, () => rejected('unavailable')),
-  );
-  // A Convex function result; application errors carry a code whatever the HTTP status.
-  const convex = Effect.fnUntraced(function* <S extends Schema.Top>(
-    request: BackendCall,
-    schema: S,
-  ) {
-    const reply = yield* native(() => vault.call(request), BackendReply);
-    const envelope = yield* decodeEnvelope(reply.body).pipe(
-      Effect.catch(unreadable),
-    );
-    if (envelope.status !== 'success' || reply.status !== 200) {
-      return yield* failWith(backendCode(envelope.errorData?.code));
-    }
-    return yield* Schema.decodeUnknownEffect(schema)(envelope.value).pipe(
-      Effect.catch(unreadable),
-    );
-  });
+  const { native, step, record, saved, convex } = nativeSteps(vault);
+  const { synchronize } = createProductSyncProgram(vault);
 
   const current = saved.pipe(Effect.flatMap(status));
   const failure = (reason: SetupReason) =>
@@ -278,22 +240,25 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   );
   // A removal step's notice, shown with the status the step leaves.
   const noticed = (operation: () => Promise<unknown>) =>
-    native(operation, RevocationReply).pipe(
-      Effect.flatMap(({ notice }) =>
-        current.pipe(
-          Effect.map((snapshot) =>
-            notice === undefined
-              ? snapshot
-              : { ...snapshot, revocationNotice: notice },
-          ),
-        ),
-      ),
-    );
+    Effect.gen(function* () {
+      const reply = yield* native(operation, RevocationReply);
+      if (reply.synchronize === true) {
+        yield* synchronize;
+      }
+      const snapshot = yield* current;
+      const notice =
+        reply.settlement === undefined
+          ? reply.notice
+          : (settledNotice(yield* saved, reply.settlement) ?? reply.notice);
+      return notice === undefined
+        ? snapshot
+        : { ...snapshot, revocationNotice: notice };
+    });
   // Saves the latest matching sign-in even if the backend is interrupted, then connects it.
   const establish = (replacing = false) =>
     step(() => vault.saveIdentity(replacing)).pipe(
       Effect.andThen(step(() => vault.connect('establish'))),
-      Effect.andThen(step(vault.synchronize)),
+      Effect.andThen(synchronize),
     );
 
   // Confirms the retained Product Sign-In without an interactive session.
@@ -369,7 +334,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         !mailbox.authorizationNeeded && mailbox.access === 'verified',
     );
     if (verified) {
-      yield* step(vault.synchronize);
+      yield* synchronize;
       yield* pushStep(vault.routeMailboxes);
     }
     return yield* current;
@@ -442,7 +407,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   const switchSignIn = (provider: SignInProvider) =>
     identity(provider, false).pipe(
       Effect.andThen(step(() => vault.connect('switch'))),
-      Effect.andThen(step(vault.synchronize)),
+      Effect.andThen(synchronize),
     );
 
   const signIn = Effect.fnUntraced(function* (provider: SignInProvider) {
@@ -565,7 +530,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       }
       yield* step(vault.retryMailboxCleanup);
       yield* step(vault.storeMailbox);
-      yield* step(vault.synchronize);
+      yield* synchronize;
       yield* pushStep(vault.routeMailboxes);
       return yield* current;
     }).pipe(
@@ -850,8 +815,14 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     signIn: (provider) => program(signIn(provider)),
     addMailbox: (chooseAccount) => program(authorizeGmail(null, chooseAccount)),
     authorizeGmail: (connection) => program(authorizeGmail(connection, false)),
+    // The removal then reaches Product Sync and every Trusted Device.
     removeMailbox: (connection) =>
-      program(thenStatus(() => vault.removeMailbox(connection))),
+      program(
+        step(() => vault.removeMailbox(connection)).pipe(
+          Effect.andThen(synchronize),
+          Effect.andThen(current),
+        ),
+      ),
     link: (provider) => program(link(provider)),
     confirmRecoveryKey: (entry) =>
       program(thenStatus(() => vault.confirmRecoveryKey(entry))),
@@ -880,6 +851,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
                 Schema.Struct({ rejected: Schema.Boolean }),
               )
             : { rejected: true };
+          // Unlocked keys then initialize, admit and read back through Product Sync.
+          if (!outcome.rejected) {
+            yield* synchronize;
+          }
           const snapshot = yield* current;
           return outcome.rejected
             ? { ...snapshot, recoveryNotice: 'rejected' as const }
@@ -935,7 +910,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
             yield* step(vault.reuseSession);
             yield* establish();
           } else {
-            yield* step(vault.synchronize);
+            yield* synchronize;
           }
           return yield* current;
         }),

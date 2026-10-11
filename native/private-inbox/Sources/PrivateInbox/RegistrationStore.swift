@@ -430,9 +430,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
       result["product"] = receipt
     }
     // Unreadable local Product Sync state never fails registration or the mailbox.
-    do { result["privateSync"] = try privateSync(saved) } catch {
+    do {
+      if let state = try productSyncState(saved) { result["productSync"] = state }
+    } catch {
       Self.logProductSyncFailure("Product Sync state unreadable", error)
-      result["privateSync"] = ["privateSync": "unavailable"]
+      result["productSync"] = "unreadable"
     }
     return result
   }
@@ -556,12 +558,6 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     saved.product = product
     try save(saved)
     if mode != .renew { session = identity }
-  }
-
-  // Temporary until #757 moves Product Sync to TypeScript.
-  func synchronizeRegistration() async throws {
-    defer { newlyAuthorizedMailboxes = [] }
-    _ = try await synchronize(saved())
   }
 
   // Forgets which connections verified, invalidating all suspended mailbox work.
@@ -738,8 +734,9 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
       saved.pushRouteRemovals = Array(Set((saved.pushRouteRemovals ?? []) + [routeRemoval])).sorted()
     }
     // Credentials leave the durable record before cleanup suspends; its locator stays retryable.
+    // TypeScript then synchronizes the removal to Product Sync.
     try save(saved)
-    _ = try await synchronize(retryMailboxCleanup(saved))
+    _ = try await retryMailboxCleanup(saved)
   }
 
   // Confirms the retained Product Sign-In without an interactive session.
@@ -806,6 +803,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     if request["identity"] as? Bool == true {
       guard let identity else { throw RegistrationError.unavailable }
       backend.identity = identity
+    }
+    // This process's verified Product Sign-In, which Product Sync presents.
+    if request["session"] as? Bool == true {
+      guard let session else { throw RegistrationError.unavailable }
+      backend.identity = session
     }
     if request["device"] as? Bool == true {
       guard let product = saved?.product else { throw RegistrationError.unavailable }

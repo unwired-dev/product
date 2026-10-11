@@ -17,6 +17,7 @@ struct OutboxTests {
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend.backend,
       deviceRevoked: { [backend] product in backend.revoked.contains(product.trustedDeviceId) },
+      transport: { try backend.transport($0) },
       mailCache: PrivateInboxStore(directory: directory, service: service),
       connect: { [backend] identity, device, _ in
         try backend.connect("account-" + identity.subject, device: device)
@@ -144,6 +145,7 @@ struct OutboxTests {
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend.backend,
       deviceRevoked: { [backend] product in backend.revoked.contains(product.trustedDeviceId) },
+      transport: { try backend.transport($0) },
       connect: { [backend] identity, device, _ in
         try backend.connect("account-" + identity.subject, device: device)
       })
