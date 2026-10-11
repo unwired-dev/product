@@ -13,6 +13,21 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `SwiftMailImap.folders` exposing case variants of the reserved ASCII INBOX
+  name as separate identities, or folding a distinct Unicode name or an
+  attribute-only inbox folder into it. Canonicalize only the reserved name,
+  preserve other names and roles, and exercise both through the controlled TLS
+  fixture. Otherwise folder selection creates duplicate cache namespaces or
+  reads a different mailbox under the same message identity.
+
+- `SwiftMailImap.folders` claiming a response-count bound from a prefix applied
+  after SwiftMail's LIST handler collects all responses. Trace admission in the
+  pinned upstream handler and parser; per-response byte limits do not bound the
+  accumulated collection. Require a receive-time count limit and controlled TLS
+  flood evidence when the upstream API supports it. SwiftMail 1.16.0's missing
+  public bound remains tracked in #888; a smaller returned array does not resolve
+  that native-memory risk.
+
 - `SwiftMailImap.synchronize` estimating arrivals from the whole folder minus
   cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
   both when UIDNEXT is known, preserving the unknown-UIDNEXT fallback; old

@@ -229,8 +229,8 @@ extension PrivateInboxTests {
     }
     try await provider.verify(account, password: "synthetic-password")
     let folders = try await provider.folders(account, password: "synthetic-password")
-    #expect(folders.map(\.name) == ["INBOX", "Archive"])
-    #expect(folders.first?.roles == ["inbox"])
+    #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
+    #expect(folders.map(\.roles) == [["inbox"], ["archive"], [], ["inbox"]])
     let initial = try await provider.synchronize(
       account, password: "synthetic-password", folder: "INBOX", from: nil, window: 200)
     #expect(initial.reset && initial.uidValidity == 7 && initial.uidNext == 12)

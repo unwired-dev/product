@@ -24,3 +24,4 @@ providers authorized through their own sign-in. `@private-email/mail-core` expor
 Local search reports actual IMAP body-cache availability. Folder refresh failures
 keep cached rows with a warning, and a removed folder choice falls back to Inbox.
 Both hosts share the exported `imapFolderName` and `imapFolderFailed` projections.
+Case variants of `INBOX` use one folder identity; other folder names stay distinct.

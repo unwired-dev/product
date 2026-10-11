@@ -97,7 +97,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   encrypted cache, so an interrupted synchronization repeats only the step that did
   not commit. The Inbox and up to eight other opened folders stay cached.
 - The folder list is read on each synchronization, with the special-use roles the
-  server declares.
+  server declares. Case variants of the reserved `INBOX` name share that spelling;
+  other folder names stay as listed, including folders with an inbox role.
 
 The unified Inbox lists each IMAP connection's Inbox folder. Choosing the connection on
 its own shows its folders; each Mac window chooses its folder independently. A folder

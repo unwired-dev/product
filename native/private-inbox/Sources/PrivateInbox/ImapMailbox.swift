@@ -171,9 +171,11 @@ struct SwiftMailImap: ImapProvider {
           (.archive, "archive"), (.drafts, "drafts"), (.junk, "junk"), (.sent, "sent"),
           (.trash, "trash"), (.all, "all"), (.flagged, "flagged"),
         ]
-        let inbox = info.name.uppercased() == "INBOX" || info.attributes.contains(.inbox)
+        // Only ASCII INBOX case variants share a cache and message-ID namespace.
+        let named = info.name.lowercased() == "inbox"
+        let inbox = named || info.attributes.contains(.inbox)
         return ImapFolder(
-          name: info.name,
+          name: named ? "INBOX" : info.name,
           roles: (inbox ? ["inbox"] : [])
             + roles.filter { info.attributes.contains($0.0) }.map(\.1),
           selectable: info.isSelectable)

@@ -166,7 +166,8 @@ const server = tls.createServer(
         } else if (command.startsWith('LIST ')) {
           operations.add('list');
           socket.write(
-            '* LIST (\\HasNoChildren) "/" "INBOX"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n',
+            // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
+            '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n',
           );
           ok();
         } else if (/^(?:UID )?FETCH /u.test(command)) {
