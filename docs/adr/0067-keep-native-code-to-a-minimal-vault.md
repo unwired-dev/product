@@ -62,7 +62,8 @@ Native code owns:
     Pending Device credential or Trusted Device Credential durably, then returns
     only the non-secret fields.
 
-  No credential or provider proof crosses the bridge in either direction.
+  No credential or provider proof carried by a Convex call crosses the bridge
+  in either direction.
 
 - **Persist-then-return steps**: operations that must store keys durably before
   anything is acknowledged complete that storage before they return.
@@ -89,16 +90,22 @@ The native interface exposes operations named by purpose, such as "create the ke
 ring and return its recovery envelope" or "open this recovery envelope with the
 entered Recovery Key and store the ring". It never exposes raw encrypt, decrypt or
 read-key primitives. Values crossing the bridge are ciphertext, opaque
-identifiers, presentation data or fixed error codes. Keys, credentials and
-foreign error descriptions never cross.
+identifiers, presentation data, fixed error codes or the transient text exceptions
+below. Product Sync key material, database keys, provider tokens, credentials
+carried by Convex calls and foreign error descriptions never cross.
 
-The Recovery Key and the Enrollment Code are the one exception, because a person
-must read and type them. They cross only as text: native code returns them for
+The Recovery Key and the Enrollment Code are recovery-text exceptions, because a
+person must read and type them. They cross only as text: native code returns them for
 display, and receives what the person enters. React Native shows and collects
 them, as it does today. TypeScript holds them only for that screen: it never
 stores, logs or sends them, and passes entered text straight to the native
 operation that uses it. The key ring, keys derived from the Recovery Key,
 enrollment key pairs and the database key never cross.
+
+An entered IMAP password is a separate provider-credential exception. It crosses
+only as transient form text passed directly to the native IMAP operation.
+TypeScript never persists, logs or sends it elsewhere; native code keeps the
+stored password and never returns it to TypeScript.
 
 ## Why
 

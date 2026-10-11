@@ -80,6 +80,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   the shared `BodyLoads` coordinator. Charge repeated rendered occurrences and
   simultaneous readers across Gmail and IMAP, and release on cleanup/failure;
   otherwise IMAP bypasses the device display budget despite bounded unique assets.
+- `imap-inbox.ts` releasing a reader's image reservation without re-admitting
+  surviving budget-limited readers in that store, including a legacy reader group
+  whose count decreases but remains positive. Retry with the reduced multiplicity,
+  preserve unchanged presentation identities and notify once after the transition;
+  exclude terminal rich-renderer fallbacks. Otherwise now-admissible CIDs stay
+  hidden until reopen, or closing an uncharged reader clears another window's
+  pending link confirmation and reloads its unchanged WebView.
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.

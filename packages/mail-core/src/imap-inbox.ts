@@ -379,12 +379,14 @@ export function createImapInbox(
     }
     return { bytes, pixels };
   };
+  // Readers whose inline images the shared budget withheld, presented again when it frees.
+  const limited = new Set<string | symbol>();
   // Gmail and IMAP readers share one budget; every visible occurrence and window counts.
   const present = (
     key: string | symbol,
     body: BodyDocument,
     count = 1,
-  ): ImapBodyState => {
+  ): Extract<ImapBodyState, { kind: 'ready' }> => {
     let { bytes, pixels } = otherImageUsage(key);
     let occurrences: readonly string[] = [];
     try {
@@ -414,11 +416,47 @@ export function createImapInbox(
     });
     reservations.set(key, { bytes: reservedBytes, pixels: reservedPixels });
     shared.images.set(imageOwner, reservations);
+    if (images.length < (body.images?.admitted.length ?? 0)) {
+      limited.add(key);
+    } else {
+      limited.delete(key);
+    }
     return {
       kind: 'ready',
       presentation: presentation(body, images),
       attachments: body.attachments?.length ?? 0,
     };
+  };
+  // A released reservation lets the readers the budget held back show their images.
+  const presentLimited = () => {
+    let changed = false;
+    const refresh = (key: string | symbol, body: BodyDocument, count = 1) => {
+      const previous =
+        typeof key === 'symbol' ? viewBodies.get(key) : bodies.get(key);
+      const next = present(key, body, count);
+      if (
+        previous?.kind === 'ready' &&
+        previous.presentation.rich?.document ===
+          next.presentation.rich?.document
+      ) {
+        return previous;
+      }
+      changed = true;
+      return next;
+    };
+    for (const [reader, id] of viewReaders) {
+      const body = documents.get(id);
+      if (limited.has(reader) && body !== undefined) {
+        viewBodies.set(reader, refresh(reader, body));
+      }
+    }
+    for (const [id, count] of legacyReaders) {
+      const body = documents.get(id);
+      if (limited.has(id) && body !== undefined) {
+        bodies.set(id, refresh(id, body, count));
+      }
+    }
+    return changed;
   };
   const render = (status: Sync) => {
     if (forgotten || opened === undefined || document === undefined) {
@@ -934,6 +972,7 @@ export function createImapInbox(
           if (count === 1) {
             legacyReaders.delete(id);
             reservations.delete(id);
+            limited.delete(id);
           } else {
             legacyReaders.set(id, count - 1);
             const reserved = reservations.get(id);
@@ -948,6 +987,7 @@ export function createImapInbox(
           viewReaders.delete(reader);
           viewBodies.delete(reader);
           reservations.delete(reader);
+          limited.delete(reader);
         }
         const count = (readers.get(id) ?? 1) - 1;
         if (count === 0) {
@@ -956,6 +996,9 @@ export function createImapInbox(
           documents.delete(id);
         } else {
           readers.set(id, count);
+        }
+        if (presentLimited()) {
+          notify();
         }
       };
     },
@@ -978,6 +1021,8 @@ export function createImapInbox(
           viewBodies.set(reader, next);
         }
         reservations.delete(reader ?? id);
+        limited.delete(reader ?? id);
+        presentLimited();
         notify();
       }
     },
@@ -994,6 +1039,7 @@ export function createImapInbox(
       viewReaders.clear();
       viewBodies.clear();
       reservations.clear();
+      limited.clear();
       shared.images.delete(imageOwner);
       state = { kind: 'loading' };
       notify();

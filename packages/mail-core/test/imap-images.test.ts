@@ -187,6 +187,151 @@ describe('imap reader image and lifetime boundaries', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('shows a waiting window its images once another window releases the budget', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const gmail = createSyntheticGmail();
+    const gmailId = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    gmail.native.openMessageBody = (_scope, id) =>
+      Promise.resolve(cached(id, 1));
+    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    await gmailInbox.load();
+    const closeGmail = gmailInbox.retainMessage(gmailId);
+    await gmailInbox.readMessage(gmailId);
+
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Photo' });
+    vi.spyOn(imap.native, 'openMessageBody').mockImplementation((_scope, id) =>
+      Promise.resolve(cached(id, 1)),
+    );
+    const inbox = createImapInbox(imap.native, { shared });
+    await inbox.load();
+    const id = firstId(inbox);
+    const first = Symbol('first window');
+    const second = Symbol('second window');
+    const closeFirst = inbox.retainMessage(id, first);
+    await inbox.readMessage(id);
+    const closeSecond = inbox.retainMessage(id, second);
+    await inbox.readMessage(id);
+    // Gmail and the first window hold the whole budget; the second waits with placeholders.
+    expect(rich(inbox, id, second).document).not.toContain('data:image/png');
+    closeFirst();
+    expect(rich(inbox, id, second).document).toContain('data:image/png');
+    closeSecond();
+    closeGmail();
+  });
+
+  it('retries the surviving legacy readers with their reduced image cost', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const gmail = createSyntheticGmail();
+    const gmailId = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    gmail.native.openMessageBody = (_scope, id) =>
+      Promise.resolve(cached(id, 1));
+    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    await gmailInbox.load();
+    const closeGmail = gmailInbox.retainMessage(gmailId);
+    await gmailInbox.readMessage(gmailId);
+
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Photo' });
+    vi.spyOn(imap.native, 'openMessageBody').mockImplementation((_scope, id) =>
+      Promise.resolve(cached(id, 1)),
+    );
+    const inbox = createImapInbox(imap.native, { shared });
+    await inbox.load();
+    const id = firstId(inbox);
+    const closeFirst = inbox.retainMessage(id);
+    const closeSecond = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+    expect(rich(inbox, id).document).not.toContain('data:image/png');
+    closeFirst();
+    expect(rich(inbox, id).document).toContain('data:image/png');
+    closeSecond();
+    closeGmail();
+  });
+
+  /* oxlint-disable vitest/max-expects -- One waiting-reader journey proves identity, notification and admission order. */
+  it('keeps unchanged waiting presentations while admitting windows in order', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Photo' });
+    vi.spyOn(imap.native, 'openMessageBody').mockImplementation((_scope, id) =>
+      Promise.resolve(cached(id, 1)),
+    );
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const id = firstId(inbox);
+    const first = Symbol('first');
+    const second = Symbol('second');
+    const third = Symbol('third');
+    const fourth = Symbol('fourth');
+    const closeFirst = inbox.retainMessage(id, first);
+    const closeSecond = inbox.retainMessage(id, second);
+    const closeThird = inbox.retainMessage(id, third);
+    const closeFourth = inbox.retainMessage(id, fourth);
+    await inbox.readMessage(id);
+    const waiting = inbox.messageBody(id, third);
+    let changes = 0;
+    const unsubscribe = inbox.subscribe(() => {
+      changes += 1;
+    });
+    closeFourth();
+    expect(inbox.messageBody(id, third)).toBe(waiting);
+    expect(changes).toBe(0);
+    const closeLast = inbox.retainMessage(id, fourth);
+    const lastWaiting = inbox.messageBody(id, fourth);
+    const established = inbox.messageBody(id, second);
+    changes = 0;
+    closeFirst();
+    expect(rich(inbox, id, third).document).toContain('data:image/png');
+    expect(inbox.messageBody(id, fourth)).toBe(lastWaiting);
+    expect(inbox.messageBody(id, second)).toBe(established);
+    expect(changes).toBe(1);
+    closeSecond();
+    expect(rich(inbox, id, fourth).document).toContain('data:image/png');
+    unsubscribe();
+    closeThird();
+    closeLast();
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  it('gives a waiting reader the reservation released by a rich-view failure', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Photo' });
+    vi.spyOn(imap.native, 'openMessageBody').mockImplementation((_scope, id) =>
+      Promise.resolve(cached(id, 1)),
+    );
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const id = firstId(inbox);
+    const first = Symbol('first');
+    const second = Symbol('second');
+    const third = Symbol('third');
+    const closeFirst = inbox.retainMessage(id, first);
+    const closeSecond = inbox.retainMessage(id, second);
+    const closeThird = inbox.retainMessage(id, third);
+    await inbox.readMessage(id);
+    const failed = inbox.messageBody(id, first);
+    assert.equal(failed?.kind, 'ready');
+    expect(rich(inbox, id, third).document).not.toContain('data:image/png');
+    let changes = 0;
+    const unsubscribe = inbox.subscribe(() => {
+      changes += 1;
+    });
+    inbox.discardRichMessage(id, failed.presentation, first);
+    expect(rich(inbox, id, third).document).toContain('data:image/png');
+    expect(changes).toBe(1);
+    closeSecond();
+    const fallback = inbox.messageBody(id, first);
+    assert.equal(fallback?.kind, 'ready');
+    expect(fallback.presentation.rich).toBeUndefined();
+    unsubscribe();
+    closeFirst();
+    closeThird();
+  });
+
   it('drops a late cache callback after its connection is forgotten', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
