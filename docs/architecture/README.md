@@ -50,7 +50,8 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 
 ## Replacement decisions and evidence
 
-- [Accepted product and platform scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch supersession](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement product and platform scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Mock testing and real integration evidence](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md)
 - [Product identity and mailbox consent](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
 - [Originating-device Outbox and atomic admission](../adr/0062-keep-queued-delivery-on-its-originating-device.md)

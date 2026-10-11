@@ -227,6 +227,8 @@ const cacheLimit = 200;
 const pageSize = 50;
 // Online search results per page and mailbox.
 const searchPageSize = 20;
+// The newest Sent messages read for a message whose handoff had no answer.
+const sentPageSize = 20;
 
 const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));
 const HistoryId = Schema.String.check(Schema.isPattern(/^\d+$/u));
@@ -1051,6 +1053,10 @@ const sendStatus = ({
     ? { kind: 'failed', problem: 'refused' }
     : { kind: 'unknown' };
 };
+
+// The `boundary` parameter of a Content-Type header, quoted or not.
+const boundaryParameter = (contentType: string | undefined) =>
+  /;\s*boundary="?(?<boundary>[^";]+)"?/iu.exec(contentType ?? '')?.[1];
 
 // Body loads shared by every connection's Inbox on this device: four at a time account-wide,
 // and speculative prefetch in any connection waits while an explicit read waits or runs.
@@ -3738,6 +3744,50 @@ export function createGmailInbox(
     };
     return result;
   });
+  // Gmail's evidence for a message whose handoff had no answer: sent only when exactly one of the
+  // newest Sent messages carries its MIME boundary. Anything else leaves the outcome unknown.
+  const sentWith = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    boundary: string,
+  ) {
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ['labelIds', 'SENT'],
+        ['maxResults', String(sentPageSize)],
+      ],
+      decodeList,
+    );
+    const matches = yield* Effect.forEach(
+      page.messages ?? [],
+      ({ id }) =>
+        gmail(scope)(
+          `messages/${id}`,
+          [
+            ['format', 'metadata'],
+            ['metadataHeaders', 'Content-Type'],
+          ],
+          decodeMetadata,
+        ).pipe(
+          Effect.map((message) =>
+            boundaryParameter(
+              message.payload?.headers?.find(
+                ({ name }) => name.toLowerCase() === 'content-type',
+              )?.value,
+            ) === boundary
+              ? [message.id]
+              : [],
+          ),
+          // A message deleted meanwhile is not this one.
+          Effect.catchTag('GmailNotFound', () => Effect.succeed([])),
+        ),
+      { concurrency: 4 },
+    );
+    const [match, ...others] = matches.flat();
+    return match !== undefined && others.length === 0
+      ? ({ kind: 'sent', message: match } satisfies SendOutcome)
+      : ({ kind: 'unknown' } satisfies SendOutcome);
+  });
   const searchFailed = (
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
@@ -3761,7 +3811,7 @@ export function createGmailInbox(
     return Effect.sync(() => {
       if (owner === reading && opened !== undefined) {
         authenticationRejected = true;
-        publish(render());
+        settle('authentication');
       }
       return searchUnavailable('authentication');
     });
@@ -4025,6 +4075,35 @@ export function createGmailInbox(
           Effect.match({
             onFailure: (outcome) => outcome,
             onSuccess: (outcome) => outcome,
+          }),
+        ),
+      );
+    },
+    // Looks for a message whose handoff had no answer in this mailbox's Sent messages by its MIME
+    // boundary. Resolves sent with Gmail's identifier, unknown when Gmail cannot establish it, or
+    // undefined when the open mailbox was not looked at, as when it closed or changed meanwhile.
+    findSent: (boundary: string) => {
+      const scope = opened;
+      if (scope === undefined || forgotten) {
+        return Promise.resolve(undefined);
+      }
+      const reading = owner;
+      return runLogged(
+        sentWith(scope, boundary).pipe(
+          Effect.catchTags({
+            // A lock, revocation or refused grant found here recovers the Inbox as a search does.
+            SyncFailure: (failure) =>
+              searchFailed(failure, reading).pipe(
+                Effect.map((page) =>
+                  page === undefined
+                    ? undefined
+                    : ({ kind: 'unknown' } satisfies SendOutcome),
+                ),
+              ),
+            GmailNotFound: () =>
+              Effect.succeed<SendOutcome | undefined>({ kind: 'unknown' }),
+            GmailInvalidPage: () =>
+              Effect.succeed<SendOutcome | undefined>({ kind: 'unknown' }),
           }),
         ),
       );

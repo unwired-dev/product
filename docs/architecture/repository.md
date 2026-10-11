@@ -13,6 +13,10 @@ catalogs under [ADR 0064](../adr/0064-isolate-mobile-and-macos-native-dependenci
 The replacement's [isolated Mock Mail Sessions](../mock-mail-sessions.md) follow
 [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 
-The [78-ticket coverage index](../qualification/expo-rewrite-ticket-coverage.md)
+The [historical 78-ticket coverage index](../qualification/expo-rewrite-ticket-coverage.md)
 tracks ticket and dependency coverage. Read the accepted rewrite decisions through
 [the architecture index](README.md).
+
+The [power-user launch specification](../product/power-user-launch.md) and
+[ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+route the current launch requirements and promoted/new implementation slices.

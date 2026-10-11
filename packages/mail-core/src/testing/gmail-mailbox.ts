@@ -253,9 +253,9 @@ export function createSyntheticGmail({
     }
   };
 
-  const newestInbox = () =>
+  const newestWith = (label: string) =>
     Arr.sort(
-      [...messages.values()].filter((message) => message.labels.has('INBOX')),
+      [...messages.values()].filter((message) => message.labels.has(label)),
       Order.flip(
         Order.mapInput(
           Order.Number,
@@ -289,7 +289,10 @@ export function createSyntheticGmail({
   };
   const listPage = (params: URLSearchParams) => {
     const query = params.get('q');
-    const inbox = query === null ? newestInbox() : searched(query);
+    const inbox =
+      query === null
+        ? newestWith(params.get('labelIds') ?? 'INBOX')
+        : searched(query);
     const start = Number(params.get('pageToken') ?? 0);
     const end = start + Number(params.get('maxResults') ?? 100);
     return respond({
@@ -432,6 +435,7 @@ export function createSyntheticGmail({
         id: message.id,
         threadId: message.id,
         labelIds: [...message.labels],
+        internalDate: String(message.internalDate),
         payload: {
           mimeType: payload.mimeType,
           headers:
@@ -598,7 +602,13 @@ export function createSyntheticGmail({
       internalDate: Date.UTC(2026, 8, 1) + nextId * 60_000,
       labels: new Set(['SENT']),
       content: { text: '' },
-      headers: [],
+      // Gmail keeps the message's own top-level MIME structure.
+      headers: [...raw.matchAll(/^Content-Type: (?<value>multipart\/.*)\r$/gmu)]
+        .slice(0, 1)
+        .map((match) => ({
+          name: 'Content-Type',
+          value: match[1] ?? '',
+        })),
     });
     record('messagesAdded', id);
     sends.push({ raw, id, ...(threadId === undefined ? {} : { threadId }) });

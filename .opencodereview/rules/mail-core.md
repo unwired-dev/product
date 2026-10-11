@@ -60,6 +60,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   account; let those codes reach the existing purge-and-notice path before the
   requested operation. Otherwise a later native step fails as unavailable and
   leaves the shared store showing the removed account.
+- `createGmailInbox.findSent` or another auxiliary provider read reducing a
+  lifecycle-changing `SyncFailure` to its operation's fallback without running
+  the Inbox's owner-fenced recovery. The first discovery of locked storage,
+  device revocation or rejected Gmail authorization must update the owning
+  store even when delivery evidence remains unknown. Preserve stale-owner and
+  invalidation fences and distinguish quota/transient failures from refused
+  grants; otherwise cached mail stays visible after lock or removal, or the
+  authorization notice waits for an unrelated synchronization.
 
 #### Running programs and shared state
 
@@ -227,6 +235,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
+  interrupted by generation renewal, closure or owner invalidation as a completed
+  automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence
+  that leaves delivery unknown, restore eligibility and retain a ready publication
+  arriving before the old lookup settles as well as one arriving afterwards.
+  Otherwise an accepted message stays unknown until unrelated activation or manual
+  Check Again, despite its mailbox being ready to reconcile it. Verify both
+  orderings through the real Outbox and Mailboxes stores without resubmission.
+- `outbox.ts.check`, `checkUnknown` or another reconciliation trigger enqueuing
+  an already-running Sent lookup. Coalesce overlapping triggers through its
+  completion, release ownership on every exit, and retry a retained readiness
+  event only when the interrupted lookup could not use its mailbox. Otherwise a
+  second trigger repeats the Sent list and up to 20 metadata requests, or dropping
+  every trigger loses recovery after invalidation. Hold the provider read and
+  verify both public answers and the number of Sent requests.
 - `gmail-inbox.ts.rejectionOutcomes` or another Send outcome mapper treating a
   pre-request `mailbox-invalidated` refusal as a terminal delivery failure.
   Ordinary foreground verification can renew the native generation while Outbox

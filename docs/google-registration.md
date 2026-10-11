@@ -3,6 +3,26 @@
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/google-registration.md).
 
+## Launch first-connection requirement
+
+At the [power-user launch](product/power-user-launch.md#first-mailbox-after-product-sign-in),
+Google Product Sign-In and device admission lead to a Mail Provider choice.
+The sign-in mailbox may be suggested for Gmail, but the person can instead choose
+iCloud Mail, Fastmail, manual IMAP/SMTP or Microsoft mail without granting Gmail
+access. A Google Product identity without Gmail can therefore complete setup
+with another Mail Provider. Microsoft mailbox authorization does not add a
+Microsoft Product Sign-In.
+
+Cancelling, declining or failing mailbox setup retains the Product Account and
+offers retry or another provider, including after relaunch. Open an Inbox only
+after the selected provider's connection is verified and setup is complete;
+Gmail verification is required only for a Gmail connection. Adding another
+mailbox offers the same provider choices and preserves existing connections on
+failure or cancellation. These are launch requirements; the implementation and
+evidence below describe the current Gmail path.
+
+## Current Gmail implementation
+
 [#596](https://github.com/unwired-dev/product/issues/596) adds the replacement
 registration path to both native hosts. Product Sign-In creates or reconnects the
 Product Account through Convex before a separate Gmail authorization session.
@@ -200,3 +220,9 @@ relaunch, configured audience rejection in Convex, device-only Keychain policy,
 physical lock/unlock behavior and signed Mac storage. Record target, SDK/toolchain,
 non-secret scenario result and evidence date separately from deterministic tests.
 No real OAuth pass is claimed until this protected path has actually run.
+
+Launch qualification must additionally exercise Google-first registration with
+each non-Gmail provider and no Gmail grant, including a Google identity without
+Gmail, cancellation, choosing a different provider, retry and connected relaunch.
+Track that evidence in [#855](https://github.com/unwired-dev/product/issues/855);
+the Gmail scenarios above do not qualify those paths.

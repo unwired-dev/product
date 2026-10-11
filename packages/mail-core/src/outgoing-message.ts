@@ -370,3 +370,13 @@ export function outgoingMessage(
   }, []);
   return { segments, size: sizeOf(segments, assetsOf(draft)) };
 }
+
+// The top-level MIME boundary `outgoingMessage` chose, which identifies the message's copy in
+// Gmail's Sent mailbox. Every message built here is multipart.
+export const boundaryOf = (segments: readonly MessageSegment[]) => {
+  const [first] = segments;
+  const head = first !== undefined && 'text' in first ? first.text : '';
+  return /^Content-Type: multipart\/[a-z]+; boundary="(?<boundary>[^"]+)"\r$/mu.exec(
+    head.slice(0, head.indexOf(`${crlf}${crlf}`) + crlf.length),
+  )?.[1];
+};

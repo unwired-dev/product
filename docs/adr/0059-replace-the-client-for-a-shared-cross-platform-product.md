@@ -4,6 +4,13 @@ status: accepted
 
 # Replace the client for a shared cross-platform product
 
+## Launch scope amendment — 2026-10-11
+
+The power-user Apple launch supersedes the Gmail-only launch, the deferral of optional
+Profiles and deterministic Mail Rules, and the affected search/cache scope below. The focused Gmail
+release remains an intermediate beta. Other decisions remain in force. See
+[ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
+
 The replacement client will use Expo and React Native to improve development
 speed, user experience, and the ability to add Android and Windows later. Replace
 the existing client implementation, including its mail engines, rather than

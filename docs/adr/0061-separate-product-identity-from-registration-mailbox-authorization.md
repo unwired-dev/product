@@ -4,6 +4,15 @@ status: accepted
 
 # Separate product identity from registration mailbox authorization
 
+## Launch scope amendment — 2026-10-11
+
+The power-user Apple launch replaces the Gmail-only mailbox setup scope below.
+Google and Apple remain the launch Product Sign-In Providers; Microsoft mailbox
+authorization does not require Microsoft Product Sign-In. The existing Gmail
+onboarding paths remain documented behavior, not a requirement that every launch
+user connect Gmail. Identity, device trust and mailbox consent remain separate. See
+[ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
+
 The first-release replacement accepts Google and Apple for Product Sign-In while
 supporting only Gmail as a Mail Provider. Google registration requests both
 identity and Gmail access as part of onboarding. Apple registration continues

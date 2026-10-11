@@ -7,13 +7,15 @@ replacement requirements or release qualification.
 
 ## Scope
 
-Product Account identity and device trust apply to the replacement. Advanced
-Profiles are follow-up work; Default Profile and the deployed Profile Record
-Scope describe prototype migration behavior.
+Product Account identity and device trust apply to the replacement. Optional
+Mail Profiles are launch work under ADR 0069. Default Profile and the deployed
+Profile Record Scope also describe prototype migration behavior; they do not
+prove replacement implementation.
 
 ## Decisions and scope
 
-- [Accepted replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+- [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
+- [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Authorized device enrollment](../../adr/0066-admit-devices-only-through-authorized-enrollment.md)
 - [Separate product identity from registration mailbox authorization](../../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
 - [Linked Google and Apple sign-in](../../linked-sign-in.md) for the replacement's explicit linking behavior
