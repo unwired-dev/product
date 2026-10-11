@@ -42,7 +42,8 @@ function threadMailbox() {
     thread: first,
     content: {
       html:
-        '<p>Tuesday works for me.</p><div class="gmail_quote">' +
+        '<p>Tuesday works for me. <a href="https://example.invalid/agenda">Agenda</a></p>' +
+        '<div class="gmail_quote">' +
         '<div class="gmail_attr">On Monday, Maya Chen wrote:</div>' +
         '<blockquote class="gmail_quote"><p>Original agenda</p></blockquote></div>',
     },
@@ -156,6 +157,49 @@ describe('thread view', () => {
     expect(expanded.props.source.html).toContain('Original agenda');
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('keeps a link confirmation while another message of the thread toggles its quoted text', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createGmailInbox(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <ThreadView
+          id={middle}
+          mailbox={alex}
+        />
+      </InboxProvider>,
+    );
+    await act(store.load);
+    await screen.findByTestId('message-webview');
+    await act(() => {
+      fireEvent.press(
+        within(messageBy('Alex Rivera')).getByRole('link', {
+          name: 'Open link: Agenda',
+        }),
+      );
+    });
+    expect(screen.getByText('Open this link in your browser?')).toBeVisible();
+
+    await act(() => {
+      fireEvent.press(
+        within(messageBy('Sam Lee')).getByRole('button', {
+          name: 'Show quoted text',
+        }),
+      );
+    });
+    expect(screen.getByText('Open this link in your browser?')).toBeVisible();
+
+    // Collapsing or expanding the link's own message discards it.
+    await act(() => {
+      fireEvent.press(
+        within(messageBy('Alex Rivera')).getByRole('button', {
+          name: 'Show quoted text',
+        }),
+      );
+    });
+    expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+  });
 
   it('shows the message as unavailable when it is not cached', async () => {
     expect.hasAssertions();

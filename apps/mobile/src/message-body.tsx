@@ -8,7 +8,7 @@ import type {
   MessagePresentation,
   ReadableBody,
 } from '@private-email/mail-core/message-body';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { LayoutChangeEvent, ScrollViewProps } from 'react-native';
 import type {
   ShouldStartLoadRequest,
@@ -106,8 +106,14 @@ interface PendingLink {
 
 const noSubscription = () => () => undefined;
 
+// Discards a pending confirmation chosen in one message's body, keeping one another message of
+// the same reader owns.
+const withoutLinkFrom =
+  (inbox: GmailInbox, id: string) => (pending: PendingLink | undefined) =>
+    pending?.inbox === inbox && pending.id === id ? undefined : pending;
+
 const LinkConfirmationContext = createContext<
-  ((pending: PendingLink | undefined) => void) | undefined
+  Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
 async function openLink(href: string) {
@@ -931,9 +937,9 @@ export function GmailMessageBody({
       return undefined;
     }
     return () => {
-      confirm?.(undefined);
+      confirm?.(withoutLinkFrom(inbox, id));
     };
-  }, [body, confirm]);
+  }, [body, confirm, inbox, id]);
 
   if (body === undefined || body.kind === 'loading') {
     return (
@@ -1031,7 +1037,7 @@ export function GmailMessageBody({
           accessibilityState={{ expanded: quotedShown }}
           onPress={() => {
             if (current() && showing.current !== undefined) {
-              confirm?.(undefined);
+              confirm?.(withoutLinkFrom(inbox, id));
               const next = quotedRevision + 1;
               showing.current = { ...showing.current, quotedRevision: next };
               setQuotedRevision(next);
