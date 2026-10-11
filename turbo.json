@@ -21,6 +21,7 @@
   ],
   "tasks": {
     "//#lint": {},
+    "//#lint:boundaries": {},
     "//#lint:fix": {
       "cache": false
     },
