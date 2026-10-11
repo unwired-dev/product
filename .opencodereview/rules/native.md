@@ -308,6 +308,34 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   reopening the connection. Otherwise partial cleanup retains credentials/plaintext
   or loses another connection's durable pending actions.
 
+#### Gmail push lifecycle
+
+- `RegistrationStore.watch` or `stopWatch` using a refreshed Gmail credential
+  without matching its subject to the connection's saved receipt. Check identity
+  before the provider request; otherwise a mismatched saved credential can create
+  or stop another mailbox's watch.
+
+- `RegistrationStore.removeMailbox` deleting its relay row before the Product Sync
+  removal is acknowledged. Queue the opaque locator alongside durable local
+  removal intent and flush after acknowledgement or a superseding incarnation;
+  otherwise a crash can delete the route without a synchronized removal.
+  Learned synchronized removal stops the watch before discarding its credential.
+
+- `RegistrationStore.unroute`, `stopMailboxWatches` or synchronized descriptor
+  purge requiring a saved `pushRoute` before cleanup. Relay registration and
+  Gmail watch creation can succeed before verification fails; check cleanup with
+  no local route and stop the watch while its credential remains available.
+  Otherwise removing that mailbox loses the only watch-cleanup credential and
+  leaves its operational relay registration behind.
+- `stopWatch` retaining current watch expiry after an allowed stop, including an
+  unanswered provider request. Invalidate coverage durably before the stop;
+  a later sign-out/deletion refusal must permit immediate renewal and fallback
+  polling rather than leave an active account relying on a stopped watch.
+- `mailboxRoutes.complete` ignoring the relay's `verified` response or a changed
+  APNs token. Pending proof does not establish push coverage. Keep the pending
+  opaque route available for a late wake, retry proof at a later verification,
+  and suppress fallback polling only for registered, proven, current routes.
+
 #### Mock sessions stay out of production
 
 - A mock/test host factory such as `mockRegistrationStore` omitting a callback or proof required by a production operation's guard. Keep the real guard in place and wire the synthetic backend's owning state through it; otherwise optimistic/cached journeys can pass while the provider mutation is never reached and pending intent never settles.

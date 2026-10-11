@@ -154,6 +154,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Drafts under a stale connected account. Exercise the real registration and Draft
   stores together and assert the closed Draft state, not only a removal callback.
 
+- `followWakes` passing a route map captured before registration verification to
+  `freshness.wake`. Read the native lookup again after verification before
+  selecting the mailbox, even when its opaque connection ID still exists.
+  Otherwise a removed route can read a recreated connection through stale lookup.
+
 #### Services
 
 - A `Context.Service` introduced where no caller needs a replaceable dependency; a value a closure already owns stays a plain value.

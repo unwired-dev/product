@@ -1,4 +1,7 @@
-import { createFreshness } from '@private-email/mail-core/freshness';
+import {
+  createFreshness,
+  followWakes,
+} from '@private-email/mail-core/freshness';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   BackgroundTaskResult,
@@ -9,7 +12,7 @@ import {
 import { defineTask } from 'expo-task-manager';
 import { AppState } from 'react-native';
 
-import { gmailMailboxes, registration } from './registration.ts';
+import { gmailMailboxes, registration, wakes } from './registration.ts';
 
 const task = 'dev.unwired.mail.gmail-freshness';
 
@@ -26,6 +29,15 @@ defineTask(task, async () => {
     return BackgroundTaskResult.Failed;
   }
 });
+
+// A content-free push wake, including one that launches the app in the background, synchronizes
+// only its routed mailbox once registration verifies.
+if (!previewInbox) {
+  void followWakes(
+    createFreshness(gmailMailboxes, registration.refreshInbox),
+    wakes,
+  );
+}
 
 export const scheduleGmailFreshness = async () => {
   // Restricted where the person turned Background App Refresh off, and on simulators.

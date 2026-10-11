@@ -215,11 +215,11 @@ final class UnwiredRegistration: NSObject {
     var urlRequest: URLRequest
     var body = request.args
     switch request.endpoint {
-    case .action:
+    case .action where request.path.hasPrefix("/"):
       urlRequest = URLRequest(url: try site(base, path: request.path))
       // Convex exchanges and revokes an Apple authorization code with the client that issued it.
       if body["authorizationCode"] != nil { body["appleClientId"] = Bundle.main.bundleIdentifier }
-    case .query, .mutation:
+    case .query, .mutation, .action:
       urlRequest = URLRequest(url: base.appending(path: "api/" + request.endpoint.rawValue))
       body = ["path": request.path, "args": request.args, "format": "json"]
     }
@@ -531,6 +531,28 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("call", resolve, reject: reject) { try await $0.call(request) }
   }
+  @objc(routeMailboxes:rejecter:)
+  func routeMailboxes(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("routeMailboxes", resolve, reject: reject) { store in
+      // A fully qualified Cloud Pub/Sub topic; without one this build registers no routes.
+      let topic = (Bundle.main.object(forInfoDictionaryKey: "UnwiredGmailTopic") as? String)
+        .flatMap { topic in
+          topic.range(of: Self.topicPattern, options: .regularExpression) == nil ? nil : topic
+        }
+      try await store.routeMailboxes(
+        device: PushWakes.shared.device, topic: topic, now: Date().timeIntervalSince1970 * 1_000)
+    }
+  }
+  @objc(stopMailboxWatches:rejecter:)
+  func stopMailboxWatches(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("stopMailboxWatches", resolve, reject: reject) {
+      try await $0.stopMailboxWatches()
+    }
+  }
   @objc(removeMailbox:resolver:rejecter:)
   func removeMailbox(
     _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
@@ -592,6 +614,9 @@ final class UnwiredRegistration: NSObject {
 
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  private static let topicPattern =
+    "^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/topics/[A-Za-z][A-Za-z0-9._~%+-]{2,254}$"
 
   // Mailbox preflight and registration changes share custody across all suspension points.
   private func mailbox(
@@ -839,6 +864,31 @@ extension UnwiredRegistration {
     mailbox("openMailbox", resolve, reject: reject) {
       try await $0.prepareMailbox(connection)
       return try $0.openMailbox(connection)
+    }
+  }
+
+  // The routes a wake may name, read under the gate so a removal in progress is never missed.
+  @objc(mailboxRoutes:rejecter:)
+  func mailboxRoutes(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("mailboxRoutes", resolve, reject: reject) {
+      try $0.mailboxRoutes(now: Date().timeIntervalSince1970 * 1_000)
+    }
+  }
+
+  // Resolves with the next wake hint, or null for a reader a reloaded JavaScript context replaced.
+  @objc(nextWake:rejecter:)
+  func nextWake(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in resolve(await PushWakes.shared.next().map(PushWakes.hint) ?? NSNull()) }
+  }
+
+  @objc(completeWake:result:)
+  func completeWake(_ id: String, result: String) {
+    Task { @MainActor in
+      PushWakes.shared.settle(id, ["synchronized", "ignored"].contains(result) ? result : "failed")
     }
   }
 

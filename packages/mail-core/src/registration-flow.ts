@@ -1,11 +1,3 @@
-import type {
-  ProductAccountDeletionResponse,
-  SignInLinkRequestResponse,
-  SignInLinkResponse,
-  TrustedDeviceUnregistrationResponse,
-} from '@private-email/contracts/productAccount';
-import type { ProductSyncEnrollmentStatus } from '@private-email/contracts/productSync';
-
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
@@ -25,6 +17,13 @@ import type {
 
 import { decodeDiagnostic, rejectionCode } from './diagnostics.ts';
 import {
+  Deletion,
+  EnrollmentStatus,
+  LinkRequest,
+  LinkResponse,
+  Unregistration,
+} from './registration-replies.ts';
+import {
   BackendReply,
   Identity,
   MailboxIdentity,
@@ -34,33 +33,6 @@ import {
 
 export type { NativeRegistrationVault } from './registration-vault.ts';
 
-const Provider = Schema.Literals(['google', 'apple']);
-// These boundary schemas must remain assignable to the shared Convex validators' inferred types.
-const LinkRequest = Schema.Struct({
-  linkTicket: Schema.optionalKey(Schema.String),
-  signInProviders: Schema.mutable(Schema.Array(Provider)),
-}) satisfies Schema.Codec<SignInLinkRequestResponse>;
-const LinkResponse = Schema.Struct({
-  productAccountId: Schema.String,
-  signInProviders: Schema.mutable(Schema.Array(Provider)),
-}) satisfies Schema.Codec<SignInLinkResponse>;
-const Unregistration = Schema.Struct({
-  registered: Schema.Boolean,
-}) satisfies Schema.Codec<TrustedDeviceUnregistrationResponse>;
-const Deletion = Schema.Struct({
-  deleted: Schema.Boolean,
-}) satisfies Schema.Codec<ProductAccountDeletionResponse>;
-const EnrollmentStatus = Schema.Struct({
-  approval: Schema.optionalKey(
-    Schema.Struct({
-      ciphertextBase64: Schema.String,
-      encapsulatedKeyBase64: Schema.String,
-      keyVersion: Schema.Finite,
-    }),
-  ),
-  expiresAt: Schema.optionalKey(Schema.Finite),
-  state: Schema.Literals(['pending', 'approved', 'cancelled', 'expired']),
-}) satisfies Schema.Codec<ProductSyncEnrollmentStatus>;
 // What purging after each acknowledged removal tells the person.
 const removalNotices = {
   deletion: 'deleted',
@@ -374,6 +346,15 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
   });
 
+  // Push wakes are an opportunity: routing waits for a later verification unless access ended.
+  const pushStep = (operation: () => Promise<unknown>) =>
+    step(operation).pipe(
+      Effect.catchIf(
+        (error) => !endsAccess.has(error.code),
+        () => Effect.void,
+      ),
+    );
+
   const checkedGmail = Effect.fnUntraced(function* (scopes: readonly string[]) {
     if (!scopes.some((scope) => gmailScopes.has(scope))) {
       return yield* failWith('declined');
@@ -420,6 +401,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     );
     if (verified) {
       yield* step(vault.synchronize);
+      yield* pushStep(vault.routeMailboxes);
     }
     return yield* current;
   });
@@ -615,6 +597,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       yield* step(vault.retryMailboxCleanup);
       yield* step(vault.storeMailbox);
       yield* step(vault.synchronize);
+      yield* pushStep(vault.routeMailboxes);
       return yield* current;
     }).pipe(
       Effect.catchIf(
@@ -672,6 +655,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           return yield* current;
         }
       }
+      // The backend removes this device's routes; watches no other device needs stop first. A
+      // Pending Device holds no mailbox to stop.
+      yield* pushStep(vault.stopMailboxWatches);
       yield* step(() => vault.recordRemoval('signOut'));
       yield* convex(
         {
@@ -789,6 +775,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       }
     }
     const wasPending = value.removal !== undefined;
+    yield* pushStep(vault.stopMailboxWatches);
     yield* step(() => vault.recordRemoval('deletion'));
     yield* deletion.pipe(
       // This attempt was refused before fencing anything. A refusal cannot settle an earlier

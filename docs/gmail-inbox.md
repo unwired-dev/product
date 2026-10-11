@@ -745,10 +745,12 @@ reader's results do not qualify rich rendering, CID resolution or recent prefetc
 The application, not a window or screen, owns Gmail synchronization
 ([#617](https://github.com/unwired-dev/product/issues/617)).
 
-- **Mac.** Synchronization continues after the last window closes: every five
-  minutes the running app verifies registration and synchronizes every open mailbox, and a reopened window
-  shows the committed mail at once. Explicit Quit ends it with the process. No
-  helper process runs.
+- **Mac.** Synchronization continues after the last window closes, and a
+  reopened window shows the committed mail at once. Push wakes synchronize each
+  routed mailbox. While a usable mailbox has no current route, every five minutes
+  the running app verifies registration and synchronizes every open mailbox.
+  Activation still catches up. Explicit Quit ends it with the process. No helper
+  process runs.
 - **iPhone and iPad.** A background task asks iOS for refresh opportunities at
   most every 15 minutes. iOS decides whether and when each runs, and none runs
   after the person force-quits the app or turns Background App Refresh off.
@@ -764,11 +766,54 @@ The application, not a window or screen, owns Gmail synchronization
 synchronizes only its mailbox after registration verifies. It never decodes,
 keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
 says where to resume. A malformed hint, a route this device does not know, or a
-route removed while verification runs, or whose mailbox was removed or needs Gmail again, reads nothing. Registering
-routes with Gmail and the Convex relay, and receiving APNs wake hints, belongs to
-[#781](https://github.com/unwired-dev/product/issues/781). Until then no device
-registers a route, and the Mac's five-minute interval is its only background
-trigger.
+route removed while verification runs, or whose mailbox was removed or needs Gmail again, reads nothing.
+
+### Push wake routes
+
+[#781](https://github.com/unwired-dev/product/issues/781) registers the routes.
+Both hosts register for remote notifications at launch; iPhone and iPad declare the
+`remote-notification` background mode. Native code keeps the APNs token. After
+each registration verification with a verified mailbox, it registers that token
+with the relay (`pushRelay:registerDevice`) under the Trusted Device credential.
+For each verified connection without a current route, it then:
+
+1. registers the connection with the relay using its Google identity token
+   (`pushRelay:registerGmailConnection`);
+2. asks Gmail to watch the Inbox (`users/me/watch`) on the configured Cloud
+   Pub/Sub topic, with the connection's own access token;
+3. verifies that watch (`pushRelay:verifyGmailWatch` with the history ID), keeping
+   only the opaque route, expiry and nonsecret verification result.
+
+A pending Pub/Sub proof keeps the route available for late wakes, retries at the
+next verification, and leaves polling enabled. Only verified routes covering every
+usable mailbox with a current registered device token suppress the Mac interval.
+
+The watch renews within a day of expiring, and each renewal also renews the
+relay's record of this device. The identity token, access token, address and
+history ID exist only in those requests; none enters JavaScript or is stored. A
+build without a topic or an APNs registration registers nothing. A failed step
+waits for the next verification, so routing never fails opening the Inbox; only a
+revoked or deleted device ends it, with the usual purge.
+
+APNs hands each background notification to a native queue, which keeps only a
+Gmail hint's route. JavaScript reads one wake at a time, looks its route up
+natively and passes it to the handler above. The system's fetch handler then
+completes with new data, no data or failure. A wake JavaScript has not settled
+within 25 seconds completes as failed. Route lookup repeats after registration
+verification, so a route removed during that verification reads no mail.
+
+Removing a mailbox first drops its waiting wakes. It then asks
+`pushRelay:shouldStopGmailWatch` and stops the watch (`users/me/stop`) unless
+another device's route still needs it. The credential and cache leave locally,
+including offline; the opaque relay removal is saved with the Product Sync removal
+intent. After that removal is acknowledged (or overtaken by a later addition), it
+removes the route (`pushRelay:removeGmailConnection`). Removing the last route unregisters the device
+(`pushRelay:unregisterDevice`). A route the relay cannot remove yet is retried at
+the next routing or Product Sync restoration without the credential, and its watch
+lapses. A mailbox another device removed through Product Sync stops its watch
+before dropping the credential and tears down its route immediately. Sign-out and account
+deletion stop each watch no other device needs before the backend removes this
+device's routes; a removed device purges its routes with everything else.
 
 ## Received attachments
 
@@ -1018,8 +1063,22 @@ modules passed the packaged synthetic open/read/relaunch journey on iPhone 18 Pr
 and iPad Pro 11-inch M5 with iOS 27.0. This verifies launch and persisted sample
 read state; simulator background tasks remain restricted.
 
+The #781 shared tests settle host wakes through the real stores: a routed wake
+synchronizes only its mailbox and completes once; unknown and inherited route names
+complete as ignored; a failed or unreadable route lookup completes as failed without
+logging the address or history ID; and a replaced reader stops. The Mac interval
+skips while wakes cover every usable mailbox and resumes when a route lapses or the
+lookup is unreadable. Stopping during an asynchronous coverage lookup starts no
+new refresh. Registration tests route after each verification with a
+verified mailbox, never offline, never fail verification on a routing failure, purge
+on a revoked one, and stop watches before sign-out unregisters the device and
+before deletion. The mobile headless-entry test settles a wake that launched the
+app, and the Mac host test leaves new mail to its wake until a mailbox loses its
+route.
+
 Real iOS background scheduling, APNs delivery and packaged Mac journeys with no
-window open are pre-release evidence.
+window open are pre-release evidence, as is a real Gmail watch, Pub/Sub and APNs
+round trip through the protected test tenant.
 Native wake delivery in #781 also requires mounted-screen journeys while
 restored connections change. Shared-store tests do not qualify whether those
 host updates independently trigger synchronization of unrelated mailboxes.
@@ -1123,6 +1182,18 @@ post-write ownership rejection, and attachment cleanup even when another cache
 removal fails. A URLProtocol fixture drives the real URLSession transport through
 response-length overflow, streamed overflow and cancellation; it does not contact
 Gmail.
+#781 adds six native tests through a synthetic relay and Gmail boundary: routing
+with the device proof and only the opaque route, expiry and verification result stored, renewal within a
+day of expiry, retry after an unreachable relay and purge on revocation; removal
+stopping the watch only when allowed, removing the route, unregistering after the
+last one, dropping waiting wakes and retrying an unremovable route; and the wake
+queue handing JavaScript only the route, completing each wake once, failing at the
+deadline and replacing a reloaded reader. They also cover pending proofs retaining
+polling, partial registration teardown, renewal after a refused destructive operation,
+offline removal deferring relay deletion until Product Sync acknowledgement, and a
+synchronized removal stopping the watch before discarding its credential.
+All 50 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
+Xcode 27.0 for #781.
 All 43 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
 Xcode 27.0 for #610. Before it, all 41 tests passed in
 the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain

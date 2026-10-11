@@ -13,65 +13,11 @@ import {
   RegistrationSnapshotSchema,
 } from '../src/registration.ts';
 import { syntheticRecoveryKey } from '../src/testing/registration-session.ts';
-import {
-  createSyntheticDevice,
-  createSyntheticVault,
-} from '../src/testing/registration-vault.ts';
+import { createSyntheticVault } from '../src/testing/registration-vault.ts';
+import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
 
 const { it } = Vitest;
 
-// Promise adapter for the flow journeys; production composes these programs in the store.
-const createRegistrationFlow = (
-  vault: NativeRegistrationVault,
-): NativeRegistration => {
-  const flow = registrationPrograms(vault);
-  return {
-    restore: () => Effect.runPromise(flow.restore()),
-    signIn: (provider) => Effect.runPromise(flow.signIn(provider)),
-    addMailbox: (chooseAccount) =>
-      Effect.runPromise(flow.addMailbox(chooseAccount)),
-    authorizeGmail: (connection) =>
-      Effect.runPromise(flow.authorizeGmail(connection)),
-    removeMailbox: (connection) =>
-      Effect.runPromise(flow.removeMailbox(connection)),
-    link: (provider) => Effect.runPromise(flow.link(provider)),
-    confirmRecoveryKey: (entry) =>
-      Effect.runPromise(flow.confirmRecoveryKey(entry)),
-    recoverWithRecoveryKey: (entry) =>
-      Effect.runPromise(flow.recoverWithRecoveryKey(entry)),
-    approveEnrollment: (requestId, code) =>
-      Effect.runPromise(flow.approveEnrollment(requestId, code)),
-    declineEnrollment: (requestId) =>
-      Effect.runPromise(flow.declineEnrollment(requestId)),
-    revokeTrustedDevice: (trustedDeviceId) =>
-      Effect.runPromise(flow.revokeTrustedDevice(trustedDeviceId)),
-    refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
-    signOut: () => Effect.runPromise(flow.signOut()),
-    deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),
-  };
-};
-
-// The registration flow over the synthetic native vault. Each relaunch is a new process over the
-// same device Keychain, providers and backend.
-const launch = () => {
-  const synthetic = createSyntheticVault();
-  return {
-    ...synthetic,
-    flow: createRegistrationFlow(synthetic.vault),
-    relaunch: () =>
-      createRegistrationFlow(createSyntheticVault(synthetic).vault),
-    // Another installation signing in to the same backend with the same providers.
-    otherDevice: () => {
-      const other = createSyntheticVault({
-        ...createSyntheticDevice(),
-        google: synthetic.google,
-        apple: synthetic.apple,
-        backend: synthetic.backend,
-      });
-      return { ...other, flow: createRegistrationFlow(other.vault) };
-    },
-  };
-};
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 const snapshot = Schema.decodeUnknownSync(RegistrationSnapshotSchema);
 type Registration = NativeRegistration;

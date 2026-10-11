@@ -1,9 +1,10 @@
 import * as Schema from 'effect/Schema';
 
+import type { NativeWakes } from '../src/freshness.ts';
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
 import type { Mailboxes } from '../src/mailboxes.ts';
 
-import { createFreshness } from '../src/freshness.ts';
+import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import {
   createRegistration,
@@ -91,6 +92,39 @@ async function twoMailboxes(messages = 0, connectOther = true) {
     launch,
     setOnline: (next: boolean) => {
       online = next;
+    },
+  };
+}
+
+// The host's APNs queue: wakes wait until JavaScript reads them, and each completes once.
+function hostWakes(routes: () => Promise<unknown>) {
+  const waiting: unknown[] = [];
+  let reader: PromiseWithResolvers<unknown> | undefined = undefined;
+  const completed: Array<readonly [string, string]> = [];
+  const native: NativeWakes = {
+    nextWake: async () => {
+      if (waiting.length > 0) {
+        return waiting.shift();
+      }
+      reader = Promise.withResolvers<unknown>();
+      return reader.promise;
+    },
+    mailboxRoutes: routes,
+    completeWake: (id, result) => {
+      completed.push([id, result]);
+    },
+  };
+  return {
+    native,
+    completed,
+    deliver: (wake: unknown) => {
+      const pending = reader;
+      reader = undefined;
+      if (pending === undefined) {
+        waiting.push(wake);
+        return;
+      }
+      pending.resolve(wake);
     },
   };
 }
@@ -292,5 +326,156 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     ).resolves.toBe('ignored');
     expect(gmail.other.requests).toHaveLength(otherRequests);
     expect(subjects(mailboxes, other)).toStrictEqual([]);
+  });
+
+  it('settles each host wake once through the native route lookup, failing closed', async () => {
+    expect.hasAssertions();
+    const output = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const { gmail, launch } = await twoMailboxes();
+    const { mailboxes, freshness } = launch();
+    await mailboxes.load();
+    let lookup = async (): Promise<unknown> => ({
+      routes: { 'route-alex': alex },
+      complete: true,
+    });
+    const host = hostWakes(async () => lookup());
+    const following = followWakes(freshness, host.native);
+    const settled = async (count: number) =>
+      vi.waitFor(() => {
+        expect(host.completed).toHaveLength(count);
+      });
+
+    gmail.alex.deliver({ subject: 'Pushed to Alex' });
+    gmail.other.deliver({ subject: 'Not routed' });
+    const otherRequests = gmail.other.requests.length;
+    host.deliver({
+      id: 'wake-1',
+      hint: {
+        provider: 'gmail',
+        routeId: 'route-alex',
+        historyId: '987654321',
+      },
+    });
+    await settled(1);
+    expect(host.completed[0]).toStrictEqual(['wake-1', 'synchronized']);
+    expect(subjects(mailboxes, alex)).toStrictEqual(['Pushed to Alex']);
+    expect(gmail.other.requests).toHaveLength(otherRequests);
+
+    // Unknown and inherited names route nothing.
+    host.deliver({
+      id: 'wake-2',
+      hint: { provider: 'gmail', routeId: 'route-other' },
+    });
+    host.deliver({
+      id: 'wake-3',
+      hint: { provider: 'gmail', routeId: 'toString' },
+    });
+    await settled(3);
+    expect(host.completed.slice(1)).toStrictEqual([
+      ['wake-2', 'ignored'],
+      ['wake-3', 'ignored'],
+    ]);
+
+    // A failed or unreadable route lookup completes the wake as failed, logging nothing private.
+    lookup = () => Promise.reject(new Error('private alex@example.invalid'));
+    host.deliver({ id: 'wake-4', hint: { provider: 'gmail', routeId: 'x' } });
+    await settled(4);
+    lookup = async () => ({ routes: { 'route-alex': 7 }, complete: true });
+    host.deliver({ id: 'wake-5', hint: { provider: 'gmail', routeId: 'x' } });
+    await settled(5);
+    expect(host.completed.slice(3)).toStrictEqual([
+      ['wake-4', 'failed'],
+      ['wake-5', 'failed'],
+    ]);
+    expect(output.mock.calls.flat().join('\n')).not.toMatch(
+      /alex@example|987654321/u,
+    );
+
+    // A reader the host replaced stops following.
+    host.deliver(null);
+    await expect(following).resolves.toBeUndefined();
+    output.mockRestore();
+  });
+
+  it('rechecks a native route after verification removes it without removing the mailbox', async () => {
+    expect.hasAssertions();
+    const { gmail, nativeRegistration, launch } = await twoMailboxes();
+    const { mailboxes, freshness } = launch();
+    await mailboxes.load();
+    let routes: Record<string, string> = { 'route-alex': alex };
+    const host = hostWakes(async () => ({ routes, complete: true }));
+    const { restore } = nativeRegistration;
+    vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(async () => {
+      routes = {};
+      return restore();
+    });
+    gmail.alex.deliver({ subject: 'Removed route reads nothing' });
+    const requests = gmail.alex.requests.length;
+    const following = followWakes(freshness, host.native);
+    host.deliver({
+      id: 'removed-route',
+      hint: { provider: 'gmail', routeId: 'route-alex' },
+    });
+    await vi.waitFor(() => {
+      expect(host.completed).toStrictEqual([['removed-route', 'ignored']]);
+    });
+    expect(gmail.alex.requests).toHaveLength(requests);
+    host.deliver(null);
+    await following;
+  });
+
+  it('does not start refreshing when stopped during an asynchronous coverage lookup', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const { gmail, launch } = await twoMailboxes();
+    const { mailboxes, freshness } = launch();
+    await mailboxes.load();
+    const requests = gmail.alex.requests.length;
+    const coverage = Promise.withResolvers<boolean>();
+    const lookupStarted = Promise.withResolvers<undefined>();
+    const covered = () => {
+      lookupStarted.resolve(undefined);
+      return coverage.promise;
+    };
+    const stop = freshness.keepAlive(5, covered);
+    try {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await lookupStarted.promise;
+      stop();
+      coverage.resolve(false);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(gmail.alex.requests).toHaveLength(requests);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips the interval only while wakes cover every usable mailbox', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const { gmail, launch } = await twoMailboxes();
+    const { mailboxes, freshness } = launch();
+    await mailboxes.load();
+    let routes: unknown = { routes: { 'route-alex': alex }, complete: true };
+    const host = hostWakes(async () => routes);
+    const stop = freshness.keepAlive(5, async () => pushCovers(host.native));
+
+    gmail.alex.deliver({ subject: 'Left to its wake' });
+    const requests = gmail.alex.requests.length;
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(gmail.alex.requests).toHaveLength(requests);
+    expect(subjects(mailboxes, alex)).toStrictEqual([]);
+
+    // A mailbox without a current route, or an unreadable lookup, brings the interval back.
+    routes = { routes: {}, complete: false };
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(subjects(mailboxes, alex)).toStrictEqual(['Left to its wake']);
+    routes = 'unreadable';
+    gmail.alex.deliver({ subject: 'Polled again' });
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(subjects(mailboxes, alex)[0]).toBe('Polled again');
+    stop();
+    vi.useRealTimers();
   });
 });
