@@ -1,0 +1,779 @@
+[
+  {
+    "type": "dependency",
+    "from": "apps/mobile/plugins/localization.cjs",
+    "to": "packages/localization/catalogs.bundle/languages.json",
+    "unresolvedTo": "../../../packages/localization/catalogs.bundle/languages.json",
+    "dependencyTypes": ["local", "require"],
+    "rule": {
+      "severity": "error",
+      "name": "entrypoint-boundary-from-app"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "native/localization/test/native.test.mjs",
+    "to": "packages/localization/src/message-date-format.ts",
+    "unresolvedTo": "../../../packages/localization/src/message-date-format.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "entrypoint-boundary-from-app"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/mock-mail-build.cjs",
+    "to": "packages/draft-editor/build.cjs",
+    "unresolvedTo": "../packages/draft-editor/build.cjs",
+    "dependencyTypes": ["local", "require"],
+    "rule": {
+      "severity": "error",
+      "name": "entrypoint-boundary-from-app"
+    }
+  },
+  {
+    "type": "cycle",
+    "from": "packages/mail-core/src/gmail-actions.ts",
+    "to": "packages/mail-core/src/gmail-inbox.ts",
+    "unresolvedTo": "./gmail-inbox.ts",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/mail-core/src/gmail-inbox.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "packages/mail-core/src/gmail-actions.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/mail-core/src/message-body.ts",
+    "to": "packages/mail-core/src/message-presentation.ts",
+    "unresolvedTo": "./message-presentation.ts",
+    "dependencyTypes": ["local", "export"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/mail-core/src/message-presentation.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "packages/mail-core/src/message-body.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/mail-core/src/testing/registration-product-sync.ts",
+    "to": "packages/mail-core/src/testing/registration-vault.ts",
+    "unresolvedTo": "./registration-vault.ts",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/mail-core/src/testing/registration-vault.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "packages/mail-core/src/testing/registration-product-sync.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/mail-test-harness/src/apple.ts",
+    "to": "packages/mail-test-harness/src/ownership.ts",
+    "unresolvedTo": "./ownership.ts",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/mail-test-harness/src/ownership.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "packages/mail-test-harness/src/apple.ts",
+        "dependencyTypes": ["local", "dynamic-import"]
+      }
+    ]
+  },
+  {
+    "type": "dependency",
+    "from": "packages/contracts/test/health.test.ts",
+    "to": "packages/contracts/fixtures/health.response.json",
+    "unresolvedTo": "../fixtures/health.response.json",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/devices.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/devices.ts",
+    "to": "packages/convex/convex/productAccountAuth.ts",
+    "unresolvedTo": "../convex/productAccountAuth.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/devices.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/draftDelivery.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/draftDelivery.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/gmailRouting.test.ts",
+    "to": "packages/convex/convex/gmailRouting.ts",
+    "unresolvedTo": "../convex/gmailRouting.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/health.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/health.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/http.test.ts",
+    "to": "packages/convex/convex/_generated/server.js",
+    "unresolvedTo": "../convex/_generated/server.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/http.test.ts",
+    "to": "packages/convex/convex/http.ts",
+    "unresolvedTo": "../convex/http.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/http.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productAccount.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productAccount.test.ts",
+    "to": "packages/convex/convex/_generated/server.js",
+    "unresolvedTo": "../convex/_generated/server.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productAccount.test.ts",
+    "to": "packages/convex/convex/gmailRouting.ts",
+    "unresolvedTo": "../convex/gmailRouting.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productAccount.test.ts",
+    "to": "packages/convex/convex/productAccount.ts",
+    "unresolvedTo": "../convex/productAccount.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productAccount.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSync.test.ts",
+    "to": "packages/contracts/fixtures/productSync.payloadChanged.error.json",
+    "unresolvedTo": "../../contracts/fixtures/productSync.payloadChanged.error.json",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSync.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSync.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSyncEnrollment.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSyncEnrollment.test.ts",
+    "to": "packages/convex/convex/productAccountAuth.ts",
+    "unresolvedTo": "../convex/productAccountAuth.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/productSyncEnrollment.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/pushRelay.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/pushRelay.test.ts",
+    "to": "packages/convex/convex/gmailPushPayload.ts",
+    "unresolvedTo": "../convex/gmailPushPayload.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/pushRelay.test.ts",
+    "to": "packages/convex/convex/gmailRouting.ts",
+    "unresolvedTo": "../convex/gmailRouting.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/pushRelay.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/registration.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/registration.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/scheduledSend.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/scheduledSend.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/schema.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/signInLinks.test.ts",
+    "to": "packages/convex/convex/_generated/api.js",
+    "unresolvedTo": "../convex/_generated/api.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/convex/test/signInLinks.test.ts",
+    "to": "packages/convex/convex/schema.ts",
+    "unresolvedTo": "../convex/schema.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/draft-editor/test/editor.test.ts",
+    "to": "packages/draft-editor/build.cjs",
+    "unresolvedTo": "../build.cjs",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/draft-editor/test/editor.test.ts",
+    "to": "packages/draft-editor/src/editor.ts",
+    "unresolvedTo": "../src/editor.ts",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/localization/test/localization.test.ts",
+    "to": "packages/localization/catalogs.bundle/languages.json",
+    "unresolvedTo": "../catalogs.bundle/languages.json",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-core/test/product-sync.test.ts",
+    "to": "packages/mail-core/src/registration-vault.ts",
+    "unresolvedTo": "../src/registration-vault.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-core/test/rich-reader-r2.test.ts",
+    "to": "packages/mail-core/src/html-sanitizer.ts",
+    "unresolvedTo": "../src/html-sanitizer.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-core/test/rich-reader-r2.test.ts",
+    "to": "packages/mail-core/src/readable-text.ts",
+    "unresolvedTo": "../src/readable-text.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-core/test/rich-reader.test.ts",
+    "to": "packages/mail-core/src/inline-images.ts",
+    "unresolvedTo": "../src/inline-images.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/apple.test.ts",
+    "to": "packages/mail-test-harness/src/apple.ts",
+    "unresolvedTo": "../src/apple.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/artifact.test.ts",
+    "to": "packages/mail-test-harness/src/artifact.ts",
+    "unresolvedTo": "../src/artifact.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/command.test.ts",
+    "to": "packages/mail-test-harness/src/command.ts",
+    "unresolvedTo": "../src/command.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/coordination.test.ts",
+    "to": "packages/mail-test-harness/src/coordination.ts",
+    "unresolvedTo": "../src/coordination.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/evidence.test.ts",
+    "to": "packages/mail-test-harness/src/evidence.ts",
+    "unresolvedTo": "../src/evidence.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/apple.ts",
+    "unresolvedTo": "../src/apple.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/artifact.ts",
+    "unresolvedTo": "../src/artifact.ts",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/harness.ts",
+    "unresolvedTo": "../src/harness.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/ownership.ts",
+    "unresolvedTo": "../src/ownership.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/process.ts",
+    "unresolvedTo": "../src/process.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/harness-cleanup.test.ts",
+    "to": "packages/mail-test-harness/src/protocol.ts",
+    "unresolvedTo": "../src/protocol.ts",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/message-content.test.ts",
+    "to": "packages/mail-test-harness/src/harness.ts",
+    "unresolvedTo": "../src/harness.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/message-content.test.ts",
+    "to": "packages/mail-test-harness/src/message-content.ts",
+    "unresolvedTo": "../src/message-content.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/ownership.test.ts",
+    "to": "packages/mail-test-harness/src/ownership.ts",
+    "unresolvedTo": "../src/ownership.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/ports.test.ts",
+    "to": "packages/mail-test-harness/src/ports.ts",
+    "unresolvedTo": "../src/ports.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/process.test.ts",
+    "to": "packages/mail-test-harness/src/process.ts",
+    "unresolvedTo": "../src/process.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/protocol.test.ts",
+    "to": "packages/mail-test-harness/src/protocol.ts",
+    "unresolvedTo": "../src/protocol.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/sandbox.test.ts",
+    "to": "packages/mail-test-harness/src/sandbox.ts",
+    "unresolvedTo": "../src/sandbox.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "packages/mail-test-harness/test/scenario.test.ts",
+    "to": "packages/mail-test-harness/src/scenario.ts",
+    "unresolvedTo": "../src/scenario.ts",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "tests-through-entrypoints"
+    }
+  }
+]
