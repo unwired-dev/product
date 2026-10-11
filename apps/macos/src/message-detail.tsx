@@ -1,7 +1,7 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
-import { sendingMailboxes } from '@private-email/mail-core/drafts';
+import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -128,8 +128,11 @@ function AttachToNewMessage({
   const mounted = useRef(true);
   const attaching = useRef(false);
   const [failed, setFailed] = useState(false);
-  // Only open Draft storage and an eligible sender can start a new message.
-  const canSend = sendingMailboxes(account?.mailboxes ?? []).length > 0;
+  // Only open Draft storage and an eligible sender in the reader's Mail Profile can start a new
+  // message.
+  const mailboxes = account?.mailboxes ?? [];
+  const canSend =
+    sendingMailboxes(mailboxes, profileOf(mailbox?.id, mailboxes)).length > 0;
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -148,7 +151,7 @@ function AttachToNewMessage({
     try {
       const draft = await navigation.attachReceived(store, {
         mailbox: mailbox.id,
-        mailboxes: account?.mailboxes ?? [],
+        mailboxes,
         saved,
       });
       if (mounted.current && draft !== undefined) {
@@ -303,9 +306,11 @@ function ResponseActions({
       mounted.current = false;
     };
   }, []);
-  const sender = sendingMailboxes(account?.mailboxes ?? []).find(
-    ({ id }) => id === mailbox?.id,
-  );
+  const mailboxes = account?.mailboxes ?? [];
+  const sender = sendingMailboxes(
+    mailboxes,
+    profileOf(mailbox?.id, mailboxes),
+  ).find(({ id }) => id === mailbox?.id);
   if (
     !('readMessage' in inbox) ||
     !('threadId' in message) ||

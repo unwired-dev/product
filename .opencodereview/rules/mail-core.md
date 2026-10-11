@@ -546,6 +546,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- Profile-isolation guards in `createDrafts.update` or `fill` covering only the
+  stored Draft or the value before a caller-supplied edit. Check every path that
+  writes the guarded state, including deleted-Draft conflict copies, against the
+  edited value and its received-attachment sources. When the stored Draft is gone,
+  retain the editor's prior ownership evidence within the current account fence.
+  Otherwise a late edit or sender-changing fill can move content or assets into
+  another Profile despite passing the ordinary update/import guard.
 - `createDrafts.save` or another successful recovery action making retained edits
   durable without requesting downstream synchronization abandoned by a failed
   automatic pass. Exercise the debounced pass failing while storage is locked or

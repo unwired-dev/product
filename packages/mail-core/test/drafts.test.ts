@@ -22,6 +22,8 @@ import {
   recipientSummary,
   draftOf,
   draftsOf,
+  profileOf,
+  sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
   withSender,
@@ -55,17 +57,24 @@ const other = { id: 'connection-other', address: 'other@example.invalid' };
 const connected = (
   productAccountId: string,
   mailboxes: ReadonlyArray<
-    Readonly<{ id: string; address: string; state?: 'authorization' }>
+    Readonly<{
+      id: string;
+      address: string;
+      state?: 'authorization';
+      // Only a test lists a connection in another Mail Profile; native entries carry none.
+      profile?: string;
+    }>
   > = [alex, other],
 ): RegistrationSnapshot => ({
   kind: 'connected',
   productAccountId,
   signInProvider: 'google',
   mailboxes: JSON.stringify(
-    mailboxes.map(({ id, address, state = 'connected' }) => ({
+    mailboxes.map(({ id, address, state = 'connected', profile }) => ({
       id,
       address,
       state,
+      ...(profile === undefined ? {} : { profile }),
     })),
   ),
 });
@@ -2046,6 +2055,132 @@ describe('adding files and images to Drafts', () => {
     await expect(
       drafts.readAsset({ ...kept, id: 'notstored0' }),
     ).resolves.toStrictEqual({ kind: 'missing' });
+  });
+
+  it('keeps a Draft, its sender choices and received files within its Mail Profile', async () => {
+    expect.hasAssertions();
+    // Multiple Profiles cannot be created yet; a test lists one connection in a second Profile.
+    const personal = {
+      id: 'connection-personal',
+      address: 'personal@example.invalid',
+      profile: 'personal',
+    };
+    const { session, storage, drafts, id, draft } = await opened();
+    session.change(connected('account-a', [alex, other, personal]));
+    const listed = session.mailboxes();
+    // A Draft from alex may send only from its own Profile's connections.
+    expect(profileOf(draft().connection, listed)).toBe(defaultProfile);
+    expect(
+      sendingMailboxes(listed, profileOf(draft().connection, listed)).map(
+        ({ id: each }) => each,
+      ),
+    ).toStrictEqual([alex.id, other.id]);
+
+    // The store refuses moving the Draft into another Profile, and keeps a same-Profile choice.
+    const before = draft();
+    await drafts.update(withSender(before, personal), before);
+    expect(draft().connection).toBe(alex.id);
+    await drafts.update(withSender(before, other), before);
+    expect(draft().connection).toBe(other.id);
+
+    // A file received in another Profile never enters this Draft.
+    storage.addFile('downloaded-file', 'received bytes');
+    const received = {
+      name: 'invoice.pdf',
+      type: 'application/pdf',
+      source: {
+        kind: 'received',
+        mailbox: {
+          connection: personal.id,
+          address: personal.address,
+          generation: 'generation-1',
+        },
+        file: 'downloaded-file',
+      },
+    } as const;
+    await expect(drafts.attach(id, [received])).resolves.toBe(false);
+    expect(assetsOf(draft())).toStrictEqual([]);
+    expect(storage.assets()).toStrictEqual([]);
+    // Nor does a fill that moves the Draft into that Profile while bringing its own Profile's file.
+    const ownFile = {
+      ...received.source,
+      mailbox: { ...received.source.mailbox, connection: other.id },
+    };
+    await expect(
+      drafts.fill(id, (each) => withSender(each, personal), [
+        {
+          asset: {
+            id: 'asset0001',
+            name: 'a.pdf',
+            type: 'application/pdf',
+            state: 'importing',
+          },
+          source: ownFile,
+        },
+      ]),
+    ).resolves.toBe(false);
+    expect(draft().connection).toBe(other.id);
+    expect(storage.assets()).toStrictEqual([]);
+
+    // Attaching it from the reader starts a Draft in the reader's Profile, and none when that
+    // Profile cannot send, rather than falling back to another Profile's sender.
+    const saved = {
+      name: 'invoice.pdf',
+      type: 'application/pdf',
+      address: personal.address,
+      generation: 'generation-1',
+      file: 'downloaded-file',
+    };
+    const navigation = createComposerNavigation();
+    const started = present(
+      await navigation.attachReceived(drafts, {
+        mailbox: personal.id,
+        mailboxes: listed,
+        saved,
+      }),
+      'a Draft in the personal Profile',
+    );
+    const personalDraft = present(
+      draftOf(drafts.getSnapshot(), started),
+      'the personal Draft',
+    );
+    expect(personalDraft.connection).toBe(personal.id);
+    await vi.waitFor(() => {
+      expect(assetsOf(personalDraft)).toHaveLength(1);
+    });
+    session.change(
+      connected('account-a', [
+        alex,
+        other,
+        { ...personal, state: 'authorization' },
+      ]),
+    );
+    const count = draftsOf(drafts.getSnapshot()).length;
+    await expect(
+      navigation.attachReceived(drafts, {
+        mailbox: personal.id,
+        mailboxes: session.mailboxes(),
+        saved,
+      }),
+    ).resolves.toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(count);
+
+    // A late edit to a deleted Draft keeps its content as a copy only within the same Profile.
+    const last = draft();
+    await drafts.discard(id);
+    await drafts.update(
+      { ...withSender(last, personal), subject: 'Moved' },
+      last,
+    );
+    expect(
+      draftsOf(drafts.getSnapshot()).filter(
+        ({ subject }) => subject === 'Moved',
+      ),
+    ).toStrictEqual([]);
+    await drafts.update({ ...last, subject: 'Kept' }, last);
+    expect(
+      draftsOf(drafts.getSnapshot()).find(({ subject }) => subject === 'Kept'),
+    ).toMatchObject({ connection: other.id, conflict: true });
   });
 
   it('copies a received attachment without keeping its mailbox, and only for its account', async () => {
