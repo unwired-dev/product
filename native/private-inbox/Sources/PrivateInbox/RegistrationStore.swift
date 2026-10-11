@@ -767,7 +767,10 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     var failure: (any Error)?
     do { try await removeMailboxCaches() } catch { failure = error }
     if let account = saved?.product?.productAccountId {
-      for item in [vaultAccount(account), enrollmentAccount(account), deviceKeyAccount(account)] {
+      for item in [
+        vaultAccount(account), enrollmentAccount(account), deviceKeyAccount(account),
+        mailAssistanceAccount(account),
+      ] {
         do { try keys.remove(item) } catch { failure = failure ?? error }
       }
     }

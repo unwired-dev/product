@@ -154,6 +154,29 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   change retires the previous request's controls. Otherwise stale input starts
   hidden inference or replaces, cancels or closes a later translation.
 
+- `mail-assistance.tsx.MailAssistanceSettings` presenting an Off choice as saved
+  after `setEnabled` catches a Keychain rejection. Keep the gate immediately off,
+  but show unsaved status and retry the desired choice with account ownership
+  intact; otherwise the person sees only Turn on while the persisted preference
+  remains On and cannot directly retry the failed Off save. Exercise native-save
+  failure and recovery through both rendered settings surfaces.
+
+- `mail-assistance.tsx.MailAssistanceSettings` adding the device-local opt-in
+  without ADR 0053's explicit Account Settings availability check and product-owned
+  status. Trace the settings route's injected `NativeAssistance` outside
+  `MailAssistanceGate`; opening settings or toggling On must not check availability,
+  prewarm or infer, and Off must refuse queued checks. Retire pending checks and
+  shown status on account/provider replacement, Off and unmount. Exercise the
+  rendered settings surface on both hosts, including unavailable outcomes and late
+  replies; a reader-only capability check leaves opted-in users unable to explain
+  system unavailability until they attempt generation.
+
+- `translation.tsx.useLanguages` querying native Translation from a pending passive
+  effect after Mail Assistance Enablement turns off. Reuse the request owner's
+  live enablement predicate at that call boundary; hiding the panel on a later
+  render does not retire its pending effect. Exercise Off between layout setup
+  and passive effects, or a disabled account can still reach Apple Translation.
+
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating
   the captured selection only after rendering. Recheck acceptance after a target

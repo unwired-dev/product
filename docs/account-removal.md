@@ -69,6 +69,7 @@ On this device, sign-out and deletion remove:
 - the Product Sync keys, any held Recovery Key and the decrypted mailbox list;
 - any open device-approval request;
 - the encrypted [Gmail Inbox cache](gmail-inbox.md);
+- [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement);
 - the session state of this launch.
 
 The next Product Account on the device starts from nothing. The replacement has

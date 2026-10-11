@@ -1362,6 +1362,24 @@ extension UnwiredRegistration {
     resolve([:])
   }
 
+  // Mail Assistance Enablement for the signed-in Product Account, which `owner` names.
+  @objc(mailAssistance:rejecter:)
+  func mailAssistance(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("mailAssistance", resolve, reject: reject) { try $0.mailAssistance() }
+  }
+
+  @objc(setMailAssistance:profiles:resolver:rejecter:)
+  func setMailAssistance(
+    _ owner: String, profiles: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("setMailAssistance", resolve, reject: reject) {
+      try $0.setMailAssistance(owner: owner, profiles: profiles)
+    }
+  }
+
   @objc(saveAttachment:attachment:resolver:rejecter:)
   func saveAttachment(
     _ scope: [String: Any], attachment: [String: Any],

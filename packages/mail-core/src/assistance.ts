@@ -228,6 +228,21 @@ const failedState = (outcome: AssistanceFailure['outcome']) =>
     ? ({ kind: 'unavailable', reason: outcome } as const)
     : ({ kind: outcome } as const);
 
+const availability = (native: NativeAssistance) =>
+  call(() => native.availability()).pipe(
+    Effect.flatMap((value) =>
+      decodeAvailability(value).pipe(Effect.mapError(malformed)),
+    ),
+  );
+
+const recoverAssistanceFailure = (
+  error: Readonly<Pick<AssistanceFailure, 'outcome' | 'diagnostic'>>,
+) =>
+  (error.outcome === 'failed'
+    ? Effect.logError('On-device assistance failed:', error.diagnostic)
+    : Effect.void
+  ).pipe(Effect.as(failedState(error.outcome)));
+
 // One model operation on captured input, once the system model is available.
 const generateLocal = Effect.fnUntraced(
   function* (
@@ -245,13 +260,9 @@ const generateLocal = Effect.fnUntraced(
     }>,
     isCurrent: () => boolean,
   ) {
-    const availability = yield* call(() => native.availability()).pipe(
-      Effect.flatMap((value) =>
-        decodeAvailability(value).pipe(Effect.mapError(malformed)),
-      ),
-    );
-    if (availability !== 'available') {
-      return { kind: 'unavailable', reason: availability } as const;
+    const available = yield* availability(native);
+    if (available !== 'available') {
+      return { kind: 'unavailable', reason: available } as const;
     }
     // Cancellation may have happened while availability was pending. There is no asynchronous
     // suspension between this ownership check and the native call.
@@ -272,10 +283,7 @@ const generateLocal = Effect.fnUntraced(
   },
   // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
   Effect.catchTag('AssistanceFailure', (error) =>
-    (error.outcome === 'failed'
-      ? Effect.logError('On-device assistance failed:', error.diagnostic)
-      : Effect.void
-    ).pipe(Effect.as(failedState(error.outcome))),
+    recoverAssistanceFailure(error),
   ),
 );
 
@@ -395,6 +403,36 @@ export function createMessageSummary(native: NativeAssistance) {
 }
 
 export type MessageSummary = ReturnType<typeof createMessageSummary>;
+
+export type AssistanceAvailabilityState =
+  | Exclude<AssistanceState<'checking'>, { kind: 'ready' }>
+  | { readonly kind: 'available' };
+
+// An explicit, account-scoped check only: no input, prewarming or generation.
+export function createAssistanceAvailability(native: NativeAssistance) {
+  return createAssistanceRequest<string, AssistanceAvailabilityState>({
+    run: () =>
+      runLogged(
+        availability(native).pipe(
+          Effect.map((result) =>
+            result === 'available'
+              ? ({ kind: 'available' } as const)
+              : ({ kind: 'unavailable', reason: result } as const),
+          ),
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('AssistanceFailure', (error) =>
+            recoverAssistanceFailure(error),
+          ),
+        ),
+      ),
+    // availability() has no cancellable native handle; discard fences its late reply.
+    cancel: () => Promise.resolve(null),
+    same: (left, right) => left === right,
+    idle: { kind: 'idle' },
+    pending: { kind: 'checking' },
+    cancelled: { kind: 'cancelled' },
+  });
+}
 
 // Retrying cannot help an ineligible device or refused input.
 export const canRetryAssistance = (state: AssistanceState<string>) =>
