@@ -16,11 +16,9 @@ import { fileURLToPath } from 'node:url';
 import manifest from '../package.json' with { type: 'json' };
 
 const root = new URL('../', import.meta.url);
-const cli = fileURLToPath(
-  new URL(
-    '../node_modules/dependency-cruiser/bin/dependency-cruiser.mjs',
-    import.meta.url,
-  ),
+const cli = path.join(
+  fileURLToPath(root),
+  'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs',
 );
 
 // Exercise the installed parser, resolver and repository rules together, without touching workspace sources.
