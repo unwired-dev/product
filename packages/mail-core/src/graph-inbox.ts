@@ -5,11 +5,12 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 
-import type { GmailAction, GmailLabel } from './gmail-actions.ts';
+import type { GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
   MailboxScope,
+  PendingAction,
 } from './mailbox-document.ts';
 import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
@@ -86,20 +87,10 @@ const pageLink = ({
 };
 
 type DeltaItems = Parameters<typeof deltaIds>[0];
-type PendingChange = Readonly<{
-  action: GmailAction;
-  message: Readonly<{ id: string }>;
-}>;
+type PendingChange = Pick<PendingAction, 'action' | 'message'>;
 
 // The most folders Move to lists for one mailbox.
 const folderLimit = 250;
-
-const anotherMessage = () =>
-  new SyncFailure({
-    kind: 'retry',
-    cause: 'message mismatch',
-    diagnostic: 'another message',
-  });
 
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
@@ -409,14 +400,14 @@ export function createGraphReader(native: NativeGraphMailbox) {
   const placed = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
-    message: Readonly<{
-      id: string;
-      parentFolderId?: string;
-      isRead?: boolean;
-    }>,
+    message: Effect.Success<ReturnType<typeof decodeGraphPlacement>>,
   ) {
     if (message.id !== id) {
-      return yield* anotherMessage();
+      return yield* new SyncFailure({
+        kind: 'retry',
+        cause: 'message mismatch',
+        diagnostic: 'another message',
+      });
     }
     const roles = yield* folderRoles(scope);
     return graphLabels(message.parentFolderId, message.isRead, roles);
