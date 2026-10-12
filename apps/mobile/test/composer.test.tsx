@@ -14,6 +14,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,
@@ -28,6 +29,7 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import { AppState, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
+import type { MailboxList } from '../src/private-storage.ts';
 
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -170,6 +172,7 @@ const discardOutcome =
 // The app's composition: the Inbox column and the detail column, which shows the composer.
 function App({
   registration,
+  mailboxes: providedMailboxes,
   drafts,
   openAccount = ignore,
   onRebind = ignore,
@@ -177,6 +180,7 @@ function App({
   initialDraft,
   profile,
 }: {
+  readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: () => void;
@@ -191,6 +195,7 @@ function App({
   );
   const mailboxes = useMemo(
     () =>
+      providedMailboxes ??
       createMailboxes(
         syntheticConnections({
           [alex]: createSyntheticGmail({ messages: 1 }),
@@ -201,7 +206,7 @@ function App({
         }),
         registration,
       ),
-    [registration],
+    [registration, providedMailboxes],
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
   const [selected, setSelected] = useState<Selection>();
@@ -545,35 +550,75 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
-  it('opens the account page only after leaving an open composer', async () => {
-    expect.hasAssertions();
-    const registration = account(connected(['alex@example.invalid']));
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const openAccount = jest.fn<undefined, []>();
-    await render(
-      <App
-        drafts={createDrafts(storage.native, registration)}
-        openAccount={openAccount}
-        registration={registration}
-      />,
-    );
-    await press('New Message');
-    await fireEvent.changeText(await screen.findByLabelText('To'), 'not valid');
-    await press('Account');
-    expect(openAccount).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(
-        'Correct or remove the invalid address to close this Draft.',
-      ),
-    ).toBeOnTheScreen();
-    await fireEvent.changeText(screen.getByLabelText('To'), 'maya@example.com');
-    await press('Account');
-    expect(openAccount).toHaveBeenCalledWith();
-    // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
-    expect(openAccount).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
-    expect(storage.stored()?.document).toContain('maya@example.com');
-  });
+  it.each(['Account', 'Enter the password for imap@example.invalid again'])(
+    'opens %s only after leaving an open composer',
+    async (destination) => {
+      expect.hasAssertions();
+      const initial = connected(['alex@example.invalid']);
+      const registration = account({
+        ...initial,
+        mailboxes: JSON.stringify([
+          ...mailboxesOf(initial),
+          {
+            id: 'imap',
+            address: 'imap@example.invalid',
+            provider: 'imap',
+            imap: {
+              host: 'imap.example.invalid',
+              port: 993,
+              username: 'imap',
+            },
+            state: 'connected',
+          },
+        ]),
+      });
+      const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+      imap.server.failure = 'imap-refused';
+      const connections = createMailboxes(
+        syntheticConnections(
+          { [alex]: createSyntheticGmail({ messages: 1 }) },
+          { imap: imap.native },
+        ),
+        registration,
+      );
+      const mailboxes = {
+        ...connections,
+        getSnapshot: connections.getConnections,
+      };
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const openAccount = jest.fn<undefined, []>();
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          openAccount={openAccount}
+          registration={registration}
+          mailboxes={mailboxes}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        await screen.findByLabelText('To'),
+        'not valid',
+      );
+      await press(destination);
+      expect(openAccount).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(
+          'Correct or remove the invalid address to close this Draft.',
+        ),
+      ).toBeOnTheScreen();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'maya@example.com',
+      );
+      await press(destination);
+      expect(openAccount).toHaveBeenCalledWith();
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      expect(openAccount).toHaveBeenCalledTimes(1);
+      expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+      expect(storage.stored()?.document).toContain('maya@example.com');
+    },
+  );
 
   it('shows saved Drafts while the Inbox loads without claiming received mail is empty', async () => {
     expect.hasAssertions();

@@ -728,6 +728,7 @@ describe('reading Microsoft mail through Graph', () => {
             const profiles = {
               gmail: defaultProfile,
               'microsoft-graph': graphProfile,
+              imap: defaultProfile,
             };
             return {
               ...current,

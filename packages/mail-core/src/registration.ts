@@ -5,11 +5,14 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { ImapSetup } from './imap-setup.ts';
+
 import {
   decodeDiagnostic,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { ImapEndpointSchema, endpointMatchesProvider } from './imap-setup.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -47,10 +50,16 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
-// The Mail Provider a Mailbox Connection reads: Gmail, or Outlook.com and Microsoft 365 mail
-// through Microsoft Graph.
-export const MailProviderSchema = Schema.Literals(['gmail', 'microsoft-graph']);
+// The Mail Provider a Mailbox Connection reads: Gmail, Outlook.com and Microsoft 365 mail through
+// Microsoft Graph, or a Standards-Based Mailbox Connection over IMAP.
+export const MailProviderSchema = Schema.Literals([
+  'gmail',
+  'microsoft-graph',
+  'imap',
+]);
 export type MailProvider = typeof MailProviderSchema.Type;
+// A Mail Provider whose mailbox is authorized through the provider's own sign-in.
+export type MailGrantProvider = Exclude<MailProvider, 'imap'>;
 
 // A malformed native capability cannot offer an authorization action.
 export const microsoftMailAvailable = Schema.is(
@@ -73,6 +82,8 @@ const MailboxesSchema = Schema.fromJsonString(
         Schema.withDecodingDefaultKey(Effect.succeed('gmail')),
       ),
       address: Schema.NonEmptyString,
+      // The reviewed IMAP endpoint, shown again when its password is entered again.
+      imap: Schema.optionalKey(ImapEndpointSchema),
       state: Schema.Literals(['connected', 'cached', 'authorization']),
       // A removal/recreation changes this owner lifetime; ordinary verification does not.
       epoch: Schema.optionalKey(Schema.NonEmptyString),
@@ -81,7 +92,7 @@ const MailboxesSchema = Schema.fromJsonString(
       profile: Schema.NonEmptyString.pipe(
         Schema.withDecodingDefaultKey(Effect.succeed(defaultProfile)),
       ),
-    }),
+    }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(
       (mailboxes) =>
@@ -98,6 +109,8 @@ export type MailboxConnection = (typeof MailboxesSchema.Type)[number];
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
+  // Action-only receipt metadata, removed before publishing the snapshot to hosts.
+  imapConnected: Schema.optionalKey(Schema.NonEmptyString),
   // An unanswered removal stays resumable instead of reopening account access.
   removalPending: Schema.optionalKey(Schema.Literals(['sign-out', 'deletion'])),
   // The other Sign-In Provider explicitly linked to the same Product Account.
@@ -177,6 +190,9 @@ export const RegistrationSnapshotSchema = Schema.Union([
         'microsoft-unavailable',
         'interrupted',
         'unavailable',
+        'imap-refused',
+        'imap-offline',
+        'imap-insecure',
       ]),
     ),
   }),
@@ -254,17 +270,25 @@ const isEnrollmentUnavailable = Schema.is(
 );
 export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
 
+const ImapFailureSchema = Schema.Literals(['imap-refused', 'imap-insecure']);
+export type ImapFailure = typeof ImapFailureSchema.Type | 'failed';
+const imapFailureCode = Schema.decodeUnknownOption(
+  Schema.Struct({ code: ImapFailureSchema }),
+);
+
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
   // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless
   // `chooseAccount`. Adding a mailbox that is already connected authorizes it again instead.
   readonly addMailbox: (
-    provider: MailProvider,
+    provider: MailGrantProvider,
     chooseAccount: boolean,
   ) => Promise<unknown>;
   // Authorizes one Mailbox Connection's provider again, with the same account.
   readonly authorizeMailbox: (connection: string) => Promise<unknown>;
+  // Connects an IMAP mailbox at a reviewed endpoint, or repairs the connection for its account.
+  readonly connectImap: (setup: ImapSetup) => Promise<unknown>;
   // Removes a Mailbox Connection from this Product Account; its provider's mail is untouched.
   readonly removeMailbox: (connection: string) => Promise<unknown>;
   // Verifies the current Product Account and the identity being linked, interactively.
@@ -313,6 +337,8 @@ type RegistrationState = Readonly<{
   locked?: true;
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
+  // Why an IMAP mailbox could not be added beside others; nothing changed.
+  imapFailure?: ImapFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -475,14 +501,19 @@ export function createRegistration(
   // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   type MailboxLoading = 'automatic' | 'explicit';
-  const listeners = new Set<(mailboxLoading?: MailboxLoading) => void>();
+  type Listener = (
+    mailboxLoading?: MailboxLoading,
+    repairedImap?: string,
+  ) => void;
+  const listeners = new Set<Listener>();
   const publish = (
     next: RegistrationState,
     mailboxLoading: MailboxLoading = 'automatic',
+    repairedImap?: string,
   ) => {
     state = next;
     for (const listener of listeners) {
-      listener(mailboxLoading);
+      listener(mailboxLoading, repairedImap);
     }
   };
   const execute = (
@@ -508,10 +539,12 @@ export function createRegistration(
       foreground = false,
       accountChange,
       mailboxLoading = 'automatic',
+      imapSetup,
     }: Readonly<{
       foreground?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
+      imapSetup?: ImapSetup;
     }> = {},
   ) =>
     runLogged(
@@ -535,8 +568,28 @@ export function createRegistration(
               : { snapshot: state.snapshot, busy: true, failed: false },
           );
         }
+        let repairedImap: string | undefined = undefined;
         const next = yield* operation.pipe(
-          Effect.map(settled),
+          Effect.map((snapshot) => {
+            if (snapshot.kind === 'signed-out') {
+              return settled(snapshot);
+            }
+            const { imapConnected, ...shown } = snapshot;
+            if (imapSetup !== undefined) {
+              repairedImap = mailboxesOf(snapshot).find(
+                (mailbox) =>
+                  mailbox.provider === 'imap' &&
+                  mailbox.state === 'connected' &&
+                  mailbox.address === imapSetup.address &&
+                  (imapConnected === undefined
+                    ? mailbox.imap?.host === imapSetup.host.toLowerCase() &&
+                      mailbox.imap.port === imapSetup.port &&
+                      mailbox.imap.username === imapSetup.username
+                    : mailbox.id === imapConnected),
+              )?.id;
+            }
+            return settled(shown);
+          }),
           Effect.catchTags({
             RegistrationCancelled: () =>
               Effect.sync(() => settled(state.snapshot)),
@@ -588,6 +641,7 @@ export function createRegistration(
             ? { ...previous, busy: false }
             : next,
           mailboxLoading,
+          repairedImap,
         );
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
@@ -629,7 +683,7 @@ export function createRegistration(
   };
   return {
     getSnapshot: () => state,
-    subscribe: (listener: (mailboxLoading?: MailboxLoading) => void) => {
+    subscribe: (listener: Listener) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -685,21 +739,40 @@ export function createRegistration(
           // mailbox's provider.
           const snapshot = yield* request(() => native.signIn(provider));
           publish({ snapshot, busy: true, failed: false });
-          const [saved] = mailboxesOf(snapshot);
-          if (snapshot.kind !== 'mailbox-needed' || saved === undefined) {
+          if (snapshot.kind !== 'mailbox-needed') {
             return snapshot;
           }
           // Saved mailboxes that all need authorization again are authorized again, starting with
-          // the first.
-          return yield* request(() => native.authorizeMailbox(saved.id));
+          // the first one authorized through its provider's sign-in. An IMAP password is entered
+          // again in its own setup.
+          const granted = mailboxesOf(snapshot).find(
+            ({ provider: mailboxProvider }) => mailboxProvider !== 'imap',
+          );
+          return granted === undefined
+            ? snapshot
+            : yield* request(() => native.authorizeMailbox(granted.id));
         }),
         undefined,
         { accountChange: 'sign-in' },
       ),
-    addMailbox: (provider: MailProvider = 'gmail', chooseAccount = false) =>
-      execute(request(() => native.addMailbox(provider, chooseAccount))),
+    addMailbox: (
+      provider: MailGrantProvider = 'gmail',
+      chooseAccount = false,
+    ) => execute(request(() => native.addMailbox(provider, chooseAccount))),
     authorizeMailbox: (connection: string) =>
       execute(request(() => native.authorizeMailbox(connection))),
+    connectImap: (setup: ImapSetup) =>
+      execute(
+        request(() => native.connectImap(setup)),
+        (snapshot, cause) => ({
+          ...settled(snapshot),
+          imapFailure: Option.match(imapFailureCode(cause), {
+            onNone: () => 'failed' as const,
+            onSome: ({ code }) => code,
+          }),
+        }),
+        { imapSetup: setup },
+      ),
     removeMailbox: (connection: string) =>
       execute(request(() => native.removeMailbox(connection))),
     link: (provider: SignInProvider) =>

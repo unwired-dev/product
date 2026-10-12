@@ -19,11 +19,13 @@ Documentation here is product truth that agents execute: an implementer follows 
 - In `docs/catch-up.md`, missing or conflicting first-use and no-unseen behavior, seen-state lifecycle, or bubble and reader contracts. Check durable device-local seen-marker initialization, ownership, retention, cleanup and independence from provider read state against ADR 0019. Trace message order, Thread-versus-message actions and collapsed-category exceptions to the owning reader and Catch Up requirements; otherwise implementers reset or share a divider, retain orphaned progress or act on the wrong messages.
 - A storage or isolation boundary in `docs/drafts.md`, `docs/private-inbox-storage.md` or another feature guide that omits or misassigns Apple versus TypeScript responsibility for encryption/key custody, owner/revision refusal, limits or lifecycle cleanup. Trace the native enforcement and the shared-store caller separately, including purge execution versus in-memory invalidation; otherwise later changes can target the wrong layer and bypass a protection. For WebView composer gates in `docs/research/blocknote.md`, `docs/research/editor-alternatives.md` or a linked evaluation plan, require non-persistent browser storage and website-data inspection after teardown, relaunch and account removal; encrypted native saves alone do not rule out a second plaintext copy in browser storage. State the concise ownership requirement and link to the owning guide without copying implementation mechanisms or rationale.
 - A bridge-boundary claim in `docs/private-inbox-storage.md` or its architecture
-  companion treating every credentialed-call reply as a non-secret projection.
+  companion treating every credentialed-call reply as a non-secret projection,
+  or in ADR 0067 contradicting its explicit transient-text exceptions.
   Trace `RegistrationStore.call` and the TypeScript consumer in both directions:
   distinguish native-held device credentials and provider tokens from reply
-  payloads such as a one-time sign-in link ticket. Otherwise blanket claims that
-  no tokens cross the bridge conceal values TypeScript actually handles and can
+  payloads such as a one-time sign-in link ticket, and reconcile blanket custody
+  statements with the entered Recovery Key, Enrollment Code and IMAP password
+  exceptions. Otherwise blanket prohibitions conceal values TypeScript handles and can
   misdirect privacy review.
 - A Product Sync catch-up statement in `docs/private-product-sync.md`, its
   architecture companion or ADR 0070 that omits or misassigns envelope retention

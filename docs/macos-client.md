@@ -7,12 +7,13 @@ The review agent owns the separate [architecture companion](architecture/macos-c
 with AppKit windows and React Native macOS views. It reads the same synthetic
 mailbox as Expo through `@private-email/mail-core`, with
 [native encrypted read-state persistence](private-inbox-storage.md). Production
-registration now creates a Convex Product Account. Production mailboxes use [Gmail synchronization](gmail-inbox.md) or the
-[Microsoft Inbox](microsoft-mail.md);
-sending is a later slice.
+registration now creates a Convex Product Account. Production mailboxes use [Gmail synchronization](gmail-inbox.md), the
+[Microsoft Inbox](microsoft-mail.md) or receive-only
+[IMAP synchronization](imap-mailboxes.md#synchronization) through the native adapter;
+sending is a later slice outside Gmail.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
-registration; the first mailbox is chosen separately, Gmail or, when configured for this build, [Microsoft mail](microsoft-mail.md). Either sign-in can later be [linked](linked-sign-in.md)
+registration; the first mailbox is chosen separately: Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an IMAP login. Either sign-in can later be [linked](linked-sign-in.md)
 as the other sign-in method. A new account [initializes private Product Sync](private-product-sync.md):
 the device that wins initialization presents the Recovery Key. Another device of
 that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device), or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key). Configure the native client IDs and Convex deployment when generating the host.
@@ -32,7 +33,9 @@ UTF-8 encoding only, not a general message-charset decoder.
 The production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
 autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
-reader, and its Podfile declares only the `GoogleSignIn` pod. Adding either kind of
+reader, and its Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
+reviewed Swift packages, SwiftMail and swift-log, at the revisions
+[its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 

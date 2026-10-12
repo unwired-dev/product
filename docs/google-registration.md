@@ -26,9 +26,11 @@ evidence below describe the current Gmail path.
 [#596](https://github.com/unwired-dev/product/issues/596) adds the replacement
 registration path to both native hosts. Product Sign-In creates or reconnects the
 Product Account through Convex and then offers the first mailbox: **Authorize Gmail**
-with the original account, **Choose another Google mailbox**, or **Connect Microsoft
-mail** when configured for this build ([Microsoft mail](microsoft-mail.md)). Sign-in alone starts no mailbox
-authorization. Cancelled or declined Gmail consent and Google identities without
+with the original account, **Choose another Google mailbox**, **Connect Microsoft
+mail** when configured for this build ([Microsoft mail](microsoft-mail.md)), or an
+[IMAP mailbox](imap-mailboxes.md). Sign-in alone starts no mailbox authorization;
+saved mailboxes that all need authorization again are authorized again right after
+sign-in. Cancelled or declined Gmail consent and Google identities without
 Gmail retain the Product Account, and both Gmail actions retry. Once a mailbox is
 connected, the account page adds others with **Add another Gmail mailbox**; see
 [Gmail mailboxes](gmail-inbox.md#gmail-mailboxes). A failed or cancelled addition

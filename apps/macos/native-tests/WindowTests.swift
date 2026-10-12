@@ -168,7 +168,7 @@ final class WindowTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Gmail connected", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
     entry.typeText(String(presented.suffix(4)))
@@ -211,7 +211,7 @@ final class WindowTests: XCTestCase {
     let relaunched = app.windows["Inbox 1"]
     XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
     relaunched.buttons["Account"].click()
-    XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
     XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
@@ -224,7 +224,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
     first.buttons["Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: first).waitForExistence(timeout: 15))
     let entry = first.textFields["Last four characters"]
     entry.click()
     // Confirm each character reached the controlled field before sending the next one.

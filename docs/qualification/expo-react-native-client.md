@@ -574,10 +574,15 @@ journeys can reuse a successful build within its seven-day retention period.
 The first hosted [run 37123765376](https://github.com/unwired-dev/product/actions/runs/37123765376)
 took 18m10s. The build (8m40s), iPhone journey (9m07s), and iPad journey (7m16s)
 passed. The storage step reached its former eight-minute limit during cleanup,
-after all 17 tests reported success. Its total limit is now 14 minutes, including
+after all 17 tests reported success. Its total limit was then raised to 14 minutes, including
 the single infrastructure retry and cleanup, within the 20-minute storage job.
-Hosted validation of this timeout adjustment remains pending; the first run does
-not establish a passing workflow.
+The first run did not establish a passing workflow under that adjustment.
+
+[PR #881](https://github.com/unwired-dev/product/pull/881) raises the storage step
+limit to 26 minutes and its job limit to 34 minutes after
+[run 38176311382](https://github.com/unwired-dev/product/actions/runs/38176311382) and
+[run 38179436190](https://github.com/unwired-dev/product/actions/runs/38179436190)
+exceeded the 14-minute step limit. Hosted validation of the new limits remains pending.
 
 ## Earlier dependency probe — 2026-09-09
 

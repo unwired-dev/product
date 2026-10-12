@@ -134,6 +134,11 @@ explicit reading scopes without enabling Profile creation or transfer.
 
 ## Gmail mailbox cache
 
+IMAP connections also use this native encrypted cache boundary, with a separate
+TypeScript store and provider checkpoint. See the
+[IMAP companion](imap-mailboxes.md#cache-identity-and-presentation) for UID identity,
+body-cache ownership and shared image presentation budgets.
+
 Issue #604 added a separate encrypted `mailbox.enc` document; #606 gives each
 connection its own `mailboxes/<opaque-id>/mailbox.enc` and body directory. It holds the mailbox address, Google subject, revision and TypeScript-owned messages
 and synchronization checkpoint. AES-GCM authenticates its separate

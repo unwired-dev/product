@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,4 +51,43 @@ assert.deepEqual(
   ['GoogleSignIn'],
   'Review pods before expanding the Mac Podfile scope.',
 );
+// Private Inbox's Swift packages, linked into this host by revision and resolved as recorded.
+const privateInbox = fileURLToPath(
+  new URL('../../../native/private-inbox/', import.meta.url),
+);
+const manifest = readFileSync(path.join(privateInbox, 'Package.swift'), 'utf8');
+const pinned = [
+  ...manifest.matchAll(
+    /url: "(?<url>[^"]+)",\s*revision: "(?<revision>[0-9a-f]{40})"/gu,
+  ),
+].map(({ groups }) => ({ url: groups?.url, revision: groups?.revision }));
+assert.deepEqual(
+  pinned.map(({ url }) => url),
+  [
+    'https://github.com/Cocoanetics/SwiftMail.git',
+    'https://github.com/apple/swift-log.git',
+  ],
+  'Review Swift packages before expanding the Private Inbox graph.',
+);
+// Each pin is resolved at its own location, so another package's revision never satisfies it.
+const Pin = Schema.Struct({
+  location: Schema.String,
+  state: Schema.Struct({ revision: Schema.String }),
+});
+const ResolvedPins = Schema.fromJsonString(
+  Schema.Struct({ pins: Schema.Array(Pin) }),
+);
+const { pins } = Schema.decodeSync(ResolvedPins)(
+  readFileSync(path.join(privateInbox, 'Package.resolved'), 'utf8'),
+);
+const resolves = (url: string | undefined, revision: string | undefined) =>
+  pins.some(
+    ({ location, state }) => location === url && state.revision === revision,
+  );
+for (const { url, revision } of pinned) {
+  assert.ok(
+    resolves(url, revision),
+    `Package.resolved does not record ${url} at its pinned revision.`,
+  );
+}
 process.stdout.write('Verified host-only Mac autolinking and Podfile pods.\n');

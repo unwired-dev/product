@@ -33,7 +33,7 @@ final class InboxTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
@@ -87,7 +87,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     app.buttons["Account"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
     XCTAssertTrue(
@@ -188,7 +188,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Gmail connected"].exists)
+    XCTAssertTrue(app.staticTexts["Mail connected"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Linked Apple and Google sign-in"
     shot.lifetime = .keepAlways
@@ -382,7 +382,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
     entry.tap()
     // Confirm each character reached the controlled field before sending the next one.

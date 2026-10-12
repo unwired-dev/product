@@ -15,6 +15,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
   use the selected connection's provider or neutral aggregate wording, or the
   interface labels Microsoft mail as Gmail despite independent authorization.
+- IMAP password repair in `RegistrationGate` available only when saved registration
+  says authorization, while a current Inbox read can refuse a saved connected
+  credential. Trace the Inbox notice through account settings without relaunch;
+  every IMAP connection must offer repair, and IMAP waiting rows must never invoke
+  Gmail consent. Otherwise refusal strands the connection or grants another provider.
 
 - Application logic in a component, hook or adapter: decoding a native result, deciding a registration or enrollment transition, retrying, merging or filtering mail state. That logic belongs in a `mail-core` store so both hosts and its tests share it.
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
@@ -30,6 +35,27 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
 
 #### React correctness
+
+- `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
+  Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
+  role-bearing folders keep their provider name and separate selection. Exercise
+  INBOX beside a differently named inbox-role folder on both hosts; otherwise
+  distinct folders appear to be the same Inbox.
+
+- `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
+  setup provider, or rebuilding the saved endpoint from a recognized preset.
+  Use the saved host and port to choose the heading and app-specific-password
+  note, while retaining the saved host, port and successful username for setup,
+  including iCloud's full-address fallback. Otherwise repairs hide required
+  password guidance or authorize a different connection identity.
+
+- `imap-folders.tsx.useImapFolder` treating only a `failed` folder view as a
+  synchronization failure, or retaining a choice absent from the ready listing's
+  selectable folders. Use the shared IMAP projections: cached `ready` rows with
+  `retry` or `authentication` still need the folder notice, and a removed,
+  renamed or non-selectable choice is retired to Inbox and cannot revive when
+  that name reappears. Exercise both hosts, including folder recreation;
+  otherwise stale mail appears current or returns from an obsolete choice.
 
 - `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
   failed-Close feedback after accepting another authored edit. Retire the stale
