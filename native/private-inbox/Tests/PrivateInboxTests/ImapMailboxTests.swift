@@ -231,6 +231,23 @@ extension PrivateInboxTests {
     let folders = try await provider.folders(account, password: "synthetic-password")
     #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
     #expect(folders.map(\.roles) == [["inbox"], ["archive"], [], ["inbox"]])
+    let overflowing = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"many-folders"}"#.utf8))
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await provider.folders(overflowing, password: "synthetic-password")
+    }
+    let undiscovered = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"namespace-failure"}"#.utf8))
+    await #expect(throws: (any Error).self) {
+      _ = try await provider.folders(undiscovered, password: "synthetic-password")
+    }
+    let namespaced = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
+    let shared = try await provider.folders(namespaced, password: "synthetic-password")
+    #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
     let initial = try await provider.synchronize(
       account, password: "synthetic-password", folder: "INBOX", from: nil, window: 200)
     #expect(initial.reset && initial.uidValidity == 7 && initial.uidNext == 12)

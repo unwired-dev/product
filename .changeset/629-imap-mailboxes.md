@@ -15,7 +15,7 @@ after relaunch; a refused password is entered again on the account page.
 
 iCloud Mail retries a refused name-part login once with the full address. Native
 IMAP projections require a valid endpoint for password repair, and shown rows of
-evicted folders survive Inbox reloads while their connection remains open.
+still-selectable evicted folders survive Inbox reloads while their connection remains open.
 
 IMAP mail synchronizes by folder, UIDVALIDITY and UID into the encrypted cache,
 resumes from its committed checkpoint, and joins the unified Inbox of its Mail
@@ -31,3 +31,6 @@ Both hosts share the exported `imapFolderName` and `imapFolderFailed` projection
 Case variants of `INBOX` use one folder identity; other folder names stay distinct.
 Successful folder synchronization prunes bodies of expunged or UIDVALIDITY-reset
 messages while retaining saved bodies for rows still shown from an evicted folder.
+Successfully saved folder listings also retire cached mail and views for removed
+or non-selectable folders. Failed listing commits preserve shown rows; oversized
+lists and unavailable namespace discovery retain prior cached mail for retry.

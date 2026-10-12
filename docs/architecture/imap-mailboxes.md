@@ -50,6 +50,12 @@ UIDVALIDITY/UIDNEXT/cached UID checkpoints, cache commits and incremental resump
 Native transport fetches current flags and new envelopes; a UIDVALIDITY change
 invalidates prior message identity. Inbox plus eight other folders are retained in
 the encrypted metadata cache. Bodies use the existing bounded encrypted body cache.
+Folder retirement uses a complete namespace-aware listing. Oversized results and
+failed advertised namespace discovery refuse the refresh rather than present
+partial results as absence. TypeScript commits the listing and retained mailbox
+metadata before dropping retired views; commit refusal preserves the previous
+listing and evicted-folder rows. Still-selectable evicted views continue to
+protect their saved bodies.
 MIME parsing feeds the shared sanitizer, with positional capture extraction for
 native runtimes, bounded depth/parts and blocked remote content. IMAP reader owners
 use the same display allocation coordinator as Gmail, charging repeated images and

@@ -103,6 +103,37 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
+const discoverNamespaces = (socket, tag, failed) => {
+  if (failed) {
+    operations.add('namespace-refused');
+    socket.write(`${tag} NO Namespace temporarily unavailable\r\n`);
+  } else {
+    operations.add('namespace');
+    socket.write(
+      `* NAMESPACE (("" "/")) NIL (("Shared/" "/"))\r\n${tag} OK Completed\r\n`,
+    );
+  }
+};
+const listFolders = (socket, command, overflowing) => {
+  operations.add('list');
+  if (overflowing) {
+    operations.add('folder-overflow');
+    socket.write(
+      Array.from(
+        { length: 1001 },
+        (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`,
+      ).join(''),
+    );
+  } else if (command.includes('Shared/')) {
+    operations.add('shared-list');
+    socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
+  } else if (!command.includes('Shared')) {
+    socket.write(
+      // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
+      '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n',
+    );
+  }
+};
 const sockets = new Set();
 let connected = 0;
 let closed = 0;
@@ -128,6 +159,9 @@ const server = tls.createServer(
     let identified = false;
     let large = false;
     let sparse = false;
+    let overflowing = false;
+    let namespaces = false;
+    let namespaceFailure = false;
     // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
     socket.on('data', (bytes) => {
       input += bytes.toString('ascii');
@@ -141,7 +175,9 @@ const server = tls.createServer(
         const command = line.slice(separator + 1);
         const ok = () => socket.write(`${tag} OK Completed\r\n`);
         if (command === 'CAPABILITY') {
-          socket.write('* CAPABILITY IMAP4rev1\r\n');
+          socket.write(
+            `* CAPABILITY IMAP4rev1${namespaces ? ' NAMESPACE' : ''}\r\n`,
+          );
           ok();
         } else if (command.startsWith('LOGIN ')) {
           if (command.includes('refused')) {
@@ -149,8 +185,15 @@ const server = tls.createServer(
             socket.write(`${tag} NO [AUTHENTICATIONFAILED] Refused\r\n`);
           } else {
             assert.match(command, /synthetic-password/u);
+            overflowing = command.includes('many-folders');
+            namespaceFailure = command.includes('namespace-failure');
+            namespaces = ['namespace-failure', 'namespaced'].some((name) =>
+              command.includes(name),
+            );
             ok();
           }
+        } else if (command === 'NAMESPACE') {
+          discoverNamespaces(socket, tag, namespaceFailure);
         } else if (command.startsWith('EXAMINE ')) {
           operations.add('examine');
           identified = !command.includes('NoValidity');
@@ -164,11 +207,7 @@ const server = tls.createServer(
           );
           socket.write(`${tag} OK [READ-ONLY] Examined\r\n`);
         } else if (command.startsWith('LIST ')) {
-          operations.add('list');
-          socket.write(
-            // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
-            '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n',
-          );
+          listFolders(socket, command, overflowing);
           ok();
         } else if (/^(?:UID )?FETCH /u.test(command)) {
           assert.ok(
@@ -233,11 +272,15 @@ process.on('SIGTERM', () => {
       'body',
       'examine',
       'flags-or-size',
+      'folder-overflow',
       'list',
       'logout',
       'metadata',
+      'namespace',
+      'namespace-refused',
       'oversized',
       'refused',
+      'shared-list',
       'unidentified',
     ]);
     writeFileSync(

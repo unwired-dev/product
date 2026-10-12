@@ -166,7 +166,16 @@ struct SwiftMailImap: ImapProvider {
 
   func folders(_ account: ImapAccount, password: String) async throws -> [ImapFolder] {
     try await session(account, password) { server in
-      try await server.listMailboxes().prefix(Self.folderLimit).map { info in
+      // SwiftMail ignores namespace discovery failures at login; retirement needs the full list.
+      if await server.namespaces == nil {
+        let capabilities = try await server.fetchCapabilities()
+        if capabilities.contains(where: { String($0) == "NAMESPACE" }) {
+          _ = try await server.fetchNamespaces()
+        }
+      }
+      let listed = try await server.listMailboxes()
+      guard listed.count <= Self.folderLimit else { throw RegistrationError.unavailable }
+      return listed.map { info in
         let roles: [(Mailbox.Info.Attributes, String)] = [
           (.archive, "archive"), (.drafts, "drafts"), (.junk, "junk"), (.sent, "sent"),
           (.trash, "trash"), (.all, "all"), (.flagged, "flagged"),

@@ -1,6 +1,6 @@
 import type { ImapFolderView, ImapInboxState } from '../src/imap-inbox.ts';
 
-import { createImapInbox } from '../src/imap-inbox.ts';
+import { createImapInbox, imapFolderName } from '../src/imap-inbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 
 const ready = (state: ImapInboxState) => {
@@ -20,6 +20,87 @@ const firstMessage = (view: ImapFolderView) => {
 };
 
 describe('imap body-cache pruning', () => {
+  it.each([
+    {
+      reason: 'deleted',
+      folders: [{ name: 'INBOX', roles: ['inbox'], selectable: true }],
+    },
+    {
+      reason: 'non-selectable',
+      folders: [
+        { name: 'INBOX', roles: ['inbox'], selectable: true },
+        { name: 'Archive', roles: [], selectable: false },
+      ],
+    },
+  ])(
+    'drops the cache and saved bodies of a $reason folder',
+    async ({ folders }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.addFolder('Archive');
+      imap.deliver('Archive', { subject: 'Archived' });
+      const inbox = createImapInbox(imap.native);
+      await inbox.load();
+      await inbox.openFolder('Archive');
+      const archived = firstMessage(inbox.folder('Archive'));
+      const release = inbox.retainMessage(archived.id);
+      await inbox.readMessage(archived.id);
+      release();
+      expect(imap.bodies.has(archived.id)).toBe(true);
+      imap.removeFolder('Archive');
+      vi.spyOn(imap.native, 'imapFolders').mockResolvedValue({ folders });
+      await inbox.load();
+      expect(inbox.message(archived.id)).toBeUndefined();
+      expect(imap.bodies.has(archived.id)).toBe(false);
+      expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
+      expect(imapFolderName(inbox.getSnapshot(), 'Archive')).toBe('INBOX');
+    },
+  );
+
+  it.each([
+    { operation: 'commitMailbox', code: 'unavailable' },
+    { operation: 'commitMailbox', code: 'conflict' },
+    { operation: 'imapFolders', code: 'offline' },
+  ] as const)(
+    'keeps an evicted folder view when $operation fails with $code',
+    async ({ operation, code }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+      for (const name of names) {
+        imap.addFolder(name);
+        imap.deliver(name, { subject: `In ${name}` });
+      }
+      const inbox = createImapInbox(imap.native);
+      await inbox.load();
+      await inbox.openFolder('Folder 0');
+      const archived = firstMessage(inbox.folder('Folder 0'));
+      const release = inbox.retainMessage(archived.id);
+      await inbox.readMessage(archived.id);
+      release();
+      for (const name of names.slice(1)) {
+        await inbox.openFolder(name);
+      }
+      const shown = inbox.folder('Folder 0');
+      imap.removeFolder('Folder 0');
+      const failed = vi
+        .spyOn(imap.native, operation)
+        .mockRejectedValue({ code });
+      await inbox.load();
+      expect(imapFolderName(inbox.getSnapshot(), 'Folder 0')).toBe('Folder 0');
+      expect(inbox.folder('Folder 0')).toBe(shown);
+      expect(inbox.message(archived.id)).toStrictEqual(archived);
+      expect(imap.bodies.has(archived.id)).toBe(true);
+      failed.mockRestore();
+      await inbox.load();
+      expect({
+        folder: imapFolderName(inbox.getSnapshot(), 'Folder 0'),
+        message: inbox.message(archived.id),
+        saved: imap.bodies.has(archived.id),
+      }).toStrictEqual({ folder: 'INBOX', message: undefined, saved: false });
+    },
+  );
+
   it('removes the saved body of a message the server expunged and keeps the others', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

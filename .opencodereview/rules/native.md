@@ -13,6 +13,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `SwiftMailImap.folders` returning a truncated LIST as successful, or accepting
+  wildcard fallback after an advertised namespace lookup fails. Preserve complete
+  namespace coverage and reject overflow or unresolved discovery through the
+  existing failure boundary before publishing a listing used for retirement.
+  Exercise overflow and failed discovery through the controlled TLS fixture;
+  otherwise still-existing folders and their saved bodies can be deleted.
+
 - `SwiftMailImap.folders` exposing case variants of the reserved ASCII INBOX
   name as separate identities, or folding a distinct Unicode name or an
   attribute-only inbox folder into it. Canonicalize only the reserved name,

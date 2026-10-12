@@ -555,6 +555,28 @@ export function createImapInbox(
     document = next;
   });
 
+  // A refreshed listing retires the cache and views of folders the server no longer offers, so
+  // pruning stops keeping their bodies. The Inbox always stays.
+  const acceptListing = Effect.fnUntraced(function* (
+    current: ImapDocument,
+    folders: ImapDocument['folders'],
+  ) {
+    const offered = new Set(
+      folders.filter(({ selectable }) => selectable).map(({ name }) => name),
+    );
+    const kept = (name: string) => name === inboxFolder || offered.has(name);
+    yield* commit({
+      ...current,
+      folders,
+      mailboxes: current.mailboxes.filter(({ name }) => kept(name)),
+    });
+    for (const name of folderViews.keys()) {
+      if (!kept(name)) {
+        folderViews.delete(name);
+      }
+    }
+  });
+
   // Bodies of messages that no cached folder lists and no view still shows leave the device, so
   // expunged or reset mail never crowds out bodies that stay listed. Open readers' bodies stay
   // protected as far as they fit. A skipped prune happens after the next folder read.
@@ -686,7 +708,7 @@ export function createImapInbox(
               yield* call(() => native.imapFolders(scope)),
             ).pipe(Effect.mapError(malformed));
             if (document !== undefined) {
-              yield* commit({ ...document, folders: folders.folders });
+              yield* acceptListing(document, folders.folders);
             }
           }
           yield* synchronizeFolder(inboxFolder);

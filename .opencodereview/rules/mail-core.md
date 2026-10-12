@@ -11,13 +11,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
+- `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
+  views for folders a complete listing no longer offers as selectable, or deleting
+  views before that listing commits. Retire both only after successful cache
+  adoption, preserve INBOX and still-selectable evicted views, and verify failed
+  LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
+  refusal leaves a selected folder loading with unreadable rows.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
   reading that folder. Preserve its previous ready status, including `syncing`
   for a read queued behind the semaphore, until that folder read settles; retain
   access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
   different folder's retry or authentication warning.
 - `imap-inbox.ts.open` rebuilding views only from the bounded metadata cache.
-  Preserve ready views of evicted folders during same-owner reloads, including
+  Preserve ready views of evicted, still-selectable folders during same-owner reloads, including
   password-generation renewal, until a folder read replaces them or access closes.
   Verify lock/owner cleanup still clears them; otherwise a Mac window still showing
   an evicted folder falls into permanent loading or recovers former-owner rows.
