@@ -448,19 +448,23 @@
   "search": {
     "label": "Search senders and subjects",
     "saved": "Saved on this device",
-    "download": "Downloads from Gmail when opened",
+    "download": "Downloads from the mail server when opened",
     "empty": "No mail saved on this device matches “{{query}}”.",
-    "online": "Search Gmail for “{{query}}”",
-    "onlineHeading": "From Gmail",
-    "searching": "Searching Gmail",
-    "more": "More from Gmail",
-    "retry": "Search Gmail again",
-    "onlineEmpty": "Gmail found no mail matching “{{query}}”.",
+    "online": "Search mail servers for “{{query}}”",
+    "onlineHeading": "From mail servers",
+    "searching": "Searching mail servers",
+    "more": "More from mail servers",
+    "retry": "Search mail servers again",
+    "onlineEmpty": "Mail servers found no mail matching “{{query}}”.",
     "unavailable": {
-      "offline": "Gmail could not be reached. Mail saved on this device is still shown.",
-      "authentication": "Allow Gmail access again to search this mailbox.",
-      "failed": "Gmail search did not finish. Try again."
-    }
+      "offline": "The mail server could not be reached. Mail saved on this device is still shown.",
+      "authentication": "Allow access again to search this mailbox.",
+      "failed": "The search did not finish. Try again."
+    },
+    "foldersLimited": "Some folders or older matches were not searched. The search covers the newest 50 matches in each of up to 50 folders including the Inbox, without Trash and Spam."
+  },
+  "imapActions": {
+    "uncertain": "The mail server has not confirmed where “{{subject}}” moved. Check its folders, then discard this change to continue. It will not be sent again."
   },
   "gmailActions": {
     "label": {

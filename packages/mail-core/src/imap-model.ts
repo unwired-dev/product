@@ -15,6 +15,13 @@ const Uid = Schema.Int.check(
 const Validity = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 4_294_967_295 }),
 );
+// Moving without expunging other messages (MOVE, or UIDPLUS's UID EXPUNGE), and IDLE.
+const Capabilities = Schema.Struct({
+  moves: Schema.Boolean,
+  idle: Schema.Boolean,
+});
+export type ImapCapabilities = typeof Capabilities.Type;
+
 const FolderSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   roles: Schema.Array(Schema.String),
@@ -38,6 +45,34 @@ const ImapMessageSchema = Schema.Struct({
 });
 export type ImapMessage = typeof ImapMessageSchema.Type;
 
+// One organizing change. Read state is a flag; every other action moves the message to its
+// `destination` folder, chosen by role when the change was made.
+const ImapActionSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literals(['read', 'unread']) }),
+  Schema.Struct({
+    // `restore` undoes a move, back to the folder the message came from.
+    kind: Schema.Literals(['archive', 'trash', 'spam', 'move', 'restore']),
+    destination: Schema.NonEmptyString,
+  }),
+]);
+export type ImapAction = typeof ImapActionSchema.Type;
+
+// A change saved on this device until the server applies or refuses it, oldest first.
+const PendingSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  action: ImapActionSchema,
+  // The message as shown when the change was made; its UIDVALIDITY keeps the change from reaching
+  // a different generation of the folder.
+  message: ImapMessageSchema,
+  // Persisted before dispatch: without a destination mapping, a move may not be replayed.
+  attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  // COPYUID is committed before the fallback may delete its source. Recovery finishes this copy.
+  copied: Schema.optionalKey(
+    Schema.Struct({ uidValidity: Validity, uid: Uid }),
+  ),
+});
+export type ImapPending = typeof PendingSchema.Type;
+
 const FolderCacheSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -54,6 +89,9 @@ const DocumentSchema = Schema.Struct({
   mailboxes: Schema.Array(
     Schema.Struct({ name: Schema.NonEmptyString, cache: FolderCacheSchema }),
   ),
+  // What the server advertised at the last listing; absent before it was first read.
+  capabilities: Schema.optionalKey(Capabilities),
+  pending: Schema.optionalKey(Schema.Array(PendingSchema)),
 });
 export type ImapDocument = typeof DocumentSchema.Type;
 export const decodeDocument = Schema.decodeUnknownEffect(
@@ -75,23 +113,61 @@ export const decodeCommit = Schema.decodeUnknownEffect(
   Schema.Struct({ revision: Schema.Int }),
 );
 export const decodeFolders = Schema.decodeUnknownEffect(
-  Schema.Struct({ folders: Schema.Array(FolderSchema) }),
+  Schema.Struct({
+    folders: Schema.Array(FolderSchema),
+    ...Capabilities.fields,
+  }),
+);
+// A change's outcome: applied, moved (to a known UID when the server reported it), or the folder
+// no longer holds the UID.
+export const decodeModify = Schema.decodeUnknownEffect(
+  Schema.Union([
+    Schema.Struct({ outcome: Schema.Literals(['stored', 'absent']) }),
+    Schema.Struct({
+      outcome: Schema.Literal('copied'),
+      uidValidity: Validity,
+      uid: Uid,
+    }),
+    Schema.Struct({
+      outcome: Schema.Literal('moved'),
+      uidValidity: Schema.optionalKey(Validity),
+      uid: Schema.optionalKey(Uid),
+    }),
+  ]),
+);
+export const decodeIdle = Schema.decodeUnknownEffect(
+  Schema.Struct({ changed: Schema.Boolean }),
+);
+const EnvelopeSchema = Schema.Struct({
+  uid: Uid,
+  flags: Schema.Array(Schema.String),
+  received: Schema.Finite,
+  size: Schema.Int,
+  sender: Schema.String,
+  address: Schema.String,
+  subject: Schema.String,
+});
+type Envelope = typeof EnvelopeSchema.Type;
+// Each searched folder's newest matches, and how many folders the server no longer selects.
+export const decodeSearch = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    folders: Schema.Array(
+      Schema.Struct({
+        folder: Schema.NonEmptyString,
+        uidValidity: Validity,
+        messages: Schema.Array(EnvelopeSchema),
+        // Older matches were left out.
+        more: Schema.Boolean,
+      }),
+    ),
+    skipped: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
 );
 const FolderReadSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   reset: Schema.Boolean,
-  messages: Schema.Array(
-    Schema.Struct({
-      uid: Uid,
-      flags: Schema.Array(Schema.String),
-      received: Schema.Finite,
-      size: Schema.Int,
-      sender: Schema.String,
-      address: Schema.String,
-      subject: Schema.String,
-    }),
-  ),
+  messages: Schema.Array(EnvelopeSchema),
   flags: Schema.Array(
     Schema.Struct({ uid: Uid, flags: Schema.Array(Schema.String) }),
   ),
@@ -107,8 +183,29 @@ export const decodeBodyCommit = Schema.decodeUnknownEffect(
 
 const seen = String.raw`\seen`;
 
-const messageId = (folder: string, uidValidity: number, uid: number) =>
+export const messageId = (folder: string, uidValidity: number, uid: number) =>
   `${uidValidity}.${uid}.${folder}`;
+
+const unreadOf = (flags: readonly string[]) =>
+  !flags.some((flag) => flag.toLowerCase() === seen);
+
+// A listed message from its envelope in the folder at that UIDVALIDITY.
+export const listedMessage = (
+  folder: string,
+  uidValidity: number,
+  message: Envelope,
+): ImapMessage => ({
+  id: messageId(folder, uidValidity, message.uid),
+  folder,
+  uidValidity,
+  uid: message.uid,
+  sender: message.sender === '' ? message.address : message.sender,
+  address: message.address,
+  subject: message.subject,
+  preview: '',
+  receivedAt: new Date(message.received).toISOString(),
+  unread: unreadOf(message.flags),
+});
 
 // Newest UID first: the order a folder's arrivals take, which trims the cache window.
 const byUid = Order.flip(
@@ -120,7 +217,7 @@ const newestReceived = Order.combine(
   ),
   byUid,
 );
-const newestFirst = (messages: readonly ImapMessage[]) =>
+export const newestFirst = (messages: readonly ImapMessage[]) =>
   Arr.sort(messages, newestReceived);
 
 // Applies one folder synchronization to its cache: a reset or a new UIDVALIDITY replaces it, and
@@ -130,18 +227,9 @@ export function applyFolderRead(
   cached: FolderCache | undefined,
   read: FolderRead,
 ): FolderCache {
-  const fresh = read.messages.map((message): ImapMessage => ({
-    id: messageId(folder, read.uidValidity, message.uid),
-    folder,
-    uidValidity: read.uidValidity,
-    uid: message.uid,
-    sender: message.sender === '' ? message.address : message.sender,
-    address: message.address,
-    subject: message.subject,
-    preview: '',
-    receivedAt: new Date(message.received).toISOString(),
-    unread: !message.flags.some((flag) => flag.toLowerCase() === seen),
-  }));
+  const fresh = read.messages.map((message) =>
+    listedMessage(folder, read.uidValidity, message),
+  );
   const replaced =
     read.reset ||
     cached === undefined ||
@@ -153,12 +241,7 @@ export function applyFolderRead(
         const current = flags.get(message.uid);
         return current === undefined
           ? []
-          : [
-              {
-                ...message,
-                unread: !current.some((flag) => flag.toLowerCase() === seen),
-              },
-            ];
+          : [{ ...message, unread: unreadOf(current) }];
       });
   const known = new Set(kept.map(({ uid }) => uid));
   const merged = Arr.sort(

@@ -30,6 +30,12 @@ export function syntheticConnections(
       missing(),
     imapMessage: (mailbox, message) =>
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
+    imapModify: (mailbox, change) =>
+      server(mailbox.connection)?.imapModify(mailbox, change) ?? missing(),
+    imapSearch: (mailbox, request) =>
+      server(mailbox.connection)?.imapSearch(mailbox, request) ?? missing(),
+    imapIdle: (mailbox, request) =>
+      server(mailbox.connection)?.imapIdle(mailbox, request) ?? missing(),
     gmailRequest: (path, query, mailbox) =>
       of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
     graphRequest: (url, mailbox) =>

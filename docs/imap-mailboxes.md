@@ -5,9 +5,10 @@ Setup, coding rules, validation and observable requirements remain in this file.
 [#629](https://github.com/unwired-dev/product/issues/629) connects a
 **Standards-Based Mailbox Connection** over IMAP and reads its folders and messages on
 iPhone, iPad and Mac. Sending through SMTP is [#631](https://github.com/unwired-dev/product/issues/631),
-so every IMAP connection is **receive only** until then. Organizing and server search
-are [#630](https://github.com/unwired-dev/product/issues/630); certification against
-real iCloud Mail and Fastmail mailboxes is [#632](https://github.com/unwired-dev/product/issues/632).
+so every IMAP connection is **receive only** until then. [#630](https://github.com/unwired-dev/product/issues/630)
+organizes and searches IMAP mail at the server and keeps it fresh with IDLE where the
+server offers it; certification against real iCloud Mail and Fastmail mailboxes is
+[#632](https://github.com/unwired-dev/product/issues/632).
 
 ## First mailbox and provider choice
 
@@ -121,6 +122,17 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   list and cached mail for a later retry. Case variants of the reserved `INBOX` name share that spelling;
   other folder names stay as listed, including folders with an inbox role.
 
+Freshness follows the hosts' application lifecycles. Every Inbox load, including
+foreground catch-up, the five-minute poll and each background opportunity iOS grants,
+reads the folder list and the Inbox from their checkpoints. When the server advertises
+IDLE, one connection per mailbox waits on its Inbox, for at most five minutes at a time,
+and reads it again as soon as the server reports a change. The Mac waits for the life of
+the application, including after its last window closes; iPhone and iPad wait only while
+the app is active. An interrupted wait tries again after a pause that grows to five
+minutes, so a refused password or a repaired connection resumes waiting; a server
+without IDLE leaves the mailbox to polling. Waiting for IDLE does not block reading
+or organizing mail.
+
 The unified Inbox lists each IMAP connection's Inbox folder. Choosing the connection on
 its own shows its folders; each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
@@ -142,11 +154,57 @@ The current reader supports:
 - Remote Message Content is never loaded for IMAP mail; the reader says so, and the
   per-mailbox remote content setting is not offered for IMAP connections.
 - Received attachments are counted, not listed or downloadable.
-- There is no recent-body prefetch, Reply, Reply All, Forward, organizing or online
-  search for IMAP mail.
+- There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
+
+## Organizing
+
+IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
+unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**, **Move
+to** any other selectable folder, including the Inbox. IMAP has no labels or star.
+Archive, Trash and Spam move the message to the folder the server declares with the
+`\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
+not offered, and no folder is guessed by name.
+
+Moves need a server that moves one message without expunging others: MOVE, or else
+COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers
+only read state; a plain `EXPUNGE`, which would also remove messages other clients marked
+deleted, is never sent. A folder opened read-only refuses changes.
+
+Each change shows at once, is saved in the connection's encrypted cache and is sent to
+the server in order:
+
+- A change waits while the server cannot be reached, including across relaunch, and the
+  Inbox says how many changes wait.
+- A change names its folder, UIDVALIDITY and UID. A folder recreated with a new
+  UIDVALIDITY, a message another client moved or expunged first, a removed destination
+  folder, a changed or ambiguous role mapping and a server refusal each refuse the change, and the Inbox shows the message as
+  the server has it. A change never reaches another generation of the folder.
+- COPY fallback must save the server's destination identity before deleting its source.
+  A later attempt finishes that recorded copy without copying again. A destination whose
+  UIDVALIDITY changed, or whose copied message disappeared, refuses source deletion.
+- When a move's result is uncertain and no destination identity was saved, it is never
+  sent again automatically, even if the source disappeared. The Inbox asks the person to
+  check the folders and **Discard change** to let later changes continue. This state
+  survives relaunch; discarding makes no additional move.
+- **Undo** withdraws a move the server has not received, or moves the message back from
+  the UID the server reported for it (COPYUID). A move whose new UID is unknown offers no
+  Undo after it is applied.
+
+Read state is kept in the cache once applied; a moved message leaves its folder's cache,
+and a cached destination folder is read again so a message moved back shows there.
+
+## Online search
+
+When asked, below the results saved on this device, the server searches the text of the
+Inbox and the connection's other selectable folders: folders with a declared role first,
+then the rest in listing order, leaving out Trash and Spam as Gmail's search does. One
+search covers up to 50 folders and the newest 50 matches of each, and says when folders
+or older matches were left out; a folder the server no longer selects is skipped. IMAP
+results join Gmail's and Microsoft's in the unified Inbox, newest first, and open in the
+reader without being saved.
 
 ## Engine and dependencies
 
@@ -167,7 +225,7 @@ sources without Swift packages and gets an engine stub instead.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
@@ -177,7 +235,11 @@ From `native/private-inbox`:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter swiftMailRefusesAPlaintextServer
 ```
 
-The shared tests use a controlled provider fixture
+The shared organizing tests (`test/imap-organize.test.ts`) cover role mapping and
+capability limits, read state, archive with Undo, an outage across relaunch, unknown
+move outcomes, durable COPY continuation, concurrent removals, a new UIDVALIDITY,
+changed roles, a removed destination, settled folder views, search scope and limits,
+and IDLE interruption and recovery. The shared tests use a controlled provider fixture
 ([`testing/imap-mailbox.ts`](../packages/mail-core/src/testing/imap-mailbox.ts)), rather
 than a wire server, through the real Inbox store and encrypted-cache contract. They
 also cover registration through the synthetic vault and MIME parsing against
@@ -188,10 +250,14 @@ a connection before credentials are sent.
 The hosted iOS runner owns a TLS IMAP protocol fixture, its synthetic certificate,
 port and disposable simulator. It installs trust only on that simulator and checks
 real engine authentication, folders, incremental UID reads, raw body reads,
-UIDVALIDITY refusal, oversized-literal refusal and closed sessions. Its certificate
+UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
+`\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
+refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
+a removed folder, cross-folder search, and IDLE waking on a change and timing out. Its certificate
 never changes production validation or trust on the host Mac.
 
-Real iCloud Mail and Fastmail read qualification remains required before release
+Real iCloud Mail and Fastmail read, organizing, search and IDLE qualification remains
+required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts. Native Mock Mail Sessions currently refuse IMAP connection attempts; the shared

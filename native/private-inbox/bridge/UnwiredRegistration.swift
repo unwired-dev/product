@@ -851,6 +851,26 @@ extension UnwiredRegistration {
     }
   }
 
+  // Long server work, an IDLE wait or a search across folders, that must not stall other mailbox
+  // work behind the registration gate. Only the store is obtained under the gate; the IMAP work
+  // checks the connection and its generation synchronously before and after its network wait.
+  private func ungatedMailbox(
+    _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @MainActor (RegistrationStore) async throws -> [String: Any]
+  ) {
+    DispatchQueue.main.async {
+      Task { @MainActor in
+        do {
+          let store = try await Self.operations.perform { try await self.store() }
+          resolve(try await operation(store))
+        } catch {
+          Self.rejectMailbox(name, error, reject)
+        }
+      }
+    }
+  }
+
   private static func rejectMailbox(
     _ name: String, _ error: any Error, _ reject: RCTPromiseRejectBlock
   ) {
@@ -1162,6 +1182,72 @@ extension UnwiredRegistration {
       return try await $0.imapMessage(
         connection: connection, address: address, generation: generation, folder: folder,
         uidValidity: validity, uid: uid)
+    }
+  }
+
+  // `change` names `{ folder, uidValidity, uid }` and exactly one of `read` or `destination`.
+  @objc(imapModify:change:resolver:rejecter:)
+  func imapModify(
+    _ scope: [String: Any], change: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapModify", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = change["folder"] as? String,
+        let validity = (change["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let uid = (change["uid"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        change["read"] == nil || change["read"] is Bool,
+        change["destination"] == nil || change["destination"] is String
+      else { throw RegistrationError.unavailable }
+      let copied: ImapCopy?
+      if let value = change["copied"] {
+        guard let receipt = value as? [String: Any],
+          let copiedValidity = (receipt["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+          let copiedUID = (receipt["uid"] as? Double).flatMap({ UInt32(exactly: $0) }),
+          copiedValidity > 0, copiedUID > 0
+        else { throw RegistrationError.unavailable }
+        copied = ImapCopy(uidValidity: copiedValidity, uid: copiedUID)
+      } else {
+        copied = nil
+      }
+      return try await $0.imapModify(
+        connection: connection, address: address, generation: generation,
+        change: ImapChange(
+          folder: folder, uidValidity: validity, uid: uid, read: change["read"] as? Bool,
+          destination: change["destination"] as? String, copied: copied))
+    }
+  }
+
+  // `request` names the `query` and the `folders` to search, in order.
+  @objc(imapSearch:request:resolver:rejecter:)
+  func imapSearch(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    ungatedMailbox("imapSearch", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let query = request["query"] as? String, let folders = request["folders"] as? [String]
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapSearch(
+        connection: connection, address: address, generation: generation, query: query,
+        folders: folders)
+    }
+  }
+
+  // `request` names the `folder` to watch and the most `seconds` to wait.
+  @objc(imapIdle:request:resolver:rejecter:)
+  func imapIdle(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    ungatedMailbox("imapIdle", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let seconds = (request["seconds"] as? Double).flatMap({ Int(exactly: $0) })
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapIdle(
+        connection: connection, address: address, generation: generation, folder: folder,
+        seconds: seconds)
     }
   }
 

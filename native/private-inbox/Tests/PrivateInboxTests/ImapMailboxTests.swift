@@ -30,9 +30,12 @@ private final class ControlledImap: ImapProvider, @unchecked Sendable {
   func verify(_ account: ImapAccount, password: String) async throws {
     try record("verify", password)
   }
-  func folders(_ account: ImapAccount, password: String) async throws -> [ImapFolder] {
+  var outcome = ImapOutcome.moved(uidValidity: 9, uid: 4)
+  func folders(_ account: ImapAccount, password: String) async throws -> ImapListing {
     try record("folders", password)
-    return [ImapFolder(name: "INBOX", roles: ["inbox"], selectable: true)]
+    return ImapListing(
+      folders: [ImapFolder(name: "INBOX", roles: ["inbox"], selectable: true)], moves: true,
+      idle: false)
   }
   func synchronize(
     _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
@@ -46,6 +49,24 @@ private final class ControlledImap: ImapProvider, @unchecked Sendable {
   ) async throws -> Data {
     try record("message \(folder) \(uidValidity) \(uid)", password)
     return Data("Subject: Synthetic\r\n\r\nBody".utf8)
+  }
+  func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
+    -> ImapOutcome
+  {
+    try record("modify \(change.folder) \(change.uid) \(change.destination ?? "read")", password)
+    return outcome
+  }
+  func search(
+    _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
+  ) async throws -> (found: [ImapFound], skipped: Int) {
+    try record("search \(folders.joined(separator: ",")) \(limit)", password)
+    return ([ImapFound(folder: "INBOX", uidValidity: 7, messages: state.messages, more: true)], 1)
+  }
+  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
+    -> Bool
+  {
+    try record("idle \(folder) \(seconds)", password)
+    return true
   }
 }
 
@@ -131,6 +152,70 @@ extension PrivateInboxTests {
       connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
       uidValidity: 7, uid: 11)
     #expect(message["data"] as? String == Data("Subject: Synthetic\r\n\r\nBody".utf8).base64EncodedString())
+    #expect(folders["moves"] as? Bool == true && folders["idle"] as? Bool == false)
+
+    // Organizing changes one identified message; a move reports where the server put it.
+    let moved = try await store.imapModify(
+      connection: id, address: "alex@example.invalid", generation: generation,
+      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive"))
+    #expect(moved["outcome"] as? String == "moved")
+    #expect(moved["uidValidity"] as? Double == 9 && moved["uid"] as? Double == 4)
+    imap.outcome = .copied(uidValidity: 9, uid: 4)
+    let copied = try await store.imapModify(
+      connection: id, address: "alex@example.invalid", generation: generation,
+      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive"))
+    #expect(copied["outcome"] as? String == "copied")
+    #expect(copied["uidValidity"] as? Double == 9 && copied["uid"] as? Double == 4)
+    imap.outcome = .absent
+    let absent = try await store.imapModify(
+      connection: id, address: "alex@example.invalid", generation: generation,
+      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: nil))
+    #expect(absent as? [String: String] == ["outcome": "absent"])
+    // A change names exactly one of read state and a different destination folder.
+    for change in [
+      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: "Archive"),
+      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: nil),
+      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "INBOX"),
+      ImapChange(
+        folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: nil,
+        copied: ImapCopy(uidValidity: 9, uid: 4)),
+      ImapChange(
+        folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive",
+        copied: ImapCopy(uidValidity: 0, uid: 4)),
+    ] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.imapModify(
+          connection: id, address: "alex@example.invalid", generation: generation, change: change)
+      }
+    }
+    let found = try await store.imapSearch(
+      connection: id, address: "alex@example.invalid", generation: generation, query: "Synthetic",
+      folders: ["INBOX", "Archive"])
+    #expect(found["skipped"] as? Double == 1)
+    #expect((found["folders"] as? [[String: Any]])?.first?["more"] as? Bool == true)
+    #expect(
+      ((found["folders"] as? [[String: Any]])?.first?["messages"] as? [[String: Any]])?.first?["uid"]
+        as? Double == 11)
+    for (query, folders) in [
+      ("", ["INBOX"]), ("a\r\nA1 LOGOUT", ["INBOX"]), ("Synthetic", []),
+      ("Synthetic", Array(repeating: "INBOX", count: 51)),
+    ] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.imapSearch(
+          connection: id, address: "alex@example.invalid", generation: generation, query: query,
+          folders: folders)
+      }
+    }
+    let idle = try await store.imapIdle(
+      connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
+      seconds: 300)
+    #expect(idle["changed"] as? Bool == true)
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.imapIdle(
+        connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
+        seconds: 601)
+    }
+    #expect(imap.requests().map(\.0).contains("search INBOX,Archive 50"))
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.imapSynchronize(
@@ -228,9 +313,10 @@ extension PrivateInboxTests {
       try await provider.verify(account, password: "refused")
     }
     try await provider.verify(account, password: "synthetic-password")
-    let folders = try await provider.folders(account, password: "synthetic-password")
-    #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
-    #expect(folders.map(\.roles) == [["inbox"], ["archive"], [], ["inbox"]])
+    let listing = try await provider.folders(account, password: "synthetic-password")
+    #expect(listing.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
+    #expect(listing.folders.map(\.roles) == [["inbox"], ["archive"], [], ["inbox"]])
+    #expect(listing.moves && listing.idle)
     let overflowing = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"many-folders"}"#.utf8))
@@ -247,7 +333,8 @@ extension PrivateInboxTests {
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
     let shared = try await provider.folders(namespaced, password: "synthetic-password")
-    #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(!shared.moves && !shared.idle)
     let initial = try await provider.synchronize(
       account, password: "synthetic-password", folder: "INBOX", from: nil, window: 200)
     #expect(initial.reset && initial.uidValidity == 7 && initial.uidNext == 12)
@@ -302,6 +389,109 @@ extension PrivateInboxTests {
     }
     // Refusal closes its session and leaves later independent work usable.
     try await provider.verify(account, password: "synthetic-password")
+  }
+}
+
+extension PrivateInboxTests {
+  // Organizing, server search and IDLE through the unchanged engine over verified TLS, including
+  // servers without MOVE, without MOVE and UIDPLUS, and without IDLE.
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_IMAP_TLS_TEST_PORT"] != nil))
+  func swiftMailOrganizesSearchesAndWaitsOverVerifiedTLS() async throws {
+    let port = try #require(Int(ProcessInfo.processInfo.environment["UNWIRED_IMAP_TLS_TEST_PORT"] ?? ""))
+    func account(_ user: String) throws -> ImapAccount {
+      try JSONDecoder().decode(
+        ImapAccount.self,
+        from: Data(#"{"host":"localhost","port":\#(port),"username":"\#(user)"}"#.utf8))
+    }
+    let provider = SwiftMailImap()
+    let synthetic = try account("synthetic")
+    let password = "synthetic-password"
+    func change(
+      folder: String = "INBOX", uidValidity: UInt32 = 7, uid: UInt32 = 11, read: Bool? = nil,
+      to destination: String? = nil, copied: ImapCopy? = nil
+    ) -> ImapChange {
+      ImapChange(
+        folder: folder, uidValidity: uidValidity, uid: uid, read: read, destination: destination,
+        copied: copied)
+    }
+    #expect(try await provider.modify(synthetic, password: password, change: change(read: true)) == .stored)
+    #expect(try await provider.modify(synthetic, password: password, change: change(read: false)) == .stored)
+    #expect(
+      try await provider.modify(synthetic, password: password, change: change(to: "Archive"))
+        == .moved(uidValidity: 9, uid: 21))
+    // Missing UIDs and mismatched mailbox generations cannot target a different message.
+    #expect(try await provider.modify(synthetic, password: password, change: change(uid: 13, to: "Archive")) == .absent)
+    await #expect(throws: ImapFailure.changed) {
+      _ = try await provider.modify(synthetic, password: password, change: change(uidValidity: 8, read: true))
+    }
+    await #expect(throws: ImapFailure.missing) {
+      _ = try await provider.modify(synthetic, password: password, change: change(folder: "Gone", read: true))
+    }
+    // MOVE's tagged failure can follow partial completion, with or without a mapping.
+    await #expect(throws: ImapFailure.interrupted) {
+      _ = try await provider.modify(synthetic, password: password, change: change(to: "Missing"))
+    }
+    await #expect(throws: ImapFailure.interrupted) {
+      _ = try await provider.modify(synthetic, password: password, change: change(to: "Partial"))
+    }
+    // A connection lost after the change was sent may have applied it.
+    await #expect(throws: ImapFailure.interrupted) {
+      _ = try await provider.modify(synthetic, password: password, change: change(to: "Drop"))
+    }
+    // UIDPLUS returns the copy receipt before deletion; resumption reuses that receipt.
+    let noMove = try account("no-move")
+    let copied = ImapCopy(uidValidity: 9, uid: 22)
+    for destination in ["Unmapped", "DropCopy"] {
+      await #expect(throws: ImapFailure.interrupted) {
+        _ = try await provider.modify(
+          noMove, password: password, change: change(to: destination))
+      }
+    }
+    #expect(
+      try await provider.modify(noMove, password: password, change: change(to: "Archive"))
+        == .copied(uidValidity: 9, uid: 22))
+    #expect(
+      try await provider.modify(noMove, password: password, change: change(to: "Archive", copied: copied))
+        == .moved(uidValidity: 9, uid: 22))
+    #expect(
+      try await provider.modify(noMove, password: password, change: change(uid: 13, to: "Archive", copied: copied))
+        == .moved(uidValidity: 9, uid: 22))
+    await #expect(throws: ImapFailure.changed) {
+      _ = try await provider.modify(
+        noMove, password: password,
+        change: change(to: "Archive", copied: ImapCopy(uidValidity: 10, uid: 22)))
+    }
+    await #expect(throws: ImapFailure.missing) {
+      _ = try await provider.modify(
+        noMove, password: password,
+        change: change(to: "Archive", copied: ImapCopy(uidValidity: 9, uid: 23)))
+    }
+    await #expect(throws: ImapFailure.changed) {
+      _ = try await provider.modify(
+        noMove, password: password, change: change(uidValidity: 8, to: "Archive", copied: copied))
+    }
+    await #expect(throws: ImapFailure.unsupported) {
+      _ = try await provider.modify(try account("namespaced"), password: password, change: change(to: "Archive"))
+    }
+
+    let search = try await provider.search(
+      synthetic, password: password, query: "Controlled", folders: ["INBOX", "Gone"], limit: 50)
+    #expect(search.skipped == 1)
+    #expect(search.found.map(\.folder) == ["INBOX"] && search.found.first?.uidValidity == 7)
+    #expect(search.found.first?.messages.map(\.uid) == [11] && search.found.first?.more == false)
+    // A compressed ESEARCH range must fetch only the newest bounded window, without expanding
+    // billions of identifiers supplied by an untrusted server.
+    let largeSearch = try await provider.search(
+      try account("large-search"), password: password, query: "Controlled", folders: ["INBOX"],
+      limit: 50)
+    #expect(largeSearch.found.first?.messages.map(\.uid) == [4_000_000_000])
+    #expect(largeSearch.found.first?.more == true)
+
+    #expect(try await provider.idle(synthetic, password: password, folder: "INBOX", seconds: 30))
+    #expect(try await provider.idle(synthetic, password: password, folder: "Quiet", seconds: 1) == false)
+    await #expect(throws: ImapFailure.unsupported) {
+      _ = try await provider.idle(try account("namespaced"), password: password, folder: "INBOX", seconds: 1)
+    }
   }
 }
 

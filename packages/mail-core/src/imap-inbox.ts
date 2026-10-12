@@ -1,12 +1,24 @@
+import * as Arr from 'effect/Array';
+import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Option from 'effect/Option';
+import * as Pull from 'effect/Pull';
+import * as Random from 'effect/Random';
 import * as Result from 'effect/Result';
+import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import type { NativeGmailMailbox } from './gmail-inbox.ts';
-import type { ImapDocument, ImapFolder, ImapMessage } from './imap-model.ts';
+import type {
+  ImapAction,
+  ImapCapabilities,
+  ImapDocument,
+  ImapFolder,
+  ImapMessage,
+  ImapPending,
+} from './imap-model.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -21,6 +33,7 @@ import {
 } from './diagnostics.ts';
 import { createBodyLoads } from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
+import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import {
   applyFolderRead,
   cachedFolders,
@@ -30,9 +43,15 @@ import {
   decodeDocument,
   decodeFolderRead,
   decodeFolders,
+  decodeIdle,
+  decodeModify,
   decodeRaw,
+  decodeSearch,
   encodeDocument,
   inboxFolder,
+  listedMessage,
+  messageId,
+  newestFirst,
   window,
 } from './imap-model.ts';
 import { inlineImageLimits } from './inline-images.ts';
@@ -51,7 +70,12 @@ import {
 import { parseMime } from './mime.ts';
 
 export { applyFolderRead, inboxFolder } from './imap-model.ts';
-export type { ImapFolder, ImapMessage } from './imap-model.ts';
+export type {
+  ImapAction,
+  ImapCapabilities,
+  ImapFolder,
+  ImapMessage,
+} from './imap-model.ts';
 
 // The native Registration module's IMAP operations for one Standards-Based Mailbox Connection.
 // Native code logs in with the connection's password and keeps the cache encrypted; this module
@@ -90,6 +114,34 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     message: Readonly<{ folder: string; uidValidity: number; uid: number }>,
   ) => Promise<unknown>;
+  // Marks the message read or unread, or moves it to `destination`. Resolves `{ outcome }`:
+  // `stored`, `moved` with the new `uidValidity` and `uid` when the server reported them, or
+  // `absent` when the folder no longer holds the UID. Rejects with `imap-changed` for another
+  // UIDVALIDITY, `imap-rejected` when the server refuses the change, and `imap-unsupported`
+  // without MOVE or UIDPLUS.
+  readonly imapModify: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    change: Readonly<{
+      folder: string;
+      uidValidity: number;
+      uid: number;
+      read?: boolean;
+      destination?: string;
+      copied?: Readonly<{ uidValidity: number; uid: number }>;
+    }>,
+  ) => Promise<unknown>;
+  // Resolves `{ folders: [{ folder, uidValidity, messages }], skipped }`: each folder's newest
+  // matches, in the order asked.
+  readonly imapSearch: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ query: string; folders: readonly string[] }>,
+  ) => Promise<unknown>;
+  // Resolves `{ changed }` once the server reports a change in the folder or `seconds` pass;
+  // rejects with `imap-unsupported` without IDLE.
+  readonly imapIdle: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ folder: string; seconds: number }>,
+  ) => Promise<unknown>;
 }
 
 // 'authentication' needs the password again; 'retry' may succeed on a later synchronization.
@@ -103,18 +155,46 @@ export type ImapFolderView =
       readonly status: Sync;
     };
 
+// The latest organizing outcome: shown at once, or refused by the server.
+export type ImapNotice = Readonly<{
+  kind: 'done' | 'rejected' | 'blocked';
+  action: ImapAction;
+  message: Readonly<{ subject: string }>;
+}>;
+
 export type ImapInboxState =
   | { readonly kind: 'loading' | 'locked' | 'failed' }
   | {
       readonly kind: 'ready';
       readonly address: string;
-      // The Inbox folder's messages, newest first.
+      // The Inbox folder's messages, newest first, with changes not yet applied by the server.
       readonly messages: readonly ImapMessage[];
       readonly status: Sync;
       readonly folders: readonly ImapFolder[];
+      // What the server advertised at its last listing; unknown before one was read.
+      readonly capabilities: ImapCapabilities | undefined;
+      // Changes saved on this device that the server has not applied yet.
+      readonly pending: number;
+      readonly blocked: string | undefined;
+      readonly notice?: ImapNotice;
+      // Whether Undo can still reverse the notice's move.
+      readonly undo: boolean;
       // A Standards-Based Mailbox Connection sends nothing until SMTP is authorized.
       readonly receiveOnly: true;
     };
+
+// One online search of this connection: each searched folder's newest matches, and whether some
+// folders or older matches were left out.
+export type ImapSearchPage =
+  | Readonly<{
+      kind: 'found';
+      messages: readonly ImapMessage[];
+      limited: boolean;
+    }>
+  | Readonly<{
+      kind: 'unavailable';
+      reason: 'offline' | 'authentication' | 'failed';
+    }>;
 
 /**
  * Retires unavailable folder choices after a ready listing, preserving them
@@ -184,6 +264,9 @@ class ImapFailure extends Schema.TaggedError<ImapFailure>()('ImapFailure', {
     'revoked',
     'changed',
     'missing',
+    'rejected',
+    'unsupported',
+    'interrupted',
     'too-large',
     'failed',
   ]),
@@ -201,6 +284,9 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
   'mailbox-revoked': 'revoked',
   'imap-changed': 'changed',
   'imap-missing': 'missing',
+  'imap-rejected': 'rejected',
+  'imap-unsupported': 'unsupported',
+  'imap-interrupted': 'interrupted',
   'too-large': 'too-large',
   'imap-insecure': 'retry',
   offline: 'retry',
@@ -242,11 +328,131 @@ type Scope = Readonly<{
   lifetime: number;
 }>;
 
+// Folders one online search asks the server about, and the longest single IDLE wait, inside the
+// 29 minutes after which servers may drop an idle client.
+const searchFolderLimit = 50;
+const idleSeconds = 300;
+
+const moves = (
+  action: ImapAction,
+): action is Extract<ImapAction, { destination: string }> =>
+  'destination' in action;
+
+const roleChanged = (change: ImapPending, folders: readonly ImapFolder[]) => {
+  const role = change.action.kind === 'spam' ? 'junk' : change.action.kind;
+  return (
+    (role === 'archive' || role === 'trash' || role === 'junk') &&
+    moves(change.action) &&
+    change.attempts === 0 &&
+    imapRoleFolder(folders, role) !== change.action.destination
+  );
+};
+
+// The server's answer to one change: decoded, or a refusal that repeating cannot change.
+type Answer =
+  | Readonly<{ outcome: 'stored' | 'absent' }>
+  | Readonly<{ outcome: 'copied'; uidValidity: number; uid: number }>
+  | Readonly<{ outcome: 'moved'; uidValidity?: number; uid?: number }>
+  | Readonly<{ outcome: 'refused'; failure: Failure }>;
+const refused = (kind: ImapFailure['kind']) =>
+  kind === 'changed' ||
+  kind === 'missing' ||
+  kind === 'rejected' ||
+  kind === 'unsupported';
+
+// Absence alone cannot prove a move: another client may have removed the source.
+const applied = (answer: Answer) =>
+  answer.outcome === 'stored' || answer.outcome === 'moved';
+
+// The folder an applied move delivered the message to.
+const deliveredTo = (change: ImapPending, answer: Answer) =>
+  moves(change.action) && applied(answer)
+    ? change.action.destination
+    : undefined;
+
+// Where a move the server mapped to a new UID left the message, which Undo moves back. Undo
+// itself is not undone.
+const movedTo = (
+  { action, message }: ImapPending,
+  answer: Answer,
+): ImapMessage | undefined =>
+  answer.outcome === 'moved' &&
+  answer.uid !== undefined &&
+  answer.uidValidity !== undefined &&
+  moves(action) &&
+  action.kind !== 'restore'
+    ? {
+        ...message,
+        id: messageId(action.destination, answer.uidValidity, answer.uid),
+        folder: action.destination,
+        uidValidity: answer.uidValidity,
+        uid: answer.uid,
+      }
+    : undefined;
+
+// Listings with the changes the server has not applied yet: read state shows at once, and a moved
+// message leaves the folder it was in.
+const projected = (
+  messages: readonly ImapMessage[],
+  changes: readonly ImapPending[],
+) =>
+  changes.reduce<readonly ImapMessage[]>(
+    (shown, { action, message }) =>
+      moves(action)
+        ? shown.filter(({ id }) => id !== message.id)
+        : shown.map((item) =>
+            item.id === message.id
+              ? { ...item, unread: action.kind === 'unread' }
+              : item,
+          ),
+    messages,
+  );
+
+// Updates every retained view by full message identity, including evicted folders.
+const settledMessages = (
+  messages: readonly ImapMessage[],
+  change: ImapPending,
+  answer: Answer,
+) =>
+  answer.outcome === 'moved' || answer.outcome === 'absent'
+    ? messages.filter(({ id }) => id !== change.message.id)
+    : messages.map((item) =>
+        item.id === change.message.id && answer.outcome === 'stored'
+          ? { ...item, unread: change.action.kind === 'unread' }
+          : item,
+      );
+
+// The cache after the server answered the change: it leaves the queue, a moved or absent message
+// leaves its folder, and read state is kept. A refusal changes nothing until the next read.
+const settle = (
+  current: ImapDocument,
+  change: ImapPending,
+  answer: Answer,
+): ImapDocument => {
+  const { message } = change;
+  return {
+    ...current,
+    pending: (current.pending ?? []).filter(({ id }) => id !== change.id),
+    mailboxes: current.mailboxes.map((entry) =>
+      entry.name === message.folder &&
+      entry.cache.uidValidity === message.uidValidity
+        ? {
+            ...entry,
+            cache: {
+              ...entry.cache,
+              messages: settledMessages(entry.cache.messages, change, answer),
+            },
+          }
+        : entry,
+    ),
+  };
+};
+
 type Failure = Readonly<Pick<ImapFailure, 'kind' | 'diagnostic'>>;
 
 // Refused or transient server access, which the Inbox states rather than logs.
 const expected = (kind: ImapFailure['kind']) =>
-  kind === 'authentication' || kind === 'retry';
+  kind === 'authentication' || kind === 'retry' || kind === 'interrupted';
 const closesAccess = (kind: ImapFailure['kind']) =>
   kind === 'locked' || kind === 'revoked' || kind === 'invalidated';
 const changesAccess = (kind: ImapFailure['kind']) =>
@@ -359,6 +565,71 @@ export function createImapInbox(
     { bytes: number; pixels: number }
   >();
   const reading = new Map<string, Promise<void>>();
+  // Changes made in this process and not yet saved with the cache; saving moves them to its queue.
+  let queued: readonly ImapPending[] = [];
+  // Undo can withdraw an intent while its first cache commit is still in flight.
+  const withdrawals = new Set<string>();
+  let shownStatus: Sync = 'current';
+  // The change being dispatched; its pending move cannot be withdrawn.
+  let sending: string | undefined = undefined;
+  let notice: ImapNotice | undefined = undefined;
+  // The change the notice reports, and where the server moved its message, which Undo reverses.
+  let noticed:
+    | Readonly<{ id: string; original: ImapMessage; restore?: ImapMessage }>
+    | undefined = undefined;
+  // Online search results, by message ID, held for the reader until the Inbox closes.
+  const found = new Map<string, ImapMessage>();
+  // Saved and queued changes, the same array while neither changes.
+  let changeList: Readonly<{
+    durable: readonly ImapPending[] | undefined;
+    queued: readonly ImapPending[];
+    all: readonly ImapPending[];
+  }> = { durable: undefined, queued, all: [] };
+  const changes = () => {
+    const durable = document?.pending;
+    if (changeList.durable !== durable || changeList.queued !== queued) {
+      changeList = { durable, queued, all: [...(durable ?? []), ...queued] };
+    }
+    return changeList.all;
+  };
+  // Projected views and messages stay the same objects while their source and the changes do.
+  const projectedViews = new WeakMap<
+    ImapFolderView,
+    Readonly<{ changes: readonly ImapPending[]; view: ImapFolderView }>
+  >();
+  const projectView = (view: ImapFolderView) => {
+    const current = changes();
+    if (view.kind !== 'ready' || current.length === 0) {
+      return view;
+    }
+    const memo = projectedViews.get(view);
+    if (memo?.changes === current) {
+      return memo.view;
+    }
+    const next = { ...view, messages: projected(view.messages, current) };
+    projectedViews.set(view, { changes: current, view: next });
+    return next;
+  };
+  const projectedMessages = new WeakMap<
+    ImapMessage,
+    Readonly<{ changes: readonly ImapPending[]; message: ImapMessage }>
+  >();
+  const projectMessage = (message: ImapMessage) => {
+    const current = changes();
+    const memo = projectedMessages.get(message);
+    if (memo?.changes === current) {
+      return memo.message;
+    }
+    const read = Arr.reverse(current).find(
+      (change) => change.message.id === message.id && !moves(change.action),
+    );
+    const next =
+      read === undefined
+        ? message
+        : { ...message, unread: read.action.kind === 'unread' };
+    projectedMessages.set(message, { changes: current, message: next });
+    return next;
+  };
 
   const notify = () => {
     for (const listener of listeners) {
@@ -459,16 +730,55 @@ export function createImapInbox(
     }
     return changed;
   };
-  const render = (status: Sync) => {
+  // A change the server cannot have received yet, which Undo withdraws.
+  const unsent = (target: string) =>
+    target !== sending &&
+    changes().some(({ id, attempts }) => id === target && attempts === 0);
+  const blockedChange = () => {
+    const [head] = changes();
+    return head !== undefined &&
+      moves(head.action) &&
+      head.attempts > 0 &&
+      head.copied === undefined &&
+      head.id !== sending
+      ? head
+      : undefined;
+  };
+  const reportBlocked = () => {
+    const blocked = blockedChange();
+    if (blocked !== undefined && notice?.kind !== 'blocked') {
+      notice = {
+        kind: 'blocked',
+        action: blocked.action,
+        message: { subject: blocked.message.subject },
+      };
+      noticed = undefined;
+    }
+  };
+  // A queued move can still be withdrawn; an applied one is reversed where the server put it.
+  const undoable = () =>
+    notice?.kind === 'done' &&
+    noticed !== undefined &&
+    moves(notice.action) &&
+    notice.action.kind !== 'restore' &&
+    (noticed.restore !== undefined || unsent(noticed.id));
+  const render = (next: Sync = shownStatus) => {
     if (forgotten || opened === undefined || document === undefined) {
       return;
     }
+    reportBlocked();
+    shownStatus = next;
     state = {
       kind: 'ready',
       address: opened.address,
-      messages: cacheOf(inboxFolder)?.messages ?? [],
-      status,
+      messages: projected(cacheOf(inboxFolder)?.messages ?? [], changes()),
+      status: next,
       folders: document.folders,
+      capabilities: document.capabilities,
+      pending: changes().length,
+      blocked: blockedChange()?.id,
+      ...(notice === undefined ? {} : { notice }),
+      undo: undoable(),
       receiveOnly: true,
     };
     notify();
@@ -560,6 +870,7 @@ export function createImapInbox(
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
     folders: ImapDocument['folders'],
+    capabilities: ImapCapabilities,
   ) {
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
@@ -568,6 +879,7 @@ export function createImapInbox(
     yield* commit({
       ...current,
       folders,
+      capabilities,
       mailboxes: current.mailboxes.filter(({ name }) => kept(name)),
     });
     for (const name of folderViews.keys()) {
@@ -664,6 +976,7 @@ export function createImapInbox(
       opened = undefined;
       document = undefined;
       folderViews.clear();
+      found.clear();
       bodies.clear();
       documents.clear();
       viewBodies.clear();
@@ -687,6 +1000,319 @@ export function createImapInbox(
       : Effect.logError('IMAP synchronization failed:', diagnostic);
   };
 
+  // What the notice says once the server answered: a refusal replaces it, and a move the server
+  // mapped to a new UID can be undone from there.
+  const announce = (change: ImapPending, answer: Answer) => {
+    const { action, message } = change;
+    if (applied(answer)) {
+      const restore = movedTo(change, answer);
+      if (noticed?.id === change.id && restore !== undefined) {
+        noticed = { ...noticed, restore };
+      }
+      return;
+    }
+    notice = {
+      kind: 'rejected',
+      action,
+      message: { subject: message.subject },
+    };
+    noticed = undefined;
+  };
+
+  // Sends one saved change; an unmapped move remains recorded if its result is uncertain.
+  const send = Effect.fnUntraced(
+    function* (scope: Scope, head: ImapPending, rest: readonly ImapPending[]) {
+      const { message, action } = head;
+      sending = head.id;
+      render();
+      // Persist dispatch before the network call so a crash cannot replay an unmapped move.
+      if (
+        moves(action) &&
+        head.copied === undefined &&
+        document !== undefined
+      ) {
+        yield* commit({
+          ...document,
+          pending: [{ ...head, attempts: 1 }, ...rest],
+        });
+      }
+      return yield* call(() =>
+        native.imapModify(scope, {
+          folder: message.folder,
+          uidValidity: message.uidValidity,
+          uid: message.uid,
+          ...(moves(action)
+            ? {
+                destination: action.destination,
+                ...(head.copied === undefined ? {} : { copied: head.copied }),
+              }
+            : { read: action.kind === 'read' }),
+        }),
+      ).pipe(
+        Effect.flatMap((reply) =>
+          decodeModify(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.catchIf(
+          ({ kind }) => refused(kind),
+          ({ kind, diagnostic }): Effect.Effect<Answer> =>
+            Effect.succeed({
+              outcome: 'refused',
+              failure: { kind, diagnostic },
+            }),
+        ),
+        Effect.tapError(({ kind }) =>
+          moves(action) &&
+          head.copied === undefined &&
+          (kind === 'retry' || kind === 'authentication') &&
+          document !== undefined
+            ? commit({
+                ...document,
+                pending: [{ ...head, attempts: 0 }, ...rest],
+              })
+            : Effect.void,
+        ),
+      );
+    },
+    Effect.ensuring(
+      Effect.sync(() => {
+        sending = undefined;
+      }),
+    ),
+  );
+
+  // Saves local intents and withdrawals before the cache's queue may dispatch.
+  const saveQueued = Effect.gen(function* () {
+    while (queued.length > 0 || withdrawals.size > 0) {
+      if (document === undefined) {
+        return;
+      }
+      const taken = queued;
+      const withdrawn = new Set(withdrawals);
+      const durable = (document.pending ?? []).filter(
+        ({ id }) => !withdrawn.has(id),
+      );
+      // A commit whose reply was lost already saved some of them.
+      const known = new Set(durable.map(({ id }) => id));
+      yield* commit({
+        ...document,
+        pending: [...durable, ...taken.filter(({ id }) => !known.has(id))],
+      });
+      queued = queued.filter((change) => !taken.includes(change));
+      for (const id of withdrawn) {
+        withdrawals.delete(id);
+      }
+    }
+  });
+
+  const settleViews = (change: ImapPending, answer: Answer) => {
+    // Opened and evicted folders have their own snapshots, which must settle with the cache.
+    const view = folderViews.get(change.message.folder);
+    if (view?.kind === 'ready') {
+      folderViews.set(change.message.folder, {
+        ...view,
+        messages: settledMessages(view.messages, change, answer),
+      });
+    }
+    const searched = found.get(change.message.id);
+    if (searched !== undefined) {
+      const [retained] = settledMessages([searched], change, answer);
+      if (retained === undefined) {
+        found.delete(change.message.id);
+      } else {
+        found.set(change.message.id, retained);
+      }
+    }
+  };
+
+  const acceptAnswer = Effect.fnUntraced(function* (
+    head: ImapPending,
+    rest: readonly ImapPending[],
+    answer: Answer,
+  ) {
+    if (forgotten || document === undefined) {
+      return undefined;
+    }
+    if (answer.outcome === 'copied') {
+      yield* commit({
+        ...document,
+        pending: [
+          {
+            ...head,
+            attempts: 1,
+            copied: { uidValidity: answer.uidValidity, uid: answer.uid },
+          },
+          ...rest,
+        ],
+      });
+      return {};
+    }
+    yield* commit(settle(document, head, answer));
+    settleViews(head, answer);
+    announce(head, answer);
+    render();
+    return { delivered: deliveredTo(head, answer) };
+  });
+
+  // Sends the oldest saved change and keeps its answer. Resolves the folder a move delivered to,
+  // or undefined once nothing remains to send.
+  const sendNext = Effect.gen(function* () {
+    yield* saveQueued;
+    const scope = opened;
+    const [head, ...rest] = document?.pending ?? [];
+    if (head === undefined || scope === undefined) {
+      return undefined;
+    }
+    if (blockedChange() !== undefined) {
+      render();
+      return undefined;
+    }
+    const remapped = roleChanged(head, document?.folders ?? []);
+    const answer = remapped
+      ? ({
+          outcome: 'refused',
+          failure: { kind: 'rejected', diagnostic: 'Folder role changed' },
+        } as const)
+      : yield* send(scope, head, rest);
+    return yield* acceptAnswer(head, rest, answer);
+  });
+
+  // Sends saved changes in order until none remain or the server cannot be reached. Cached
+  // folders that received a moved message are read again afterwards, so a message moved back
+  // shows there.
+  const drain = Effect.gen(function* () {
+    const received = new Set<string>();
+    for (
+      let sent = yield* sendNext;
+      sent !== undefined;
+      sent = yield* sendNext
+    ) {
+      if (sent.delivered !== undefined) {
+        received.add(sent.delivered);
+      }
+    }
+    for (const name of [...received].filter(
+      (folder) => cacheOf(folder) !== undefined,
+    )) {
+      yield* synchronizeFolder(name);
+      showFolder(name, 'current');
+    }
+    render();
+  });
+
+  // Draining outside a load: a commit from another window reopens the cache once, and failures
+  // leave the changes saved for the next opportunity.
+  const drainNow = () =>
+    runLogged(
+      semaphore.withPermit(
+        drain.pipe(
+          Effect.catchIf(
+            ({ kind }) => kind === 'conflict' || kind === 'invalidated',
+            () => open.pipe(Effect.andThen(drain)),
+          ),
+          // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+          Effect.catch(loadFailed),
+        ),
+      ),
+    );
+
+  // Shows the change at once and saves it on this device; it reaches the server in order.
+  const organize = async (message: ImapMessage, action: ImapAction) => {
+    const started = await runLogged(
+      Effect.gen(function* () {
+        if (forgotten || opened === undefined || document === undefined) {
+          return false;
+        }
+        const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
+        queued = [...queued, { id, action, message, attempts: 0 }];
+        notice = {
+          kind: 'done',
+          action,
+          message: { subject: message.subject },
+        };
+        noticed = { id, original: message };
+        render();
+        return true;
+      }),
+    );
+    if (started) {
+      await drainNow();
+    }
+  };
+
+  // Withdraws a move the server has not received yet, or moves the message back from where the
+  // server put it.
+  const undo = () => {
+    const target = noticed;
+    if (target === undefined || !undoable()) {
+      return Promise.resolve();
+    }
+    if (target.restore !== undefined) {
+      return organize(target.restore, {
+        kind: 'restore',
+        destination: target.original.folder,
+      });
+    }
+    const withdrawn = () => {
+      if (noticed === target) {
+        notice = undefined;
+        noticed = undefined;
+      }
+      render();
+    };
+    if (queued.some(({ id }) => id === target.id)) {
+      withdrawals.add(target.id);
+      queued = queued.filter(({ id }) => id !== target.id);
+      withdrawn();
+      return drainNow();
+    }
+    return runLogged(
+      semaphore.withPermit(
+        Effect.gen(function* () {
+          if (document !== undefined && unsent(target.id)) {
+            yield* commit({
+              ...document,
+              pending: (document.pending ?? []).filter(
+                ({ id }) => id !== target.id,
+              ),
+            });
+            withdrawn();
+          }
+        }).pipe(
+          // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+          Effect.catch(loadFailed),
+        ),
+      ),
+    );
+  };
+
+  // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
+  const discardPending = (id: string) =>
+    runLogged(
+      semaphore.withPermit(
+        Effect.gen(function* () {
+          yield* open;
+          const head = blockedChange();
+          if (head === undefined || head.id !== id || document === undefined) {
+            return;
+          }
+          yield* commit({
+            ...document,
+            pending: (document.pending ?? []).filter(
+              (change) => change.id !== head.id,
+            ),
+          });
+          notice = undefined;
+          noticed = undefined;
+          yield* synchronizeFolder(head.message.folder);
+          showFolder(head.message.folder, 'current');
+          yield* drain;
+        }).pipe(
+          // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+          Effect.catch(loadFailed),
+        ),
+      ),
+    );
+
   // Opens the cache, then reads the folder list and the Inbox. Each failure keeps what the cache
   // already shows; a conflicting commit from another window starts again from the cache once.
   const load = () =>
@@ -704,14 +1330,15 @@ export function createImapInbox(
           }
           const scope = opened;
           if (scope !== undefined) {
-            const folders = yield* decodeFolders(
+            const { folders, ...capabilities } = yield* decodeFolders(
               yield* call(() => native.imapFolders(scope)),
             ).pipe(Effect.mapError(malformed));
             if (document !== undefined) {
-              yield* acceptListing(document, folders.folders);
+              yield* acceptListing(document, folders, capabilities);
             }
           }
           yield* synchronizeFolder(inboxFolder);
+          yield* drain;
           render('current');
         }).pipe(
           Effect.retry({
@@ -791,13 +1418,17 @@ export function createImapInbox(
       cache.messages.some((message) => message.id === id),
     ) === true;
   // A folder evicted from the cache keeps its shown rows openable until its view is replaced.
-  const messageOf = (id: string) =>
-    [
-      ...(document?.mailboxes.flatMap(({ cache }) => cache.messages) ?? []),
-      ...[...folderViews.values()].flatMap((view) =>
-        view.kind === 'ready' ? view.messages : [],
-      ),
-    ].find((message) => message.id === id);
+  // Search results open too, and read state shows changes not yet applied.
+  const messageOf = (id: string) => {
+    const shown =
+      [
+        ...(document?.mailboxes.flatMap(({ cache }) => cache.messages) ?? []),
+        ...[...folderViews.values()].flatMap((view) =>
+          view.kind === 'ready' ? view.messages : [],
+        ),
+      ].find((message) => message.id === id) ?? found.get(id);
+    return shown === undefined ? undefined : projectMessage(shown);
+  };
   // A row still shown from an evicted folder reads its saved body offline too.
   const visibleRow = (id: string) => messageOf(id) !== undefined;
 
@@ -985,6 +1616,145 @@ export function createImapInbox(
     return read;
   };
 
+  // The server's own search of the Inbox and the connection's other folders, newest first. Results
+  // stay readable until the Inbox closes and are never saved.
+  const search = (query: string) =>
+    runLogged(
+      Effect.gen(function* () {
+        const scope = opened;
+        if (scope === undefined || document === undefined) {
+          return { kind: 'unavailable', reason: 'failed' } as const;
+        }
+        const folders = searchedFolders(document.folders);
+        const asked = folders.slice(0, searchFolderLimit);
+        const reply = yield* decodeSearch(
+          yield* call(() =>
+            native.imapSearch(scope, { query, folders: asked }),
+          ),
+        ).pipe(Effect.mapError(malformed));
+        if (!current(scope)) {
+          return { kind: 'found', messages: [], limited: false } as const;
+        }
+        const messages = newestFirst(
+          reply.folders.flatMap(({ folder, uidValidity, messages: matches }) =>
+            matches.map((match) => listedMessage(folder, uidValidity, match)),
+          ),
+        );
+        for (const message of messages) {
+          found.set(message.id, message);
+        }
+        return {
+          kind: 'found',
+          messages,
+          limited:
+            asked.length < folders.length ||
+            reply.skipped > 0 ||
+            reply.folders.some(({ more }) => more),
+        } as const;
+      }).pipe(
+        Effect.catchTag(
+          'ImapFailure',
+          (failure): Effect.Effect<ImapSearchPage> => {
+            if (failure.kind === 'authentication') {
+              return Effect.succeed({
+                kind: 'unavailable',
+                reason: 'authentication',
+              });
+            }
+            if (failure.kind === 'retry') {
+              return Effect.succeed({ kind: 'unavailable', reason: 'offline' });
+            }
+            return (
+              closesAccess(failure.kind)
+                ? loadFailed(failure)
+                : Effect.logError('IMAP search failed:', failure.diagnostic)
+            ).pipe(
+              Effect.as({ kind: 'unavailable', reason: 'failed' } as const),
+            );
+          },
+        ),
+      ),
+    );
+
+  // One wait: a reported change, a quiet bound, a pause before trying again, or the end.
+  const waitOnce = async () => {
+    const scope = opened;
+    const idle = document?.capabilities?.idle;
+    if (idle === false) {
+      return 'stop';
+    }
+    return scope === undefined || idle === undefined
+      ? 'pause'
+      : runLogged(
+          call(() =>
+            native.imapIdle(scope, {
+              folder: inboxFolder,
+              seconds: idleSeconds,
+            }),
+          ).pipe(
+            Effect.flatMap((reply) =>
+              decodeIdle(reply).pipe(Effect.mapError(malformed)),
+            ),
+            Effect.match({
+              onSuccess: ({ changed }) => (changed ? 'changed' : 'quiet'),
+              // A refused password, a lock or a repaired connection pauses until it is usable.
+              onFailure: ({ kind }) =>
+                kind === 'unsupported' ? 'stop' : 'pause',
+            }),
+          ),
+        );
+  };
+  // Waits with IDLE on the Inbox and reads it again whenever the server reports a change. A server
+  // without IDLE leaves freshness to polling and foreground catch-up; any other failed wait, and a
+  // wait before the first listing, tries again after a pause that grows to five minutes.
+  // Stopping ends future waits; one already waiting ends within its bound and is ignored.
+  const watch = () => {
+    const controller = new AbortController();
+    const pause = Schedule.min([
+      Schedule.exponential(Duration.seconds(5)),
+      Schedule.spaced(Duration.minutes(5)),
+    ]);
+    const watching = () => !controller.signal.aborted && !forgotten;
+    const nextStep = () => runLogged(Schedule.toStepWithSleep(pause));
+    // Pauses before the next attempt; false once stopped meanwhile.
+    const rest = async (step: Awaited<ReturnType<typeof nextStep>>) => {
+      try {
+        await runLogged(
+          step(undefined).pipe(Pull.catchDone(() => Effect.never)),
+          {
+            signal: controller.signal,
+          },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const follow = async () => {
+      let step = await nextStep();
+      while (watching()) {
+        const waited = await waitOnce();
+        if (waited === 'stop' || !watching()) {
+          return;
+        }
+        if (waited === 'pause') {
+          if (!(await rest(step))) {
+            return;
+          }
+        } else {
+          step = await nextStep();
+          if (waited === 'changed') {
+            await load();
+          }
+        }
+      }
+    };
+    void follow();
+    return () => {
+      controller.abort();
+    };
+  };
+
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -1003,7 +1773,7 @@ export function createImapInbox(
       const recorded = folderViews.get(name);
       const messages = cacheOf(name)?.messages;
       if (recorded !== undefined || messages === undefined) {
-        return recorded ?? loadingFolder;
+        return projectView(recorded ?? loadingFolder);
       }
       const cached = cachedViews.get(messages) ?? {
         kind: 'ready',
@@ -1011,8 +1781,14 @@ export function createImapInbox(
         status: 'current',
       };
       cachedViews.set(messages, cached);
-      return cached;
+      return projectView(cached);
     },
+    organize,
+    undo,
+    discardPending,
+    // The shared online-search contract's name; IMAP has no further pages.
+    searchGmail: (query: string) => search(query),
+    watch,
     // A cached message from any folder, for the reader.
     message: messageOf,
     savedBodies,
@@ -1119,6 +1895,11 @@ export function createImapInbox(
       viewBodies.clear();
       reservations.clear();
       limited.clear();
+      found.clear();
+      queued = [];
+      withdrawals.clear();
+      notice = undefined;
+      noticed = undefined;
       shared.images.delete(imageOwner);
       state = { kind: 'loading' };
       notify();
