@@ -70,8 +70,10 @@ connected, and never to Gmail consent.
 
 After a successful decoded `connectImap` result, the registration subscription
 publishes the matched connection ID as repair metadata. `createMailboxes` reconciles
-owners first, then reloads only that retained authentication-refused Inbox to reopen
-its native generation. Snapshot identity alone never dispatches repair reads.
+owners first, then reloads that connection's Inbox if it was retained across the
+change, whatever its status, to reopen its native generation. A newly opened or
+owner-replaced Inbox follows its normal initial load. Snapshot identity alone
+never dispatches repair reads.
 
 ## Evidence and release limits
 

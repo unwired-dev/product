@@ -396,19 +396,21 @@ export function createMailboxes(
     return added.length > 0;
   };
   // Password repair renews the native generation without changing the connection's listing, so
-  // its Inbox, if the server refused the old password, reads again.
-  const reloadRepaired = (connection: string | undefined) => {
-    const repaired =
-      connection === undefined ? undefined : inboxes.get(connection);
-    const state = repaired?.inbox.getSnapshot();
+  // the Inbox this process already held for it reopens at the new generation and reads again. A
+  // connection first opened by this change loads as any new one does.
+  const reloadRepaired = (
+    connection: string,
+    held: (() => void) | undefined,
+  ) => {
+    const entry = inboxes.get(connection);
+    // The same subscription means this process held the Inbox before the repair.
     if (
       started &&
-      repaired?.provider === 'imap' &&
-      state?.kind === 'ready' &&
-      'status' in state &&
-      state.status === 'authentication'
+      held !== undefined &&
+      entry?.provider === 'imap' &&
+      entry.unsubscribe === held
     ) {
-      void repaired.inbox.load();
+      void entry.inbox.load();
     }
   };
   // A connection moved to another Profile keeps its Inbox and changes only its owner here.
@@ -416,10 +418,16 @@ export function createMailboxes(
     mailboxLoading: 'automatic' | 'explicit' = 'automatic',
     repairedImap?: string,
   ) => {
+    const held =
+      repairedImap === undefined
+        ? undefined
+        : inboxes.get(repairedImap)?.unsubscribe;
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
-    reloadRepaired(repairedImap);
+    if (repairedImap !== undefined) {
+      reloadRepaired(repairedImap, held);
+    }
     if (
       closed ||
       opened ||

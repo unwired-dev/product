@@ -132,6 +132,41 @@ describe('connecting IMAP mailboxes', () => {
     expect(offline.getSnapshot().snapshot.kind).toBe('cached');
   });
 
+  it('reopens a current IMAP Inbox at the generation a proactive password repair renews', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const store = createRegistration(
+      createRegistrationFlow(createSyntheticVault(device).vault),
+    );
+    await store.register('google');
+    await store.connectImap(setup(device.imap.password));
+    const [connection] = mailboxesOf(store.getSnapshot().snapshot);
+    Vitest.assert.isDefined(connection);
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    const folders = vi.fn<typeof imap.native.imapFolders>(
+      imap.native.imapFolders,
+    );
+    const mailboxes = createMailboxes(
+      syntheticConnections(
+        {},
+        { [connection.id]: { ...imap.native, imapFolders: folders } },
+      ),
+      store,
+    );
+    await mailboxes.load();
+    expect(ready(imapInbox(mailboxes).getSnapshot()).status).toBe('current');
+    // Entering the password again while the Inbox is current renews its native generation.
+    imap.cache.generation = 'generation-2';
+    await store.connectImap(setup(device.imap.password));
+    await vi.waitFor(() => {
+      expect(ready(imapInbox(mailboxes).getSnapshot()).status).toBe('current');
+    });
+    expect(folders).toHaveBeenLastCalledWith(
+      expect.objectContaining({ generation: 'generation-2' }),
+    );
+  });
+
   it('reads a refused IMAP Inbox again once its password is repaired, without a relaunch', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
