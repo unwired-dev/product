@@ -937,7 +937,10 @@ describe('command palette interactions', () => {
           }
           await completion.catch(() => undefined);
         });
-        expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
+        expect(screen.getByLabelText('Command Palette')).toHaveProp(
+          'value',
+          '',
+        );
         expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
         expect(
           screen.queryByText('The command could not finish. Try again.'),

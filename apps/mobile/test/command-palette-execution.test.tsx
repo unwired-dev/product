@@ -300,8 +300,7 @@ describe('command palette execution', () => {
         fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
           nativeEvent: { key: 'open' },
         });
-      const command = () =>
-        screen.getByRole('button', { name: 'New Message' });
+      const command = () => screen.getByRole('button', { name: 'New Message' });
       await open();
       await fireEvent.press(command());
       await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
@@ -312,9 +311,13 @@ describe('command palette execution', () => {
       expect(command()).toBeDisabled();
       expect(command()).toHaveTextContent(/Please wait/u);
       await fireEvent.press(command());
-      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-        nativeEvent: { key: 'enter' },
-      });
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'enter' },
+        },
+      );
       expect(commit).toHaveBeenCalledTimes(1);
       expect(opened).not.toHaveBeenCalled();
       await act(async () => {
