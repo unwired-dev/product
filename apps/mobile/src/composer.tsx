@@ -415,14 +415,14 @@ export function DraftList({
   const navigation = useComposerNavigation();
   const windowProfile = useProfile();
   const creating = useRef(false);
-  const scopeGeneration = useRef(0);
+  const scopeOwner = useRef<object | undefined>(undefined);
   const [creatingShown, setCreatingShown] = useState(false);
-  useLayoutEffect(
-    () => () => {
-      scopeGeneration.current += 1;
-    },
-    [navigation, scope, store, windowProfile],
-  );
+  useLayoutEffect(() => {
+    scopeOwner.current = { navigation, scope, store, windowProfile };
+    return () => {
+      scopeOwner.current = undefined;
+    };
+  }, [navigation, scope, store, windowProfile]);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
@@ -444,14 +444,14 @@ export function DraftList({
     if (creating.current) {
       return false;
     }
-    const generation = scopeGeneration.current;
+    const owner = scopeOwner.current;
     creating.current = true;
     setCreatingShown(true);
     // Leaving and creating resolve rather than reject, so the press always settles here.
     const result = await navigation.createResult(store, mailbox);
     creating.current = false;
     setCreatingShown(false);
-    if (generation !== scopeGeneration.current) {
+    if (owner !== scopeOwner.current) {
       return false;
     }
     if (result?.kind === 'created') {

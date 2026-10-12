@@ -627,10 +627,10 @@ describe('connected Gmail Inbox', () => {
         ),
       ).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
-      for (const available of ['Archive', 'Move to Trash', 'Report spam']) {
-        if (available !== label) {
-          expect(screen.getByRole('button', { name: available })).toBeEnabled();
-        }
+      for (const available of ['Archive', 'Move to Trash', 'Report spam'].filter(
+        (name) => name !== label,
+      )) {
+        expect(screen.getByRole('button', { name: available })).toBeEnabled();
       }
     },
   );

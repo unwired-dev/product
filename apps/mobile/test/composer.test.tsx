@@ -358,6 +358,7 @@ describe('composing Drafts', () => {
           ).toBeEnabled();
         });
         storage.hold();
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise the same creation lifetime through each supported entry.
         if (entry === 'palette') {
           await fireEvent(
             screen.getByTestId('command-palette-host'),
@@ -394,8 +395,8 @@ describe('composing Drafts', () => {
         expect(
           draftsOf(drafts.getSnapshot())
             .map(({ connection }) => connection)
-            .sort(),
-        ).toStrictEqual([alex, other].sort());
+            .toSorted(),
+        ).toStrictEqual([alex, other].toSorted());
       } finally {
         storage.release();
         await screen.unmount();
@@ -1393,7 +1394,7 @@ describe('composing Drafts', () => {
     ]);
   });
 
-  it.each(['Go to Inbox', 'Open Settings', 'New Message'])(
+  it.each(['Go to Inbox', 'Open Settings', 'New Message'] as const)(
     'shows a failed composer save inside the palette before retrying %s',
     async (destination) => {
       expect.hasAssertions();
@@ -1443,9 +1444,11 @@ describe('composing Drafts', () => {
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
       const saved = draftsOf(base.getSnapshot());
       expect(saved.filter(({ subject }) => subject === 'Kept')).toHaveLength(1);
-      expect(saved).toHaveLength(destination === 'New Message' ? 2 : 1);
+      expect(saved).toHaveLength(
+        { 'Go to Inbox': 1, 'Open Settings': 1, 'New Message': 2 }[destination],
+      );
       expect(openAccount).toHaveBeenCalledTimes(
-        destination === 'Open Settings' ? 1 : 0,
+        { 'Go to Inbox': 0, 'Open Settings': 1, 'New Message': 0 }[destination],
       );
     },
   );
@@ -3060,7 +3063,7 @@ describe('adding files and images to a Draft', () => {
     ).resolves.toBeOnTheScreen();
   });
 
-  it.each(['locked', 'failed'])(
+  it.each(['locked', 'failed'] as const)(
     'keeps unavailable %s Draft storage retryable in the reader',
     async (failure) => {
       expect.hasAssertions();
@@ -3134,10 +3137,10 @@ describe('adding files and images to a Draft', () => {
           nativeEvent: { key: 'open' },
         },
       );
-      const reason =
-        failure === 'locked'
-          ? 'Drafts are locked. Unlock your device and try again.'
-          : 'Drafts could not be opened. They have been kept.';
+      const reason = {
+        locked: 'Drafts are locked. Unlock your device and try again.',
+        failed: 'Drafts could not be opened. They have been kept.',
+      }[failure];
       for (const label of ['Reply', 'Reply All', 'Forward']) {
         const command = screen.getByRole('button', { name: label });
         expect(command).toBeDisabled();
@@ -3411,7 +3414,7 @@ describe('replying to and forwarding from the reader', () => {
         gmailRequest: async (
           ...args: Parameters<typeof gmail.native.gmailRequest>
         ) => {
-          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the provider's body request.
+          /* oxlint-disable vitest/no-conditional-in-test -- Hold only the provider's body request, including its format predicate. */
           if (
             args[1].some(
               ([name, value]) => name === 'format' && value === 'full',
@@ -3419,6 +3422,7 @@ describe('replying to and forwarding from the reader', () => {
           ) {
             await body.promise;
           }
+          /* oxlint-enable vitest/no-conditional-in-test */
           return gmail.native.gmailRequest(...args);
         },
       },

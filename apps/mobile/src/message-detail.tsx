@@ -49,7 +49,7 @@ import {
   useReaderScrollTo,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions } from './organize.tsx';
+import { MessageActions, OrganizingCommands } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
@@ -333,19 +333,26 @@ function ResponseCommands({
 }
 
 function ReadCommand({
-  target,
+  owner,
+  id,
   unread,
   onChange,
 }: {
-  readonly target: string;
+  readonly owner: object;
+  readonly id: string;
   readonly unread: boolean;
   readonly onChange: () => Promise<void>;
 }) {
   const { t } = useLocalization();
+  const mailbox = useMailbox();
+  const target = `${mailbox?.id}/${id}`;
   const colors = usePalette();
   return (
     <>
-      <Commands
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+        message={{ unread }}
         commands={[
           {
             id: unread ? 'read' : 'unread',
@@ -496,7 +503,7 @@ function ResponseActions({
       <ResponseCommands
         owner={owner}
         target={`${mailbox?.id}/${message.id}`}
-        disabled={pending !== undefined ? t('commandPalette.busy') : undefined}
+        disabled={pending === undefined ? undefined : t('commandPalette.busy')}
         onStart={start}
       />
       <View style={styles.responses}>
@@ -507,14 +514,12 @@ function ResponseActions({
             accessibilityLabel={label}
             accessibilityState={{ disabled: pending !== undefined }}
             disabled={pending !== undefined}
-            onPress={async () => {
-              try {
-                await start(kind);
-              } catch {
+            onPress={() => {
+              void start(kind).catch(() => {
                 if (mounted.current) {
                   setFailed(true);
                 }
-              }
+              });
             }}>
             <Text style={[styles.secondary, { color: colors.accent }]}>
               {label}
@@ -629,6 +634,7 @@ function MailboxMessage({
 }) {
   // Keep the captured response catalog through temporary reader replacements.
   const responseOwner = useMemo(() => ({}), []);
+  const organizingOwner = useMemo(() => ({}), []);
   const state = useInbox();
   const actions = useInboxActions();
   const mailbox = useMailbox();
@@ -655,13 +661,14 @@ function MailboxMessage({
     <ResponseCommands
       owner={responseOwner}
       target={`${mailbox?.id}/${id}`}
-      disabled={t(
-        state.kind === 'loading'
-          ? 'message.loading'
-          : state.kind === 'locked'
-            ? 'storage.locked'
-            : 'storage.failed',
-      )}
+      disabled={
+        {
+          loading: t('message.loading'),
+          locked: t('storage.locked'),
+          failed: t('storage.failed'),
+          ready: t('storage.failed'),
+        }[state.kind]
+      }
       onStart={() => false}
     />
   );
@@ -670,6 +677,10 @@ function MailboxMessage({
     return (
       <>
         {unavailableResponses}
+        <OrganizingCommands
+          owner={organizingOwner}
+          id={id}
+        />
         <ActivityIndicator
           accessibilityLabel={t('message.loading')}
           style={styles.fill}
@@ -682,6 +693,10 @@ function MailboxMessage({
     return (
       <>
         {unavailableResponses}
+        <OrganizingCommands
+          owner={organizingOwner}
+          id={id}
+        />
         <StorageProblem kind={state.kind} />
       </>
     );
@@ -709,12 +724,14 @@ function MailboxMessage({
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <ReadCommand
-                target={`${mailbox?.id}/${message.id}`}
+                owner={organizingOwner}
+                id={message.id}
                 unread={message.unread}
                 onChange={() => actions.setUnread(message.id, !message.unread)}
               />
             ) : (
               <MessageActions
+                owner={organizingOwner}
                 id={message.id}
                 onClose={onClose}
               />

@@ -678,6 +678,29 @@ function AccountSettings({
   );
 }
 
+function SettingsUnavailableCommands({
+  account,
+  mailboxes,
+  profile,
+}: {
+  readonly account: string | undefined;
+  readonly mailboxes: readonly MailboxConnection[];
+  readonly profile: string;
+}) {
+  if (account === undefined) {
+    return null;
+  }
+  return (
+    <UnavailableCommands
+      stars={mailboxes.some(
+        (mailbox) =>
+          (mailbox.profile ?? defaultProfile) === profile &&
+          mailbox.provider === 'gmail',
+      )}
+    />
+  );
+}
+
 export function RegistrationGate({
   children,
   store = registration,
@@ -802,15 +825,11 @@ export function RegistrationGate({
     return (
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
-          {inboxAccount === undefined ? null : (
-            <UnavailableCommands
-              stars={actions.mailboxes.some(
-                (mailbox) =>
-                  (mailbox.profile ?? defaultProfile) === profile &&
-                  mailbox.provider === 'gmail',
-              )}
-            />
-          )}
+          <SettingsUnavailableCommands
+            account={inboxAccount}
+            mailboxes={actions.mailboxes}
+            profile={profile}
+          />
           <SettingsCompose
             key={`${inboxAccount}/${profile}`}
             account={inboxAccount}

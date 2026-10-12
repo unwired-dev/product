@@ -1,13 +1,14 @@
-import { use } from 'react';
+import { use, useLayoutEffect, useRef } from 'react';
 
 import type { InboxMailbox } from './private-storage.ts';
 
 import { Commands } from './command-palette.tsx';
 import { useLocalization } from './localization.ts';
-import { useComposerNavigation } from './mailbox.tsx';
+import { useComposerNavigation, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 
 export function InboxCommands({
+  scope,
   hasSelection,
   selectionMailbox,
   selectionMessage,
@@ -16,6 +17,7 @@ export function InboxCommands({
   onInbox,
   onScope,
 }: {
+  readonly scope: string | undefined;
   readonly hasSelection: boolean;
   readonly selectionMailbox: InboxMailbox | undefined;
   readonly selectionMessage:
@@ -32,18 +34,29 @@ export function InboxCommands({
   const { t } = useLocalization();
   const account = use(AccountContext);
   const navigation = useComposerNavigation();
+  const profile = useProfile();
+  const scopeOwner = useRef<object | undefined>(undefined);
+  useLayoutEffect(() => {
+    scopeOwner.current = { navigation, profile, scope };
+    return () => {
+      scopeOwner.current = undefined;
+    };
+  }, [navigation, profile, scope]);
   const selectionState = selectionMailbox?.state;
-  const selectionReason = t(
-    !hasSelection
-      ? 'commandPalette.select'
-      : selectionState?.kind === 'loading'
-        ? 'message.loading'
-        : selectionState?.kind === 'locked'
-          ? 'storage.locked'
-          : selectionState?.kind === 'failed'
-            ? 'storage.failed'
-            : 'commandPalette.unsupported',
-  );
+  const selectionReasons = {
+    loading: t('message.loading'),
+    locked: t('storage.locked'),
+    failed: t('storage.failed'),
+    ready: t('commandPalette.unsupported'),
+  };
+  const selectionReason = hasSelection
+    ? selectionReasons[selectionState?.kind ?? 'ready']
+    : t('commandPalette.select');
+  const keywords: Readonly<Record<string, string>> = {
+    archive: t('commandPalette.archiveKeywords'),
+    read: t('commandPalette.readKeywords'),
+    unread: t('commandPalette.readKeywords'),
+  };
   const savedOnly =
     hasSelection &&
     selectionState?.kind === 'ready' &&
@@ -78,18 +91,19 @@ export function InboxCommands({
     }
     return selectionReason;
   };
-  const leave = async () => {
+  const leave = async (open: () => void) => {
+    const owner = scopeOwner.current;
     const result = await navigation.leaveResult();
+    if (owner !== scopeOwner.current) {
+      return false;
+    }
     if (result === 'failed') {
       throw new Error('Composer could not finish');
     }
-    return result;
-  };
-  const openInbox = async () => {
-    if (!(await leave())) {
+    if (!result) {
       return false;
     }
-    onInbox();
+    open();
     return true;
   };
   return (
@@ -100,7 +114,7 @@ export function InboxCommands({
           label: t('commandPalette.inbox'),
           keywords: t('commandPalette.inboxKeywords'),
           group: 'navigation',
-          onRun: openInbox,
+          onRun: () => leave(onInbox),
         },
         ...(account === undefined
           ? []
@@ -110,13 +124,7 @@ export function InboxCommands({
                 label: t('commandPalette.settings'),
                 keywords: t('commandPalette.settingsKeywords'),
                 group: 'navigation' as const,
-                onRun: async () => {
-                  if (!(await leave())) {
-                    return false;
-                  }
-                  account.openAccount();
-                  return true;
-                },
+                onRun: () => leave(account.openAccount),
               },
             ]),
         ...(
@@ -136,12 +144,7 @@ export function InboxCommands({
         ).map(([kind, label]) => ({
           id: kind,
           label,
-          keywords:
-            kind === 'archive'
-              ? t('commandPalette.archiveKeywords')
-              : kind === 'read' || kind === 'unread'
-                ? t('commandPalette.readKeywords')
-                : '',
+          keywords: keywords[kind] ?? '',
           group: 'selection' as const,
           disabled: actionReason(kind),
           onRun: () => false,
@@ -188,13 +191,11 @@ export function InboxCommands({
                   id: mailbox.id,
                   label: mailbox.address ?? mailbox.id,
                   group: 'navigation' as const,
-                  onRun: async () => {
-                    if (!(await openInbox())) {
-                      return false;
-                    }
-                    onScope(mailbox.id);
-                    return true;
-                  },
+                  onRun: () =>
+                    leave(() => {
+                      onInbox();
+                      onScope(mailbox.id);
+                    }),
                 })),
               },
             ]

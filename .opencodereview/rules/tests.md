@@ -147,6 +147,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   from the intended test policy and each new helper needs another suppression.
   Keep a per-line suppression when its reason is specific to that site.
 
+- A lint repair in `apps/{mobile,macos}/test/command-palette*.test.tsx`
+  that removes recovery, inverse-action or retirement assertions to meet
+  `vitest/max-expects`, or disables conditional-expect checks around provider
+  branches. Otherwise a shortened journey can hide stale targets or delayed
+  navigation into a retired scope. Keep the complete named journey together with a justified, bounded
+  assertion-count exemption; table-drive provider-specific actions so every
+  declared action keeps its assertions. Keep native-boundary control exceptions
+  scoped to their fixture predicate, without weakening application assertions.
+
 #### Leave to tooling
 
 Vitest and Jest style rules, formatting, unused variables, type errors, and the enforced `JSON.parse`, `typeof` guard and untagged-error rules. Tests follow the same Effect boundary rules as production code; only the legacy `packages/mail-test-harness` remains exempt until #627. The merged Swift rule covers Swift test mechanics; this file's policy takes precedence where they differ.

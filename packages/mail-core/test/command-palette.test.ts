@@ -65,7 +65,7 @@ describe('a window command palette', () => {
         onRun: () => false,
       },
     ]);
-    const presentations: ReturnType<typeof palette.getSnapshot>[] = [];
+    const presentations: Array<ReturnType<typeof palette.getSnapshot>> = [];
     const unsubscribe = palette.subscribe(() => {
       presentations.push(palette.getSnapshot());
     });

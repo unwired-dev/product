@@ -1,5 +1,6 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
+import type { PaletteCommand } from '@private-email/mail-core/command-palette';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type {
@@ -165,23 +166,118 @@ export function rowActions({
   return [];
 }
 
+// Keep unavailable and executable rows under the selected reader's captured owner.
+export function OrganizingCommands({
+  owner,
+  id,
+  message,
+  commands = [],
+}: {
+  readonly owner: object;
+  readonly id: string;
+  readonly message?:
+    | Readonly<{ unread: boolean; labels?: readonly string[] }>
+    | undefined;
+  readonly commands?: readonly PaletteCommand[];
+}) {
+  const state = useInbox();
+  const mailbox = useMailbox();
+  const { t } = useLocalization();
+  const unavailable = {
+    loading: t('message.loading'),
+    locked: t('storage.locked'),
+    failed: t('storage.failed'),
+    ready: t('commandPalette.unsupported'),
+  }[state.kind];
+  const keywords: Readonly<Record<string, string>> = {
+    archive: t('commandPalette.archiveKeywords'),
+    move: t('commandPalette.moveKeywords'),
+    read: t('commandPalette.readKeywords'),
+    unread: t('commandPalette.readKeywords'),
+  };
+  const reason = (kind: string) => {
+    if (state.kind !== 'ready') {
+      return unavailable;
+    }
+    if ('organize' in state && !state.organize) {
+      return t('gmailActions.savedOnly', {
+        provider: t(`mailProviders.${mailbox?.provider ?? 'gmail'}`),
+      });
+    }
+    if (message === undefined) {
+      return unavailable;
+    }
+    if (kind === 'read' && !message.unread) {
+      return t('commandPalette.alreadyRead');
+    }
+    if (kind === 'unread' && message.unread) {
+      return t('commandPalette.alreadyUnread');
+    }
+    if (message.labels !== undefined) {
+      const starred = message.labels.includes('STARRED');
+      if (kind === 'star' && starred) {
+        return t('commandPalette.alreadyStarred');
+      }
+      if (kind === 'unstar' && !starred) {
+        return t('commandPalette.notStarred');
+      }
+    }
+    return unavailable;
+  };
+  return (
+    <Commands
+      owner={owner}
+      commands={(
+        [
+          ['archive', t('gmailActions.label.archive')],
+          ['read', t('message.markRead')],
+          ['unread', t('message.markUnread')],
+          ['trash', t('gmailActions.label.trash')],
+          ['spam', t('gmailActions.label.spam')],
+          ['move', t('commandPalette.move')],
+          ...((mailbox?.provider ?? 'gmail') === 'gmail'
+            ? ([
+                ['star', t('gmailActions.label.star')],
+                ['unstar', t('gmailActions.label.unstar')],
+              ] as const)
+            : []),
+        ] as const
+      ).map(([kind, label]) =>
+        commands.find((command) => command.id === kind) ?? {
+          id: kind,
+          label,
+          keywords: keywords[kind] ?? '',
+          group: 'selection' as const,
+          target: `${mailbox?.id}/${id}`,
+          disabled: reason(kind),
+          onRun: () => false,
+        },
+      )}
+    />
+  );
+}
+
 // The reader's actions for the message's provider.
 export function MessageActions({
+  owner,
   id,
   onClose,
 }: {
+  readonly owner: object;
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
 }) {
   const store = useInboxActions();
   return 'openFolder' in store ? (
     <ImapMessageActions
+      owner={owner}
       id={id}
       inbox={store}
       onClose={onClose}
     />
   ) : (
     <GmailMessageActions
+      owner={owner}
       id={id}
       onClose={onClose}
     />
@@ -191,10 +287,12 @@ export function MessageActions({
 // An IMAP message's read state, moves to the folders its server declares for archive, Trash and
 // Spam, and Move to any other folder. A message that leaves its folder closes the reader.
 function ImapMessageActions({
+  owner,
   inbox,
   id,
   onClose,
 }: {
+  readonly owner: object;
   readonly inbox: ImapInbox;
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
@@ -211,7 +309,12 @@ function ImapMessageActions({
     !('receiveOnly' in state) ||
     message === undefined
   ) {
-    return null;
+    return (
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+      />
+    );
   }
   const act = (action: ImapAction) => {
     void inbox.organize(message, action);
@@ -221,19 +324,22 @@ function ImapMessageActions({
   };
   const actions = imapQuickActions(t, message, state);
   const targets = imapMoveTargets(message, state);
+  const keywords: Readonly<Record<string, string>> = {
+    archive: t('commandPalette.archiveKeywords'),
+    read: t('commandPalette.readKeywords'),
+    unread: t('commandPalette.readKeywords'),
+  };
   return (
     <>
-      <Commands
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+        message={message}
         commands={[
           ...actions.map(({ name, label, action }) => ({
             id: name,
             label,
-            keywords:
-              name === 'archive'
-                ? t('commandPalette.archiveKeywords')
-                : name === 'read' || name === 'unread'
-                  ? t('commandPalette.readKeywords')
-                  : '',
+            keywords: keywords[name] ?? '',
             group: 'selection' as const,
             target: `${mailbox?.id}/${id}`,
             onRun: () => {
@@ -304,9 +410,11 @@ function ImapMessageActions({
 
 // The reader's Gmail and Microsoft actions. A message that leaves the Inbox closes the reader.
 function GmailMessageActions({
+  owner,
   id,
   onClose,
 }: {
+  readonly owner: object;
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
 }) {
@@ -323,17 +431,34 @@ function GmailMessageActions({
     !('sync' in state) ||
     !('resolvePending' in store)
   ) {
-    return null;
+    return (
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+      />
+    );
   }
   const message = state.messages.find((item) => item.id === id);
   if (message === undefined || !canOrganize(message)) {
-    return null;
+    return (
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+      />
+    );
   }
   if (!state.organize) {
     return (
-      <Text style={[styles.secondary, { color: colors.secondary }]}>
-        {t('gmailActions.savedOnly', { provider: providerName })}
-      </Text>
+      <>
+        <OrganizingCommands
+          owner={owner}
+          id={id}
+          message={message}
+        />
+        <Text style={[styles.secondary, { color: colors.secondary }]}>
+          {t('gmailActions.savedOnly', { provider: providerName })}
+        </Text>
+      </>
     );
   }
   const act = (action: GmailAction) => {
@@ -362,7 +487,10 @@ function GmailMessageActions({
   const folders = provider !== 'gmail';
   return (
     <>
-      <Commands
+      <OrganizingCommands
+        owner={owner}
+        id={id}
+        message={message}
         commands={[
           ...actions.map(({ name, label, action, disabled }) => ({
             id: name,

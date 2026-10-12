@@ -1,4 +1,7 @@
+import { ok } from 'node:assert/strict';
+
 import type { PaletteCommand } from '@private-email/mail-core/command-palette';
+import type { NativeModules as NativeModulesType } from 'react-native';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
@@ -32,9 +35,11 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name rather than a dynamic import.
 jest.mock('react-native', () => {
-  const native =
-    jest.requireActual<typeof import('react-native')>('react-native');
+  const native = jest.requireActual<{
+    readonly NativeModules: typeof NativeModulesType;
+  }>('react-native');
   native.NativeModules.UnwiredCommandPalette = {
     hintSeen: false,
     markHintSeen: jest.fn(),
@@ -89,16 +94,15 @@ function MailboxCommands() {
 }
 
 describe('command palette interactions', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey checks palette opening, availability, recovery and retirement together. */
   it.each([false, true])(
     'keeps palette entry and the hint inside supported screens, iPad=%s',
     async (isPad) => {
-      if (Platform.OS !== 'ios') {
-        throw new Error('Expected the iOS test platform');
-      }
+      expect.hasAssertions();
+      ok(Platform.OS === 'ios', 'Expected the iOS test platform');
       const device = jest
         .spyOn(Platform, 'isPad', 'get')
         .mockReturnValue(isPad);
-      expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
       const connected = {
         kind: 'connected',
@@ -316,7 +320,20 @@ describe('command palette interactions', () => {
       expect(screen.queryByText('Archived IMAP message')).toBeNull();
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
       await fireEvent.press(screen.getByText('Incoming IMAP message'));
+      const selectedInbox = connections.getSnapshot()[0]?.inbox;
+      ok(selectedInbox, 'Expected the selected IMAP mailbox');
+      await act(() => selectedInbox.forget());
       await open();
+      expect(
+        screen.getByRole('button', { name: 'Mark as read' }),
+      ).toHaveTextContent('Loading message');
+      await act(selectedInbox.load);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Mark as read' }),
+        ).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Move…' })).toBeEnabled();
+      });
       for (const name of ['Reply', 'Reply All', 'Forward']) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
@@ -494,9 +511,7 @@ describe('command palette interactions', () => {
           </CommandPalette>,
         );
         const previous = input.current;
-        if (previous === null) {
-          throw new Error('Previous input did not mount');
-        }
+        ok(previous, 'Previous input did not mount');
         const focus = jest.spyOn(previous, 'focus');
         const focused = jest
           .spyOn(TextInput.State, 'currentlyFocusedInput')
@@ -536,6 +551,7 @@ describe('command palette interactions', () => {
             'presentation',
             'retired',
           );
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise completion after reopening the retired palette.
           if (reopened) {
             restore = () => Promise.resolve(connected);
             await act(async () => {
@@ -544,6 +560,7 @@ describe('command palette interactions', () => {
             await open();
           }
           await act(async () => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
             if (outcome === 'failure') {
               fail(new Error('Old command failed'));
             } else {
@@ -552,6 +569,7 @@ describe('command palette interactions', () => {
             await completion.catch(() => undefined);
           });
           expect(focus).not.toHaveBeenCalled();
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise reopening after the retired command settles.
           if (!reopened) {
             restore = () => Promise.resolve(connected);
             await act(async () => {
@@ -874,4 +892,5 @@ describe('command palette interactions', () => {
     expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
     expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
   });
+  /* oxlint-enable vitest/max-expects */
 });

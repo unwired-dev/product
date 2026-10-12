@@ -74,6 +74,15 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   updates the existing captured response commands without changing their message
   target, including when the selected reader initially shows loading or a storage
   failure.
+- When the selected reader cannot mount action controls, selected-message fallbacks
+  explain the mailbox's loading, locked or failed storage prerequisite.
+- Read and Star actions disabled by the message's current state explain that state.
+- When a Gmail or Microsoft mailbox shows only cached mail, organizing commands
+  explain that organizing waits for provider verification and ask the person to
+  reconnect. Organizing commands recover within the same open palette, keeping
+  their original message target.
+- Commands reserve “Unavailable for this mailbox” for missing provider capability,
+  never a storage or connection prerequisite.
 
 ## Future Thread and bulk targets
 
@@ -106,13 +115,6 @@ and bulk actions; they do not describe the current integration.
 - A failed command keeps the palette open with visible error feedback. A
   cancelled or superseded action stays quiet and does not count as success.
 
-Selected-message fallbacks show the selected mailbox's loading, locked or failed
-storage prerequisite when its reader cannot mount action controls. Read and Star
-actions disabled by the message’s current state explain that state. A saved-only
-Gmail or Microsoft mailbox explains that organizing waits for provider verification
-and asks the person to reconnect. They reserve
-“Unavailable for this mailbox” for provider capability, rather than a storage failure.
-
 ## Closing and reopening
 
 - Cancel, an outside click or tap, or Escape dismisses the palette. Within a
@@ -125,6 +127,8 @@ and asks the person to reconnect. They reserve
   Profile, mailbox scope or screen retires. A Draft already created stays with its
   original sender; completion neither reopens the retired Profile nor retargets
   the current one.
+- Inbox, Settings and mailbox navigation that waits for composer exit cannot
+  reopen an Account, Profile or mailbox scope that retires before exit completes.
 - Each new opening starts with an empty query.
 
 ## Maintained-client integration scope

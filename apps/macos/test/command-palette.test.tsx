@@ -1,3 +1,5 @@
+import { ok } from 'node:assert/strict';
+
 import type { PaletteCommand } from '@private-email/mail-core/command-palette';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -73,9 +75,10 @@ function MailboxCommands() {
 }
 
 describe('command palette interactions', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey checks palette opening, availability, recovery and retirement together. */
   it('keeps the Mac launcher inside supported Inbox and Settings screens', async () => {
-    const device = jest.replaceProperty(Platform, 'OS', 'macos');
     expect.hasAssertions();
+    const device = jest.replaceProperty(Platform, 'OS', 'macos');
     const session = createMockRegistrationSession('registration-success');
     const connected = {
       kind: 'connected',
@@ -271,7 +274,20 @@ describe('command palette interactions', () => {
       expect(screen.queryByText('Archived IMAP message')).toBeNull();
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
       await fireEvent.press(screen.getByText('Incoming IMAP message'));
+      const selectedInbox = connections.getSnapshot()[0]?.inbox;
+      ok(selectedInbox, 'Expected the selected IMAP mailbox');
+      await act(() => selectedInbox.forget());
       await open();
+      expect(
+        screen.getByRole('button', { name: 'Mark as read' }),
+      ).toHaveTextContent('Loading message');
+      await act(selectedInbox.load);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Mark as read' }),
+        ).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Move…' })).toBeEnabled();
+      });
       for (const name of ['Reply', 'Reply All', 'Forward']) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
@@ -449,9 +465,7 @@ describe('command palette interactions', () => {
           </CommandPalette>,
         );
         const previous = input.current;
-        if (previous === null) {
-          throw new Error('Previous input did not mount');
-        }
+        ok(previous, 'Previous input did not mount');
         const focus = jest.spyOn(previous, 'focus');
         const focused = jest
           .spyOn(TextInput.State, 'currentlyFocusedInput')
@@ -491,6 +505,7 @@ describe('command palette interactions', () => {
             'presentation',
             'retired',
           );
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise completion after reopening the retired palette.
           if (reopened) {
             restore = () => Promise.resolve(connected);
             await act(async () => {
@@ -499,6 +514,7 @@ describe('command palette interactions', () => {
             await open();
           }
           await act(async () => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
             if (outcome === 'failure') {
               fail(new Error('Old command failed'));
             } else {
@@ -507,6 +523,7 @@ describe('command palette interactions', () => {
             await completion.catch(() => undefined);
           });
           expect(focus).not.toHaveBeenCalled();
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise reopening after the retired command settles.
           if (!reopened) {
             restore = () => Promise.resolve(connected);
             await act(async () => {
@@ -829,4 +846,5 @@ describe('command palette interactions', () => {
     expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
     expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
   });
+  /* oxlint-enable vitest/max-expects */
 });

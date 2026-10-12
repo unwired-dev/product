@@ -33,6 +33,7 @@ describe('leaving an open composer', () => {
     unregister();
     await expect(navigation.leave()).resolves.toBe(true);
   });
+
   it('distinguishes failed finishing from cancellation without changing boolean callers', async () => {
     expect.hasAssertions();
     const navigation = createComposerNavigation();

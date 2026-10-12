@@ -1,3 +1,5 @@
+import { ok } from 'node:assert/strict';
+
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createRegistration } from '@private-email/mail-core/registration';
@@ -27,21 +29,20 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
 describe('command palette mailbox recovery', () => {
-  it.each(['gmail', 'microsoft-graph'] as const)(
+  /* oxlint-disable vitest/max-expects -- Each journey checks palette opening, availability, recovery and retirement together. */
+  it.each([
+    ['gmail', createSyntheticGmail, ['Star']],
+    ['microsoft-graph', createSyntheticGraph, []],
+  ] as const)(
     'shows selected %s storage prerequisites and recovers its palette actions',
-    async (provider) => {
+    async (provider, createFixture, starActions) => {
       expect.hasAssertions();
-      const fixture =
-        provider === 'gmail'
-          ? createSyntheticGmail({
-              address: 'alex@example.invalid',
-              messages: 1,
-            })
-          : createSyntheticGraph({
-              address: 'alex@example.invalid',
-              messages: 1,
-            });
-      let openMailbox = fixture.native.openMailbox;
+      const fixture = createFixture({
+        address: 'alex@example.invalid',
+        messages: 1,
+      });
+      const { openMailbox: readyOpenMailbox } = fixture.native;
+      let openMailbox = readyOpenMailbox;
       const session = createMockRegistrationSession('registration-success');
       const connection = syntheticMailboxes['alex@example.invalid'];
       const registration = createRegistration({
@@ -78,7 +79,7 @@ describe('command palette mailbox recovery', () => {
         () => 'synthetic-product-account',
       );
       const drafts = createDrafts(nativeDrafts.native, registration);
-      let opened: string | undefined;
+      let opened: string | undefined = undefined;
       function SelectedReader() {
         const [selection, setSelection] =
           useState<Parameters<typeof Inbox>[0]['selected']>();
@@ -114,9 +115,7 @@ describe('command palette mailbox recovery', () => {
         );
         await fireEvent.press(await screen.findByText('Synthetic message 0'));
         const inbox = connections.getSnapshot()[0]?.inbox;
-        if (inbox === undefined) {
-          throw new Error('Expected the selected mailbox');
-        }
+        ok(inbox, 'Expected the selected mailbox');
         await act(() => inbox.forget());
         const open = () =>
           fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
@@ -149,22 +148,43 @@ describe('command palette mailbox recovery', () => {
             expect(command).toHaveTextContent(reason);
           }
         }
-        openMailbox = fixture.native.openMailbox;
+        openMailbox = readyOpenMailbox;
         await act(inbox.load);
         await waitFor(() => {
-          for (const name of ['Reply', 'Reply All', 'Forward']) {
+          for (const name of [
+            'Archive',
+            'Move…',
+            'Mark as read',
+            'Reply',
+            'Reply All',
+            'Forward',
+          ]) {
             expect(screen.getByRole('button', { name })).toBeEnabled();
           }
         });
         await act(() => inbox.forget());
-        for (const name of ['Reply', 'Reply All', 'Forward']) {
+        for (const name of [
+          'Archive',
+          'Move…',
+          'Mark as read',
+          'Reply',
+          'Reply All',
+          'Forward',
+        ]) {
           const command = screen.getByRole('button', { name });
           expect(command).toBeDisabled();
           expect(command).toHaveTextContent('Loading message');
         }
         await act(inbox.load);
         await waitFor(() => {
-          for (const name of ['Reply', 'Reply All', 'Forward']) {
+          for (const name of [
+            'Archive',
+            'Move…',
+            'Mark as read',
+            'Reply',
+            'Reply All',
+            'Forward',
+          ]) {
             expect(screen.getByRole('button', { name })).toBeEnabled();
           }
         });
@@ -191,11 +211,11 @@ describe('command palette mailbox recovery', () => {
             screen.getByRole('button', { name: 'Mark as read' }),
           ).toHaveTextContent('This message is already read.');
         });
-        if (provider === 'gmail') {
+        for (const starAction of starActions) {
           expect(
             screen.getByRole('button', { name: 'Remove star' }),
           ).toHaveTextContent('This message has no star.');
-          await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
+          await fireEvent.press(screen.getByRole('button', { name: starAction }));
           await open();
           await waitFor(() => {
             expect(
@@ -234,10 +254,30 @@ describe('command palette mailbox recovery', () => {
           expect(command).toHaveTextContent('Try again to reconnect.');
           expect(command).not.toHaveTextContent('Unavailable for this mailbox');
         }
+        openMailbox = readyOpenMailbox;
+        await act(inbox.load);
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
+          expect(screen.getByRole('button', { name: 'Move…' })).toBeEnabled();
+          expect(
+            screen.getByRole('button', { name: 'Mark as unread' }),
+          ).toBeEnabled();
+        });
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Mark as unread' }),
+        );
+        await waitFor(() => {
+          expect(inbox.getSnapshot()).toMatchObject({
+            kind: 'ready',
+            messages: [expect.objectContaining({ unread: true })],
+          });
+        });
+        expect(screen.queryByLabelText('Command Palette')).toBeNull();
       } finally {
         await screen.unmount();
         await registration.deviceRemoved();
       }
     },
   );
+  /* oxlint-enable vitest/max-expects */
 });

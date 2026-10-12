@@ -22,7 +22,7 @@ export interface ComposerNavigation {
     }>,
   ) => Promise<string | undefined>;
   readonly createResult: (
-    ...args: Parameters<ComposerNavigation['create']>
+    ...args: Readonly<Parameters<ComposerNavigation['create']>>
   ) => Promise<
     | Readonly<{ kind: 'created'; id: string }>
     | Readonly<{ kind: 'failed' }>

@@ -54,7 +54,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   after its Profile, mailbox scope or mounted owner retires during creation.
   Fence the post-await navigation at the React lifetime boundary; palette session
   checks only fence dismissal, and the shared coordinator need not see a route
-  change. Exercise delayed creation from both the button and palette through a
+  change. Keep Profile, mailbox scope, coordinator, Draft store and unmount
+  invalidation when correcting effect dependency diagnostics: make the captured
+  lifetime identities explicit in the effect instead of deleting dependencies. Exercise delayed creation from both the button and palette through a
   Profile replacement, checking visible navigation and the next sender. Otherwise
   a late completion can reopen the retired Profile or retarget the current one.
 
@@ -79,6 +81,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   mailbox. Otherwise supported actions disappear when selection clears, or Reply
   All incorrectly asks for a selection that is already present. Preserve captured
   owners and targets through prerequisite recovery.
+  For `organize.tsx` and `message-detail.tsx.MailboxMessage`, retain every supported
+  organizing ID under the reader's persistent owner and message target across
+  loading, locked, failed, cached-only and executable states, including inverse
+  Read/Unread and Star/Remove Star rows. A targetless Inbox fallback captured
+  before the live controls mount cannot recover into a different reader owner.
+  Exercise recovery and another unavailable/ready cycle in the same open palette;
+  otherwise supported organizing actions stay disabled until the palette reopens.
 
 - `message-detail.tsx.ResponseActions` returning only the unsupported-mailbox
   fallback for a supported response whose source, Draft storage or eligible
@@ -98,6 +107,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   feedback in the active presentation, while cancellation and retired reader or
   palette sessions stay quiet. Otherwise the palette hides the reader's alert and
   re-enables the failed command without explaining what happened.
+
+- `inbox-commands.tsx.InboxCommands` navigating through a captured Inbox,
+  Settings or mailbox callback after `leaveResult` waits for composer exit. Fence
+  Profile, mailbox-scope, coordinator replacement and unmount at commit, and
+  revalidate immediately before the synchronous destination callback. Keep the
+  Inbox reset and mailbox choice in that same guarded turn; a second await can
+  reopen a retired scope after the first navigation. Exercise delayed exit, owner
+  retirement, visible destination and a later current-owner success for each
+  destination. Palette dismissal/session checks alone do not fence navigation.
 
 - `inbox-commands.tsx.InboxCommands`, `composer.tsx.DraftList`, or another palette
   destination reducing a failed composer finish to quiet cancellation. Trace Inbox,

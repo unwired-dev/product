@@ -58,6 +58,27 @@ import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
+// The selected row may come from its folder, saved messages, or an online search.
+function selectedMessage(
+  mailbox: InboxMailbox | undefined,
+  selected: Selection | undefined,
+) {
+  if (selected === undefined || mailbox?.state.kind !== 'ready') {
+    return undefined;
+  }
+  if ('openFolder' in mailbox.inbox) {
+    return mailbox.inbox.message(selected.id);
+  }
+  const message = mailbox.state.messages.find(({ id }) => id === selected.id);
+  if (message !== undefined) {
+    return message;
+  }
+  if ('found' in mailbox.state) {
+    return mailbox.state.found?.find(({ id }) => id === selected.id);
+  }
+  return undefined;
+}
+
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
 const composeNothing = () => undefined;
 
@@ -708,17 +729,7 @@ export function Inbox({
     [selected, saved, composing],
   );
   const selectedMailbox = mailboxes.find(({ id }) => id === selected?.mailbox);
-  const selectionMessage =
-    selected === undefined || selectedMailbox?.state.kind !== 'ready'
-      ? undefined
-      : 'openFolder' in selectedMailbox.inbox
-        ? selectedMailbox.inbox.message(selected.id)
-        : (selectedMailbox.state.messages.find(
-            ({ id }) => id === selected.id,
-          ) ??
-          ('found' in selectedMailbox.state
-            ? selectedMailbox.state.found?.find(({ id }) => id === selected.id)
-            : undefined));
+  const selectionMessage = selectedMessage(selectedMailbox, selected);
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const subtitle = subtitleOf(t, shown, { several, gmail });
@@ -743,6 +754,7 @@ export function Inbox({
       style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
         <InboxCommands
+          scope={scope}
           hasSelection={selected !== undefined}
           selectionMailbox={selectedMailbox}
           selectionMessage={selectionMessage}
