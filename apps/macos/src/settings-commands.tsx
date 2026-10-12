@@ -34,6 +34,13 @@ export function SettingsCompose({
     };
   }, []);
   const [sender] = sendingMailboxes(mailboxes, profile);
+  const draftReasons = {
+    closed: t('commandPalette.unavailable'),
+    loading: t('commandPalette.busy'),
+    locked: t('drafts.listLocked'),
+    failed: t('drafts.listFailed'),
+    ready: undefined,
+  };
   if (account === undefined) {
     return null;
   }
@@ -46,11 +53,11 @@ export function SettingsCompose({
           keywords: t('commandPalette.composeKeywords'),
           group: 'app',
           disabled:
-            state.kind !== 'ready' ||
-            sender === undefined ||
-            onCompose === undefined
+            draftReasons[state.kind] ??
+            (sender === undefined ? t('commandPalette.noSender') : undefined) ??
+            (onCompose === undefined
               ? t('commandPalette.unavailable')
-              : undefined,
+              : undefined),
           onRun: async () => {
             if (
               !mounted.current ||

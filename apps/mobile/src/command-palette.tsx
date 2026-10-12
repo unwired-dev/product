@@ -48,7 +48,7 @@ const nativeCommands = (
 const NativeHost = requireNativeComponent<
   ViewProps & {
     enabled: boolean;
-    presentation: 'open' | 'dismissed' | 'retired';
+    presentation: 'open' | 'dismissed' | 'completed' | 'retired';
     headerInset: number;
     onCommandKey: (event: NativeSyntheticEvent<unknown>) => void;
   }
@@ -287,11 +287,13 @@ export function CommandPalette({
     store.open();
   }, [store]);
   const close = useCallback(
-    (presentation: 'dismissed' | 'retired' = 'retired') => {
+    (presentation: 'dismissed' | 'completed' | 'retired' = 'retired') => {
       session.current += 1;
-      running.current = undefined;
-      setPending(false);
       if (presentation === 'retired') {
+        running.current = undefined;
+        setPending(false);
+      }
+      if (presentation !== 'dismissed') {
         previous.current = null;
       }
       store.close(presentation);
@@ -374,7 +376,7 @@ export function CommandPalette({
     try {
       const completed = await command.onRun();
       if (completed !== false && started === session.current) {
-        dismiss();
+        close('completed');
       }
     } catch {
       if (started === session.current) {

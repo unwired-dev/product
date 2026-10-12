@@ -60,6 +60,10 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
   var graphRequests: [URL] = []
   // Writes as Graph receives them: method, URL and JSON body.
   var graphWrites: [(method: String, url: String, body: [String: Any])] = []
+  // Messages sendMail received: URL and base64 MIME body. `sendReply` answers each, or throws as
+  // a request interrupted after it started.
+  var graphSends: [(url: String, body: Data)] = []
+  var sendReply: () throws -> (Int, Data) = { (202, Data()) }
 
   private func identity() -> MicrosoftMailIdentity {
     MicrosoftMailIdentity(
@@ -79,12 +83,16 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
     guard mailboxAvailable else { throw RegistrationError.gmailUnavailable }
     return GmailRegistrationReceipt(subject: subject, address: address, provider: .microsoftGraph)
   }
-  func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
-    async throws -> (Int, Data)
-  {
+  func graph(
+    _ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?, contentType: String
+  ) async throws -> (Int, Data) {
     guard let body else {
       graphRequests.append(url)
       return (200, Data(#"{"value":[]}"#.utf8))
+    }
+    if contentType == "text/plain" {
+      graphSends.append((url.absoluteString, body))
+      return try sendReply()
     }
     graphWrites.append(
       (method, url.absoluteString,
@@ -188,9 +196,52 @@ extension PrivateInboxTests {
           address: "casey@example.invalid", generation: generation)
       }
     }
+    let mime = "From: casey@example.invalid\r\nTo: sam@example.invalid\r\n\r\nHello\r\n"
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.graphSend(
+        segments: [["text": mime]], connection: id, address: "casey@example.invalid",
+        generation: generation)
+    }
     #expect(microsoft.refreshes == beforeProofFailure)
-    #expect(microsoft.graphWrites.isEmpty)
+    #expect(microsoft.graphWrites.isEmpty && microsoft.graphSends.isEmpty)
     proofUnavailable = false
+
+    // Sending writes the whole message, base64 encoded, to sendMail; Graph accepts it with 202.
+    let sent = try await store.graphSend(
+      segments: [["text": mime]], connection: id, address: "casey@example.invalid",
+      generation: generation)
+    #expect(sent["status"] as? Int == 202)
+    #expect(microsoft.graphSends.map(\.url) == ["https://graph.microsoft.com/v1.0/me/sendMail"])
+    #expect(microsoft.graphSends.first.flatMap { Data(base64Encoded: $0.body) } == Data(mime.utf8))
+    // Malformed segments and a message over Graph's request limit never reach Microsoft.
+    for segments in [[["text": "Žluťoučký kůň"]], [["asset": ["id": "../x", "digest": "00"]]]] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.graphSend(
+          segments: segments, connection: id, address: "casey@example.invalid",
+          generation: generation)
+      }
+    }
+    await #expect(throws: PrivateInboxError.tooLarge) {
+      _ = try await store.graphSend(
+        segments: [["text": String(repeating: "a", count: RegistrationStore.graphMessageLimit + 1)]],
+        connection: id, address: "casey@example.invalid", generation: generation)
+    }
+    #expect(microsoft.graphSends.count == 1)
+    // A request that never left this device may be sent again; one interrupted later may already
+    // be sent, so its outcome is unknown.
+    microsoft.sendReply = { throw RegistrationError.unavailable }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.graphSend(
+        segments: [["text": mime]], connection: id, address: "casey@example.invalid",
+        generation: generation)
+    }
+    microsoft.sendReply = { throw GmailRequestInterrupted() }
+    await #expect(throws: PrivateInboxError.deliveryUnknown) {
+      _ = try await store.graphSend(
+        segments: [["text": mime]], connection: id, address: "casey@example.invalid",
+        generation: generation)
+    }
+    microsoft.sendReply = { (202, Data()) }
 
     // Organizing writes one message's read state or moves it, in a request native code builds.
     _ = try await store.graphModify(
@@ -322,9 +373,16 @@ extension PrivateInboxTests {
     let expired = MicrosoftTokens(
       accessToken: "synthetic-expired", refreshToken: "synthetic-old-refresh",
       expiresAt: .distantPast, scopes: ["Mail.Read"])
-    // A connection granted only reading keeps reading on refresh; organizing asks again.
+    // A connection granted only reading, or reading and organizing, keeps its grant on refresh;
+    // organizing and sending ask again.
     #expect(GraphMailProvider.refreshScopes(["Mail.Read", "User.Read"]) == "offline_access User.Read Mail.Read")
-    #expect(GraphMailProvider.refreshScopes(["https://graph.microsoft.com/Mail.ReadWrite"]) == GraphMailProvider.scopes)
+    #expect(
+      GraphMailProvider.refreshScopes(["https://graph.microsoft.com/Mail.ReadWrite"])
+        == "offline_access User.Read Mail.ReadWrite")
+    #expect(
+      GraphMailProvider.refreshScopes([
+        "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send",
+      ]) == GraphMailProvider.scopes)
     let refreshed = try await provider.refresh(JSONEncoder().encode(expired))
     #expect(try JSONDecoder().decode(MicrosoftTokens.self, from: refreshed.credential).refreshToken == "synthetic-refresh")
     let requests = ControlledMicrosoftHTTP.probe.requests()
@@ -336,12 +394,19 @@ extension PrivateInboxTests {
     // A write is sent with its own method, JSON body and immutable IDs.
     let written = try await provider.graph(
       identity, url: #require(URL(string: GraphMailProvider.graph + "/me/messages/AAMk-id=")),
-      method: "PATCH", body: Data(#"{"isRead":true}"#.utf8))
+      method: "PATCH", body: Data(#"{"isRead":true}"#.utf8), contentType: "application/json")
     #expect(written.0 == 200)
     let write = try #require(ControlledMicrosoftHTTP.probe.requests().last)
     #expect(write.httpMethod == "PATCH")
     #expect(write.value(forHTTPHeaderField: "Content-Type") == "application/json")
     #expect(write.value(forHTTPHeaderField: "Prefer")?.contains("ImmutableId") == true)
+    // A send carries the base64 encoded message as text.
+    _ = try await provider.graph(
+      identity, url: #require(URL(string: GraphMailProvider.graph + "/me/sendMail")),
+      method: "POST", body: Data("RnJvbTo=".utf8), contentType: "text/plain")
+    let send = try #require(ControlledMicrosoftHTTP.probe.requests().last)
+    #expect(send.httpMethod == "POST")
+    #expect(send.value(forHTTPHeaderField: "Content-Type") == "text/plain")
     let graph = ControlledMicrosoftHTTP.probe.requests().filter {
       $0.url?.host == "graph.microsoft.com" && $0.httpMethod == "GET"
     }

@@ -53,7 +53,7 @@ describe('a window command palette', () => {
     expect(palette.getSnapshot().commands[0]?.disabled).toBe('Unavailable');
   });
 
-  it('publishes each closed snapshot with its dismissal or retirement reason', () => {
+  it('publishes each closed snapshot with its dismissal, completion or retirement reason', () => {
     expect.hasAssertions();
     const palette = createCommandPalette('Unavailable');
     const owner = {};
@@ -72,6 +72,8 @@ describe('a window command palette', () => {
     palette.open();
     palette.close('dismissed');
     palette.open();
+    palette.close('completed');
+    palette.open();
     palette.close();
     palette.open();
     palette.remove(owner);
@@ -82,10 +84,44 @@ describe('a window command palette', () => {
       { open: true, presentation: 'open' },
       { open: false, presentation: 'dismissed' },
       { open: true, presentation: 'open' },
+      { open: false, presentation: 'completed' },
+      { open: true, presentation: 'open' },
       { open: false, presentation: 'retired' },
       { open: true, presentation: 'open' },
       { open: false, presentation: 'retired' },
     ]);
+  });
+
+  it('matches English commands and synonyms on a Turkish device locale', () => {
+    expect.hasAssertions();
+    const lower = String.prototype.toLocaleLowerCase;
+    const deviceLocale = vi
+      .spyOn(String.prototype, 'toLocaleLowerCase')
+      .mockImplementation(function (this: string) {
+        return lower.call(this, 'tr');
+      });
+    const palette = createCommandPalette('Unavailable');
+    palette.register({}, [
+      {
+        id: 'inbox',
+        label: 'Go to Inbox',
+        keywords: 'Incoming',
+        group: 'navigation',
+        onRun: () => false,
+      },
+    ]);
+    try {
+      palette.open();
+      expect(
+        ['inbox', 'incoming', 'INBOX'].map((query) =>
+          matchingCommands(palette.getSnapshot().commands, query).map(
+            ({ id }) => id,
+          ),
+        ),
+      ).toStrictEqual([['inbox'], ['inbox'], ['inbox']]);
+    } finally {
+      deviceLocale.mockRestore();
+    }
   });
 
   it('orders contextual actions first and matches abbreviations and synonyms without personalizing', () => {

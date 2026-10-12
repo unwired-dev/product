@@ -15,6 +15,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
   use the selected connection's provider or neutral aggregate wording, or the
   interface labels Microsoft mail as Gmail despite independent authorization.
+- `outbox.tsx.OutboxRow`, `statusOf` or `UnknownRecovery` defaulting provider copy
+  to Gmail or another specific provider when the entry's Mailbox Connection is
+  absent. Trace row status, Check Again feedback and the Edit warning after
+  connection removal on both hosts; use retained provider evidence or neutral
+  wording. Otherwise an unknown delivery directs the person to the wrong Sent
+  folder and increases the risk of a duplicate resend.
 - IMAP password repair in `RegistrationGate` available only when saved registration
   says authorization, while a current Inbox read can refuse a saved connected
   credential. Trace the Inbox notice through account settings without relaunch;
@@ -128,8 +134,8 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   stay quiet. Preserve existing non-palette callers' refusal contract and verify
   retry keeps authored content; otherwise the palette hides the editor's failure.
 
-- `composer.tsx.DraftList` or another command owner mapping every disabled state
-  to a busy reason. Reserve waiting copy for active work; locked or failed Draft
+- `composer.tsx.DraftList`, `settings-commands.tsx.SettingsCompose` or another
+  command owner mapping every disabled state to a busy reason. Reserve waiting copy for active work; locked or failed Draft
   storage and absent eligible senders need an unavailable reason. Trace localized
   selection prompts through the handlers' actual message or Thread targets too,
   or the palette tells people to wait or select a conversation when neither can
@@ -157,6 +163,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   old completion admits overlapping commands in the new scope.
   Preserve captured targets on ordinary selection changes within the same admitted
   owner.
+
+- `command-palette.tsx.close` releasing a running command on ordinary dismissal.
+  Only Account, Profile or lock retirement may release the busy latch early;
+  reopening after Cancel or Escape must wait for the original token to settle.
+  Exercise held Settings New Message creation through dismissal and reopening,
+  checking one actual Draft and no second queued creation before settlement;
+  otherwise dismissal admits duplicate work while the first command still runs.
+
+- `command-palette.tsx.run` closing successful execution through the cancellation
+  path. Preserve cancellation's previous-focus restoration, but publish a
+  completion reason and clear the saved React/native targets after success.
+  Exercise command destination focus and the native presentation separately,
+  or navigation and composing lose focus to the control that opened the palette.
 
 - `command-palette.tsx` publishing native visibility and its close reason from
   separately scheduled React and external-store state. Keep them in one store

@@ -786,7 +786,7 @@ describe('command palette interactions', () => {
     expect(moved).toBe(true);
     expect(screen.getByTestId('command-palette-host')).toHaveProp(
       'presentation',
-      'dismissed',
+      'completed',
     );
     await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
       nativeEvent: { key: 'open' },
@@ -847,37 +847,59 @@ describe('command palette interactions', () => {
     expect(screen.queryByLabelText('Command Palette')).toBeNull();
   });
 
-  it('does not dismiss a new palette when a previously dismissed action finishes', async () => {
-    expect.hasAssertions();
-    let finish: (() => void) | undefined = undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Completion must occur after the palette is reopened.
-    const completion = new Promise<undefined>((resolve) => {
-      finish = () => resolve(undefined);
-    });
-    await render(
-      <Harness
-        commands={[
-          {
-            id: 'compose',
-            label: 'Compose',
-            group: 'app',
-            onRun: () => completion,
-          },
-        ]}
-      />,
-    );
-    const host = screen.getByTestId('command-palette-host');
-    await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
-    await fireEvent.press(screen.getByRole('button', { name: 'Compose' }));
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Cancel commands' }),
-    );
-    await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
-    await act(async () => {
-      finish?.();
-    });
-    expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
-    expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
-  });
+  it.each(['success', 'failure'] as const)(
+    'keeps reopened commands busy until a dismissed action settles with %s',
+    async (outcome) => {
+      expect.hasAssertions();
+      let finish: (value: undefined) => void = () => undefined;
+      let fail: (reason: unknown) => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Completion must occur after the palette is reopened.
+      const completion = new Promise<undefined>((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      const runCommand = jest.fn(() => completion);
+      await render(
+        <Harness
+          commands={[
+            {
+              id: 'compose',
+              label: 'Compose',
+              group: 'app',
+              onRun: runCommand,
+            },
+          ]}
+        />,
+      );
+      const host = screen.getByTestId('command-palette-host');
+      try {
+        await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
+        await fireEvent.press(screen.getByRole('button', { name: 'Compose' }));
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Cancel commands' }),
+        );
+        await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
+        expect(screen.getByRole('button', { name: 'Compose' })).toBeDisabled();
+        await fireEvent(host, 'commandKey', { nativeEvent: { key: 'enter' } });
+        expect(runCommand).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the held native boundary with the table's outcome.
+          if (outcome === 'failure') {
+            fail(new Error('Dismissed command failed'));
+          } else {
+            finish(undefined);
+          }
+          await completion.catch(() => undefined);
+        });
+        expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
+        expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
+        expect(
+          screen.queryByText('The command could not finish. Try again.'),
+        ).toBeNull();
+      } finally {
+        finish(undefined);
+      }
+    },
+  );
   /* oxlint-enable vitest/max-expects */
 });

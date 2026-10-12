@@ -7,12 +7,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   native entry and dismissal, since JavaScript event tests bypass responder
   routing and native navigation bars.
 
+- `UnwiredCommandPalette.m` intercepting palette navigation, Return or Escape
+  while the focused AppKit text input client has marked text. Let its input
+  method receive those unmodified events until composition ends, preserving
+  Command-P and normal palette navigation afterward. JavaScript key callbacks
+  bypass the input method; require Japanese and Chinese candidate selection
+  qualification, or composing a query can navigate, execute or dismiss commands.
+
 - `UnwiredCommandPaletteView` restoring a saved responder whenever the palette
-  becomes inactive, including Account, Profile or lock retirement. Trace the
-  host close reason through the exported native property and both AppKit/UIKit
+  becomes inactive, including successful execution or Account, Profile or lock
+  retirement. Trace the host close reason through the exported native property and both AppKit/UIKit
   setters: restore only an ordinary dismissal, and clear the saved responder on
-  retirement before any later dismissal can reach it. Preserve restoration for
-  native responders outside React TextInput. React focus spies and bridge-property
+  completion or retirement before any later dismissal can reach it. Preserve
+  restoration for native responders outside React TextInput. React focus spies and bridge-property
   assertions do not execute those native setters; record packaged responder
   validation separately, or a passing component test can hide stale-owner focus.
 

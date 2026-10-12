@@ -53,6 +53,8 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
     NSEventModifierFlags modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
     if ((modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift)) == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"p"]) key = @"open";
     if (owner.active && !(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+      NSResponder *responder = owner.window.firstResponder;
+      if ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [(id<NSTextInputClient>)responder hasMarkedText]) return event;
       if (event.keyCode == 126) key = @"up";
       if (event.keyCode == 125) key = @"down";
       if (event.keyCode == 53) key = @"escape";

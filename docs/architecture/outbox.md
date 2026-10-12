@@ -118,3 +118,21 @@ copy in the unique Sent folder; absence or ambiguity never authorizes resubmissi
 Removing the connection settles an accepted entry without filing its remaining
 copy. Shared controlled-provider tests and hosted iOS wire evidence are distinct;
 real-provider and full native send journeys remain deferred release qualification.
+
+## Microsoft acceptance and Sent Items (#636)
+
+Microsoft uses the same immutable admission, assets, Undo Send, Convex claim and
+originating-device ownership. Admission adds a Message-ID and enforces a
+3,000,000-byte MIME limit. Native code inserts verified assets and submits the
+base64 message through Graph's own-mailbox `sendMail` with a current device proof.
+The [Microsoft companion](microsoft-mail.md#sending-and-uncertain-outcomes) records
+the transport boundary and the panel-approved larger-message follow-up.
+
+An empty 202 response records acceptance without waiting for Microsoft to file
+Sent Items. Unknown outcomes instead search that folder by the frozen Message-ID;
+only exactly one match from a complete result confirms acceptance. Missing,
+ambiguous or unavailable evidence never permits resubmission. Definite refusals
+retain the existing retry policy; refused consent requests Microsoft authorization
+again without changing the selected connection or Delivery Owner. Controlled
+provider and native-adapter checks remain distinct from live Graph and packaged
+send-journey qualification.

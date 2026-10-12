@@ -317,11 +317,7 @@ function ImapMessageActions({
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
-  if (
-    state.kind !== 'ready' ||
-    !('imap' in state) ||
-    message === undefined
-  ) {
+  if (state.kind !== 'ready' || !('imap' in state) || message === undefined) {
     return (
       <OrganizingCommands
         owner={owner}

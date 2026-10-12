@@ -52,6 +52,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared palette and visible states
 
+- `command-palette.ts.matchingCommands` folding localized command labels, aliases
+  or queries with the device locale independently of the selected UI language.
+  Use locale-independent folding or one explicit UI locale consistently, and
+  exercise English Inbox and Incoming on a Turkish device locale. Otherwise
+  the capital I folds differently from the user's lowercase query and hides
+  supported navigation commands.
+
 - A change to `theme.ts.palette` that checks text contrast but overlooks the
   surfaces and state indicators in its mobile and Mac consumers. Trace text,
   unread dots and selection/focus indicators against their actual adjacent

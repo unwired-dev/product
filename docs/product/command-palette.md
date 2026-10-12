@@ -31,7 +31,9 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
 - Results open directly beneath the persistent input, overlaying the current
   screen without shifting its layout. The input receives focus immediately.
 - Up and Down select a command, and Enter runs it. Existing keyboard shortcuts
-  appear beside their commands.
+  appear beside their commands. While the Mac input has marked text, the input
+  method keeps arrow, Return and Escape keys to choose, confirm or cancel its
+  composition before those keys can act on palette commands.
 
 ## Phone entry
 
@@ -69,6 +71,9 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   reason such as Select a message. The palette includes supported app commands
   and does not advertise unimplemented features. Reply All remains searchable
   alongside Reply and Forward when no message is open.
+- New Message explains Draft storage loading, locked or failed states, or the
+  absence of an eligible sending mailbox, in both Inbox and Settings. Recovery
+  updates the reason and enables the existing captured command.
 - Response commands explain the current prerequisite: message content not ready,
   Draft storage loading, locked or failed, or no eligible sending mailbox. Recovery
   updates the existing captured response commands without changing their message
@@ -121,7 +126,10 @@ and bulk actions; they do not describe the current integration.
 - Cancel, an outside click or tap, or Escape dismisses the palette. Within a
   parameter picker, Escape first returns to the command list.
 - Dismissing restores the previous focus. Successfully running a command closes
-  the palette.
+  the palette without restoring the old focus, so the destination retains focus.
+- Dismissing a pending command does not cancel its work or release its busy state.
+  A reopened palette waits for that execution to settle before another command
+  can start; the old result cannot close it or show a stale error.
 - An Account, Profile or lock scope change retires the palette without restoring
   its previous React or native focus target. The saved native responder is cleared.
   Retirement releases the palette's busy state so a newly opened scope can execute

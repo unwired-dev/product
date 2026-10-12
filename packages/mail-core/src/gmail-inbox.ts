@@ -892,9 +892,9 @@ export const sendRejection = (cause: unknown): SendOutcome =>
     problem: 'offline',
   };
 
-// Gmail answered: a 2xx accepted the message. Refusals that Gmail reports before accepting it are
+// The provider answered: a 2xx accepted the message. Refusals reported before accepting it are
 // final, apart from rate limits; a server error may follow acceptance, so its outcome is unknown.
-// Gmail's final refusals by status, apart from a rate limit's 403.
+// Final refusals by status, apart from Gmail's rate-limit 403.
 const refusedStatuses = new Map<number, SendOutcome>([
   [401, { kind: 'failed', problem: 'authorization' }],
   [403, { kind: 'failed', problem: 'authorization' }],
@@ -1012,7 +1012,7 @@ export function createGmailInbox(
     removed?: (() => void) | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
-    // Microsoft mail is read and organized through Graph; sending stays Gmail's.
+    // Microsoft mail is read, organized and sent through Graph.
     provider?: MailGrantProvider;
   }> = {},
 ) {
@@ -4025,22 +4025,20 @@ export function createGmailInbox(
     // provider, so the message waits.
     send: (message: OutgoingSend) => {
       const scope = opened;
-      // Microsoft mail cannot send yet; nothing reaches a provider.
-      if (graph !== undefined) {
-        return Promise.resolve<SendOutcome>({
-          kind: 'failed',
-          problem: 'mailbox',
-        });
-      }
       if (scope === undefined || forgotten) {
         return Promise.resolve<SendOutcome>({
           kind: 'queued',
           problem: 'offline',
         });
       }
+      const reading = owner;
       return runLogged(
         Effect.tryPromise({
-          try: () => native.gmailSend(message, scope),
+          // Microsoft threads a reply by its headers; Graph has no thread to join.
+          try: () =>
+            graph === undefined
+              ? native.gmailSend(message, scope)
+              : native.graphSend({ segments: message.segments }, scope),
           catch: sendRejection,
         }).pipe(
           Effect.flatMap((reply) =>
@@ -4055,23 +4053,44 @@ export function createGmailInbox(
             onFailure: (outcome) => outcome,
             onSuccess: (outcome) => outcome,
           }),
+          // Microsoft refusing the grant, as for a connection authorized before sending was
+          // offered, asks for Microsoft again as a refused read does.
+          Effect.tap((outcome) =>
+            Effect.sync(() => {
+              if (
+                graph !== undefined &&
+                outcome.kind === 'failed' &&
+                outcome.problem === 'authorization' &&
+                owner === reading &&
+                opened !== undefined
+              ) {
+                authenticationRejected = true;
+                settle('authentication');
+              }
+            }),
+          ),
         ),
       );
     },
-    // Looks for a message whose handoff had no answer in this mailbox's Sent messages by its MIME
-    // boundary. Resolves sent with Gmail's identifier, unknown when Gmail cannot establish it, or
-    // undefined when the open mailbox was not looked at, as when it closed or changed meanwhile.
-    findSent: (boundary: string) => {
+    // Looks for a message whose handoff had no answer in this mailbox's Sent messages: Gmail's by
+    // its MIME boundary, Microsoft's by its Message-ID. Resolves sent, unknown when the provider
+    // cannot establish it, or undefined when the open mailbox was not looked at, as when it closed
+    // or changed meanwhile.
+    findSent: (boundary: string, messageId?: string) => {
       const scope = opened;
       if (scope === undefined || forgotten) {
         return Promise.resolve(undefined);
       }
+      let evidence = sentWith(scope, boundary);
       if (graph !== undefined) {
-        return Promise.resolve<SendOutcome>({ kind: 'unknown' });
+        evidence =
+          messageId === undefined
+            ? Effect.succeed({ kind: 'unknown' })
+            : graph.sentCopy(scope, messageId);
       }
       const reading = owner;
       return runLogged(
-        sentWith(scope, boundary).pipe(
+        evidence.pipe(
           Effect.catchTags({
             // A lock, revocation or refused grant found here recovers the Inbox as a search does.
             SyncFailure: (failure) =>

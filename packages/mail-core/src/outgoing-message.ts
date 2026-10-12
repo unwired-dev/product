@@ -18,6 +18,10 @@ export type OutgoingMessage = Readonly<{
 
 // The largest message Gmail accepts through its messages.send upload.
 export const gmailMessageLimit = 35 * 1024 * 1024;
+// The largest message Microsoft Graph's sendMail accepts in one request: Graph limits a request to
+// 4 MB, and the message travels base64 encoded. shortcut: larger Microsoft messages need a draft
+// and attachment upload sessions; add them when a follow-up issue asks for it.
+export const graphMessageLimit = 3_000_000;
 
 const crlf = '\r\n';
 const lineLength = 76;
@@ -360,8 +364,8 @@ export function outgoingMessage(
     (references.length === 0 ? '' : header('References', references));
   const identity =
     messageId === undefined ? '' : `Message-ID: <${messageId}>${crlf}`;
-  // Gmail and native SMTP delivery deliver to Bcc recipients and remove the header from what others
-  // receive; only the sender's Sent copy keeps it.
+  // Gmail, Microsoft and native SMTP delivery deliver to Bcc recipients and remove the header from
+  // what others receive; only the sender's Sent copy keeps it.
   const head = `From: ${draft.from}${crlf}${addressList('To', draft.to)}${addressList('Cc', draft.cc)}${addressList('Bcc', draft.bcc)}${unstructured('Subject', draft.subject)}Date: ${dateOf(date)}${crlf}${identity}${threading}MIME-Version: 1.0${crlf}`;
   const segments = [
     { text: head + content.head + crlf },
@@ -378,12 +382,21 @@ export function outgoingMessage(
   return { segments, size: sizeOf(segments, assetsOf(draft)) };
 }
 
-// The top-level MIME boundary `outgoingMessage` chose, which identifies the message's copy in
-// Gmail's Sent mailbox. Every message built here is multipart.
-export const boundaryOf = (segments: readonly MessageSegment[]) => {
+// The header lines `outgoingMessage` wrote, each ending in CRLF.
+const headOf = (segments: readonly MessageSegment[]) => {
   const [first] = segments;
   const head = first !== undefined && 'text' in first ? first.text : '';
-  return /^Content-Type: multipart\/[a-z]+; boundary="(?<boundary>[^"]+)"\r$/mu.exec(
-    head.slice(0, head.indexOf(`${crlf}${crlf}`) + crlf.length),
-  )?.[1];
+  return head.slice(0, head.indexOf(`${crlf}${crlf}`) + crlf.length);
 };
+
+// The Message-ID `outgoingMessage` wrote, without angle brackets, which identifies the message's
+// copy in Microsoft's Sent Items.
+export const messageIdOf = (segments: readonly MessageSegment[]) =>
+  /^Message-ID: <(?<id>[^>\r]+)>\r$/mu.exec(headOf(segments))?.[1];
+
+// The top-level MIME boundary `outgoingMessage` chose, which identifies the message's copy in
+// Gmail's Sent mailbox. Every message built here is multipart.
+export const boundaryOf = (segments: readonly MessageSegment[]) =>
+  /^Content-Type: multipart\/[a-z]+; boundary="(?<boundary>[^"]+)"\r$/mu.exec(
+    headOf(segments),
+  )?.[1];

@@ -27,9 +27,9 @@ export function matchingCommands(
   commands: readonly PaletteCommand[],
   query: string,
 ) {
-  const words = query.toLocaleLowerCase().trim().split(/\s+/u);
+  const words = query.toLowerCase().trim().split(/\s+/u);
   return commands.filter(({ label, keywords = '' }) => {
-    const text = `${label} ${keywords}`.toLocaleLowerCase();
+    const text = `${label} ${keywords}`.toLowerCase();
     return words.every((word) => {
       let position = 0;
       for (const letter of word) {
@@ -50,10 +50,10 @@ export function createCommandPalette(initialUnavailable: string) {
   const groups = new Map<object, readonly PaletteCommand[]>();
   const listeners = new Set<() => void>();
   let captured: readonly Entry[] | undefined = undefined;
-  let closedPresentation: 'dismissed' | 'retired' = 'retired';
+  let closedPresentation: 'dismissed' | 'completed' | 'retired' = 'retired';
   let snapshot: Readonly<{
     open: boolean;
-    presentation: 'open' | 'dismissed' | 'retired';
+    presentation: 'open' | 'dismissed' | 'completed' | 'retired';
     commands: readonly PaletteCommand[];
   }> = {
     open: false,
@@ -134,7 +134,9 @@ export function createCommandPalette(initialUnavailable: string) {
       captured = entries();
       publish();
     },
-    close: (presentation: 'dismissed' | 'retired' = 'retired') => {
+    close: (
+      presentation: 'dismissed' | 'completed' | 'retired' = 'retired',
+    ) => {
       closedPresentation = presentation;
       captured = undefined;
       publish();
