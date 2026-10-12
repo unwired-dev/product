@@ -122,10 +122,10 @@ function ImapForm({
         setFields((current) => ({ ...current, [name]: value }));
       }}
       placeholder={label}
-      placeholderTextColor={colors.secondary}
+      placeholderTextColor={colors.textSecondary}
       style={[
         styles.input,
-        { borderColor: colors.separator, color: colors.foreground },
+        { borderColor: colors.separator, color: colors.textPrimary },
       ]}
       value={fields[name]}
       {...options}
@@ -143,10 +143,10 @@ function ImapForm({
     <View style={styles.device}>
       <Label
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t(`imap.providers.${guidance}`)}
       </Label>
-      <Label style={[styles.text, { color: colors.secondary }]}>
+      <Label style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.description')}
       </Label>
       {repair === undefined
@@ -202,13 +202,13 @@ function FormNotes({
   return (
     <>
       {provider === 'other' ? null : (
-        <Label style={[styles.text, { color: colors.secondary }]}>
+        <Label style={[styles.text, { color: colors.textSecondary }]}>
           {t('imap.appPassword', {
             provider: t(`imap.providers.${provider}`),
           })}
         </Label>
       )}
-      <Label style={[styles.text, { color: colors.secondary }]}>
+      <Label style={[styles.text, { color: colors.textSecondary }]}>
         {review === undefined
           ? t('imap.incomplete')
           : t('imap.review', { host: review.host, port: String(review.port) })}
@@ -216,7 +216,7 @@ function FormNotes({
       {failure === undefined ? null : (
         <Label
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t(`imap.failure.${failure}`)}
         </Label>
       )}

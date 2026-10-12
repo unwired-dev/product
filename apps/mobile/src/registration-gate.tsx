@@ -111,10 +111,10 @@ function Mailboxes({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('mailboxes.title')}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('mailboxes.description')}
       </Text>
       {mailboxes.map((mailbox) => {
@@ -125,10 +125,10 @@ function Mailboxes({
           <View
             key={mailbox.id}
             style={styles.device}>
-            <Text style={[styles.text, { color: colors.foreground }]}>
+            <Text style={[styles.text, { color: colors.textPrimary }]}>
               {mailbox.address}
             </Text>
-            <Text style={[styles.text, { color: colors.secondary }]}>
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
               {t(
                 imapMailbox && mailbox.state !== 'connected'
                   ? `mailboxes.states.imap-${mailbox.state}`
@@ -137,7 +137,7 @@ function Mailboxes({
               )}
             </Text>
             {imapMailbox ? (
-              <Text style={[styles.text, { color: colors.secondary }]}>
+              <Text style={[styles.text, { color: colors.textSecondary }]}>
                 {t('mailboxes.receiveOnly')}
               </Text>
             ) : null}
@@ -169,7 +169,7 @@ function Mailboxes({
             {imapMailbox ? null : <MailboxRemoteContent {...mailbox} />}
             {confirming === mailbox.id ? (
               <>
-                <Text style={[styles.text, { color: colors.foreground }]}>
+                <Text style={[styles.text, { color: colors.textPrimary }]}>
                   {t(
                     imapMailbox
                       ? 'mailboxes.confirm_imap'
@@ -250,10 +250,10 @@ function PrivateSync({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {copy.title}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {copy.description}
       </Text>
       {recoveryKey === undefined ? null : (
@@ -261,10 +261,10 @@ function PrivateSync({
           <Text
             selectable
             testID="recovery-key"
-            style={[styles.recoveryKey, { color: colors.foreground }]}>
+            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
             {recoveryKey}
           </Text>
-          <Text style={[styles.text, { color: colors.secondary }]}>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
             {t('recoveryKeyConfirmation.prompt')}
           </Text>
           <TextInput
@@ -276,17 +276,17 @@ function PrivateSync({
               setEntry(recoveryKeyEntry(text));
             }}
             placeholder={t('recoveryKeyConfirmation.label')}
-            placeholderTextColor={colors.secondary}
+            placeholderTextColor={colors.textSecondary}
             style={[
               styles.input,
-              { borderColor: colors.separator, color: colors.foreground },
+              { borderColor: colors.separator, color: colors.textPrimary },
             ]}
             value={entry}
           />
           {failure === undefined ? null : (
             <Text
               accessibilityRole="alert"
-              style={[styles.text, { color: colors.foreground }]}>
+              style={[styles.text, { color: colors.textPrimary }]}>
               {t(`recoveryKeyConfirmation.${failure}`)}
             </Text>
           )}
@@ -300,19 +300,19 @@ function PrivateSync({
           <Text
             selectable
             testID="enrollment-code"
-            style={[styles.recoveryKey, { color: colors.foreground }]}>
+            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
             {copy.enrollmentCode}
           </Text>
           {button(t('enrollment.check'), store.refreshPrivateSync)}
         </>
       )}
       {copy.mailboxes === undefined ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {copy.mailboxes}
         </Text>
       )}
       {copy.pending === undefined ? null : (
-        <Text style={[styles.text, { color: colors.foreground }]}>
+        <Text style={[styles.text, { color: colors.textPrimary }]}>
           {copy.pending}
         </Text>
       )}
@@ -342,10 +342,10 @@ function RecoveryKeyUnlock({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('recovery.title')}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('recovery.description')}
       </Text>
       <TextInput
@@ -355,22 +355,22 @@ function RecoveryKeyUnlock({
         autoCorrect={false}
         onChangeText={setEntry}
         placeholder={t('recovery.label')}
-        placeholderTextColor={colors.secondary}
+        placeholderTextColor={colors.textSecondary}
         style={[
           styles.input,
-          { borderColor: colors.separator, color: colors.foreground },
+          { borderColor: colors.separator, color: colors.textPrimary },
         ]}
         value={entry}
       />
       {failure === undefined ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t(`recovery.${failure}`)}
         </Text>
       )}
       {button(t('recovery.unlock'), () => store.recoverWithRecoveryKey(entry))}
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('recovery.lost')}
       </Text>
     </>
@@ -404,7 +404,7 @@ function DeviceApproval({
     failure === undefined ? null : (
       <Text
         accessibilityRole="alert"
-        style={[styles.text, { color: colors.foreground }]}>
+        style={[styles.text, { color: colors.textPrimary }]}>
         {t(`enrollment.${failure}`)}
       </Text>
     );
@@ -420,10 +420,10 @@ function DeviceApproval({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('enrollment.title')}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('enrollment.description', {
           device: account.enrollmentDevice ?? t('enrollment.device'),
         })}
@@ -435,10 +435,10 @@ function DeviceApproval({
         autoCorrect={false}
         onChangeText={setEntry}
         placeholder={t('enrollment.label')}
-        placeholderTextColor={colors.secondary}
+        placeholderTextColor={colors.textSecondary}
         style={[
           styles.input,
-          { borderColor: colors.separator, color: colors.foreground },
+          { borderColor: colors.separator, color: colors.textPrimary },
         ]}
         value={entry}
       />
@@ -473,16 +473,16 @@ function SignInMethods({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('signInMethods.title')}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {methods.description}
       </Text>
       {failure === undefined ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {linkFailureCopy(
             t,
             failure,
@@ -533,13 +533,13 @@ function AccountActions({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('accountRemoval.title')}
       </Text>
       {failure === undefined ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t(`accountRemoval.${failure}`)}
         </Text>
       )}
@@ -554,7 +554,7 @@ function AccountActions({
         </>
       ) : (
         <>
-          <Text style={[styles.text, { color: colors.foreground }]}>
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
             {confirmation.description}
           </Text>
           {button(confirmation.label, confirmation.action)}
@@ -800,14 +800,14 @@ export function RegistrationGate({
   return (
     <ScrollView
       contentContainerStyle={styles.scroll}
-      style={[styles.page, { backgroundColor: colors.background }]}>
+      style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
         <Text
           accessibilityRole="header"
-          style={[styles.title, { color: colors.foreground }]}>
+          style={[styles.title, { color: colors.textPrimary }]}>
           {t('locked.title')}
         </Text>
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {t('locked.description')}
         </Text>
         {busy ? (
@@ -849,24 +849,24 @@ function RegistrationPage({
         void action();
       }}
       style={[styles.button, { borderColor: colors.separator }]}>
-      <Text style={[styles.text, { color: colors.foreground }]}>{label}</Text>
+      <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
   return (
     <ScrollView
       contentContainerStyle={styles.scroll}
-      style={[styles.page, { backgroundColor: colors.background }]}>
+      style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
         <Text
           accessibilityRole="header"
-          style={[styles.title, { color: colors.foreground }]}>
+          style={[styles.title, { color: colors.textPrimary }]}>
           {copy.title}
         </Text>
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {copy.description}
         </Text>
         {copy.account === undefined ? null : (
-          <Text style={[styles.text, { color: colors.secondary }]}>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
             {copy.account}
           </Text>
         )}
@@ -884,7 +884,7 @@ function RegistrationPage({
         {failed ? (
           <Text
             accessibilityRole="alert"
-            style={[styles.text, { color: colors.foreground }]}>
+            style={[styles.text, { color: colors.textPrimary }]}>
             {t('registration.setupFailed')}
           </Text>
         ) : null}

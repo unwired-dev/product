@@ -4,10 +4,11 @@ import {
   inboxFolder,
 } from '@private-email/mail-core/imap-inbox';
 import { useMemo, useState, useSyncExternalStore } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { Chip } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
@@ -44,31 +45,21 @@ export function FolderPicker({
         {state.folders
           .filter(({ selectable }) => selectable)
           .map(({ name }) => (
-            <Pressable
+            <Chip
               key={name}
-              accessibilityRole="button"
-              accessibilityState={{ selected: name === folder }}
+              icon={name === inboxFolder ? 'tray' : 'folder'}
+              label={name === inboxFolder ? t('inbox.title') : name}
+              selected={name === folder}
               onPress={() => {
                 onFolder(name);
               }}
-              style={[
-                styles.scope,
-                {
-                  backgroundColor:
-                    name === folder ? colors.selected : colors.sidebar,
-                  borderColor: name === folder ? colors.accent : 'transparent',
-                },
-              ]}>
-              <Text style={{ color: colors.foreground }}>
-                {name === inboxFolder ? t('inbox.title') : name}
-              </Text>
-            </Pressable>
+            />
           ))}
       </View>
       {failed ? (
         <Text
           accessibilityRole="alert"
-          style={[styles.notice, { color: colors.secondary }]}>
+          style={[styles.notice, { color: colors.textSecondary }]}>
           {t('imap.foldersUnavailable')}
         </Text>
       ) : null}
