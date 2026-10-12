@@ -36,6 +36,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `inbox-commands.tsx.InboxCommands` classifying every absent live reader command
+  as provider-unsupported. Trace selected-mailbox loading, locked and failed
+  storage before the reader mounts, plus the inverse Read/Unread and Star/Remove
+  Star actions on ready messages. State-dependent omissions need their actual
+  prerequisite or current-state reason; otherwise recovery guidance falsely
+  claims the provider lacks a supported action.
+- `composer.tsx.DraftList.compose` returning `undefined` for a concurrent creation
+  while the palette treats a void result as completion. Return the command's
+  quiet refusal value and exercise queued Inbox and palette callbacks before
+  React publishes busy state; otherwise New Message closes the palette without
+  creating or navigating to a Draft.
+
 - `command-palette.tsx` registering disabled fallback commands outside the supported
   screen lifetime. Trace `RegistrationGate` sign-in, initial setup and locked
   branches as well as admitted Inbox and Settings. Unsupported screens must not
@@ -240,8 +252,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `Drafts.create` rejection proves only the defensive catch. Expose standalone
   failures through an accessible labeled parent on Mac, or VoiceOver misses them.
 
-- Mac `message-summary.tsx` or `translation.tsx` rendering standalone title,
-  progress, failure, omission or privacy disclosure only in nonselectable `Text`.
+- Mac `message-summary.tsx`, `translation.tsx`, `inbox.tsx.OnlineHeading` or
+  `organize.tsx.ImapOrganizeStatus` rendering standalone title, progress, failure,
+  omission, pending-change or privacy disclosure only in nonselectable `Text`.
   The installed Mac Fabric paragraph is not an accessibility element; use
   selectable text or an accessible labeled wrapper. A generic panel label alone
   does not expose its children. Otherwise VoiceOver reads the result but misses

@@ -874,16 +874,16 @@ describe('composing Drafts', () => {
     expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
     await search('Synthetic message 0');
     const resultName =
-      'Unread. Maya Chen. Synthetic message 0. Downloads from Gmail when opened';
+      'Unread. Maya Chen. Synthetic message 0. Downloads from the mail server when opened';
     await expect(
       screen.findByRole('button', { name: resultName }),
     ).resolves.toHaveProp('accessibilityState', { selected: false });
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    await press('Search Gmail for “Synthetic message 0”');
+    await press('Search mail servers for “Synthetic message 0”');
     await expect(
-      screen.findByRole('header', { name: 'From Gmail' }),
+      screen.findByRole('header', { name: 'From mail servers' }),
     ).resolves.toBeOnTheScreen();
     const onlineName = 'Unread. Maya Chen. Synthetic message 0';
     await expect(
@@ -947,7 +947,7 @@ describe('composing Drafts', () => {
     );
     await search('');
     expect(
-      screen.queryByRole('header', { name: 'From Gmail' }),
+      screen.queryByRole('header', { name: 'From mail servers' }),
     ).not.toBeOnTheScreen();
     await expect(
       screen.findByRole('button', {
@@ -1478,29 +1478,49 @@ describe('composing Drafts', () => {
       const openAccount = jest.fn();
       await render(
         <CommandPalette>
-          <App drafts={drafts} registration={registration} openAccount={openAccount} />
+          <App
+            drafts={drafts}
+            registration={registration}
+            openAccount={openAccount}
+          />
         </CommandPalette>,
       );
       await press('New Message');
-      await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
-      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-        nativeEvent: { key: 'open' },
-      });
-      for (const name of ['Star', 'Remove star', 'Move to Trash', 'Report spam']) {
+      await fireEvent.changeText(
+        await screen.findByLabelText('Subject'),
+        'Kept',
+      );
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
+      for (const name of [
+        'Star',
+        'Remove star',
+        'Move to Trash',
+        'Report spam',
+      ]) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
         expect(command).toHaveTextContent('Select a message');
       }
       await press(destination);
       expect(screen.getByLabelText('Command Palette')).toBeVisible();
-      expect(screen.getByText('The command could not finish. Try again.')).toBeVisible();
+      expect(
+        screen.getByText('The command could not finish. Try again.'),
+      ).toBeVisible();
       expect(openAccount).not.toHaveBeenCalled();
       await press(destination);
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
       const saved = draftsOf(base.getSnapshot());
       expect(saved.filter(({ subject }) => subject === 'Kept')).toHaveLength(1);
       expect(saved).toHaveLength(destination === 'New Message' ? 2 : 1);
-      expect(openAccount).toHaveBeenCalledTimes(destination === 'Open Settings' ? 1 : 0);
+      expect(openAccount).toHaveBeenCalledTimes(
+        destination === 'Open Settings' ? 1 : 0,
+      );
     },
   );
 
@@ -1690,6 +1710,50 @@ describe('composing Drafts', () => {
       'nothing matches this',
     );
     expect(screen.queryByText('Drafts')).not.toBeOnTheScreen();
+  });
+
+  it('keeps the palette open when a queued New Message joins a pending creation', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    try {
+      await render(
+        <CommandPalette>
+          <App
+            drafts={drafts}
+            registration={registration}
+          />
+        </CommandPalette>,
+      );
+      await screen.findByRole('button', { name: 'New Message' });
+      const startFromInbox = queuedPress('New Message');
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        { nativeEvent: { key: 'open' } },
+      );
+      const startFromPalette = queuedPress('New Message');
+      storage.hold();
+      // Both native callbacks arrive before React can disable the command.
+      await act(async () => {
+        startFromInbox();
+        startFromPalette();
+      });
+      expect(screen.getByLabelText('Command Palette')).toBeVisible();
+      expect(
+        screen.queryByText('The command could not finish. Try again.'),
+      ).toBeNull();
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+      expect(screen.getByLabelText('Command Palette')).toBeVisible();
+    } finally {
+      storage.release();
+      await screen.unmount();
+    }
   });
 
   it('creates one Draft when New Message is pressed again while it is pending', async () => {
@@ -3113,9 +3177,13 @@ describe('adding files and images to a Draft', () => {
       expect(
         reader.getByRole('button', { name: 'Open invoice.pdf' }),
       ).toBeOnTheScreen();
-      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-        nativeEvent: { key: 'open' },
-      });
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
       const reason =
         failure === 'locked'
           ? 'Drafts are locked. Unlock your device and try again.'
@@ -3125,9 +3193,13 @@ describe('adding files and images to a Draft', () => {
         expect(command).toBeDisabled();
         expect(within(command).getByText(reason)).toBeVisible();
       }
-      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-        nativeEvent: { key: 'escape' },
-      });
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'escape' },
+        },
+      );
       open = storage.native.openDrafts;
       await act(async () => {
         await fireEvent.press(
@@ -3396,7 +3468,9 @@ describe('replying to and forwarding from the reader', () => {
         ) => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the provider's body request.
           if (
-            args[1].some(([name, value]) => name === 'format' && value === 'full')
+            args[1].some(
+              ([name, value]) => name === 'format' && value === 'full',
+            )
           ) {
             await body.promise;
           }
@@ -3427,7 +3501,9 @@ describe('replying to and forwarding from the reader', () => {
       const command = screen.getByRole('button', { name: label });
       expect(command).toBeDisabled();
       expect(
-        within(command).getByText('Message content is not ready for a response'),
+        within(command).getByText(
+          'Message content is not ready for a response',
+        ),
       ).toBeVisible();
     }
     await act(async () => {

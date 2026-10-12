@@ -20,3 +20,11 @@ Show the current response prerequisite in the palette when message content, Draf
 Show composer finishing failures inside the palette, including New Message, and keep unavailable organizing commands discoverable for supported providers. Retire pending command sessions when their Account, Profile or lock scope changes.
 
 Discard the saved native focus target when an Account, Profile or lock change retires the palette; retain focus restoration on normal dismissal.
+
+Show the selected mailbox's loading or storage failure reason for unavailable palette actions while its reader cannot mount contextual commands.
+
+Expose supported IMAP organizing actions through the same reader handlers after integrating IMAP mail organization.
+
+Keep the palette open when New Message is already being created, and explain Read or Star actions disabled by the selected message’s current state.
+
+Expose IMAP pending-change and limited-search notices to VoiceOver on Mac.

@@ -64,6 +64,9 @@ extension ImapFailure {
     case .changed: "imap-changed"
     case .missing: "imap-missing"
     case .tooLarge: "too-large"
+    case .unsupported: "imap-unsupported"
+    case .rejected: "imap-rejected"
+    case .interrupted: "imap-interrupted"
     }
   }
 }

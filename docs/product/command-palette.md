@@ -104,6 +104,11 @@ and bulk actions; they do not describe the current integration.
 - A failed command keeps the palette open with visible error feedback. A
   cancelled or superseded action stays quiet and does not count as success.
 
+Selected-message fallbacks show the selected mailbox's loading, locked or failed
+storage prerequisite when its reader cannot mount action controls. Read and Star
+actions disabled by the message’s current state explain that state. They reserve
+“Unavailable for this mailbox” for provider capability, rather than a storage failure.
+
 ## Closing and reopening
 
 - Cancel, an outside click or tap, or Escape dismisses the palette. Within a
@@ -133,7 +138,6 @@ work, and disclose the limitation. The future Thread requirements above describe
 confirmed product direction; this section identifies the current integration
 boundary.
 
-
 Settings currently uses the maintained clients' existing Account page navigation,
 including the composer finishing guard. Independent platform Settings presentation
 is tracked in [#911](https://github.com/unwired-dev/product/issues/911); the palette
@@ -149,3 +153,7 @@ For this choice the panel selected provider-aware omission (B) over globally
 showing disabled provider-unsupported actions (A), by 2–1: Claude Fable 5.1 and
 GPT-6-Astra favored matching supported provider behavior; GPT-6.1-Sol favored
 app-wide discoverability.
+
+IMAP organizing commands use the reader's supported actions: Mark Read or Unread,
+Archive, Trash and Spam when the server supplies those destinations and safe moves,
+and Move to another available folder. IMAP response commands remain unavailable.

@@ -435,7 +435,7 @@ export function DraftList({
   // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
     if (creating.current) {
-      return;
+      return false;
     }
     creating.current = true;
     setCreatingShown(true);
@@ -447,7 +447,7 @@ export function DraftList({
       onCompose(result.id);
       return true;
     }
-    return result?.kind === 'failed' ? 'failed' as const : false;
+    return result?.kind === 'failed' ? ('failed' as const) : false;
   };
   return (
     <View>

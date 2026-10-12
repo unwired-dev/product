@@ -76,7 +76,9 @@ export function createComposerNavigation(): ComposerNavigation {
       const allowed = await leaveResult();
       failed = allowed === 'failed';
       turn = navigations;
-      return allowed === true && ((await before?.()) ?? true) && navigations === turn;
+      return (
+        allowed === true && ((await before?.()) ?? true) && navigations === turn
+      );
     });
     if (id === undefined) {
       return failed ? { kind: 'failed' } : undefined;

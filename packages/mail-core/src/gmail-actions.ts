@@ -100,7 +100,8 @@ export const gmailActionCopy = (
     count = 1,
   }: Readonly<{
     kind: 'done' | 'rejected' | 'unsaved' | 'blocked';
-    action: GmailAction;
+    // An IMAP change uses the same kinds.
+    action: Readonly<{ kind: GmailAction['kind'] }>;
     message: Readonly<{ subject: string }>;
     count?: number;
   }>,

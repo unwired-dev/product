@@ -12,9 +12,11 @@ import { gmailMailboxes, registration, wakes } from './registration.ts';
 // closes and ends with the process on Quit. No helper process runs. Push wakes synchronize each
 // routed mailbox. While the app is active, the five-minute interval supplements them, so a dropped
 // wake is never left unread; otherwise it runs only while a usable mailbox has no current route,
-// and activation catches up on a wake that never arrived.
+// and activation catches up on a wake that never arrived. IMAP servers that advertise IDLE report
+// new mail while the application runs.
 export const keepGmailFresh = () => {
   if (!previewInbox) {
+    gmailMailboxes.watch();
     const freshness = createFreshness(
       gmailMailboxes,
       registration.refreshInbox,

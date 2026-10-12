@@ -803,7 +803,13 @@ export function RegistrationGate({
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
           {inboxAccount === undefined ? null : (
-            <UnavailableCommands stars={actions.mailboxes.some((mailbox) => (mailbox.profile ?? defaultProfile) === profile && mailbox.provider === 'gmail')} />
+            <UnavailableCommands
+              stars={actions.mailboxes.some(
+                (mailbox) =>
+                  (mailbox.profile ?? defaultProfile) === profile &&
+                  mailbox.provider === 'gmail',
+              )}
+            />
           )}
           <SettingsCompose
             key={`${inboxAccount}/${profile}`}

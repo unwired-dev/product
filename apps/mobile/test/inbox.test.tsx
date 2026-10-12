@@ -610,10 +610,16 @@ describe('connected Gmail Inbox', () => {
       );
       await fireEvent.press(row);
       expect(screen.queryByRole('button', { name: label })).toBeNull();
-      expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();
-      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-        nativeEvent: { key: 'open' },
-      });
+      expect(
+        screen.getByRole('button', { name: 'Mark as read' }),
+      ).toBeVisible();
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
       expect(screen.getByRole('button', { name: label })).toBeDisabled();
       expect(
         within(screen.getByRole('button', { name: label })).getByText(
@@ -651,9 +657,13 @@ describe('connected Gmail Inbox', () => {
       }),
     );
     expect(
-      ['Mark as read', 'Archive', 'Move to Trash', 'Report spam', 'Folders'].map(
-        (name) => screen.getByRole('button', { name }),
-      ),
+      [
+        'Mark as read',
+        'Archive',
+        'Move to Trash',
+        'Report spam',
+        'Folders',
+      ].map((name) => screen.getByRole('button', { name })),
     ).toHaveLength(5);
     expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
@@ -666,7 +676,9 @@ describe('connected Gmail Inbox', () => {
       screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
     ).toBeVisible();
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Move to Travel' }));
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Move to Travel' }),
+      );
     });
     expect(graph.folderOf(plans)).toBe(travel);
     expect(screen.getByText('Moved: “Garden plans”.')).toBeVisible();

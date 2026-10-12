@@ -9,12 +9,21 @@ import { AccountContext } from './registration-gate.tsx';
 
 export function InboxCommands({
   hasSelection,
+  selectionState,
+  selectionMessage,
   stars,
   mailboxes,
   onInbox,
   onScope,
 }: {
   readonly hasSelection: boolean;
+  readonly selectionState: InboxMailbox['state']['kind'] | undefined;
+  readonly selectionMessage:
+    | Readonly<{
+        unread: boolean;
+        labels?: readonly string[];
+      }>
+    | undefined;
   readonly stars: boolean;
   readonly mailboxes: readonly InboxMailbox[];
   readonly onInbox: () => void;
@@ -23,6 +32,38 @@ export function InboxCommands({
   const { t } = useLocalization();
   const account = use(AccountContext);
   const navigation = useComposerNavigation();
+  const selectionReason = t(
+    !hasSelection
+      ? 'commandPalette.select'
+      : selectionState === 'loading'
+        ? 'message.loading'
+        : selectionState === 'locked'
+          ? 'storage.locked'
+          : selectionState === 'failed'
+            ? 'storage.failed'
+            : 'commandPalette.unsupported',
+  );
+  const actionReason = (kind: string) => {
+    if (selectionState !== 'ready' || selectionMessage === undefined) {
+      return selectionReason;
+    }
+    if (kind === 'read' && !selectionMessage.unread) {
+      return t('commandPalette.alreadyRead');
+    }
+    if (kind === 'unread' && selectionMessage.unread) {
+      return t('commandPalette.alreadyUnread');
+    }
+    if (selectionMessage.labels !== undefined) {
+      const starred = selectionMessage.labels.includes('STARRED');
+      if (kind === 'star' && starred) {
+        return t('commandPalette.alreadyStarred');
+      }
+      if (kind === 'unstar' && !starred) {
+        return t('commandPalette.notStarred');
+      }
+    }
+    return selectionReason;
+  };
   const leave = async () => {
     const result = await navigation.leaveResult();
     if (result === 'failed') {
@@ -72,23 +113,23 @@ export function InboxCommands({
             ['trash', t('gmailActions.label.trash')],
             ['spam', t('gmailActions.label.spam')],
             ...(stars
-              ? ([['star', t('gmailActions.label.star')], ['unstar', t('gmailActions.label.unstar')]] as const)
+              ? ([
+                  ['star', t('gmailActions.label.star')],
+                  ['unstar', t('gmailActions.label.unstar')],
+                ] as const)
               : []),
           ] as const
         ).map(([kind, label]) => ({
           id: kind,
           label,
-          keywords: kind === 'archive'
-            ? t('commandPalette.archiveKeywords')
-            : kind === 'read' || kind === 'unread'
-              ? t('commandPalette.readKeywords')
-              : '',
+          keywords:
+            kind === 'archive'
+              ? t('commandPalette.archiveKeywords')
+              : kind === 'read' || kind === 'unread'
+                ? t('commandPalette.readKeywords')
+                : '',
           group: 'selection' as const,
-          disabled: t(
-            hasSelection
-              ? 'commandPalette.unsupported'
-              : 'commandPalette.select',
-          ),
+          disabled: actionReason(kind),
           onRun: () => false,
         })),
         {
@@ -96,11 +137,7 @@ export function InboxCommands({
           label: t('commandPalette.move'),
           keywords: t('commandPalette.moveKeywords'),
           group: 'selection',
-          disabled: t(
-            hasSelection
-              ? 'commandPalette.unsupported'
-              : 'commandPalette.select',
-          ),
+          disabled: selectionReason,
           choices: [],
         },
         {
@@ -108,11 +145,7 @@ export function InboxCommands({
           label: t('message.reply'),
           keywords: t('commandPalette.replyKeywords'),
           group: 'selection',
-          disabled: t(
-            hasSelection
-              ? 'commandPalette.unsupported'
-              : 'commandPalette.select',
-          ),
+          disabled: selectionReason,
           onRun: () => false,
         },
         {
@@ -120,11 +153,7 @@ export function InboxCommands({
           label: t('message.replyAll'),
           keywords: t('commandPalette.replyKeywords'),
           group: 'selection',
-          disabled: t(
-            hasSelection
-              ? 'commandPalette.unsupported'
-              : 'commandPalette.select',
-          ),
+          disabled: selectionReason,
           onRun: () => false,
         },
         {
@@ -132,11 +161,7 @@ export function InboxCommands({
           label: t('message.forward'),
           keywords: t('commandPalette.forwardKeywords'),
           group: 'selection',
-          disabled: t(
-            hasSelection
-              ? 'commandPalette.unsupported'
-              : 'commandPalette.select',
-          ),
+          disabled: selectionReason,
           onRun: () => false,
         },
         ...(mailboxes.length > 1

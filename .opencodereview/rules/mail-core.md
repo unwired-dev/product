@@ -288,6 +288,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   fiber inside the outer program, losing its inherited context and interruption.
 - A host-facing action whose Promise can reject for an expected state. Hosts call actions as `void store.load()`, so a rejection is an unhandled promise rejection; expected failures become snapshot state.
 - Overlapping asynchronous store actions that read, change or publish shared state without the store's `Semaphore`, so they interleave a read-modify-write or a slower earlier call publishes over a newer result. Synchronous `getSnapshot` and listener bookkeeping do not require an Effect run or permit. Use `withPermit` to queue and `withPermitsIfAvailable` only where dropping the overlapping request is the intended behavior.
+- `imap-inbox.ts.undo` withdrawing a queued move while `saveQueued` retains
+  its in-flight snapshot, or `send` preserving withdrawal eligibility while
+  dispatch persistence awaits. Persist withdrawals before dispatch, retain them
+  through cache-write failure/reopening, and end withdrawal eligibility before
+  preparing dispatch. Exercise held queue and dispatch commits through the store;
+  otherwise Undo visibly restores a message whose move still reaches the server.
 - `draft-sync.ts.createDraftSynchronizer.synchronize` or another shared in-flight
   Promise/flag cleared only after normal completion. Release its ownership in
   `finally` on every exit, including defects and interruption outside typed-error
