@@ -35,7 +35,7 @@ reviews:
         behavior over style already enforced by swift-format and SwiftLint.
         Check actor isolation, cancellation, lifecycle transitions, persistence,
         retry and offline behavior, and Keychain accessibility. Flag credentials,
-        tokens, mail content, or decrypted Product Sync data that can be logged,
+        tokens, mail content, or decrypted Private Sync data that can be logged,
         persisted outside approved device-local storage, or cross a documented
         privacy boundary. Require focused tests for changed behavior and failure
         paths.
