@@ -14,7 +14,7 @@ Read under the [implementation and review workflow](../agents/implementation-rev
   whose answer may have been lost, an unreadable reply or an app stopped
   meanwhile reads as unknown, never as permission to send again.
 - The Convex claim (`draftDelivery:claim`) names the Draft only by an opaque
-  identifier that native code derives with the account's Product Sync keys,
+  identifier that native code derives with the account's Private Sync keys,
   together with the claiming Trusted Device and the time. The first device to claim
   holds it for good. Asking again from that device, as after a lost reply, keeps the
   claim; other devices are refused. A claim whose reply is lost keeps the message

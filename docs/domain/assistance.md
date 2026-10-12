@@ -42,7 +42,7 @@ Explicitly requested, device-local reply options built from an authored Reply or
 _Avoid_: automatic reply, authoritative completeness claim, automatic send
 
 **Understanding Assistance**:
-An explicitly requested, device-local, ephemeral, source-linked summary of already-local Thread message text within one Mail Profile, including supported actions, open questions, stated or inferred dates, and stated deadlines. It excludes attachments, Inline Images, Remote Message Content, unrelated correspondence, Product Sync, and Drafts; discloses omitted content; never fetches a missing body; and becomes stale when its local Thread sources change.
+An explicitly requested, device-local, ephemeral, source-linked summary of already-local Thread message text within one Mail Profile, including supported actions, open questions, stated or inferred dates, and stated deadlines. It excludes attachments, Inline Images, Remote Message Content, unrelated correspondence, Private Sync, and Drafts; discloses omitted content; never fetches a missing body; and becomes stale when its local Thread sources change.
 _Avoid_: authoritative summary, background Thread analysis, full-Thread claim
 
 **Background Message Summary**:

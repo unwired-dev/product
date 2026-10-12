@@ -110,9 +110,9 @@ Gmail mailboxes as senders.
 
 ## Credentials
 
-Microsoft tokens must stay device-local, outside Product Sync, JavaScript and logs.
+Microsoft tokens must stay device-local, outside Private Sync, JavaScript and logs.
 Other Trusted Devices learn the connection's provider and removal through encrypted
-Product Sync, but each device authorizes the mailbox itself. Requests must be
+Private Sync, but each device authorizes the mailbox itself. Requests must be
 limited to the signed-in person's own mail over authenticated HTTPS; a Microsoft
 credential must never reach Gmail or another host. The reviewer-only
 [architecture companion](architecture/microsoft-mail.md) records adapter evaluation,
@@ -154,7 +154,7 @@ consent, a missing mail scope, an unavailable mailbox and reauthorization. Both
 hosts' rendered tests connect Microsoft mail first and show its Inbox.
 
 The hosted native suite stores a Microsoft connection beside Gmail, publishes its
-own Product Sync descriptor, exercises the real token exchange, refresh and Graph
+own Private Sync descriptor, exercises the real token exchange, refresh and Graph
 verification adapter with controlled HTTP responses, refuses Graph URLs outside the person's own mail and
 Gmail requests with a Microsoft credential, and marks only its descriptor removed.
 It also checks the read-state and move requests native code writes, refuses

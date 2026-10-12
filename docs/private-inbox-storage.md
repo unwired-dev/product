@@ -77,12 +77,12 @@ installation identifiers and provider subjects never cross the bridge. Replies t
 the credentialed calls TypeScript names return to it, such as the one-time sign-in
 link ticket it presents to complete a link.
 
-The Product Sync key ring, the unconfirmed Recovery Key, this installation's
+The Private Sync key ring, the unconfirmed Recovery Key, this installation's
 encryption key and an open enrollment request are separate device-only Keychain
 items. Native operations create and store keys before returning what TypeScript
 publishes, and seal or open each record; TypeScript reads their status and opaque
-record identifiers and sequences [Product Sync](private-product-sync.md#keys-and-envelopes).
-A key item that cannot be read reports Product Sync as unavailable without failing
+record identifiers and sequences [Private Sync](private-product-sync.md#keys-and-envelopes).
+A key item that cannot be read reports Private Sync as unavailable without failing
 registration.
 
 A saved sign-in survives interruption before backend registration and resumes
@@ -139,7 +139,7 @@ Profile, which every Draft and Outbox entry sending from it shares, and
 - A new message from the unified Inbox sends from the window's Profile. A
   connection that is no longer listed falls back to the Default Profile.
 
-Storage, Product Sync records, Delivery Owners, Outbox claims and their payloads
+Storage, Private Sync records, Delivery Owners, Outbox claims and their payloads
 are unchanged. Push wakes carry no content and synchronize every connection. The
 replacement has no recipient suggestions or visible notifications yet. Before another Profile can be created,
 [#647](https://github.com/unwired-dev/product/issues/647) must synchronize Profile

@@ -37,7 +37,7 @@ current replacement work from prototype maintenance and historical plans.
 
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
 
-- **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
+- **Draft Assets** synchronize through **Private Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
 
 - Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
 

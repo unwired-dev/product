@@ -8,7 +8,7 @@ unsent message kept encrypted on this device until it is discarded or
 [sent through the Outbox](outbox.md); nothing is written to Gmail's Drafts
 mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
 [synchronizes Drafts](#continuing-on-another-device) between the Product Account's
-Trusted Devices through End-to-End Encrypted Product Sync.
+Trusted Devices through Private Sync.
 
 ## Composing
 
@@ -207,14 +207,14 @@ delivery ownership; [Send](outbox.md) claims a Draft by that same identifier.
 
 - **When:** opening Drafts, two seconds after edits pause, and when the app becomes
   active or moves to the background. Without a Product Sign-In session (an Apple
-  device after relaunch) or Product Sync keys, or while offline, Drafts stay as
+  device after relaunch) or Private Sync keys, or while offline, Drafts stay as
   they are on this device and the next synchronization catches up.
   A failed first publication also keeps the saved Draft available for retry after
   relaunch. Discard during that publication remains discarded even if its reply
   is lost; a Draft discarded while its first files upload is not published.
 - **Conflicts:** a Draft changed on one device only takes that device's version.
   When two devices edit the same Draft before synchronizing, the version that
-  reached Product Sync first keeps the Draft's identity, and the other device's
+  reached Private Sync first keeps the Draft's identity, and the other device's
   edit becomes a **DRAFT · CONFLICT** copy on every device; an editor showing that
   edit follows its copy. An edit racing another device's **Discard** survives the
   same way while the discarded Draft stays removed. Review a copy and discard it
@@ -238,7 +238,7 @@ tombstones and verified assets are bound to the Product Account and their
 identities and versions. Unreadable or older records are refused, and interrupted
 publication is retried without treating complete local files as uploaded.
 
-Uploaded encrypted files remain in Product Sync until Product Account deletion,
+Uploaded encrypted files remain in Private Sync until Product Account deletion,
 even after Discard removes the Draft and its unreferenced local files. This keeps
 files recoverable for conflicting edits made on an offline device. Cloud storage
 can therefore grow with discarded files; individual cloud-file cleanup is deferred
@@ -458,7 +458,7 @@ and oversized values; inline-image regressions preserve positions and repetition
 Both hosts' component journeys ignore queued response presses and callbacks from
 an old reader. They also open **Reply All** from the reader, show
 and hide the quoted text, edit, **Undo** and **Redo**, and close without sending.
-Product Sync regressions also continue replies and forwards on a second synthetic
+Private Sync regressions also continue replies and forwards on a second synthetic
 device and through relaunch, retain threading and quoted correspondence, preserve
 response-only and quoted-only divergent edits as copies, and automatically publish
 quoted images after a held import finishes. Verified image bytes survive later
@@ -517,7 +517,7 @@ is lost or whose local confirmation cannot be saved. Relaunch keeps the intended
 local outcome without extra copies, preserves a different device's competing edit,
 and retains the confirmed replay floor while a write is unconfirmed. A failed
 local intent save prevents publication and remains retryable. These scenarios use
-the synthetic storage and Product Sync boundaries.
+the synthetic storage and Private Sync boundaries.
 Separate stores sharing local storage also cover two held updates with a lost
 reply, Discard, continued editing, a revert to confirmed content, a tombstone
 winning the race, recovery after a pre-commit failure, and an earlier reply
@@ -525,7 +525,7 @@ arriving after another store confirmed a newer version.
 
 Host component journeys in `apps/mobile/test/draft-sync.test.tsx` and
 `apps/macos/test/draft-sync.test.tsx` exercise foreground and background AppState
-events against real Draft stores with synthetic storage and Product Sync. They
+events against real Draft stores with synthetic storage and Private Sync. They
 verify that an unexpected subscriber failure is logged without its private
 message, consumed by the automatic pass, and followed by successful synchronization.
 The Mac journey also checks that multiple windows share one Draft pass per app

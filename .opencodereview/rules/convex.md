@@ -1,6 +1,6 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the Convex backend in `packages/convex`.
 
-The backend is an opaque store and relay. It authenticates Product Accounts and Trusted Devices, stores ciphertext and the operational metadata the owning decisions allow, and never reads mail or Product Sync plaintext. Every public function is reachable from the public Internet, including by the deployed Swift prototype.
+The backend is an opaque store and relay. It authenticates Product Accounts and Trusted Devices, stores ciphertext and the operational metadata the owning decisions allow, and never reads mail or Private Sync plaintext. Every public function is reachable from the public Internet, including by the deployed Swift prototype.
 
 Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it overrides general Convex knowledge.
 
@@ -9,7 +9,7 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 - A public `query`, `mutation`, `action` or `httpAction` that reads or writes account data without establishing the caller and the authorization required by that operation. Trace `convex/productAccountAuth.ts` helpers (`requireProductAccount`, `requireAuthenticatedTrustedDevice`, `requireTrustedDeviceProof`, `requireTrustedDevice`) or the owning equivalent boundary. Account bootstrap in `productAccount.connect` derives verified `ctx.auth` identity and checks deletion before creating the account; it cannot require an existing account. Provider HTTP routes use their owning verifier. Follow the handler through authentication and each ownership check before protected data is returned or changed.
 - A Product Account, token or user identifier accepted as an argument and used for authorization. Identity is derived from `ctx.auth.getUserIdentity()` and `tokenIdentifier`; never `subject` alone, and never an email address.
 - A read or write reached by document `_id` or by an index that does not include the owning `productAccountId`, without an ownership comparison afterwards. One account must never observe another's devices, payloads, routes or requests.
-- A new path that skips the deleted-account check (`requireProductAccountNotDeleted`), the Trusted Device revocation or reconnect checks, or the Product Sync key-epoch fence (`requireCurrentProductSyncKeyEpoch`) that its sibling functions apply.
+- A new path that skips the deleted-account check (`requireProductAccountNotDeleted`), the Trusted Device revocation or reconnect checks, or the Private Sync key-epoch fence (`requireCurrentProductSyncKeyEpoch`) that its sibling functions apply.
 - Credentialed-record creation or admission that relies only on an earlier identifier check. `productSyncEnrollment.complete` must recheck the account-scoped installation `deviceIdentifier` tombstone in the transaction that creates the Trusted Device and drop a refused pending record; a current approval or Recovery Key grant cannot override removal.
 - A function called only by other Convex functions registered as public rather than `internalQuery`/`internalMutation`/`internalAction`.
 - An HTTP route that trusts a header, a body field or a provider push before verifying its signature, issuer, audience, expiry and binding to the stored connection. A client-side check never replaces this.
@@ -24,13 +24,13 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 #### Writes, conflicts and atomicity
 
-- A Product Sync payload write that is unconditional or write-if-absent. Writes are compare-and-set on `expectedUpdatedAt`; the atomic mutation checks every revision before any write or delete.
+- A Private Sync payload write that is unconditional or write-if-absent. Writes are compare-and-set on `expectedUpdatedAt`; the atomic mutation checks every revision before any write or delete.
 - `productSync.writeEncryptedPayloadIfUnchanged` making a missing-row revision
   refusal indistinguishable from other failures. Keep its content-free code in
   the shared contract and native decoder; only this refusal permits conflict
   recovery. Otherwise clients either swallow outages as races or cannot reconcile
   an ordinary deleted-record race. Preserve older clients' unknown-error fallback.
-- An ordinary Product Sync record write before the account's recovery envelope is published (`requireRecoveryEnvelope`), or initialization that publishes its initialized marker separately from the recovery envelope. `initialize`/`publishFirstRecoveryEnvelope` atomically create the first envelope and marker; they cannot require a pre-existing envelope.
+- An ordinary Private Sync record write before the account's recovery envelope is published (`requireRecoveryEnvelope`), or initialization that publishes its initialized marker separately from the recovery envelope. `initialize`/`publishFirstRecoveryEnvelope` atomically create the first envelope and marker; they cannot require a pre-existing envelope.
 - An ownership claim, admission, enrollment adoption or rotation split across several `ctx.runMutation` calls from an action. Each mutation is its own transaction, so a concurrent caller interleaves between them; the invariant belongs in one mutation.
 - Destructive cleanup (old key material, routes, credentials, enrollment requests) ordered before the replacement is durably adopted, or with no recovery for a crash between the two.
 - A scheduled function, cron or retry that is not idempotent, or a provider submission retried automatically after an uncertain outcome.

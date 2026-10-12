@@ -27,7 +27,7 @@ Documentation here is product truth that agents execute: an implementer follows 
   statements with the entered Recovery Key, Enrollment Code and IMAP password
   exceptions. Otherwise blanket prohibitions conceal values TypeScript handles and can
   misdirect privacy review.
-- A Product Sync catch-up statement in `docs/private-product-sync.md`, its
+- A Private Sync catch-up statement in `docs/private-product-sync.md`, its
   architecture companion or ADR 0070 that omits or misassigns envelope retention
   ownership. Trace `productSyncKeyEnvelopes` through activation, acknowledgement
   and device deletion: Convex retains each device's latest complete ring envelope
@@ -49,7 +49,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 #### Vocabulary
 
 - A term from `GLOSSARY.md` or a topic glossary replaced by a synonym, a new domain term used without a definition, or a glossary entry changed outside `docs/agents/domain.md`'s policy.
-- Product Sign-In, Trusted Device, Mailbox Connection and Product Sync used interchangeably; they are distinct and their difference carries privacy meaning.
+- Product Sign-In, Trusted Device, Mailbox Connection and Private Sync used interchangeably; they are distinct and their difference carries privacy meaning.
 
 #### Authority and placement
 

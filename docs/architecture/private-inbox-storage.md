@@ -41,7 +41,7 @@ Issue #644 adds `profile` to the decoded `MailboxConnection` in
 the old JSON form and supplies the account-local `defaultProfile` sentinel;
 explicit nonempty ownership is retained and malformed ownership is rejected.
 The registration snapshot keeps the original JSON text. Decoding writes neither
-native storage nor Product Sync, and credentials and encryption keys remain
+native storage nor Private Sync, and credentials and encryption keys remain
 native. The mock registration session deliberately emits the same old-form
 projection as native code.
 
@@ -104,7 +104,7 @@ not proof of isolation during synchronized connection transfer or multi-Profile
 window restoration. Those ownership and lifetime fences belong to #647 before
 another Profile can be created.
 
-Existing encrypted Drafts/assets, Product Sync identifiers, exact Outbox payloads,
+Existing encrypted Drafts/assets, Private Sync identifiers, exact Outbox payloads,
 originating Delivery Owners, pending claims and account cleanup retain their
 current representation and lifecycle. Convex `draftDelivery.ts`, `scheduledSend.ts`,
 `pushRelay.ts` and `apns.ts`, and native `PushRoutes.swift` and `DraftSync.swift`,
@@ -345,7 +345,7 @@ The saved registration is one device-only Keychain record per host and Google cl
 It holds the Product Sign-In's renewal credential, this installation's identifier,
 the Product Account receipt with its Trusted or Pending Device credential, each
 Mailbox Connection's provider credential and receipt, and any removal waiting for its
-answer. Product Sync keys and an open enrollment request are separate Keychain items
+answer. Private Sync keys and an open enrollment request are separate Keychain items
 of the same account.
 
 The [registration flow](../google-registration.md#where-the-registration-flow-runs)
@@ -360,16 +360,16 @@ setup ended, recording or withdrawing removal intent, and purging. Native code s
 a sign-in before any backend request, so an interruption keeps it; it never replaces
 a record that already received a Product Account, and it ignores a record for
 another deployment or client. Purging removes every connection's cache, then the
-Product Sync and enrollment items, and the registration record last, so a failed
+Private Sync and enrollment items, and the registration record last, so a failed
 purge is retried.
 
-The Product Sync projection exposes publication/confirmation state, opaque descriptor
+The Private Sync projection exposes publication/confirmation state, opaque descriptor
 identifiers, read-back bookkeeping and presentation text, never key-ring bytes or
 provider subjects. TypeScript derives status and sequences initialization and
 mailbox reconciliation through purpose-named operations; native persists keys
 before returning the publication payload and applies mailbox bookkeeping deltas to
-the latest saved record. Unreadable Product Sync items fail that projection closed
-without failing registration. See the [Product Sync companion](private-product-sync.md#initialization-and-relaunch).
+the latest saved record. Unreadable Private Sync items fail that projection closed
+without failing registration. See the [Private Sync companion](private-product-sync.md#initialization-and-relaunch).
 
 ## Microsoft mailbox cache
 

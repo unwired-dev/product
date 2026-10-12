@@ -28,7 +28,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
-- [Private Product Sync and the Recovery Key](private-product-sync.md)
+- [Private Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
 
@@ -59,7 +59,7 @@ commands and results do not transfer to new hosts.
 - [Scoped Swift agent guide](../apps/unwired-mail/AGENTS.md)
 - [Mail test environment](mail-test-environment.md)
 - [Protected Gmail test tenant](gmail-provider-test-tenant.md)
-- [Storage and Product Sync export](storage-and-product-sync-export.md)
+- [Storage and Private Sync export](storage-and-product-sync-export.md)
 
 ## Review handoff
 

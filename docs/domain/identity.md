@@ -20,7 +20,7 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **Delete Product Account**:
-An immediate, irreversible action that deletes the user's product identity, operational data, encrypted Product Sync data, and push routes without deleting provider mail.
+An immediate, irreversible action that deletes the user's product identity, operational data, Private Sync data, and push routes without deleting provider mail.
 _Avoid_: Remove Mailbox Connection Everywhere, delete provider mailbox, recoverable deactivation
 
 **Product Account**:
@@ -44,7 +44,7 @@ One app window whose navigation, Unified Mailboxes, Mail Views, search, composer
 _Avoid_: Product Account window, combined workspace
 
 **Profile Record Scope**:
-The opaque Product Sync namespace owned by one **Mail Profile**.
+The opaque Private Sync namespace owned by one **Mail Profile**.
 _Avoid_: provider namespace, device-local directory
 
 **Product Sign-In**:
@@ -64,7 +64,7 @@ Backend-readable account data needed to run identity, billing, device routing, a
 _Avoid_: User organization data, mailbox content
 
 **Trusted Device**:
-A user-approved device authorized to access one **Product Account** and participate in **End-to-End Encrypted Product Sync**.
+A user-approved device authorized to access one **Product Account** and participate in **Private Sync**.
 _Avoid_: Mailbox Authorization, remembered login
 
 **Pending Device**:
@@ -72,7 +72,7 @@ A signed-in device that is not yet a **Trusted Device**. It can only ask to be a
 _Avoid_: unverified Trusted Device, registered device
 
 **Enrollment Code**:
-A one-time code shown on a device waiting for **End-to-End Encrypted Product Sync** keys. A person enters it on a **Trusted Device** to approve that device, and the backend never receives it.
+A one-time code shown on a device waiting for **Private Sync** keys. A person enters it on a **Trusted Device** to approve that device, and the backend never receives it.
 _Avoid_: pairing code, verification code, PIN
 
 **Trusted Device Credential**:
