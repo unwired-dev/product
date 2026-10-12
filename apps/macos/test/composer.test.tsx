@@ -365,11 +365,13 @@ describe('composing Drafts', () => {
           selected: true,
           disabled: false,
         });
-        expect(
-          draftsOf(drafts.getSnapshot())
-            .map(({ connection }) => connection)
-            .toSorted(),
-        ).toStrictEqual([alex, other].toSorted());
+        const connections = draftsOf(drafts.getSnapshot()).map(
+          ({ connection }) => connection,
+        );
+        expect(connections).toHaveLength(2);
+        expect(connections).toStrictEqual(
+          expect.arrayContaining([alex, other]),
+        );
       } finally {
         storage.release();
         await screen.unmount();
