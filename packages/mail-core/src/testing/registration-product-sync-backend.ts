@@ -415,6 +415,62 @@ export function createSyntheticSyncHandlers(
       entry.records.set(record, stored);
       return success(stored);
     },
+    // Every write commits only while each record is still at its expected revision, absent where
+    // none is expected; otherwise nothing changes and the stored records are returned.
+    'productSync:putEncryptedPayloadsAtomically': ({ call, product }) => {
+      const { sync, entry } = accountKeys(product);
+      const writes = Array.isArray(call.args.writes) ? call.args.writes : [];
+      const parsed = writes.flatMap((write: unknown) =>
+        Predicate.hasProperty(write, 'payloadIdentifier') &&
+        Predicate.hasProperty(write, 'encryptedPayload') &&
+        isPayload(write.encryptedPayload)
+          ? [
+              {
+                record: String(write.payloadIdentifier),
+                sealed: write.encryptedPayload,
+                expected:
+                  Predicate.hasProperty(write, 'expectedUpdatedAt') &&
+                  Predicate.isNumber(write.expectedUpdatedAt)
+                    ? write.expectedUpdatedAt
+                    : undefined,
+              },
+            ]
+          : [],
+      );
+      if (parsed.length === 0 || parsed.length !== writes.length) {
+        return refusal('UNAVAILABLE');
+      }
+      for (const { record } of parsed) {
+        sync.beforePut?.(record);
+      }
+      if (
+        parsed.some(({ sealed }) => sealed.keyVersion !== entry.ring?.current)
+      ) {
+        return refusal('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
+      }
+      const existing = parsed.map(({ record }) => entry.records.get(record));
+      if (
+        parsed.some(
+          ({ expected }, index) => existing[index]?.updatedAt !== expected,
+        )
+      ) {
+        return success({
+          committed: false,
+          payloads: existing.filter((stored) => stored !== undefined),
+        });
+      }
+      sync.clock += 1;
+      const payloads = parsed.map(({ record, sealed }) => {
+        const stored = {
+          payloadIdentifier: record,
+          encryptedPayload: sealed,
+          updatedAt: sync.clock,
+        };
+        entry.records.set(record, stored);
+        return stored;
+      });
+      return success({ committed: true, payloads });
+    },
     // The account's recovery envelope; a missing record is null.
     'productSync:getEncryptedPayloadForTrustedDevice': ({ call, product }) => {
       const { sync, entry } = accountKeys(product);

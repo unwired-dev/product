@@ -47,6 +47,10 @@ const KeyRing = Schema.Struct({
   deviceKey: Schema.NonEmptyString,
 });
 const Opened = Schema.Array(Schema.NullOr(MailboxDescriptorSchema));
+const AtomicWrite = Schema.Struct({
+  committed: Schema.Boolean,
+  payloads: Schema.Array(StoredPayload),
+});
 type PrivateSyncState = typeof PrivateSyncStateSchema.Type;
 
 // A removal moved the account to a newer key epoch; the write is sealed again after adopting it.
@@ -404,19 +408,16 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
 
   // Compare-and-set of a sealed record: what Convex stores afterwards, which differs from the
   // write when another one won.
-  const write = Effect.fnUntraced(function* (
-    record: string,
-    sealed: typeof EncryptedPayload.Type,
-    expectedUpdatedAt: number | undefined,
+  // A Product Sync write's reply, decoded; a removal's newer key epoch is its own failure.
+  const written = Effect.fnUntraced(function* <S extends Schema.Top>(
+    path: string,
+    args: Readonly<Record<string, unknown>>,
+    schema: S,
   ) {
     const reply = yield* convexReply({
       endpoint: 'mutation',
-      path: 'productSync:putEncryptedPayloadIfUnchanged',
-      args: {
-        payloadIdentifier: record,
-        encryptedPayload: sealed,
-        ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
-      },
+      path,
+      args,
       session: true,
       device: true,
     });
@@ -426,13 +427,62 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         ? Effect.fail(new KeyRotationRequired())
         : failWith(backendCode(code));
     }
-    const stored = yield* Schema.decodeUnknownEffect(StoredPayload)(
-      reply.value,
-    ).pipe(Effect.catch(unreadable));
+    return yield* Schema.decodeUnknownEffect(schema)(reply.value).pipe(
+      Effect.catch(unreadable),
+    );
+  });
+  const write = Effect.fnUntraced(function* (
+    record: string,
+    sealed: typeof EncryptedPayload.Type,
+    expectedUpdatedAt: number | undefined,
+  ) {
+    const stored = yield* written(
+      'productSync:putEncryptedPayloadIfUnchanged',
+      {
+        payloadIdentifier: record,
+        encryptedPayload: sealed,
+        ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+      },
+      StoredPayload,
+    );
     if (stored.payloadIdentifier !== record) {
       return yield* failWith('unavailable');
     }
     return stored;
+  });
+  // Compare-and-set of several sealed records in one transaction: all commit, or none does and
+  // Convex returns what it stores instead.
+  const writeAll = Effect.fnUntraced(function* (
+    writes: ReadonlyArray<
+      Readonly<{
+        record: string;
+        sealed: typeof EncryptedPayload.Type;
+        expectedUpdatedAt: number | undefined;
+      }>
+    >,
+  ) {
+    const reply = yield* written(
+      'productSync:putEncryptedPayloadsAtomically',
+      {
+        checks: [],
+        deletes: [],
+        writes: writes.map(({ record, sealed, expectedUpdatedAt }) => ({
+          payloadIdentifier: record,
+          encryptedPayload: sealed,
+          ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+        })),
+      },
+      AtomicWrite,
+    );
+    const records = new Set(writes.map(({ record }) => record));
+    if (
+      reply.payloads.some(
+        ({ payloadIdentifier }) => !records.has(payloadIdentifier),
+      )
+    ) {
+      return yield* failWith('unavailable');
+    }
+    return reply;
   });
 
   // Compare-and-set: the stored descriptor, which differs from ours when another write won, or
@@ -456,7 +506,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
 
   const profiles = createMailProfileProgram(vault, {
     list,
-    write,
+    writeAll,
     descriptorEpochs: Effect.gen(function* () {
       const stored = yield* descriptors;
       const epochs = new Map<string, string | null>();

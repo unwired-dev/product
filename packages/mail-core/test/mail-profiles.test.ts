@@ -67,10 +67,7 @@ const delayPublication = (vault: NativeRegistrationVault) => {
   const flow = createRegistrationFlow({
     ...vault,
     call: (request) => {
-      if (
-        request.path === 'productSync:putEncryptedPayloadIfUnchanged' &&
-        String(request.args.payloadIdentifier).startsWith('profile.')
-      ) {
+      if (request.path === 'productSync:putEncryptedPayloadsAtomically') {
         delayed = request;
         return Promise.reject(new Error('Synthetic unanswered publication'));
       }
@@ -93,10 +90,7 @@ const alterProfileReplies = (vault: NativeRegistrationVault) =>
     ...vault,
     call: async (request) => {
       const reply = await vault.call(request);
-      if (
-        request.path !== 'productSync:putEncryptedPayloadIfUnchanged' ||
-        String(request.args.payloadIdentifier).startsWith('mailbox.')
-      ) {
+      if (request.path !== 'productSync:putEncryptedPayloadsAtomically') {
         return reply;
       }
       const altered = Schema.decodeUnknownSync(ReplySchema)(reply);
@@ -284,10 +278,11 @@ describe('mail profiles', () => {
     await expect(flow.removeProfile(work)).resolves.not.toHaveProperty(
       'profiles',
     );
+    // Moving the connection in rewrote Work's definition; its removal is the third write.
     expect(storedProfiles(sync, account)).toContainEqual({
       kind: 'profile',
       id: work,
-      version: 2,
+      version: 3,
     });
 
     // Another device removes the Profile that owns this connection: it belongs to the Default
@@ -384,6 +379,71 @@ describe('mail profiles', () => {
       id: home,
       version: 2,
     });
+  });
+
+  it('never commits both a move into a Profile and that Profile’s removal', async () => {
+    expect.hasAssertions();
+    const { flow, sync, mailboxId } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    const home = profileNamed(await flow.createProfile('Home'), 'Home').id;
+
+    // Another device removes Work between this move's read and its write: nothing is written.
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { kind: 'profile', id: work, version: 2 });
+    };
+    await expect(flow.moveMailbox(id, work)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    expect(
+      storedProfiles(sync, account).filter(({ kind }) => kind === 'mailbox'),
+    ).toStrictEqual([]);
+    expect(owners(await flow.restore())).toStrictEqual([defaultProfile]);
+
+    // Another device moves the connection into Home between this removal's read and its write.
+    await flow.moveMailbox(id, home);
+    await flow.moveMailbox(id, defaultProfile);
+    const ownership = ownershipOf(sync);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...ownership, version: 3, profile: home });
+      storeProfile(sync, account, {
+        kind: 'profile',
+        id: home,
+        version: 3,
+        name: 'Home',
+      });
+    };
+    await expect(flow.removeProfile(home)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    const after = await flow.refreshPrivateSync();
+    expect(listed(after)).toStrictEqual([{ id: home, name: 'Home' }]);
+    expect(owners(after)).toStrictEqual([home]);
+  });
+
+  it('keeps a pending rename of the Profile a connection moves into', async () => {
+    expect.hasAssertions();
+    const { flow, sync, mailboxId } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    sync.offline = true;
+    await flow.renameProfile(work, 'Office');
+    sync.offline = false;
+    // The move rewrites the definition it read, and the new name stays pending until published.
+    expect(listed(await flow.moveMailbox(id, work))).toStrictEqual([
+      { id: work, name: 'Office', pending: true },
+    ]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id: work,
+      version: 2,
+      name: 'Work',
+    });
+    const published = await flow.refreshPrivateSync();
+    expect(listed(published)).toStrictEqual([{ id: work, name: 'Office' }]);
+    expect(owners(published)).toStrictEqual([work]);
   });
 
   it('does not revive a removed Profile or regress connection ownership from replayed authenticated records', async () => {

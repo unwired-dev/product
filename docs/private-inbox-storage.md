@@ -121,10 +121,14 @@ registration store already offers these operations:
   descriptor epoch. The registration snapshot lists that owner as the connection's
   `profile`. A connection added again after removal starts in the Default Profile, as
   does one whose owning Profile was removed.
-- **Moving a connection** needs Private Sync and is one compare-and-set write of its
-  ownership. The target must be the Default Profile or a Profile Private Sync
-  already holds. If another device moved the connection first, the move changes
-  nothing and reports `profile-changed`. The connection's identity, authorization,
+- **Moving a connection** needs Private Sync. The target must be the Default
+  Profile or a Profile Private Sync already holds. A move into another Profile
+  writes the connection's ownership and that Profile's definition in one
+  compare-and-set transaction, so the move and a removal of that Profile on another
+  device never both succeed. A move back to the Default Profile writes only the
+  ownership. If another device changed either record first, the move changes nothing
+  and reports `profile-changed`. A name for the target chosen on this device stays
+  pending and is published afterwards. The connection's identity, authorization,
   cache, Drafts and Outbox stay in place.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
   and, with `profile-in-use`, while the Profile owns a live connection. Unreadable

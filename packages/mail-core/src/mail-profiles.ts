@@ -178,6 +178,49 @@ const named = (name: string) => {
     : Effect.succeed(trimmed);
 };
 
+type Write = Readonly<{
+  record: ProfileRecord;
+  expectedUpdatedAt: number | undefined;
+}>;
+
+// The state with each opened record Convex stores, and whether any was older than one already
+// confirmed, which is left out.
+const merged = (
+  state: ProfileState,
+  opened: ReadonlyArray<ProfileRecord | null>,
+  records: readonly Stored[],
+) => {
+  let next = state;
+  let replayed = false;
+  for (const [index, record] of opened.entries()) {
+    if (record !== null) {
+      replayed ||= olderRecord(next, record);
+      next = olderRecord(next, record)
+        ? next
+        : withRecord(next, record, records[index]?.updatedAt ?? 0);
+    }
+  }
+  return { next, replayed };
+};
+
+// Convex stores exactly these sealed writes.
+const wrote = (
+  sealed: ReadonlyArray<
+    Readonly<{ encryptedPayload: typeof EncryptedPayload.Type }>
+  >,
+  stored: readonly Stored[],
+) => {
+  const ours = new Set(
+    sealed.map(({ encryptedPayload }) => encryptedPayload.ciphertextBase64),
+  );
+  return (
+    stored.length === sealed.length &&
+    stored.every(({ encryptedPayload }) =>
+      ours.has(encryptedPayload.ciphertextBase64),
+    )
+  );
+};
+
 // Mail Profile definitions and connection ownership in End-to-End Encrypted Product Sync. Native
 // code seals each record under an identifier bound to its Profile or connection, so Convex learns
 // neither names nor ownership. Profile writes compare and set; a device that loses applies its
@@ -187,16 +230,24 @@ export function createMailProfileProgram<E>(
   vault: NativeRegistrationVault,
   {
     list,
-    write,
+    writeAll,
     descriptorEpochs,
     freshId,
   }: Readonly<{
     list: (prefix: string) => Effect.Effect<Stored[], E>;
-    write: (
-      record: string,
-      sealed: typeof EncryptedPayload.Type,
-      expectedUpdatedAt: number | undefined,
-    ) => Effect.Effect<Stored, E>;
+    // Compare-and-set of every record in one transaction; uncommitted, it returns what is stored.
+    writeAll: (
+      writes: ReadonlyArray<
+        Readonly<{
+          record: string;
+          sealed: typeof EncryptedPayload.Type;
+          expectedUpdatedAt: number | undefined;
+        }>
+      >,
+    ) => Effect.Effect<
+      Readonly<{ committed: boolean; payloads: readonly Stored[] }>,
+      E
+    >;
     // Every mailbox descriptor's epoch by record; null once removed.
     descriptorEpochs: Effect.Effect<ReadonlyMap<string, string | null>, E>;
     freshId: Effect.Effect<string>;
@@ -213,11 +264,8 @@ export function createMailProfileProgram<E>(
 
   // Every Profile definition and ownership record, merged into the state this device knows. An
   // ownership record that does not open here keeps what this device last read of it.
-  const refreshed = Effect.fnUntraced(function* (state: ProfileState) {
-    const records = [
-      ...(yield* list('profile.')),
-      ...(yield* list('mailbox-profile.')),
-    ];
+  // Every stored record's Profile definition or ownership, or null where it does not open here.
+  const openAll = Effect.fnUntraced(function* (records: readonly Stored[]) {
     const opened =
       records.length === 0
         ? []
@@ -225,20 +273,17 @@ export function createMailProfileProgram<E>(
     if (opened.length !== records.length) {
       return yield* failWith('unavailable');
     }
-    // Retain confirmed owners and version floors even when ciphertext is absent; owners return
-    // to Default through an explicit record.
-    let next = state;
-    let replayed = false;
-    for (const [index, record] of opened.entries()) {
-      if (record !== null) {
-        if (olderRecord(next, record)) {
-          replayed = true;
-        } else {
-          next = withRecord(next, record, records[index]?.updatedAt ?? 0);
-        }
-      }
-    }
-    // A later refusal must not discard authenticated records this read already confirmed.
+    return opened;
+  });
+
+  // Learns what Convex stores. Records older than one already confirmed are refused, after the
+  // others are saved: a later refusal must not discard records this read already confirmed.
+  const learn = Effect.fnUntraced(function* (
+    state: ProfileState,
+    records: readonly Stored[],
+  ) {
+    const opened = yield* openAll(records);
+    const { next, replayed } = merged(state, opened, records);
     yield* save(state, next);
     if (replayed) {
       return yield* failWith('unavailable');
@@ -246,55 +291,48 @@ export function createMailProfileProgram<E>(
     return { state: next, readable: !opened.includes(null) };
   });
 
-  // Seals and compares and sets one record; the state learns what Convex stores afterwards.
+  // Every Profile definition and ownership record, merged into the state this device knows.
+  // Confirmed owners and version floors stay even when their ciphertext is absent; owners return
+  // to the Default Profile only through an explicit record.
+  const refreshed = Effect.fnUntraced(function* (state: ProfileState) {
+    return yield* learn(state, [
+      ...(yield* list('profile.')),
+      ...(yield* list('mailbox-profile.')),
+    ]);
+  });
+
+  // Seals the records and compares and sets them together; the state learns what Convex stores
+  // afterwards. Only stored records that open here as these writes prove they committed.
   const put = Effect.fnUntraced(function* (
     state: ProfileState,
-    record: ProfileRecord,
-    expectedUpdatedAt: number | undefined,
+    writes: readonly Write[],
   ) {
-    const sealed = yield* native(() => vault.sealProfileRecord(record), Sealed);
-    const stored = yield* write(
-      sealed.payloadIdentifier,
-      sealed.encryptedPayload,
-      expectedUpdatedAt,
+    const sealed = yield* Effect.forEach(
+      writes,
+      ({ record }) => native(() => vault.sealProfileRecord(record), Sealed),
+      { concurrency: 1 },
     );
-    const [winner] = yield* native(
-      () => vault.openProfileRecords([stored]),
-      Opened,
+    const { committed, payloads } = yield* writeAll(
+      sealed.map(({ payloadIdentifier, encryptedPayload }, index) => ({
+        record: payloadIdentifier,
+        sealed: encryptedPayload,
+        expectedUpdatedAt: writes[index]?.expectedUpdatedAt,
+      })),
     );
-    if (winner !== undefined && winner !== null && olderRecord(state, winner)) {
-      return yield* failWith('unavailable');
-    }
-    const readable = winner !== undefined && winner !== null;
-    const next = readable ? withRecord(state, winner, stored.updatedAt) : state;
-    yield* save(state, next);
+    const learned = yield* learn(state, payloads);
     return {
-      // Only a stored record that opens here proves which write won.
-      readable,
-      committed:
-        readable &&
-        stored.encryptedPayload.ciphertextBase64 ===
-          sealed.encryptedPayload.ciphertextBase64,
-      state: next,
+      ...learned,
+      committed: committed && learned.readable && wrote(sealed, payloads),
     };
   });
 
   // A write that needs Product Sync: the state keeps what Convex stores, and losing to another
   // device's write changes nothing here.
-  const commit = Effect.fnUntraced(function* ({
-    state,
-    record,
-    expectedUpdatedAt,
-  }: Readonly<{
-    state: ProfileState;
-    record: ProfileRecord;
-    expectedUpdatedAt: number | undefined;
-  }>) {
-    const { readable, committed } = yield* put(
-      state,
-      record,
-      expectedUpdatedAt,
-    );
+  const commit = Effect.fnUntraced(function* (
+    state: ProfileState,
+    writes: readonly Write[],
+  ) {
+    const { readable, committed } = yield* put(state, writes);
     if (!committed) {
       return yield* failWith(readable ? 'profile-changed' : 'unavailable');
     }
@@ -306,11 +344,17 @@ export function createMailProfileProgram<E>(
     let { state } = yield* refreshed(yield* known);
     for (const { id, pending, version, updatedAt } of state.profiles) {
       if (pending !== undefined) {
-        ({ state } = yield* put(
-          state,
-          { kind: 'profile', id, version: (version ?? 0) + 1, name: pending },
-          updatedAt,
-        ));
+        ({ state } = yield* put(state, [
+          {
+            record: {
+              kind: 'profile',
+              id,
+              version: (version ?? 0) + 1,
+              name: pending,
+            },
+            expectedUpdatedAt: updatedAt,
+          },
+        ]));
       }
     }
   });
@@ -371,15 +415,18 @@ export function createMailProfileProgram<E>(
     if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
       return yield* failWith('profile-in-use');
     }
-    yield* commit({
-      state,
-      record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },
-      expectedUpdatedAt: profile.updatedAt,
-    });
+    yield* commit(state, [
+      {
+        record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },
+        expectedUpdatedAt: profile.updatedAt,
+      },
+    ]);
   });
 
   // Moves the current incarnation of one of this device's connections to a published Profile, or
-  // back to the Default Profile. Its identity, authorization, cache and Drafts stay in place.
+  // back to the Default Profile. Its identity, authorization, cache and Drafts stay in place. A move
+  // into another Profile rewrites that Profile's definition in the same transaction, so it and a
+  // concurrent removal of that Profile never both commit.
   const move = Effect.fnUntraced(function* (
     value: RegistrationRecord,
     connection: string,
@@ -387,10 +434,16 @@ export function createMailProfileProgram<E>(
   ) {
     const { record, epoch } = yield* incarnationOf(value, connection);
     const { state } = yield* refreshed(yield* known);
+    if (!receives(state, profile)) {
+      return yield* failWith('unavailable');
+    }
+    if (ownerOf(state, record, epoch) === profile) {
+      return;
+    }
     const current = state.owners.find((owner) => owner.record === record);
-    if (receives(state, profile) && ownerOf(state, record, epoch) !== profile) {
-      return yield* commit({
-        state,
+    const target = state.profiles.find(({ id }) => id === profile);
+    yield* commit(state, [
+      {
         record: {
           kind: 'mailbox',
           record,
@@ -399,11 +452,21 @@ export function createMailProfileProgram<E>(
           profile,
         },
         expectedUpdatedAt: current?.updatedAt,
-      });
-    }
-    if (!receives(state, profile)) {
-      return yield* failWith('unavailable');
-    }
+      },
+      ...(target?.version === undefined
+        ? []
+        : [
+            {
+              record: {
+                kind: 'profile' as const,
+                id: profile,
+                version: target.version + 1,
+                ...(target.name === undefined ? {} : { name: target.name }),
+              },
+              expectedUpdatedAt: target.updatedAt,
+            },
+          ]),
+    ]);
   });
 
   return { synchronize, create, rename, remove, move };
