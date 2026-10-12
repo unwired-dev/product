@@ -12,7 +12,7 @@ desktop host.
 
 Read the issue, [documentation index](docs/README.md), relevant
 [domain index](GLOSSARY.md), its relevant topic glossary, and the nearest nested
-`AGENTS.md` before editing.
+`AGENTS.md` before editing. For user-visible work, also read the [design](#design).
 
 ## Implementation and review
 
@@ -33,8 +33,11 @@ for every implementation, including later implementation fixes.
   Use the workflow's Open Code Review delegation step and resolved repository
   rules for architecture checking inside that review agent. After its final
   report, spawn a second review agent with the same arguments to run the global
-  `thermo-nuclear-code-quality-review` skill.
-  Pause writes until both final reports; later implementer edits need another review.
+  `thermo-nuclear-code-quality-review` skill. When the task changes anything
+  user-visible, then spawn a third review agent with the same arguments for the
+  workflow's [design review](docs/agents/implementation-review.md#design-review).
+  Pause writes until every required final report; later implementer edits need
+  another review.
 - Never pause implementation for a user decision. Send it to the workflow's
   [decision panel](docs/agents/implementation-review.md#decision-panel)
   (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.
@@ -98,6 +101,28 @@ For multi-step tasks, state a brief plan:
 Strong criteria let you loop independently; weak ones ("make it work") need
 constant clarification.
 
+## Design
+
+[DESIGN.md](DESIGN.md) and the
+[Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
+Figma file define how the maintained clients look and behave. Implement every
+user-visible change according to them.
+
+- Before changing UI, read DESIGN.md and inspect the matching frames through the
+  Figma MCP server: the macOS, iPadOS and iOS pages are organized into numbered
+  or platform-prefixed sections (for example "2 · Inbox" or "iPhone · Mail"), each
+  with Light and Dark frames.
+- Use the shared tokens in `packages/mail-core/src/theme.ts`, which mirror
+  DESIGN.md, and SF Symbols. Do not introduce new colors, type sizes, radii or
+  icon styles.
+- Follow the frames for layout, copy, states and platform behavior on Mac, iPad
+  and iPhone. When the design conflicts with a product requirement, or a needed
+  state has no frame, send it to the
+  [decision panel](docs/agents/implementation-review.md#decision-panel) instead
+  of inventing a pattern, and list the gap in the PR so the design can follow.
+- User-visible changes also pass the
+  [design review](docs/agents/implementation-review.md#design-review).
+
 ## Work
 
 - When changing product terminology or `GLOSSARY.md`, follow the
@@ -137,7 +162,7 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   tests, and internal refactors may omit one.
 - Track work in [GitHub Issues](docs/agents/issue-tracker.md) using the
   [triage labels](docs/agents/issue-tracker.md#triage-labels) and native blocking dependencies.
-- Every implementation request ends in a PR: once both reviews finish, commit,
+- Every implementation request ends in a PR: once all required reviews finish, commit,
   push, and open a PR ready for review that references its issue, without
   asking. The request itself authorizes the commit, push, and PR unless it
   sets an explicit limit such as "local changes only" or "do not push"; then

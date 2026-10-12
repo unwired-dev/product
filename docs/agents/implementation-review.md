@@ -1,15 +1,18 @@
 # Implementation and review
 
-Every implementation hands off to two separate review agents, in sequence,
-before delivery:
+Every implementation hands off to separate review agents, in sequence, before
+delivery:
 
 1. The **OCR reviewer** runs the [Open Code Review delegation](#open-code-review-delegation)
    and the repository rules, including architecture checks.
 2. After the OCR reviewer's final report, the **thermo-nuclear reviewer** runs
    the [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
    on the result.
+3. When the task changes anything user-visible, after the thermo-nuclear
+   reviewer's final report, the **design reviewer** runs the
+   [design review](#design-review) of the app against the design.
 
-Both review agents always use `gpt-6.1-sol` with `high` reasoning, regardless of
+All review agents always use `gpt-6.1-sol` with `high` reasoning, regardless of
 the implementer's model or reasoning effort. Pass both settings explicitly.
 If that configuration or agent spawning is unavailable, report the review as
 blocked. An implementer self-review or a different model does not satisfy it.
@@ -27,8 +30,9 @@ provider configuration, and `gpt-6.1-sol` here is the host model identifier.
 
 The implementer reads the user request, originating issue or specification,
 applicable `AGENTS.md` files, source code, topic vocabulary, and operational
-guidance for setup, coding conventions, testing and delivery. External API and
-framework references remain available for implementation.
+guidance for setup, coding conventions, testing and delivery. For user-visible
+work, this includes [DESIGN.md](../../DESIGN.md) and the Figma frames it links.
+External API and framework references remain available for implementation.
 
 Repository architecture documentation belongs exclusively to the review agent:
 
@@ -108,11 +112,19 @@ not itself restrict filesystem or Git-history access.
    [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
    instead of the OCR delegation step. Keep the comparison pinned to the
    starting commit so it covers the implementation and the OCR reviewer's fixes.
-   Keep implementer writes paused until its final report. Never run the two
+   Keep implementer writes paused until its final report. Never run two
    reviewers at once.
-6. Both reviews form one implementation review. Additional implementation
+6. When the task changes anything user-visible, then spawn the design reviewer
+   with the same explicit arguments and `"task_name": "design_review"`. Write it
+   a separate self-contained message with the same context and comparison, both
+   earlier final reports, the changed screens and states, and the Figma sections
+   you implemented against. Tell it to read this workflow and follow the
+   [design review](#design-review). Keep implementer writes paused until its
+   final report. For other tasks, record "design review: not applicable" with
+   the reason in your final report and the PR.
+7. The required reviews form one implementation review. Additional implementation
    edits, including fixes after review or PR feedback, require another pinned
-   review by both reviewers. Give every reviewer and its children the same ownership boundary: no PR
+   review by every required reviewer. Give every reviewer and its children the same ownership boundary: no PR
    watchers, scheduled work, or writes after their final report. A notification
    cannot renew checkout ownership. Stop any pre-existing review watcher before
    returning the checkout; a later review starts as a new delegated task with a
@@ -176,6 +188,43 @@ pass in place of the OCR delegation step:
 4. Rerun the relevant checks and review the corrected result again. Return the
    reviewed scope, findings and their dispositions, files changed, checks and
    results, unavailable checks, and any panel outcomes.
+
+## Design review
+
+The design reviewer has the same responsibilities, reading access, write
+ownership and final-report boundary as the OCR reviewer above, with this review
+pass in place of the OCR delegation step. It applies to every task that changes
+something people see or hear in a maintained client: screens, components,
+styles, copy, icons, motion, notifications or accessibility labels.
+
+1. Read [DESIGN.md](../../DESIGN.md) and the issue. Through the Figma MCP server,
+   locate the frames for every changed screen and state in the
+   [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
+   file on its macOS, iPadOS and iOS pages, in Light and Dark. Use the frames'
+   screenshots as reference and their design context or variables for exact
+   values.
+2. Capture the implemented result for the same screens and states: the Mac host
+   on a logged-in desktop, and iPhone and iPad on task-owned Simulators under the
+   [native validation](native-validation.md) ownership rules, in Light and Dark
+   and in each size class the design shows. Use mock mail sessions or fixtures
+   that resemble the frames' content, and keep the captures with the task's results.
+3. Compare the captures with the frames and DESIGN.md: layout and hierarchy,
+   spacing and sizing, color tokens in both appearances, typography, SF Symbols,
+   Liquid Glass placement, copy and truncation, states (empty, loading, error,
+   selection, disabled) and accessibility (contrast, target sizes, labels).
+   Platform differences that the frames show deliberately are not deviations.
+4. Validate each deviation and fix confirmed ones within the task's scope
+   directly in the checkout, then recapture. Resolve rules with
+   `ocr delegate rule` for every file the fixes touch. A fix that would change
+   product scope, a state the design does not cover, or a conflict between the
+   design and a product requirement goes to the [decision panel](#decision-panel);
+   list design follow-ups in the report.
+5. When a capture target is unavailable, compare the changed code with the frames
+   statically and record each missing capture as deferred. Missing Figma access
+   leaves the design review blocked.
+6. Return the reviewed scope, the frames compared (as links), capture paths,
+   findings and their dispositions, files changed, checks and results, deferred
+   captures, design follow-ups and any panel outcomes.
 
 ## Decision panel
 
@@ -312,9 +361,10 @@ and new code areas that need their own rule.
 
 ## Completion
 
-The implementer delivers only after both required reviewers have finished fixing
+The implementer delivers only after every required reviewer has finished fixing
 validated issues and verifying the final artifact, including the Open Code Review
-delegation step and the thermo-nuclear code quality review. Unresolved findings or an
+delegation step, the thermo-nuclear code quality review and, for user-visible
+changes, the design review. Unresolved findings or an
 unavailable reviewer leave implementation review incomplete; report them
 accurately. Review completion and required CI remain independent gates.
 Delivery then continues automatically, within any explicit user limit: the
