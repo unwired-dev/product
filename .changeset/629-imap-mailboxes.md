@@ -25,3 +25,5 @@ Local search reports actual IMAP body-cache availability. Folder refresh failure
 keep cached rows with a warning, and a removed folder choice falls back to Inbox.
 Both hosts share the exported `imapFolderName` and `imapFolderFailed` projections.
 Case variants of `INBOX` use one folder identity; other folder names stay distinct.
+Successful folder synchronization prunes bodies of expunged or UIDVALIDITY-reset
+messages while retaining saved bodies for rows still shown from an evicted folder.

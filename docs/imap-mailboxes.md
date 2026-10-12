@@ -96,6 +96,14 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
 - Each folder's messages and checkpoint are committed together to the connection's
   encrypted cache, so an interrupted synchronization repeats only the step that did
   not commit. The Inbox and up to eight other opened folders stay cached.
+- After a successful folder synchronization, saved bodies no cached folder lists
+  and no evicted folder view still shows are removed, including messages expunged
+  or replaced by a new UIDVALIDITY.
+  Bodies for rows still shown from an evicted folder remain eligible for retention.
+  Open readers keep their in-memory body, and their still-retained saved bodies
+  are protected against budget eviction as far as they fit. Cleanup skipped for
+  temporary unavailability or a competing cache update retries on a later
+  successful synchronization.
 - The folder list is read on each synchronization, with the special-use roles the
   server declares. Case variants of the reserved `INBOX` name share that spelling;
   other folder names stay as listed, including folders with an inbox role.

@@ -65,6 +65,7 @@ export interface NativeImapMailbox
     | 'openMessageBody'
     | 'commitMessageBody'
     | 'listMessageBodies'
+    | 'retainMessageBodies'
   > {
   // Resolves `{ folders: [{ name, roles, selectable }] }`.
   readonly imapFolders: (
@@ -547,6 +548,41 @@ export function createImapInbox(
     document = next;
   });
 
+  // Bodies of messages that no cached folder lists and no view still shows leave the device, so
+  // expunged or reset mail never crowds out bodies that stay listed. Open readers' bodies stay
+  // protected as far as they fit. A skipped prune happens after the next folder read.
+  const pruneBodies = Effect.gen(function* () {
+    const scope = opened;
+    if (scope === undefined || document === undefined) {
+      return;
+    }
+    const cached = new Set(document.mailboxes.map(({ name }) => name));
+    // A cached folder's document is authoritative; only an evicted folder's shown rows add to it.
+    const kept = new Set(
+      [
+        ...document.mailboxes.flatMap(({ cache }) => cache.messages),
+        ...[...folderViews].flatMap(([name, view]) =>
+          view.kind === 'ready' && !cached.has(name) ? view.messages : [],
+        ),
+      ].map(({ id }) => id),
+    );
+    yield* call(() =>
+      native.retainMessageBodies(scope, [...kept], [...readers.keys()]),
+    ).pipe(
+      Effect.andThen(shared.cache.changed),
+      Effect.catchIf(
+        (failure) => !changesAccess(failure.kind),
+        ({ kind, diagnostic }) =>
+          expected(kind) || kind === 'conflict'
+            ? Effect.void
+            : Effect.logError(
+                'IMAP message bodies were not pruned:',
+                diagnostic,
+              ),
+      ),
+    );
+  });
+
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -585,6 +621,7 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
+    yield* pruneBodies;
   });
 
   // A removed device purged its data; the account page, not the Inbox, explains it. Locked storage

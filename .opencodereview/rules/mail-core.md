@@ -1036,6 +1036,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
   blocked-image placeholders. Placeholder-only mail must keep its rich document
   and readable images notice, including after rendering failure.
+- `imap-inbox.ts.synchronizeFolder` leaving orphaned bodies after a successful
+  folder commit, or pruning from stale shown rows of a still-cached folder.
+  Derive retention from every committed folder and shown rows of evicted folders,
+  use the committed revision with native transaction validation, and retry skipped
+  pruning after later synchronization. Preserve access-changing failure recovery
+  and notify the shared cache coordinator after success; otherwise expunged or
+  UIDVALIDITY-reset bodies consume the device budget, still-shown evicted bodies
+  disappear, or saved-body status remains stale.
 - `createGmailInbox` abandoning failed best-effort body pruning when later
   synchronization commits nothing, or pruning from a stale metadata revision.
   Retry after successful synchronization, preserve cache-only access, and require

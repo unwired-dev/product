@@ -194,6 +194,19 @@ export function createSyntheticImap({
         stored: ids.filter((id) => bodies.has(id)),
         excluded: [],
       }),
+    // Removes every body not named, only at the cache revision the caller read.
+    retainMessageBodies: (mailbox, ids) => {
+      if (mailbox.revision !== cache.revision) {
+        return rejection('conflict');
+      }
+      const kept = new Set(ids);
+      for (const id of bodies.keys()) {
+        if (!kept.has(id)) {
+          bodies.delete(id);
+        }
+      }
+      return Promise.resolve(null);
+    },
   };
 
   return {

@@ -70,8 +70,9 @@ export function syntheticConnections(
         ids,
       ) ?? missing(),
     retainMessageBodies: (mailbox, ids, protectedIds) =>
-      of(mailbox.connection)?.retainMessageBodies(mailbox, ids, protectedIds) ??
-      missing(),
+      (
+        server(mailbox.connection) ?? of(mailbox.connection)
+      )?.retainMessageBodies(mailbox, ids, protectedIds) ?? missing(),
     saveAttachment: (mailbox, attachment) =>
       of(mailbox.connection)?.saveAttachment(mailbox, attachment) ?? missing(),
     discardAttachment: (mailbox, file) =>

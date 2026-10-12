@@ -132,10 +132,12 @@ describe('imap reader image and lifetime boundaries', () => {
     const inbox = createImapInbox(imap.native, { shared });
     await inbox.load();
     const id = firstId(inbox);
+    const saves = shared.cache.getSnapshot();
     const close = inbox.retainMessage(id);
     await inbox.readMessage(id);
     expect(rich(inbox, id).document).not.toContain('data:image/png');
-    expect(shared.cache.getSnapshot()).toBe(1);
+    // The downloaded body is saved once.
+    expect(shared.cache.getSnapshot()).toBe(saves + 1);
     close();
   });
 
