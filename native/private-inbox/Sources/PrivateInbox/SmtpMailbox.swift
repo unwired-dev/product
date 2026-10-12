@@ -201,8 +201,14 @@ extension RegistrationStore {
     guard Self.sentBoundary(boundary), !folder.isEmpty, folder.count <= 1_000 else {
       throw RegistrationError.unavailable
     }
+    let product = try mailboxAccount(id)
     let message = try await outgoingMessage(
-      segments: segments, owner: try mailboxAccount(id).productAccountId)
+      segments: segments, owner: product.productAccountId)
+    guard let deviceRevoked else { throw RegistrationError.unavailable }
+    if try await deviceRevoked(product) {
+      try await purge()
+      throw RegistrationError.revoked
+    }
     try await imapWork(connection: id, address: address, generation: generation) {
       try await imap.fileSent($0, password: $1, folder: folder, boundary: boundary, message: message)
     }

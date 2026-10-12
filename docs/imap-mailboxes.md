@@ -298,7 +298,7 @@ and IDLE interruption and recovery. The shared tests use a controlled provider f
 than a wire server, through the real Inbox store and encrypted-cache contract. They
 also cover registration through the synthetic vault and MIME parsing against
 `postal-mime`. The sending journeys (`test/imap-send.test.ts`) run the real Draft store,
-Outbox and IMAP Inbox against the controlled IMAP and SMTP server: one submission from
+Outbox and IMAP Inbox against controlled native bridge fixtures for IMAP and SMTP: one submission from
 the sending connection only, a delivered copy without Bcc and a Sent copy with it and
 the same Message-ID, a lost filing answer and a relaunch while filing without a second
 copy or submission, each refusal before acceptance, an ambiguous acceptance confirmed
@@ -319,8 +319,10 @@ refusal without MOVE or UIDPLUS, a refused destination, a connection dropped aft
 a removed folder, cross-folder search, and IDLE waking on a change and timing out. A
 TLS SMTP fixture beside it, with the same certificate, checks real SwiftMail submission
 over implicit TLS and STARTTLS, leaving a server without STARTTLS before any password,
-a refused password, a temporary refusal, a permanent refusal after the message, and a
-connection dropped after the message's end read as unknown. The IMAP fixture checks
+a refused password, a temporary refusal, a refused recipient without partial delivery,
+a permanent refusal after the message, and interruptions at MAIL FROM, RCPT TO, DATA,
+during content, and after the message's end. Content-phase interruptions remain unknown;
+earlier interruptions remain safe to retry. The IMAP fixture checks
 the Sent copy's header search and a single APPEND that filing again finds. Its certificate
 never changes production validation or trust on the host Mac.
 

@@ -330,7 +330,100 @@ const server = tls.createServer(
       sparse: false,
       literal: undefined,
     };
+    const appendLiteral = () => {
+      const { tag, size } = session.literal;
+      const message = input.slice(0, size);
+      input = input.slice(size + 2);
+      session.literal = undefined;
+      const boundary = /boundary="(?<boundary>[^"]+)"/u.exec(message)?.groups
+        ?.boundary;
+      assert.ok(boundary, 'An appended Sent copy carries its MIME boundary');
+      assert.ok(
+        !appended.has(boundary),
+        'A Sent copy must never be appended twice',
+      );
+      appended.add(boundary);
+      operations.add('append');
+      socket.write(`${tag} OK [APPENDUID 9 31] Appended\r\n`);
+    };
     // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
+    const answerLine = (line) => {
+      const separator = line.indexOf(' ');
+      const tag = line.slice(0, separator);
+      const command = line.slice(separator + 1);
+      const ok = () => socket.write(`${tag} OK Completed\r\n`);
+      const literal = /^APPEND "?Sent"? \(\\Seen\) \{(?<size>\d+)\}$/u.exec(
+        command,
+      );
+      if (literal?.groups?.size !== undefined) {
+        session.literal = { tag, size: Number(literal.groups.size) };
+        socket.write('+ Ready for the message\r\n');
+      } else if (answerChange(socket, session, { tag, command })) {
+        // Answered above.
+      } else if (command === 'CAPABILITY') {
+        socket.write(`* CAPABILITY ${capabilitiesOf(user, namespaces)}\r\n`);
+        ok();
+      } else if (command.startsWith('LOGIN ')) {
+        if (command.includes('refused')) {
+          operations.add('refused');
+          socket.write(`${tag} NO [AUTHENTICATIONFAILED] Refused\r\n`);
+        } else {
+          assert.match(command, /synthetic-password/u);
+          user = userOf(command);
+          session.user = user;
+          overflowing = command.includes('many-folders');
+          namespaceFailure = command.includes('namespace-failure');
+          namespaces = ['namespace-failure', 'namespaced'].some((name) =>
+            command.includes(name),
+          );
+          ok();
+        }
+      } else if (command === 'NAMESPACE') {
+        discoverNamespaces(socket, tag, namespaceFailure);
+      } else if (command.startsWith('LIST ')) {
+        listFolders(socket, command, overflowing);
+        ok();
+      } else if (/^(?:UID )?FETCH /u.test(command)) {
+        assert.ok(
+          session.identified,
+          'An unidentified folder must not fetch messages',
+        );
+        assert.ok(!command.includes('BODY['), 'Body reads must use PEEK');
+        if (command.includes('BODY.PEEK[]')) {
+          operations.add('body');
+          if (command.startsWith('UID FETCH 12 ')) {
+            operations.add('oversized');
+            // Send only the hostile declaration. The native parser must refuse before waiting
+            // for or retaining payload; a timeout is a regression, not a passing refusal.
+            socket.write(
+              `* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`,
+            );
+          } else {
+            assert.match(command, /^UID FETCH 11 /u);
+            socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
+            socket.write(raw);
+            socket.write(`)\r\n${tag} OK Read\r\n`);
+          }
+        } else {
+          assertResumed(command, session);
+          operations.add(
+            command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size',
+          );
+          const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
+          const fields = metadataFields(command, session.large ? 511 : named);
+          socket.write(
+            `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
+          );
+          ok();
+        }
+      } else if (command === 'LOGOUT') {
+        operations.add('logout');
+        socket.end(`* BYE Logging out\r\n${tag} OK Logout\r\n`);
+      } else {
+        // Includes non-PEEK body reads and plain EXPUNGE: reading never mutates mail.
+        assert.fail(`Unexpected fixture command: ${command}`);
+      }
+    };
     socket.on('data', (bytes) => {
       input += bytes.toString('ascii');
       assert.ok(input.length <= 8192, 'Fixture command exceeded its bound');
@@ -341,102 +434,12 @@ const server = tls.createServer(
           ? (end = input.indexOf('\r\n')) !== -1
           : input.length >= session.literal.size + 2
       ) {
-        if (session.literal !== undefined) {
-          const { tag, size } = session.literal;
-          const message = input.slice(0, size);
-          input = input.slice(size + 2);
-          session.literal = undefined;
-          const boundary = /boundary="(?<boundary>[^"]+)"/u.exec(message)
-            ?.groups?.boundary;
-          assert.ok(
-            boundary,
-            'An appended Sent copy carries its MIME boundary',
-          );
-          assert.ok(
-            !appended.has(boundary),
-            'A Sent copy must never be appended twice',
-          );
-          appended.add(boundary);
-          operations.add('append');
-          socket.write(`${tag} OK [APPENDUID 9 31] Appended\r\n`);
-          continue;
-        }
-        const line = input.slice(0, end);
-        input = input.slice(end + 2);
-        const separator = line.indexOf(' ');
-        const tag = line.slice(0, separator);
-        const command = line.slice(separator + 1);
-        const ok = () => socket.write(`${tag} OK Completed\r\n`);
-        const literal = /^APPEND "?Sent"? \(\\Seen\) \{(?<size>\d+)\}$/u.exec(
-          command,
-        );
-        if (literal?.groups?.size !== undefined) {
-          session.literal = { tag, size: Number(literal.groups.size) };
-          socket.write('+ Ready for the message\r\n');
-        } else if (answerChange(socket, session, { tag, command })) {
-          // Answered above.
-        } else if (command === 'CAPABILITY') {
-          socket.write(`* CAPABILITY ${capabilitiesOf(user, namespaces)}\r\n`);
-          ok();
-        } else if (command.startsWith('LOGIN ')) {
-          if (command.includes('refused')) {
-            operations.add('refused');
-            socket.write(`${tag} NO [AUTHENTICATIONFAILED] Refused\r\n`);
-          } else {
-            assert.match(command, /synthetic-password/u);
-            user = userOf(command);
-            session.user = user;
-            overflowing = command.includes('many-folders');
-            namespaceFailure = command.includes('namespace-failure');
-            namespaces = ['namespace-failure', 'namespaced'].some((name) =>
-              command.includes(name),
-            );
-            ok();
-          }
-        } else if (command === 'NAMESPACE') {
-          discoverNamespaces(socket, tag, namespaceFailure);
-        } else if (command.startsWith('LIST ')) {
-          listFolders(socket, command, overflowing);
-          ok();
-        } else if (/^(?:UID )?FETCH /u.test(command)) {
-          assert.ok(
-            session.identified,
-            'An unidentified folder must not fetch messages',
-          );
-          assert.ok(!command.includes('BODY['), 'Body reads must use PEEK');
-          if (command.includes('BODY.PEEK[]')) {
-            operations.add('body');
-            if (command.startsWith('UID FETCH 12 ')) {
-              operations.add('oversized');
-              // Send only the hostile declaration. The native parser must refuse before waiting
-              // for or retaining payload; a timeout is a regression, not a passing refusal.
-              socket.write(
-                `* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`,
-              );
-            } else {
-              assert.match(command, /^UID FETCH 11 /u);
-              socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
-              socket.write(raw);
-              socket.write(`)\r\n${tag} OK Read\r\n`);
-            }
-          } else {
-            assertResumed(command, session);
-            operations.add(
-              command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size',
-            );
-            const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
-            const fields = metadataFields(command, session.large ? 511 : named);
-            socket.write(
-              `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
-            );
-            ok();
-          }
-        } else if (command === 'LOGOUT') {
-          operations.add('logout');
-          socket.end(`* BYE Logging out\r\n${tag} OK Logout\r\n`);
+        if (session.literal === undefined) {
+          const line = input.slice(0, end);
+          input = input.slice(end + 2);
+          answerLine(line);
         } else {
-          // Includes non-PEEK body reads and plain EXPUNGE: reading never mutates mail.
-          assert.fail(`Unexpected fixture command: ${command}`);
+          appendLiteral();
         }
       }
     });

@@ -40,7 +40,7 @@ An acknowledgement that may tell a sender their message was opened, kept separat
 _Avoid_: Read status, unread indicator
 
 **Outbox**:
-A product-owned queue containing outgoing messages that are pending, retrying, or failed rather than confirmed as sent.
+A product-owned queue containing outgoing messages awaiting delivery or recovery, including accepted SMTP messages whose Sent copy still needs filing.
 _Avoid_: Sent Mailbox, sent folder
 
 **Draft**:

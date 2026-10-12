@@ -18,10 +18,15 @@ extension PrivateInboxTests {
     }
     let imap = ControlledImap()
     let smtp = ControlledSmtp()
+    var proofAvailable = true
+    var revoked = false
     let store = RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: SyntheticGoogleRegistrationProvider(), imap: imap, smtp: smtp,
-      deviceRevoked: { _ in false },
+      deviceRevoked: { _ in
+        guard proofAvailable else { throw RegistrationError.unavailable }
+        return revoked
+      },
       mailCache: PrivateInboxStore(directory: directory, service: service),
       connect: { identity, _, _ in
         ProductRegistrationReceipt(
@@ -122,6 +127,23 @@ extension PrivateInboxTests {
         generation: generation)
     }
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
+    // Filing is a provider write too: no server access without a current device proof.
+    let requests = imap.requests().count
+    proofAvailable = false
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.imapFileSent(
+        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
+    proofAvailable = true
+    revoked = true
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.imapFileSent(
+        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
+    #expect(imap.requests().count == requests)
+    #expect(try store.load() == nil)
   }
 
   // The unchanged SwiftMail SMTP client over verified implicit TLS and STARTTLS: a server that
@@ -165,6 +187,20 @@ extension PrivateInboxTests {
     }
     await #expect(throws: PrivateInboxError.deliveryUnknown) {
       try await send(endpoint(ports[1], startTLS: true, "drop"))
+    }
+
+    // Lost replies before message content remain safe; any content-phase interruption is unknown.
+    for phase in ["drop-mail", "drop-rcpt", "drop-data"] {
+      await #expect(throws: SmtpFailure.offline) {
+        try await send(endpoint(ports[0], startTLS: false, phase))
+      }
+    }
+    await #expect(throws: PrivateInboxError.deliveryUnknown) {
+      try await send(endpoint(ports[0], startTLS: false, "drop-body"))
+    }
+    // One accepted recipient plus one refused recipient must never submit partial delivery.
+    await #expect(throws: SmtpFailure.rejected) {
+      try await send(endpoint(ports[0], startTLS: false, "reject-recipient"))
     }
 
     let imapPort = try #require(

@@ -48,10 +48,26 @@ const session = (initial, { upgrade, secure }) => {
     closed += 1;
   });
   const write = (line) => socket.write(`${line}\r\n`);
+  const interruptions = new Map([
+    ['drop-mail', 'MAIL FROM:'],
+    ['drop-rcpt', 'RCPT TO:'],
+    ['drop-data', 'DATA'],
+  ]);
+  const interrupt = (command) => {
+    const prefix = interruptions.get(user);
+    if (prefix === undefined || !command.startsWith(prefix)) {
+      return false;
+    }
+    operations.add(user);
+    socket.destroy();
+    return true;
+  };
   // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
   const answer = (line) => {
     const command = line.toUpperCase();
-    if (command.startsWith('EHLO ')) {
+    if (interrupt(command)) {
+      // Closed before any message content could be accepted.
+    } else if (command.startsWith('EHLO ')) {
       // Authentication is offered only inside TLS.
       write('250-localhost');
       write(encrypted ? '250-AUTH PLAIN' : '250-PIPELINING');
@@ -93,7 +109,12 @@ const session = (initial, { upgrade, secure }) => {
     } else if (command.startsWith('RCPT TO:')) {
       assert.match(line, /^RCPT TO:<(?:sam|jo)@example\.invalid>$/iu);
       operations.add('rcpt');
-      write('250 2.1.5 OK');
+      if (user === 'reject-recipient' && command.includes('JO@')) {
+        operations.add('recipient-rejected');
+        write('550 5.1.1 Recipient refused');
+      } else {
+        write('250 2.1.5 OK');
+      }
     } else if (command === 'DATA') {
       data = true;
       message = '';
@@ -123,6 +144,7 @@ const session = (initial, { upgrade, secure }) => {
     }
   };
   function listen() {
+    // fallow-ignore-next-line complexity -- The hosted SMTP test executes every submission phase; static JS coverage cannot see the Swift caller.
     socket.on('data', (bytes) => {
       input += bytes.toString('ascii');
       assert.ok(input.length <= 65_536, 'Fixture input exceeded its bound');
@@ -134,6 +156,10 @@ const session = (initial, { upgrade, secure }) => {
           answer(line);
         } else if (line === '.') {
           finish();
+        } else if (user === 'drop-body') {
+          operations.add('drop-body');
+          socket.destroy();
+          return;
         } else {
           message += `${line}\r\n`;
         }
@@ -164,16 +190,17 @@ servers[0].on('tlsClientError', (_error, socket) => {
   socket.destroy();
 });
 let listening = 0;
+const didListen = () => {
+  listening += 1;
+  if (listening === servers.length) {
+    writeFileSync(
+      file('smtp-ports'),
+      servers.map((each) => each.address().port).join(','),
+    );
+  }
+};
 for (const server of servers) {
-  server.listen(0, '127.0.0.1', () => {
-    listening += 1;
-    if (listening === servers.length) {
-      writeFileSync(
-        file('smtp-ports'),
-        servers.map((each) => each.address().port).join(','),
-      );
-    }
-  });
+  server.listen(0, '127.0.0.1', didListen);
 }
 process.on('SIGTERM', () => {
   const remaining = sockets.size;
@@ -190,9 +217,14 @@ process.on('SIGTERM', () => {
     'auth-starttls',
     'auth-tls',
     'busy',
+    'drop-body',
+    'drop-data',
+    'drop-mail',
+    'drop-rcpt',
     'dropped',
     'plaintext',
     'rcpt',
+    'recipient-rejected',
     'rejected',
     'smtp-refused',
     'starttls',

@@ -341,6 +341,177 @@ describe('sending through SMTP and filing Sent copies', () => {
     }
   });
 
+  it('keeps malformed native answers pending without a second submission', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    const { native } = sending.servers.work;
+    const submit = vi.spyOn(native, 'imapSend');
+    const file = vi.spyOn(native, 'imapFileSent');
+    try {
+      const unknown = await sending.addressed();
+      submit.mockResolvedValueOnce({ accepted: false });
+      await sending.outbox.send(() => sending.draft(unknown));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id: unknown, state: 'unknown' },
+      ]);
+      await sending.outbox.process();
+      const accepted = await sending.addressed();
+      file.mockResolvedValueOnce(null);
+      await sending.outbox.send(() => sending.draft(accepted));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id: unknown, state: 'unknown' },
+        { id: accepted, state: 'filing' },
+      ]);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id: unknown, state: 'unknown' },
+      ]);
+      expect({
+        submissions: sending.servers.work.smtp.accepted.length,
+        changes: sending.servers.work.server.changes,
+      }).toStrictEqual({ submissions: 1, changes: ['append Sent'] });
+    } finally {
+      submit.mockRestore();
+      file.mockRestore();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('rechecks the Sent folder after claim admission before SMTP submission', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    const delivery = present(sending.storage.delivery, 'delivery claims');
+    const claim = delivery.claimDraftDelivery;
+    const held = vi
+      .spyOn(delivery, 'claimDraftDelivery')
+      .mockImplementation(async (...args) => {
+        const reply = await claim(...args);
+        sending.servers.work.removeFolder('Sent');
+        await sending.mailboxes.load();
+        return reply;
+      });
+    try {
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'failed', problem: 'sent-folder' },
+      ]);
+      expect(sending.servers.work.smtp.accepted).toStrictEqual([]);
+    } finally {
+      held.mockRestore();
+      sending.outbox.dispose();
+    }
+  });
+
+  it.each([
+    {
+      failure: 'gmail-unavailable',
+      expected: { kind: 'ready', status: 'authentication' },
+    },
+    { failure: 'locked', expected: { kind: 'locked' } },
+    { failure: 'mailbox-revoked', expected: { kind: 'failed' } },
+  ])(
+    'applies $failure during Sent filing to the owning mailbox',
+    async ({ failure, expected }) => {
+      expect.hasAssertions();
+      const sending = await imapSender();
+      try {
+        const id = await sending.addressed();
+        await sending.outbox.send(() => sending.draft(id));
+        later(undoSendWindow);
+        sending.servers.work.server.failure = failure;
+        await sending.outbox.process();
+        const mailbox = sending.mailboxes
+          .getConnections()
+          .find(({ id: connection }) => connection === work.id);
+        expect(mailbox?.inbox.getSnapshot()).toMatchObject(expected);
+        expect(sending.servers.work.smtp.accepted).toHaveLength(1);
+        expect(sending.servers.work.server.changes).toStrictEqual([]);
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'filing' },
+        ]);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it.each([
+    { failure: 'locked', state: 'locked', outcome: 'queued' },
+    { failure: 'mailbox-revoked', state: 'failed', outcome: 'failed' },
+  ])(
+    'closes stale mail presentation after SMTP reports $failure',
+    async ({ failure, state, outcome }) => {
+      expect.hasAssertions();
+      const sending = await imapSender();
+      try {
+        const id = await sending.addressed();
+        await sending.outbox.send(() => sending.draft(id));
+        later(undoSendWindow);
+        sending.servers.work.smtp.failure = failure;
+        await sending.outbox.process();
+        const mailbox = sending.mailboxes
+          .getConnections()
+          .find(({ id: connection }) => connection === work.id);
+        expect(mailbox?.inbox.getSnapshot()).toMatchObject({ kind: state });
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: outcome },
+        ]);
+        expect(sending.servers.work.smtp.accepted).toStrictEqual([]);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it('keeps an interrupted Sent lookup unknown and discards its stale reply', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    const { native } = sending.servers.work;
+    const find = vi.spyOn(native, 'imapFindSent');
+    try {
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      sending.servers.work.smtp.lost = true;
+      later(undoSendWindow);
+      await sending.outbox.process();
+      sending.servers.work.server.failure = 'locked';
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+      const mailbox = present(
+        sending.mailboxes
+          .getConnections()
+          .find(({ id: connection }) => connection === work.id),
+        'mailbox',
+      );
+      expect(mailbox.inbox.getSnapshot()).toStrictEqual({ kind: 'locked' });
+      sending.servers.work.server.failure = undefined;
+      await sending.mailboxes.load();
+      const pending = Promise.withResolvers<unknown>();
+      const calls = find.mock.calls.length;
+      find.mockReturnValueOnce(pending.promise);
+      const checked = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(find).toHaveBeenCalledTimes(calls + 1);
+      });
+      mailbox.inbox.forget();
+      pending.resolve({ count: 1 });
+      await expect(checked).resolves.toBe(false);
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      expect(sending.servers.work.smtp.accepted).toHaveLength(1);
+    } finally {
+      find.mockRestore();
+      sending.outbox.dispose();
+    }
+  });
+
   it('sends only from connections with verified SMTP and a declared Sent folder', async () => {
     expect.hasAssertions();
     const sending = await imapSender();

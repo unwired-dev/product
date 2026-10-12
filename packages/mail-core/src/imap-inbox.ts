@@ -337,6 +337,10 @@ const call = (operation: () => Promise<unknown>) =>
       });
     },
   });
+const decodeAccepted = Schema.decodeUnknownEffect(
+  Schema.Struct({ accepted: Schema.Literal(true) }),
+);
+const decodeFiled = Schema.decodeUnknownEffect(Schema.Struct({}));
 const decodeStoredBodies = Schema.decodeUnknownEffect(
   Schema.Struct({
     stored: Schema.Array(Schema.String),
@@ -1716,11 +1720,20 @@ export function createImapInbox(
       });
     }
     return runLogged(
-      Effect.tryPromise({
-        try: () =>
-          native.imapSend({ segments: message.segments, recipients }, scope),
-        catch: sendRejection,
-      }).pipe(
+      call(() =>
+        native.imapSend({ segments: message.segments, recipients }, scope),
+      ).pipe(
+        Effect.tapError((failure) =>
+          current(scope) && changesAccess(failure.kind)
+            ? loadFailed(failure)
+            : Effect.void,
+        ),
+        Effect.mapError(({ cause }) => sendRejection(cause)),
+        Effect.flatMap((reply) =>
+          decodeAccepted(reply).pipe(
+            Effect.mapError((): SendOutcome => ({ kind: 'unknown' })),
+          ),
+        ),
         Effect.match({
           onFailure: (outcome) => outcome,
           onSuccess: (): SendOutcome => ({ kind: 'accepted' }),
@@ -1750,8 +1763,16 @@ export function createImapInbox(
           segments: message.segments,
         }),
       ).pipe(
+        Effect.flatMap((reply) =>
+          decodeFiled(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.tapError((failure) =>
+          current(scope) && changesAccess(failure.kind)
+            ? loadFailed(failure)
+            : Effect.void,
+        ),
         Effect.match({
-          onSuccess: () => undefined,
+          onSuccess: () => (current(scope) ? undefined : 'offline'),
           onFailure: ({ kind }): DeliveryProblem => {
             if (kind === 'authentication') {
               return 'authorization';
@@ -1779,9 +1800,18 @@ export function createImapInbox(
         Effect.flatMap((reply) =>
           decodeCount(reply).pipe(Effect.mapError(malformed)),
         ),
+        Effect.tapError((failure) =>
+          current(scope) && changesAccess(failure.kind)
+            ? loadFailed(failure)
+            : Effect.void,
+        ),
         Effect.match({
-          onSuccess: ({ count }): SendOutcome | undefined =>
-            count === 1 ? { kind: 'sent' } : { kind: 'unknown' },
+          onSuccess: ({ count }): SendOutcome | undefined => {
+            if (!current(scope)) {
+              return undefined;
+            }
+            return count === 1 ? { kind: 'sent' } : { kind: 'unknown' };
+          },
           onFailure: ({ kind }): SendOutcome | undefined =>
             kind === 'invalidated' ? undefined : { kind: 'unknown' },
         }),

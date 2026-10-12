@@ -183,7 +183,7 @@ function ImapForm({
         secureTextEntry: true,
         textContentType: 'password',
       })}
-      {guidance === 'other' ? (
+      {guidance === 'other' || repair?.smtp !== undefined ? (
         <ManualSending
           field={field}
           security={smtpSecurityOf(fields)}
@@ -340,6 +340,7 @@ function ManualSending({
                 {
                   color:
                     choice === security ? colors.accent : colors.foreground,
+                  fontWeight: choice === security ? '700' : '400',
                 },
               ]}>
               {t(`imap.security.${choice}`)}

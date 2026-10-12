@@ -212,6 +212,23 @@ export function createOutbox({
       : 'mailbox';
   };
 
+  // Whether a queued message may be handed off now: a problem that refuses it for good, 'wait'
+  // while an IMAP connection's listing has not named the Sent folder for its copy, or undefined.
+  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined => {
+    const problem = senderProblem(draft);
+    if (problem !== undefined) {
+      return problem;
+    }
+    const folder = sentFolderOf(draft);
+    if (folder === null) {
+      return 'sent-folder';
+    }
+    return folder === undefined &&
+      connectionOf(draft.connection)?.provider === 'imap'
+      ? 'wait'
+      : undefined;
+  };
+
   const record = (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'accepted') {
       return drafts.deliver(id, (entry) =>
@@ -313,20 +330,22 @@ export function createOutbox({
       return;
     }
     const sending = entryOf(id);
-    const mailbox =
-      sending === undefined
-        ? undefined
-        : connectionOf(sending.draft.connection);
+    if (sending === undefined) {
+      await keep(id, { kind: 'queued', problem: 'offline' });
+      return;
+    }
+    const mailbox = connectionOf(sending.draft.connection);
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
-    if (sending !== undefined) {
-      const problem = senderProblem(sending.draft);
-      if (problem !== undefined) {
-        await keep(id, { kind: 'failed', problem });
-        return;
-      }
+    const problem = handoffCheck(sending.draft);
+    if (problem !== undefined) {
+      await keep(id, {
+        kind: problem === 'wait' ? 'queued' : 'failed',
+        problem: problem === 'wait' ? 'offline' : problem,
+      });
+      return;
     }
     let outcome: SendOutcome = { kind: 'queued', problem: 'offline' };
-    if (sending !== undefined && mailbox !== undefined) {
+    if (mailbox !== undefined) {
       const { to, cc, bcc } = sending.draft;
       outcome =
         mailbox.provider === 'imap'
@@ -438,23 +457,6 @@ export function createOutbox({
       }
     }
     return true;
-  };
-
-  // Whether a queued message may be handed off now: a problem that refuses it for good, 'wait'
-  // while an IMAP connection's listing has not named the Sent folder for its copy, or undefined.
-  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined => {
-    const problem = senderProblem(draft);
-    if (problem !== undefined) {
-      return problem;
-    }
-    const folder = sentFolderOf(draft);
-    if (folder === null) {
-      return 'sent-folder';
-    }
-    return folder === undefined &&
-      connectionOf(draft.connection)?.provider === 'imap'
-      ? 'wait'
-      : undefined;
   };
 
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
