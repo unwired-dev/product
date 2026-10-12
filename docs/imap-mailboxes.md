@@ -4,8 +4,9 @@ Setup, coding rules, validation and observable requirements remain in this file.
 
 [#629](https://github.com/unwired-dev/product/issues/629) connects a
 **Standards-Based Mailbox Connection** over IMAP and reads its folders and messages on
-iPhone, iPad and Mac. Sending through SMTP is [#631](https://github.com/unwired-dev/product/issues/631),
-so every IMAP connection is **receive only** until then. [#630](https://github.com/unwired-dev/product/issues/630)
+iPhone, iPad and Mac. [#631](https://github.com/unwired-dev/product/issues/631) sends
+through its SMTP server and files a copy in its Sent folder; a connection is complete
+only once both its IMAP and SMTP logins verified. [#630](https://github.com/unwired-dev/product/issues/630)
 organizes and searches IMAP mail at the server and keeps it fresh with IDLE where the
 server offers it; certification against real iCloud Mail and Fastmail mailboxes is
 [#632](https://github.com/unwired-dev/product/issues/632).
@@ -35,22 +36,41 @@ IMAP mailbox**.
 | Fastmail            | `imap.fastmail.com`   | 993     | The full address                   |
 | Another IMAP server | Entered by the person | Entered | Entered, or the address when blank |
 
+| Provider            | SMTP server           | Port and security                        | User name                               |
+| ------------------- | --------------------- | ---------------------------------------- | --------------------------------------- |
+| iCloud Mail         | `smtp.mail.me.com`    | 587, STARTTLS                            | The full address                        |
+| Fastmail            | `smtp.fastmail.com`   | 465, SSL/TLS                             | The full address                        |
+| Another IMAP server | Entered by the person | Entered; SSL/TLS on 465, else STARTTLS\* | Entered, or the IMAP user name if blank |
+
+\* The form's **SSL/TLS** or **STARTTLS** choice follows the port until the person
+chooses one.
+
 iCloud Mail retries once with the full address when the server refuses the name
 part, following [Apple's mail settings](https://support.apple.com/en-us/102525).
 A successful retry saves that user name for later password repair. A refused full
 address, an unreachable server or a TLS failure is not retried this way.
 
-The form shows the endpoint it will contact before **Connect**. iCloud Mail and
-Fastmail require an app-specific password; the form says so. Every connection uses
-**Secure Mail Transport**: TLS from the first byte (implicit TLS), TLS 1.2 or newer, and
-certificate verification against the system's trusted roots with no override. A server
-that offers no verified TLS is refused before any credential is sent. STARTTLS and
-plaintext ports are not offered in this slice.
+The form shows both endpoints it will contact before **Connect**. iCloud Mail and
+Fastmail require an app-specific password, which signs in to both IMAP and SMTP; the
+form says so. Another IMAP server's form adds an **Outgoing (SMTP)** group: server,
+port, **SSL/TLS** or **STARTTLS**, and optionally an SMTP user name and password when
+they differ from the incoming ones. Every connection uses **Secure Mail Transport**:
+TLS 1.2 or newer and certificate verification against the system's trusted roots with
+no override. IMAP uses TLS from the first byte (implicit TLS); STARTTLS and plaintext
+IMAP ports are not offered. SMTP uses implicit TLS, or STARTTLS that the server must
+offer before any authentication; a server that offers neither is left before any
+credential is sent.
 
-Native code owns IMAP password custody. The password is supplied only when connecting
-or repairing a connection; it is never returned to JavaScript or sent to Convex,
-Private Sync or Google. Hosts may receive the address and reviewed endpoint, without
-its password.
+**Connect** logs in to IMAP, then to SMTP on its own, and adds or repairs the connection
+only when both accept. Native code owns password custody. Passwords are supplied only
+when connecting or repairing a connection; they are never returned to JavaScript or
+sent to Convex, Private Sync or Google. Hosts may receive the address and reviewed
+endpoints, without passwords.
+
+A connection saved before SMTP receives only: the account page says **Receive only.
+Enter the password again to set up sending.**, and it cannot be chosen as a sender.
+Entering its password again shows its provider's SMTP endpoint, or an empty
+**Outgoing (SMTP)** group for another server, and verifies SMTP before sending is set up.
 
 The connection is identified by its endpoint and user name, so connecting the same
 account again repairs it with the new password instead of adding a second one. Its
@@ -73,7 +93,9 @@ reason survives relaunch:
 | --------------- | -------------------------------------------------------- |
 | `imap-refused`  | The server refused the user name and password            |
 | `imap-insecure` | TLS could not be established with a verified certificate |
-| `imap-offline`  | The server could not be reached, or any other failure    |
+| `smtp-refused`  | The SMTP server refused the user name and password       |
+| `smtp-insecure` | SMTP offered no verified TLS, implicit or by STARTTLS    |
+| `imap-offline`  | A server could not be reached, or any other failure      |
 
 Adding another IMAP mailbox beside existing ones reports the failure in the form and
 changes nothing. Every launch logs in to each IMAP connection again. A refused password
@@ -154,7 +176,8 @@ The current reader supports:
 - Remote Message Content is never loaded for IMAP mail; the reader says so, and the
   per-mailbox remote content setting is not offered for IMAP connections.
 - Received attachments are counted, not listed or downloadable.
-- There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail.
+- There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
+  message can be sent from an IMAP connection, as [Sending](#sending) describes.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
@@ -206,6 +229,37 @@ or older matches were left out; a folder the server no longer selects is skipped
 results join Gmail's and Microsoft's in the unified Inbox, newest first, and open in the
 reader without being saved.
 
+## Sending
+
+A connection with verified SMTP is offered in **From** like a Gmail mailbox, and its
+messages use the [Outbox](outbox.md): the Undo Send Window, the Convex claim, and
+durable handoff before submission. Sending also needs exactly one selectable folder
+the server declares with the `\Sent` role; without one, Send refuses with **This
+mailbox's mail server has no Sent folder to keep a copy, so it cannot send.** A message
+waits to send until the connection's folder list has been read.
+
+- Native code inserts the verified file bytes, logs in to SMTP with the connection's
+  SMTP password (or its IMAP one), and submits from the connection's address to the To,
+  Cc and Bcc recipients. The submitted copy leaves out the Bcc field; the message names
+  its own Message-ID.
+- A refusal before the server could accept the message keeps it apart from an uncertain
+  one. A refused password says **Not sent. The mail server did not accept this
+  mailbox's password.**, a server's permanent refusal (including a refused recipient)
+  says **Not sent. The mail server refused this message.**, a message over the server's
+  advertised size limit is too large, and a temporary refusal, an unreachable server
+  or a failed TLS setup waits to send and tries again.
+- Once the message's end may have reached the server without a final answer, its
+  outcome is **Delivery unknown** and it is never submitted again automatically.
+  **Check Again** looks for exactly one copy with its MIME boundary in the Sent folder,
+  which confirms it; otherwise it stays unknown until the person chooses **Edit Anyway**.
+- A message SMTP accepted is recorded as sent before its copy is filed, and the row says
+  **Sent. Saving a copy to Sent…**. Filing appends the message, with its Bcc field,
+  read, to the Sent folder unless a copy with its MIME boundary is already there, so a
+  lost answer or a relaunch files it again without a second copy and never submits the
+  message again. While filing waits, the row says why: the server cannot be reached,
+  storage is locked, the password was refused, or the Sent folder is gone. Edit is not
+  offered for an accepted message. Removing the connection drops a copy still waiting.
+
 ## Engine and dependencies
 
 The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) 1.16.0. Its exact
@@ -225,7 +279,7 @@ sources without Swift packages and gets an engine stub instead.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
@@ -243,8 +297,17 @@ and IDLE interruption and recovery. The shared tests use a controlled provider f
 ([`testing/imap-mailbox.ts`](../packages/mail-core/src/testing/imap-mailbox.ts)), rather
 than a wire server, through the real Inbox store and encrypted-cache contract. They
 also cover registration through the synthetic vault and MIME parsing against
-`postal-mime`. The native suite checks password custody, Gmail isolation and stale
-operations. The plaintext-server test exercises the real SwiftMail transport refusing
+`postal-mime`. The sending journeys (`test/imap-send.test.ts`) run the real Draft store,
+Outbox and IMAP Inbox against the controlled IMAP and SMTP server: one submission from
+the sending connection only, a delivered copy without Bcc and a Sent copy with it and
+the same Message-ID, a lost filing answer and a relaunch while filing without a second
+copy or submission, each refusal before acceptance, an ambiguous acceptance confirmed
+only by one Sent copy, a stop after acceptance read as unknown, and refusal without a
+Sent folder or verified SMTP. `test/imap-registration.test.ts` checks that SMTP is
+verified on its own with its own password and that each form builds its reviewed SMTP
+endpoint. The native suite checks password custody, Gmail isolation and stale
+operations, SMTP verification before a connection is added, the SMTP password, the
+envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing
 a connection before credentials are sent.
 
 The hosted iOS runner owns a TLS IMAP protocol fixture, its synthetic certificate,
@@ -253,11 +316,16 @@ real engine authentication, folders, incremental UID reads, raw body reads,
 UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
-a removed folder, cross-folder search, and IDLE waking on a change and timing out. Its certificate
+a removed folder, cross-folder search, and IDLE waking on a change and timing out. A
+TLS SMTP fixture beside it, with the same certificate, checks real SwiftMail submission
+over implicit TLS and STARTTLS, leaving a server without STARTTLS before any password,
+a refused password, a temporary refusal, a permanent refusal after the message, and a
+connection dropped after the message's end read as unknown. The IMAP fixture checks
+the Sent copy's header search and a single APPEND that filing again finds. Its certificate
 never changes production validation or trust on the host Mac.
 
-Real iCloud Mail and Fastmail read, organizing, search and IDLE qualification remains
-required before release
+Real iCloud Mail and Fastmail read, organizing, search, IDLE, SMTP submission and Sent
+filing qualification remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts. Native Mock Mail Sessions currently refuse IMAP connection attempts; the shared

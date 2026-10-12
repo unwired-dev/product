@@ -12,7 +12,11 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
-import { ImapEndpointSchema, endpointMatchesProvider } from './imap-setup.ts';
+import {
+  ImapEndpointSchema,
+  SmtpEndpointSchema,
+  endpointMatchesProvider,
+} from './imap-setup.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -84,6 +88,8 @@ const MailboxesSchema = Schema.fromJsonString(
       address: Schema.NonEmptyString,
       // The reviewed IMAP endpoint, shown again when its password is entered again.
       imap: Schema.optionalKey(ImapEndpointSchema),
+      // The verified SMTP endpoint; an IMAP connection without one receives only.
+      smtp: Schema.optionalKey(SmtpEndpointSchema),
       state: Schema.Literals(['connected', 'cached', 'authorization']),
       // A removal/recreation changes this owner lifetime; ordinary verification does not.
       epoch: Schema.optionalKey(Schema.NonEmptyString),
@@ -193,6 +199,8 @@ export const RegistrationSnapshotSchema = Schema.Union([
         'imap-refused',
         'imap-offline',
         'imap-insecure',
+        'smtp-refused',
+        'smtp-insecure',
       ]),
     ),
   }),
@@ -270,7 +278,12 @@ const isEnrollmentUnavailable = Schema.is(
 );
 export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
 
-const ImapFailureSchema = Schema.Literals(['imap-refused', 'imap-insecure']);
+const ImapFailureSchema = Schema.Literals([
+  'imap-refused',
+  'imap-insecure',
+  'smtp-refused',
+  'smtp-insecure',
+]);
 export type ImapFailure = typeof ImapFailureSchema.Type | 'failed';
 const imapFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ImapFailureSchema }),

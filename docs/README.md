@@ -18,7 +18,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [Microsoft mail connection and Graph Inbox](microsoft-mail.md)
-- [IMAP mailboxes: setup, synchronization and the receive-only reader](imap-mailboxes.md)
+- [IMAP mailboxes: setup, synchronization, reading and SMTP sending](imap-mailboxes.md)
 - [On-device message summaries](message-summaries.md)
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)

@@ -6,12 +6,13 @@ import type {
 
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './composer.tsx';
 import { useLocalization } from './localization.ts';
 import { useOutbox } from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -49,27 +50,68 @@ const problems = {
   assets: 'outbox.failed.assets',
   'too-large': 'outbox.failed.too-large',
   refused: 'outbox.failed.refused',
+  'sent-folder': 'outbox.failed.sent-folder',
 } as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// The same reasons for a message sent through an IMAP connection's mail server, where the copy
+// above names Gmail.
+const serverProblems = {
+  ...problems,
+  offline: 'outbox.queued.offline_imap',
+  authorization: 'outbox.failed.authorization_imap',
+  'too-large': 'outbox.failed.too-large_imap',
+  refused: 'outbox.failed.refused_imap',
+} as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// Why an accepted message's Sent copy still waits.
+const filing: Readonly<
+  Partial<
+    Record<
+      DeliveryProblem,
+      `outbox.filing.${'offline' | 'locked' | 'authorization' | 'sent-folder'}`
+    >
+  >
+> = {
+  offline: 'outbox.filing.offline',
+  locked: 'outbox.filing.locked',
+  authorization: 'outbox.filing.authorization',
+  'sent-folder': 'outbox.filing.sent-folder',
+};
 
 // Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
-// refused and why, or handed to Gmail without a confirmed outcome.
-const statusOf = (t: Translate, { state, problem }: OutboxEntry) => {
+// sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
+// outcome.
+const statusOf = (
+  t: Translate,
+  { state, problem }: OutboxEntry,
+  imap: boolean,
+) => {
+  if (state === 'filing') {
+    return t(
+      (problem === undefined ? undefined : filing[problem]) ??
+        'outbox.state.filing',
+    );
+  }
   if ((state === 'queued' || state === 'failed') && problem !== undefined) {
-    return t(problems[problem]);
+    return t((imap ? serverProblems : problems)[problem]);
   }
   if (state === 'failed') {
-    return t('outbox.failed.refused');
+    return t(imap ? 'outbox.failed.refused_imap' : 'outbox.failed.refused');
+  }
+  if (state === 'unknown') {
+    return t(imap ? 'outbox.state.unknown_imap' : 'outbox.state.unknown');
   }
   return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
 };
 
-// The way out of an unknown outcome: ask Gmail again, or, after a warning that Gmail may already
-// have sent it, return the message to the Drafts to send again deliberately.
+// The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
+// provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
   id,
+  imap,
   onEdit,
 }: {
   readonly id: string;
+  // Sent through an IMAP connection's mail server rather than Gmail.
+  readonly imap: boolean;
   readonly onEdit: () => void;
 }) {
   const outbox = useOutbox();
@@ -80,7 +122,7 @@ function UnknownRecovery({
   >('idle');
   const notice =
     step === 'unconfirmed' || step === 'confirming'
-      ? t(`outbox.unknown.${step}`)
+      ? t(imap ? `outbox.unknown.${step}_imap` : `outbox.unknown.${step}`)
       : undefined;
   return (
     <View style={styles.recovery}>
@@ -151,7 +193,11 @@ export function OutboxRow({
   const colors = usePalette();
   const { t } = useLocalization();
   const { subject, recipients } = draftSummary(t, entry.draft);
-  const status = statusOf(t, entry);
+  const imap =
+    use(AccountContext)?.mailboxes.find(
+      ({ id }) => id === entry.draft.connection,
+    )?.provider === 'imap';
+  const status = statusOf(t, entry, imap);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
@@ -187,7 +233,9 @@ export function OutboxRow({
           {status}
         </Text>
       </View>
-      {entry.state === 'sending' || entry.state === 'unknown' ? null : (
+      {entry.state === 'sending' ||
+      entry.state === 'filing' ||
+      entry.state === 'unknown' ? null : (
         <Action
           label={t(`outbox.${returning}`)}
           onPress={edit}
@@ -196,6 +244,7 @@ export function OutboxRow({
       {entry.state === 'unknown' ? (
         <UnknownRecovery
           id={entry.id}
+          imap={imap}
           onEdit={edit}
         />
       ) : null}

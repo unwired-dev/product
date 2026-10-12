@@ -1005,19 +1005,29 @@ export const rewriteLabel = (at: Selection) =>
     ? 'assistance.rewriteDraftLabel'
     : 'assistance.rewriteSelectionLabel';
 
-// Why the last Send left the Draft in the composer, if it did.
+// Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
+// connection's mail server is not limited by Gmail.
 function SendRefusalNotice({
   refused,
+  connection,
 }: {
   readonly refused: SendRefusal | undefined;
+  readonly connection: string;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const imap =
+    use(AccountContext)?.mailboxes.find(({ id }) => id === connection)
+      ?.provider === 'imap';
   return refused === undefined ? null : (
     <Text
       accessibilityRole="alert"
       style={[styles.notice, { color: colors.foreground }]}>
-      {t(`drafts.sendRefused.${refused}`)}
+      {t(
+        refused === 'too-large' && imap
+          ? 'drafts.sendRefused.too-large_imap'
+          : `drafts.sendRefused.${refused}`,
+      )}
     </Text>
   );
 }
@@ -1719,7 +1729,10 @@ function Editor({
             {t('drafts.invalidRecipients')}
           </Text>
         ) : null}
-        <SendRefusalNotice refused={refused} />
+        <SendRefusalNotice
+          connection={draft.connection}
+          refused={refused}
+        />
         {closing === 'discard' ? (
           <View style={styles.bar}>
             <Text

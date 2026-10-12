@@ -159,6 +159,13 @@ protocol ImapProvider: Sendable {
   // Waits in IDLE on the folder for up to `seconds`; true once the server reports a change.
   func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
     -> Bool
+  // How many messages in the folder carry the MIME boundary in their Content-Type.
+  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
+    async throws -> Int
+  // Appends the message, read, to the folder unless a message with its boundary is already there.
+  func fileSent(
+    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
+  ) async throws
 }
 
 #if canImport(SwiftMail)
@@ -169,7 +176,7 @@ protocol ImapProvider: Sendable {
 struct SwiftMailImap: ImapProvider {
   private static let folderLimit = 1_000
   // SwiftMail logs hosts, folder names and server replies; none of them leaves this process.
-  private static let quiet: Void = LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
+  static let quiet: Void = LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
 
   private func session<Value: Sendable>(
     _ account: ImapAccount, _ password: String,
@@ -496,6 +503,41 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
+  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
+    async throws -> Int
+  {
+    try await session(account, password) { server in
+      try await Self.sentCopies(server, folder: folder, boundary: boundary)
+    }
+  }
+
+  func fileSent(
+    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
+  ) async throws {
+    try await session(account, password) { server in
+      // An earlier filing whose answer was lost may have stored the copy already.
+      guard try await Self.sentCopies(server, folder: folder, boundary: boundary) == 0 else {
+        return
+      }
+      try await server.append(
+        rawMessage: String(decoding: message, as: UTF8.self), to: folder, flags: [.seen],
+        internalDate: nil)
+    }
+  }
+
+  private static func sentCopies(_ server: IMAPServer, folder: String, boundary: String)
+    async throws -> Int
+  {
+    do {
+      _ = try await examine(server, folder: folder)
+    } catch IMAPError.selectFailed {
+      throw ImapFailure.missing
+    }
+    let found: ExtendedSearchResult<UID> = try await server.extendedSearch(
+      criteria: [.header("Content-Type", boundary)])
+    return found.all?.count ?? 0
+  }
+
   private static func flag(_ flag: Flag) -> String {
     switch flag {
     case .seen: "\\Seen"
@@ -557,6 +599,16 @@ struct SwiftMailImap: ImapProvider {
     {
       throw ImapFailure.offline
     }
+    func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
+      async throws -> Int
+    {
+      throw ImapFailure.offline
+    }
+    func fileSent(
+      _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
+    ) async throws {
+      throw ImapFailure.offline
+    }
   }
 #endif
 
@@ -565,25 +617,31 @@ extension RegistrationStore {
   nonisolated static let imapMessageLimit = 40 * 1024 * 1024
 
   // The connection's IMAP account and password, while it is connected and still this account.
-  private func imapConnection(_ id: String) throws -> (ImapAccount, String, MailboxConnection) {
+  func imapConnection(_ id: String) throws -> (ImapAccount, String, MailboxConnection) {
     guard let saved = try load(), saved.accountRemoval == nil, let connection = saved.connection(id),
       connection.authorizationNeeded != true, let account = connection.imap
     else { throw RegistrationError.gmailUnavailable }
     return (account, String(decoding: connection.credential, as: UTF8.self), connection)
   }
 
-  // Verifies an IMAP login, then adds it as a connection, or repairs the connection for the same
-  // account and address. The password stays in this device's registration record.
-  func connectImap(address: String, account: ImapAccount, password: String) async throws
-    -> [String: Any]
-  {
+  // Verifies the IMAP login, then the SMTP login on its own, and only then adds the connection, or
+  // repairs the connection for the same account and address. `smtpPassword` is a separate SMTP
+  // password; without one SMTP uses the IMAP password. Passwords stay in this device's record.
+  func connectImap(
+    address: String, account: ImapAccount, password: String, smtp: SmtpAccount,
+    smtpPassword: String?
+  ) async throws -> [String: Any] {
     guard let product = try saved().product, product.pending != true,
       address.count <= 320, address.contains("@"),
-      address.rangeOfCharacter(from: .whitespacesAndNewlines) == nil, !password.isEmpty
+      address.rangeOfCharacter(from: .whitespacesAndNewlines) == nil, !password.isEmpty,
+      smtpPassword?.isEmpty != true
     else { throw RegistrationError.unavailable }
     try await imap.verify(account, password: password)
+    try await self.smtp.verify(smtp, password: smtpPassword ?? password)
     let receipt = GmailRegistrationReceipt(subject: account.subject, address: address, provider: .imap)
-    try addConnection(credential: Data(password.utf8), receipt: receipt, imap: account)
+    try addConnection(
+      credential: Data(password.utf8), receipt: receipt, imap: account, smtp: smtp,
+      smtpCredential: smtpPassword.map { Data($0.utf8) })
     return ["connection": MailboxConnection.id(receipt), "address": address]
   }
 
@@ -606,7 +664,7 @@ extension RegistrationStore {
 
   // Runs one IMAP operation for a verified connection at the generation the caller opened. Work
   // that finishes after a removal, sign-out or another verification is discarded.
-  private func imapWork<Value>(
+  func imapWork<Value>(
     connection id: String, address: String, generation expected: String,
     _ work: (ImapAccount, String) async throws -> Value
   ) async throws -> Value {

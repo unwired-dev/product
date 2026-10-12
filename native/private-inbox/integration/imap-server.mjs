@@ -103,6 +103,8 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
+// Sent copies appended by MIME boundary; filing the same message again must find, not append.
+const appended = new Set();
 const discoverNamespaces = (socket, tag, failed) => {
   if (failed) {
     operations.add('namespace-refused');
@@ -256,6 +258,17 @@ const answerChange = (socket, session, { tag, command }) => {
     socket.write(
       `* 1 FETCH (${metadataFields(command, 4_000_000_000).join(' ')})\r\n${tag} OK Completed\r\n`,
     );
+  } else if (/^UID SEARCH .*HEADER/u.test(command)) {
+    // A Sent copy is found by its MIME boundary in Content-Type.
+    assert.equal(session.selected, 'Sent');
+    const boundary =
+      /HEADER "?Content-Type"? "?(?<boundary>[\w=.-]+)"?$/iu.exec(command)
+        ?.groups?.boundary;
+    assert.ok(boundary, `Unexpected Sent search: ${command}`);
+    operations.add(appended.has(boundary) ? 'sent-found' : 'sent-search');
+    socket.write(
+      `* SEARCH${appended.has(boundary) ? ' 31' : ''}\r\n${tag} OK Completed\r\n`,
+    );
   } else if (command.startsWith('UID SEARCH ')) {
     assert.match(command, /TEXT "?Controlled"?$/u);
     operations.add('search');
@@ -315,20 +328,52 @@ const server = tls.createServer(
       identified: false,
       large: false,
       sparse: false,
+      literal: undefined,
     };
     // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
     socket.on('data', (bytes) => {
       input += bytes.toString('ascii');
       assert.ok(input.length <= 8192, 'Fixture command exceeded its bound');
       let end = -1;
-      while ((end = input.indexOf('\r\n')) !== -1) {
+      // An APPEND's message arrives as a literal after the continuation request.
+      while (
+        session.literal === undefined
+          ? (end = input.indexOf('\r\n')) !== -1
+          : input.length >= session.literal.size + 2
+      ) {
+        if (session.literal !== undefined) {
+          const { tag, size } = session.literal;
+          const message = input.slice(0, size);
+          input = input.slice(size + 2);
+          session.literal = undefined;
+          const boundary = /boundary="(?<boundary>[^"]+)"/u.exec(message)
+            ?.groups?.boundary;
+          assert.ok(
+            boundary,
+            'An appended Sent copy carries its MIME boundary',
+          );
+          assert.ok(
+            !appended.has(boundary),
+            'A Sent copy must never be appended twice',
+          );
+          appended.add(boundary);
+          operations.add('append');
+          socket.write(`${tag} OK [APPENDUID 9 31] Appended\r\n`);
+          continue;
+        }
         const line = input.slice(0, end);
         input = input.slice(end + 2);
         const separator = line.indexOf(' ');
         const tag = line.slice(0, separator);
         const command = line.slice(separator + 1);
         const ok = () => socket.write(`${tag} OK Completed\r\n`);
-        if (answerChange(socket, session, { tag, command })) {
+        const literal = /^APPEND "?Sent"? \(\\Seen\) \{(?<size>\d+)\}$/u.exec(
+          command,
+        );
+        if (literal?.groups?.size !== undefined) {
+          session.literal = { tag, size: Number(literal.groups.size) };
+          socket.write('+ Ready for the message\r\n');
+        } else if (answerChange(socket, session, { tag, command })) {
           // Answered above.
         } else if (command === 'CAPABILITY') {
           socket.write(`* CAPABILITY ${capabilitiesOf(user, namespaces)}\r\n`);
@@ -414,6 +459,7 @@ process.on('SIGTERM', () => {
     assert.equal(closed, connected, 'Native adapter left a TLS session open');
     assert.deepEqual([...operations].toSorted(), [
       'absent',
+      'append',
       'body',
       'bounded-search-fetch',
       'copy',
@@ -440,6 +486,8 @@ process.on('SIGTERM', () => {
       'refused',
       'search',
       'select',
+      'sent-found',
+      'sent-search',
       'shared-list',
       'store-deleted',
       'store-seen',

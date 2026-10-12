@@ -51,6 +51,7 @@ extension RegistrationStore {
     if let error = error as? RegistrationError { return error.code }
     if (error as? PrivateInboxError) == .locked { return "locked" }
     if let error = error as? ImapFailure { return error.code }
+    if let error = error as? SmtpFailure { return error.code }
     return transientMailboxFailure(error) ? "offline" : "unavailable"
   }
 }
@@ -134,6 +135,10 @@ struct MailboxConnection: Codable {
   var receipt: GmailRegistrationReceipt
   // Present for a Standards-Based Mailbox Connection; its receipt's subject names this account.
   var imap: ImapAccount? = nil
+  // Its SMTP endpoint, once verified; connections saved before SMTP receive only until then.
+  var smtp: SmtpAccount? = nil
+  // A separate SMTP password; without one SMTP uses `credential`.
+  var smtpCredential: Data? = nil
   // Gmail refused this mailbox's grant; nothing reaches it until it is authorized again.
   var authorizationNeeded: Bool?
   // The synchronized descriptor's epoch this authorization belongs to. A new epoch means the
@@ -381,6 +386,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // Absent where the host has no Microsoft client configured.
   let microsoft: (any MicrosoftMailProvider)?
   let imap: any ImapProvider
+  let smtp: any SmtpProvider
   // Receives the device's previous receipt, whose Product Account a reconnect must reach.
   let connect:
     (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
@@ -417,6 +423,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
     microsoft: (any MicrosoftMailProvider)? = nil, imap: any ImapProvider = SwiftMailImap(),
+    smtp: any SmtpProvider = SwiftMailSmtp(),
     productSync: ProductSyncBackend? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
     transport: BackendTransport? = nil, mailCache: PrivateInboxStore? = nil,
@@ -431,6 +438,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     self.apple = apple
     self.microsoft = microsoft
     self.imap = imap
+    self.smtp = smtp
     self.productSync = productSync
     self.deviceRevoked = deviceRevoked
     self.transport = transport
@@ -475,6 +483,12 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
         // The reviewed endpoint, shown again when its password is entered again; never the password.
         if let imap = connection.imap {
           entry["imap"] = ["host": imap.host, "port": imap.port, "username": imap.username]
+        }
+        if let smtp = connection.smtp {
+          entry["smtp"] = [
+            "host": smtp.host, "port": smtp.port, "security": smtp.startTLS ? "starttls" : "tls",
+            "username": smtp.username,
+          ]
         }
         return entry
       },
@@ -758,7 +772,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
 
   // Adds a verified mailbox as a connection, or repairs the existing one for its account.
   func addConnection(
-    credential: Data, receipt: GmailRegistrationReceipt, imap: ImapAccount? = nil
+    credential: Data, receipt: GmailRegistrationReceipt, imap: ImapAccount? = nil,
+    smtp: SmtpAccount? = nil, smtpCredential: Data? = nil
   ) throws {
     var next = try saved()
     // Mailbox authorization follows admission; a Pending Device holds no mailbox.
@@ -778,8 +793,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     if next.connection(id) == nil {
       next.connections += [
         MailboxConnection(
-          credential: credential, receipt: receipt, imap: imap,
-          epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
+          credential: credential, receipt: receipt, imap: imap, smtp: smtp,
+          smtpCredential: smtpCredential, epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
           observedEpoch: observedEpoch)
       ]
     } else {
@@ -787,6 +802,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
         $0.credential = credential
         $0.receipt = receipt
         $0.authorizationNeeded = nil
+        // Entering an IMAP password again also sets up or renews its sending.
+        if imap != nil {
+          $0.smtp = smtp
+          $0.smtpCredential = smtpCredential
+        }
       }
     }
     // Keep any unanswered removal until its old epoch is fenced in Product Sync.
@@ -819,7 +839,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     guard
       [
         "cancelled", "declined", "gmail-unavailable", "microsoft-unavailable", "interrupted",
-        "unavailable", "imap-refused", "imap-offline", "imap-insecure",
+        "unavailable", "imap-refused", "imap-offline", "imap-insecure", "smtp-refused",
+        "smtp-insecure",
       ].contains(reason)
     else { throw RegistrationError.unavailable }
     var saved = try saved()

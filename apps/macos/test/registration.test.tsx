@@ -161,10 +161,12 @@ describe('product registration', () => {
       ]),
       privateSync: 'ready',
     } as const;
+    const setups: unknown[] = [];
     const store = createRegistration({
       ...session.native,
       restore: () => Promise.resolve(connected),
-      connectImap: () => {
+      connectImap: (setup) => {
+        setups.push(setup);
         imap.server.failure = undefined;
         return Promise.resolve(connected);
       },
@@ -225,14 +227,34 @@ describe('product registration', () => {
       screen.getByLabelText('Password'),
       'replacement-password',
     );
+    // A manual server saved before SMTP sets up sending as its password is entered again.
+    const withoutSmtp = screen.queryByRole('button', { name: 'Connect' });
+    await fireEvent.changeText(
+      screen.getByLabelText('SMTP server'),
+      'smtp.example.invalid',
+    );
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
     });
     expect({
+      withoutSmtp,
+      setups,
       failure: store.getSnapshot().imapFailure,
       password: screen.queryByLabelText('Password'),
       state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
     }).toStrictEqual({
+      withoutSmtp: null,
+      setups: [
+        expect.objectContaining({
+          password: 'replacement-password',
+          smtp: {
+            host: 'smtp.example.invalid',
+            port: 465,
+            security: 'tls',
+            username: 'alex',
+          },
+        }),
+      ],
       failure: undefined,
       password: null,
       state: 'connected',

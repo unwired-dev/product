@@ -10,7 +10,12 @@ import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { NativeGmailMailbox } from './gmail-inbox.ts';
+import type { DeliveryProblem } from './draft-model.ts';
+import type {
+  NativeGmailMailbox,
+  OutgoingSend,
+  SendOutcome,
+} from './gmail-inbox.ts';
 import type {
   ImapAction,
   ImapCapabilities,
@@ -31,7 +36,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
-import { createBodyLoads } from './gmail-inbox.ts';
+import { createBodyLoads, sendRejection } from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import {
@@ -43,6 +48,7 @@ import {
   decodeDocument,
   decodeFolderRead,
   decodeFolders,
+  decodeCount,
   decodeIdle,
   decodeModify,
   decodeRaw,
@@ -142,6 +148,29 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{ folder: string; seconds: number }>,
   ) => Promise<unknown>;
+  // Submits the message through the connection's SMTP server to `recipients`, leaving out its Bcc
+  // field. Resolves once SMTP accepted it; rejects with `delivery-unknown` when it may have.
+  readonly imapSend: (
+    message: Readonly<{
+      segments: OutgoingSend['segments'];
+      recipients: readonly string[];
+    }>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Appends the message to the Sent `folder` unless a copy with its MIME `boundary` is there.
+  readonly imapFileSent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{
+      folder: string;
+      boundary: string;
+      segments: OutgoingSend['segments'];
+    }>,
+  ) => Promise<unknown>;
+  // Resolves `{ count }`, the messages in the Sent `folder` carrying the MIME `boundary`.
+  readonly imapFindSent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ folder: string; boundary: string }>,
+  ) => Promise<unknown>;
 }
 
 // 'authentication' needs the password again; 'retry' may succeed on a later synchronization.
@@ -179,8 +208,8 @@ export type ImapInboxState =
       readonly notice?: ImapNotice;
       // Whether Undo can still reverse the notice's move.
       readonly undo: boolean;
-      // A Standards-Based Mailbox Connection sends nothing until SMTP is authorized.
-      readonly receiveOnly: true;
+      // Marks an IMAP Inbox among other providers'.
+      readonly imap: true;
     };
 
 // One online search of this connection: each searched folder's newest matches, and whether some
@@ -779,7 +808,7 @@ export function createImapInbox(
       blocked: blockedChange()?.id,
       ...(notice === undefined ? {} : { notice }),
       undo: undoable(),
-      receiveOnly: true,
+      imap: true,
     };
     notify();
   };
@@ -1676,6 +1705,90 @@ export function createImapInbox(
       ),
     );
 
+  // Submits one message through SMTP from this connection's open generation. A connection not open
+  // yet reaches no server, so the message waits.
+  const submit = (message: OutgoingSend, recipients: readonly string[]) => {
+    const scope = opened;
+    if (scope === undefined || forgotten) {
+      return Promise.resolve<SendOutcome>({
+        kind: 'queued',
+        problem: 'offline',
+      });
+    }
+    return runLogged(
+      Effect.tryPromise({
+        try: () =>
+          native.imapSend({ segments: message.segments, recipients }, scope),
+        catch: sendRejection,
+      }).pipe(
+        Effect.match({
+          onFailure: (outcome) => outcome,
+          onSuccess: (): SendOutcome => ({ kind: 'accepted' }),
+        }),
+      ),
+    );
+  };
+  // Files an accepted message's copy in the Sent folder the server declares. Resolves undefined
+  // once the copy is there, or why it still waits.
+  const fileSent = (
+    message: OutgoingSend,
+    boundary: string,
+  ): Promise<DeliveryProblem | undefined> => {
+    const scope = opened;
+    if (scope === undefined || forgotten || document === undefined) {
+      return Promise.resolve('offline');
+    }
+    const folder = imapRoleFolder(document.folders, 'sent');
+    if (folder === undefined) {
+      return Promise.resolve('sent-folder');
+    }
+    return runLogged(
+      call(() =>
+        native.imapFileSent(scope, {
+          folder,
+          boundary,
+          segments: message.segments,
+        }),
+      ).pipe(
+        Effect.match({
+          onSuccess: () => undefined,
+          onFailure: ({ kind }): DeliveryProblem => {
+            if (kind === 'authentication') {
+              return 'authorization';
+            }
+            return kind === 'locked' ? 'locked' : 'offline';
+          },
+        }),
+      ),
+    );
+  };
+  // Looks for a message whose submission had no answer in the Sent folder by its MIME boundary.
+  // Resolves sent for exactly one copy, unknown otherwise, or undefined when the open connection
+  // was not looked at, as when it closed or changed meanwhile.
+  const findSent = (boundary: string) => {
+    const scope = opened;
+    if (scope === undefined || forgotten || document === undefined) {
+      return Promise.resolve(undefined);
+    }
+    const folder = imapRoleFolder(document.folders, 'sent');
+    if (folder === undefined) {
+      return Promise.resolve<SendOutcome>({ kind: 'unknown' });
+    }
+    return runLogged(
+      call(() => native.imapFindSent(scope, { folder, boundary })).pipe(
+        Effect.flatMap((reply) =>
+          decodeCount(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.match({
+          onSuccess: ({ count }): SendOutcome | undefined =>
+            count === 1 ? { kind: 'sent' } : { kind: 'unknown' },
+          onFailure: ({ kind }): SendOutcome | undefined =>
+            kind === 'invalidated' ? undefined : { kind: 'unknown' },
+        }),
+      ),
+    );
+  };
+
   // One wait: a reported change, a quiet bound, a pause before trying again, or the end.
   const waitOnce = async () => {
     const scope = opened;
@@ -1788,6 +1901,9 @@ export function createImapInbox(
     discardPending,
     // The shared online-search contract's name; IMAP has no further pages.
     searchGmail: (query: string) => search(query),
+    send: submit,
+    fileSent,
+    findSent,
     watch,
     // A cached message from any folder, for the reader.
     message: messageOf,

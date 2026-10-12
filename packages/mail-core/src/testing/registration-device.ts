@@ -61,12 +61,18 @@ export function createSyntheticDevice() {
     hints: [] as Array<string | undefined>,
   };
   // A controlled IMAP server: the password it accepts, the user names it refuses, or the failure
-  // every login meets.
+  // every login meets; and its SMTP server's, which accepts the same password unless `smtp`
+  // names another.
   const imap = {
     password: 'synthetic-app-password',
     refusedUsernames: [] as string[],
     outcome: undefined as string | undefined,
     logins: 0,
+    smtp: {
+      password: undefined as string | undefined,
+      outcome: undefined as string | undefined,
+      logins: [] as string[],
+    },
   };
   const apple = {
     subject: 'synthetic-apple-subject',

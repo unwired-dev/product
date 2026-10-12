@@ -6,7 +6,7 @@ import * as Schema from 'effect/Schema';
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts } from './drafts.ts';
 import type { SendOutcome } from './gmail-inbox.ts';
-import type { Mailboxes } from './mailboxes.ts';
+import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { Registration } from './registration.ts';
 
 import {
@@ -16,6 +16,7 @@ import {
 } from './diagnostics.ts';
 import { assetsOf } from './draft-model.ts';
 import { sendingStateOf, threadOf, unsendableAssets } from './drafts.ts';
+import { imapRoleFolder } from './imap-actions.ts';
 import {
   boundaryOf,
   gmailMessageLimit,
@@ -44,13 +45,15 @@ export const undoSendWindow = 10_000;
 const retryDelay = 30_000;
 
 // Why Send left a Draft in the composer: no recipients, unfinished recipient text, a sender that
-// cannot send, files not complete and verified on this device, a message over Gmail's limit,
-// another editor's change to the Draft, or storage refusing the write.
+// cannot send or whose mail server has no Sent folder for its copy, files not complete and verified
+// on this device, a message over Gmail's limit, another editor's change to the Draft, or storage
+// refusing the write.
 export type SendRefusal =
   | 'recipients'
   | 'entries'
   | 'addresses'
   | 'sender'
+  | 'sent-folder'
   | 'assets'
   | 'too-large'
   | 'changed'
@@ -63,10 +66,18 @@ const ownerOf = (registration: Pick<Registration, 'getSnapshot'>) => {
     : undefined;
 };
 
-const messageOf = (draft: Draft) => {
+// An SMTP message names its own Message-ID, which its Sent copy keeps for replies to thread with;
+// Gmail assigns one itself.
+const messageOf = (draft: Draft, smtp: boolean) => {
+  const boundary = Math.random().toString(36).slice(2, 14);
   const { segments, size } = outgoingMessage(draft, {
     date: Date.now(),
-    boundary: Math.random().toString(36).slice(2, 14),
+    boundary,
+    ...(smtp
+      ? {
+          messageId: `${Date.now().toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
+        }
+      : {}),
   });
   const thread = threadOf(draft);
   return {
@@ -103,10 +114,12 @@ const step =
 
 // Sends Drafts admitted to the Outbox on this device, their Delivery Owner. After the Undo Send
 // Window, a message is claimed through Convex so no other Trusted Device can send the same Draft,
-// marked as handed to Gmail in storage, and only then sent once. A message that reached neither
-// Convex nor Gmail is tried again later; one handed to Gmail without a confirmed answer is never
-// sent again automatically. Gmail's Sent mailbox is checked for it when it becomes unknown, when
-// this Outbox starts, when the app becomes active and when the person asks.
+// marked as handed to its provider in storage, and only then sent once, through Gmail or SMTP. A
+// message that reached neither Convex nor the provider is tried again later; one handed off without
+// a confirmed answer is never sent again automatically. The Sent mailbox is checked for it when it
+// becomes unknown, when this Outbox starts, when the app becomes active and when the person asks.
+// A message SMTP accepted is recorded first, then its copy is filed in the Sent folder, which alone
+// is tried again until it is there.
 export function createOutbox({
   drafts,
   mailboxes,
@@ -123,7 +136,7 @@ export function createOutbox({
     | 'readAsset'
     | 'subscribe'
   >;
-  mailboxes: Pick<Mailboxes, 'getSnapshot' | 'subscribe'>;
+  mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
   registration: Pick<Registration, 'getSnapshot'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
@@ -142,12 +155,27 @@ export function createOutbox({
 
   const entryOf = (id: string) =>
     drafts.getOutbox().find((each) => each.id === id);
+  const connectionOf = (id: string): Mailbox | ImapMailbox | undefined =>
+    mailboxes.getConnections().find((mailbox) => mailbox.id === id);
+  // The Sent folder an IMAP connection's server declares: its name, null when its listing has
+  // none, or undefined for another provider or while the listing is not ready.
+  const sentFolderOf = (draft: Draft) => {
+    const mailbox = connectionOf(draft.connection);
+    return mailbox?.provider === 'imap' && mailbox.state.kind === 'ready'
+      ? (imapRoleFolder(mailbox.state.folders, 'sent') ?? null)
+      : undefined;
+  };
+  const smtpSender = (draft: Draft) =>
+    mailboxesOf(registration.getSnapshot().snapshot).find(
+      ({ id }) => id === draft.connection,
+    )?.provider === 'imap';
   // Both scheduling and processing use the same deadline, including a refused storage step.
   const dueAt = (entry: OutboxEntry) => {
     if (entry.state === 'waiting') {
       return Math.max(entry.sendAt, retryAt.get(entry.id) ?? 0);
     }
     return entry.state === 'queued' ||
+      entry.state === 'filing' ||
       (awaitingOutcome(entry.state) && unrecorded.has(entry.id))
       ? (retryAt.get(entry.id) ?? 0)
       : Number.POSITIVE_INFINITY;
@@ -179,10 +207,17 @@ export function createOutbox({
     if (sending === 'available') {
       return undefined;
     }
-    return sending === 'authorization' ? 'authorization' : 'mailbox';
+    return sending === 'authorization' || sending === 'password'
+      ? 'authorization'
+      : 'mailbox';
   };
 
   const record = (id: string, outcome: SendOutcome) => {
+    if (outcome.kind === 'accepted') {
+      return drafts.deliver(id, (entry) =>
+        awaitingOutcome(entry.state) ? withState(entry, 'filing') : undefined,
+      );
+    }
     if (outcome.kind === 'sent') {
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state)
@@ -278,9 +313,10 @@ export function createOutbox({
       return;
     }
     const sending = entryOf(id);
-    const inbox = mailboxes
-      .getSnapshot()
-      .find((mailbox) => mailbox.id === sending?.draft.connection)?.inbox;
+    const mailbox =
+      sending === undefined
+        ? undefined
+        : connectionOf(sending.draft.connection);
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
     if (sending !== undefined) {
       const problem = senderProblem(sending.draft);
@@ -289,11 +325,49 @@ export function createOutbox({
         return;
       }
     }
-    const outcome: SendOutcome =
-      sending === undefined || inbox === undefined
-        ? { kind: 'queued', problem: 'offline' }
-        : await inbox.send(sending.message);
+    let outcome: SendOutcome = { kind: 'queued', problem: 'offline' };
+    if (sending !== undefined && mailbox !== undefined) {
+      const { to, cc, bcc } = sending.draft;
+      outcome =
+        mailbox.provider === 'imap'
+          ? await mailbox.inbox.send(
+              sending.message,
+              [...to, ...cc, ...bcc].map(({ address }) => address),
+            )
+          : await mailbox.inbox.send(sending.message);
+    }
     await keep(id, outcome);
+  };
+
+  // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
+  // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
+  // waiting for its password keeps the copy waiting.
+  const file = async (entry: OutboxEntry) => {
+    const mailbox = connectionOf(entry.draft.connection);
+    const boundary = boundaryOf(entry.message.segments);
+    const sending = sendingStateOf(
+      entry.draft,
+      mailboxesOf(registration.getSnapshot().snapshot),
+    );
+    let problem: DeliveryProblem | undefined = 'offline';
+    if (sending === 'removed') {
+      problem = undefined;
+    } else if (sending === 'password') {
+      problem = 'authorization';
+    } else if (mailbox?.provider === 'imap' && boundary !== undefined) {
+      problem = await mailbox.inbox.fileSent(entry.message, boundary);
+    }
+    await drafts.deliver(
+      entry.id,
+      step('filing', (each) => {
+        if (problem === undefined) {
+          return { id: each.id, sentAt: Date.now() };
+        }
+        return problem === each.problem
+          ? undefined
+          : withState(each, 'filing', problem);
+      }),
+    );
   };
 
   // Records an unknown message as sent only when Gmail's Sent mailbox holds exactly one copy.
@@ -303,9 +377,7 @@ export function createOutbox({
       return;
     }
     const boundary = boundaryOf(entry.message.segments);
-    const inbox = mailboxes
-      .getSnapshot()
-      .find((mailbox) => mailbox.id === entry.draft.connection)?.inbox;
+    const inbox = connectionOf(entry.draft.connection)?.inbox;
     if (boundary === undefined || inbox === undefined) {
       return;
     }
@@ -349,6 +421,9 @@ export function createOutbox({
     if (senderProblem(draft) !== undefined) {
       return 'sender';
     }
+    if (sentFolderOf(draft) === null) {
+      return 'sent-folder';
+    }
     return unsendableAssets(draft).length > 0 ? 'assets' : undefined;
   };
 
@@ -365,6 +440,45 @@ export function createOutbox({
     return true;
   };
 
+  // Whether a queued message may be handed off now: a problem that refuses it for good, 'wait'
+  // while an IMAP connection's listing has not named the Sent folder for its copy, or undefined.
+  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined => {
+    const problem = senderProblem(draft);
+    if (problem !== undefined) {
+      return problem;
+    }
+    const folder = sentFolderOf(draft);
+    if (folder === null) {
+      return 'sent-folder';
+    }
+    return folder === undefined &&
+      connectionOf(draft.connection)?.provider === 'imap'
+      ? 'wait'
+      : undefined;
+  };
+
+  // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
+  const sendQueued = async (account: string, entry: OutboxEntry) => {
+    const check = handoffCheck(entry.draft);
+    if (check === 'wait') {
+      return;
+    }
+    if (check !== undefined) {
+      await drafts.deliver(
+        entry.id,
+        step('queued', (each) => withState(each, 'failed', check)),
+      );
+      return;
+    }
+    if (await holdClaim(account, entry)) {
+      await handOff(entry.id);
+      const accepted = entryOf(entry.id);
+      if (accepted?.state === 'filing') {
+        await file(accepted);
+      }
+    }
+  };
+
   // Advances one message as far as it can go now; the persisted state decides what remains due.
   const advance = async (id: string) => {
     const account = ownerOf(registration);
@@ -379,19 +493,10 @@ export function createOutbox({
       return;
     }
     const entry = entryOf(id);
-    if (entry?.state !== 'queued') {
-      return;
-    }
-    const problem = senderProblem(entry.draft);
-    if (problem !== undefined) {
-      await drafts.deliver(
-        id,
-        step('queued', (each) => withState(each, 'failed', problem)),
-      );
-      return;
-    }
-    if (await holdClaim(account, entry)) {
-      await handOff(id);
+    if (entry?.state === 'filing') {
+      await file(entry);
+    } else if (entry?.state === 'queued') {
+      await sendQueued(account, entry);
     }
   };
 
@@ -442,11 +547,12 @@ export function createOutbox({
   const checkUnknown = (all: boolean) => {
     let added = false;
     for (const entry of drafts.getOutbox()) {
-      const mailbox = mailboxes
-        .getSnapshot()
-        .find((each) => each.id === entry.draft.connection);
-      // Draft storage can open before Gmail at launch or during authorization renewal.
-      if (mailbox?.state.kind !== 'ready' || !mailbox.state.organize) {
+      const mailbox = connectionOf(entry.draft.connection);
+      // Draft storage can open before its mailbox at launch or during authorization renewal.
+      if (
+        mailbox?.state.kind !== 'ready' ||
+        (mailbox.provider !== 'imap' && !mailbox.state.organize)
+      ) {
         queuedChecks.delete(entry.id);
       } else if (entry.state === 'unknown') {
         if (checking.has(entry.id)) {
@@ -572,7 +678,7 @@ export function createOutbox({
       if (late !== undefined) {
         return late;
       }
-      const message = messageOf(draft);
+      const message = messageOf(draft, smtpSender(draft));
       if (message.size > gmailMessageLimit) {
         return 'too-large';
       }
