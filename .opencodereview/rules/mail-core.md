@@ -158,6 +158,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `imap-inbox.ts.readMessage` downloading a body outside the shared `BodyLoads`
+  coordinator. Acquire the connection's two-permit semaphore before the shared
+  four-permit semaphore, and bracket waiting and downloading with
+  `shared.begin`/`shared.end` through `Effect.acquireUseRelease`, as Gmail does.
+  Keep cache hits outside download permits, and release acquired permits and
+  interactive ownership on failure or interruption. Otherwise simultaneous
+  windows/connections multiply native sessions and MIME allocations, while Gmail
+  speculation competes with explicit IMAP downloads.
+
 - `createMailboxes` retaining a ready/authentication IMAP Inbox after successful
   password repair without reopening its native generation, or inferring repair
   from every newly published registration snapshot. Send a success-only,

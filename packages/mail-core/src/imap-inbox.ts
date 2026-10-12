@@ -780,6 +780,8 @@ export function createImapInbox(
   const visibleRow = (id: string) => messageOf(id) !== undefined;
 
   // The message's raw source from the server, as the body the reader presents.
+  // Two concurrent body downloads for this connection, within the device-wide four.
+  const connectionLoads = Semaphore.makeUnsafe(2);
   const bodyOf = Effect.fnUntraced(function* (message: ImapMessage) {
     const scope = opened;
     if (scope === undefined) {
@@ -876,7 +878,16 @@ export function createImapInbox(
         if (Option.isSome(saved)) {
           return saved.value;
         }
-        const body = yield* bodyOf(message);
+        // Downloads share the device's body loads: four at a time across connections, two for this
+        // one, and speculative prefetch elsewhere waits while an explicit read runs.
+        const body = yield* Effect.acquireUseRelease(
+          shared.begin,
+          () =>
+            connectionLoads.withPermit(
+              shared.loads.withPermit(bodyOf(message)),
+            ),
+          () => shared.end,
+        );
         // Bodies are stored only for listed messages of the open cache; a full cache keeps none.
         if (listed(id) && current(scope)) {
           const text = yield* encodeBodyDocument(body).pipe(

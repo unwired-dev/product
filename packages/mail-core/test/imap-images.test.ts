@@ -334,6 +334,60 @@ describe('imap reader image and lifetime boundaries', () => {
     closeThird();
   });
 
+  it('downloads at most two IMAP bodies at once for one connection', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const imap = createSyntheticImap();
+    for (const subject of ['First', 'Second', 'Third']) {
+      imap.deliver('INBOX', { subject });
+    }
+    const { imapMessage } = imap.native;
+    const gates: Array<() => void> = [];
+    let running = 0;
+    let most = 0;
+    vi.spyOn(imap.native, 'imapMessage').mockImplementation(
+      async (mailbox, request) => {
+        running += 1;
+        most = Math.max(most, running);
+        const gate = Promise.withResolvers<undefined>();
+        gates.push(() => {
+          gate.resolve(undefined);
+        });
+        await gate.promise;
+        running -= 1;
+        return imapMessage(mailbox, request);
+      },
+    );
+    const inbox = createImapInbox(imap.native, { shared });
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    assert.equal(state.kind, 'ready');
+    const ids = state.messages.map(({ id }) => id);
+    const releases = ids.map((id) => inbox.retainMessage(id));
+    const reads = Promise.all(ids.map(async (id) => inbox.readMessage(id)));
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(2);
+    });
+    // The third download waits for a permit until one of the first two finishes.
+    gates.shift()?.();
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(2);
+    });
+    for (const open of gates.splice(0)) {
+      open();
+    }
+    await reads;
+    expect(most).toBe(2);
+    expect(ids.map((id) => inbox.messageBody(id)?.kind)).toStrictEqual([
+      'ready',
+      'ready',
+      'ready',
+    ]);
+    for (const release of releases) {
+      release();
+    }
+  });
+
   it('drops a late cache callback after its connection is forgotten', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
