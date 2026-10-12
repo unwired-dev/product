@@ -342,7 +342,7 @@ function EvaluationEditor({
       return true;
     }
     setClosing('blocked');
-    return false;
+    return 'failed' as const;
   }, [onClose, store]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);

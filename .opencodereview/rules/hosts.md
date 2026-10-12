@@ -48,6 +48,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   live reader with the fallback mounted. A missing row hides a supported action;
   a mismatched ID duplicates it or prevents live availability from replacing it.
 
+- `command-palette.tsx.UnavailableCommands` or `inbox-commands.tsx.InboxCommands`
+  omitting disabled counterparts of supported organizing actions, or advertising
+  unimplemented provider actions. Match canonical IDs and labels against the
+  live reader catalog for the selected connection, and the current Profile when
+  no message is selected. Check Settings and empty Inbox scopes, retaining the
+  specific unsupported reason for every response variant in a selected unsupported
+  mailbox. Otherwise supported actions disappear when selection clears, or Reply
+  All incorrectly asks for a selection that is already present. Preserve captured
+  owners and targets through prerequisite recovery.
+
 - `message-detail.tsx.ResponseActions` returning only the unsupported-mailbox
   fallback for a supported response whose source, Draft storage or eligible
   sender is temporarily unavailable. Keep target-bound Reply, Reply All and
@@ -63,6 +73,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   feedback in the active presentation, while cancellation and retired reader or
   palette sessions stay quiet. Otherwise the palette hides the reader's alert and
   re-enables the failed command without explaining what happened.
+
+- `inbox-commands.tsx.InboxCommands`, `composer.tsx.DraftList`, or another palette
+  destination reducing a failed composer finish to quiet cancellation. Trace Inbox,
+  Settings, mailbox selection and New Message through `composer-navigation.ts` and
+  the real Draft store: failed saving or invalid recipients need visible feedback
+  in the still-open palette, while concurrent, cancelled and superseded requests
+  stay quiet. Preserve existing non-palette callers' refusal contract and verify
+  retry keeps authored content; otherwise the palette hides the editor's failure.
 
 - `composer.tsx.DraftList` or another command owner mapping every disabled state
   to a busy reason. Reserve waiting copy for active work; locked or failed Draft
@@ -82,8 +100,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Registration gate changes Account, Profile or lock/admission state. Disabled
   execution alone does not retire captured mailbox addresses; close that
   presentation at the ownership boundary and exercise Account removal with a
-  real Registration store. Preserve captured targets on ordinary selection
-  changes within the same admitted owner.
+  real Registration store. Retire the host's running-command session at that
+  boundary too, without restoring the retired owner's focus. Settle a delayed
+  success and failure before and after reopening; a later opening already fences
+  old results, but a direct store close can still restore stale focus before it.
+  Preserve captured targets on ordinary selection changes within the same admitted
+  owner.
 
 - `command-palette.tsx` executing Enter or repeated navigation from the previous
   rendered query, picker path or selected row. Native text and key callbacks can

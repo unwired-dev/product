@@ -56,7 +56,7 @@ const NativeHost = requireNativeComponent<
 
 type Palette = ReturnType<typeof createCommandPalette>;
 const CommandContext = createContext<
-  Readonly<{ store: Palette; open: () => void }> | undefined
+  Readonly<{ store: Palette; open: () => void; close: () => void }> | undefined
 >(undefined);
 
 export function useCommands(commands: readonly PaletteCommand[]) {
@@ -79,7 +79,7 @@ export function useCommandScope(scope: string) {
   useLayoutEffect(() => {
     if (previous.current !== scope) {
       previous.current = scope;
-      context?.store.close();
+      context?.close();
     }
   }, [context, scope]);
 }
@@ -163,7 +163,7 @@ function CommandHeader({
   );
 }
 
-export function UnavailableCommands() {
+export function UnavailableCommands({ stars = false }: { readonly stars?: boolean }) {
   const { t } = useLocalization();
   const defaults = useMemo<readonly PaletteCommand[]>(
     () => [
@@ -180,6 +180,11 @@ export function UnavailableCommands() {
           ['reply', t('message.reply'), t('commandPalette.replyKeywords')],
           ['replyAll', t('message.replyAll'), t('commandPalette.replyKeywords')],
           ['forward', t('message.forward'), t('commandPalette.forwardKeywords')],
+          ['trash', t('gmailActions.label.trash'), ''],
+          ['spam', t('gmailActions.label.spam'), ''],
+          ...(stars
+            ? ([['star', t('gmailActions.label.star'), ''], ['unstar', t('gmailActions.label.unstar'), '']] as const)
+            : []),
         ] as const
       ).map(([id, label, keywords]) => ({
         id,
@@ -198,7 +203,7 @@ export function UnavailableCommands() {
         onRun: () => false,
       },
     ],
-    [t],
+    [t, stars],
   );
   return <Commands commands={defaults} />;
 }
@@ -260,10 +265,13 @@ export function CommandPalette({
     nativeCommands?.markHintSeen?.();
     store.open();
   }, [store]);
-  const context = useMemo(() => ({ store, open }), [store, open]);
-  const dismiss = () => {
+  const close = useCallback(() => {
     session.current += 1;
     store.close();
+  }, [store]);
+  const context = useMemo(() => ({ store, open, close }), [store, open, close]);
+  const dismiss = () => {
+    close();
     previous.current?.focus();
   };
   useEffect(() => {

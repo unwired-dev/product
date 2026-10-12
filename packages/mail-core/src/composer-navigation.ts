@@ -8,8 +8,9 @@ import { profileOf, sendingMailboxes } from './drafts.ts';
 // recipients and saving), and every other destination asks to leave first. One request runs at a
 // time, and a composer that cannot finish, or fails to, stays open for a later attempt.
 export interface ComposerNavigation {
-  readonly register: (finish: () => Promise<boolean>) => () => void;
+  readonly register: (finish: () => Promise<boolean | 'failed'>) => () => void;
   readonly leave: (draft?: string) => Promise<boolean>;
+  readonly leaveResult: (draft?: string) => Promise<boolean | 'failed'>;
   // Starts a Draft only after leaving, and returns it only if no later destination was chosen.
   readonly create: (
     drafts: Pick<Drafts, 'create' | 'abandon'>,
@@ -20,6 +21,13 @@ export interface ComposerNavigation {
       before?: () => Promise<boolean>;
     }>,
   ) => Promise<string | undefined>;
+  readonly createResult: (
+    ...args: Parameters<ComposerNavigation['create']>
+  ) => Promise<
+    | Readonly<{ kind: 'created'; id: string }>
+    | Readonly<{ kind: 'failed' }>
+    | undefined
+  >;
   readonly attachReceived: (
     drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
     attachment: Readonly<{
@@ -32,42 +40,46 @@ export interface ComposerNavigation {
 }
 
 export function createComposerNavigation(): ComposerNavigation {
-  let finish: (() => Promise<boolean>) | undefined = undefined;
+  let finish: (() => Promise<boolean | 'failed'>) | undefined = undefined;
   let pending = false;
   let navigations = 0;
   let selectedDraft: string | undefined = undefined;
-  const leave = async (draft?: string) => {
+  const leaveResult: ComposerNavigation['leaveResult'] = async (draft) => {
     if (pending) {
       return false;
     }
     pending = true;
     try {
       const allowed = (await finish?.()) ?? true;
-      if (allowed) {
+      if (allowed === true) {
         navigations += 1;
         selectedDraft = draft;
       }
       return allowed;
     } catch {
       // A composer that failed to finish stays open; a later attempt can leave again.
-      return false;
+      return 'failed';
     } finally {
       pending = false;
     }
   };
-  const create: ComposerNavigation['create'] = async (
+  const leave: ComposerNavigation['leave'] = async (draft) =>
+    (await leaveResult(draft)) === true;
+  const createResult: ComposerNavigation['createResult'] = async (
     drafts,
     mailbox,
     { prepare, before } = {},
   ) => {
     let turn = navigations;
+    let failed = false;
     const id = await drafts.create(mailbox, async () => {
-      const allowed = await leave();
+      const allowed = await leaveResult();
+      failed = allowed === 'failed';
       turn = navigations;
-      return allowed && ((await before?.()) ?? true) && navigations === turn;
+      return allowed === true && ((await before?.()) ?? true) && navigations === turn;
     });
     if (id === undefined) {
-      return id;
+      return failed ? { kind: 'failed' } : undefined;
     }
     if (prepare !== undefined && !(await prepare(id))) {
       // An empty Draft nobody opened is removed; one that gained content is kept.
@@ -77,7 +89,7 @@ export function createComposerNavigation(): ComposerNavigation {
       return undefined;
     }
     if (navigations === turn) {
-      return id;
+      return { kind: 'created', id };
     }
     // Selecting the new row while creation waits already opened this Draft; it is not abandoned.
     // Locked storage keeps the removal for the next successful save.
@@ -86,8 +98,14 @@ export function createComposerNavigation(): ComposerNavigation {
     }
     return undefined;
   };
+  const create: ComposerNavigation['create'] = async (...args) => {
+    const result = await createResult(...args);
+    return result?.kind === 'created' ? result.id : undefined;
+  };
   return {
     leave,
+    leaveResult,
+    createResult,
     register: (next) => {
       finish = next;
       return () => {

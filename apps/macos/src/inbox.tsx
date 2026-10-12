@@ -745,14 +745,10 @@ export function Inbox({
         void mailbox.inbox.organize(message, action);
       }
     };
-  const goInbox = async () => {
-    if (!(await leave())) {
-      return false;
-    }
+  const goInbox = () => {
     setQuery('');
     chooseFolder(inboxFolder);
     onInbox?.();
-    return true;
   };
   const empty =
     results === undefined && gmail && syncing ? (
@@ -769,6 +765,10 @@ export function Inbox({
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
         <InboxCommands
           hasSelection={selected !== undefined}
+          stars={(selected === undefined
+            ? shown
+            : mailboxes.filter(({ id }) => id === selected.mailbox)
+          ).some(({ provider }) => (provider ?? 'gmail') === 'gmail')}
           mailboxes={mailboxes}
           onInbox={goInbox}
           onScope={setChosen}

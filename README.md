@@ -107,6 +107,9 @@ whole repository; the app configurations apply to their own files. `pnpm lint:fi
 and `pnpm format:fix` apply fixes. Turborepo caches them as the root `lint` and
 `format` tasks; add `--filter=//` when filtering `turbo run` to packages.
 Run `pnpm format:fix` after `pnpm changeset` to format generated frontmatter before CI.
+When CI workspace checks fail, the TypeScript job uploads a `formatter-corrections`
+artifact containing the formatter diff. This diagnostic does not change the failed
+check result; apply and review the patch before rerunning validation.
 
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource

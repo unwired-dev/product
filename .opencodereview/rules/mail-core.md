@@ -588,6 +588,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   inference, explain the refusal in both hosts, and cover text ranges before and
   after images through acceptance, Undo/Redo and reopened Draft storage.
 
+- `composer-navigation.ts.leaveResult` or `createResult` erasing failed finishing
+  into the same outcome as cancellation. Preserve the distinction for palette
+  callers while the existing boolean `leave` and identifier-only `create` keep
+  their refusal behavior. Review real Draft creation, finishing failure, concurrent
+  refusal and a later retry together with the host presentation; otherwise one
+  destination can explain save failure while another silently hides it.
 - `composer-navigation.ts.create` keeping an unopened empty Draft after its
   preparation refuses. Route cleanup through `drafts.abandon`, retaining a Draft
   already selected or given content by another editor. Test the real coordinator

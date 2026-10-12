@@ -33,5 +33,22 @@ describe('leaving an open composer', () => {
     unregister();
     await expect(navigation.leave()).resolves.toBe(true);
   });
+  it('distinguishes failed finishing from cancellation without changing boolean callers', async () => {
+    expect.hasAssertions();
+    const navigation = createComposerNavigation();
+    navigation.register(async () => 'failed');
+    const failed = navigation.leaveResult();
+    await expect(navigation.leaveResult()).resolves.toBe(false);
+    await expect(failed).resolves.toBe('failed');
+    await expect(navigation.leave()).resolves.toBe(false);
+    navigation.register(async () => false);
+    await expect(navigation.leaveResult()).resolves.toBe(false);
+    navigation.register(async () => {
+      throw new Error('storage failed');
+    });
+    await expect(navigation.leaveResult()).resolves.toBe('failed');
+    navigation.register(async () => true);
+    await expect(navigation.leaveResult()).resolves.toBe(true);
+  });
   /* oxlint-enable vitest/max-expects */
 });

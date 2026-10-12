@@ -1467,6 +1467,43 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it.each(['Go to Inbox', 'Open Settings', 'New Message'])(
+    'shows a failed composer save inside the palette before retrying %s',
+    async (destination) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const base = createDrafts(storage.native, registration);
+      const drafts = { ...base, save: failingOnce(base.save) };
+      const openAccount = jest.fn();
+      await render(
+        <CommandPalette>
+          <App drafts={drafts} registration={registration} openAccount={openAccount} />
+        </CommandPalette>,
+      );
+      await press('New Message');
+      await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
+      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+        nativeEvent: { key: 'open' },
+      });
+      for (const name of ['Star', 'Remove star', 'Move to Trash', 'Report spam']) {
+        const command = screen.getByRole('button', { name });
+        expect(command).toBeDisabled();
+        expect(command).toHaveTextContent('Select a message');
+      }
+      await press(destination);
+      expect(screen.getByLabelText('Command Palette')).toBeVisible();
+      expect(screen.getByText('The command could not finish. Try again.')).toBeVisible();
+      expect(openAccount).not.toHaveBeenCalled();
+      await press(destination);
+      expect(screen.queryByLabelText('Command Palette')).toBeNull();
+      const saved = draftsOf(base.getSnapshot());
+      expect(saved.filter(({ subject }) => subject === 'Kept')).toHaveLength(1);
+      expect(saved).toHaveLength(destination === 'New Message' ? 2 : 1);
+      expect(openAccount).toHaveBeenCalledTimes(destination === 'Open Settings' ? 1 : 0);
+    },
+  );
+
   it('lets a composer be left again after finishing it failed', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

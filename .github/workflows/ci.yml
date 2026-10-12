@@ -78,12 +78,28 @@ jobs:
         run: pnpm test:tooling
 
       - name: Check replacement app and retained backend
+        id: workspace-checks
         run: >-
           pnpm exec turbo run lint lint:boundaries format check-types test
           --filter=//
           --filter=@private-email/mobile...
           --filter=@private-email/macos...
           --filter=@private-email/convex...
+
+      - name: Show formatter corrections after failed workspace checks
+        if: failure() && steps.workspace-checks.outcome == 'failure'
+        run: |
+          pnpm exec oxfmt --write
+          git diff --binary > "$RUNNER_TEMP/format.patch"
+          git diff --stat
+
+      - name: Upload formatter corrections
+        if: failure() && steps.workspace-checks.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: formatter-corrections
+          path: ${{ runner.temp }}/format.patch
+          if-no-files-found: ignore
 
   fallow:
     name: Fallow

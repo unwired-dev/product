@@ -11,8 +11,8 @@ import {
   syntheticMailboxes,
 } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { use } from 'react';
-import { NativeModules, Platform, Pressable, Text } from 'react-native';
+import { createRef, use, useState } from 'react';
+import { NativeModules, Platform, Pressable, Text, TextInput } from 'react-native';
 
 import { CommandPalette, Commands } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -236,6 +236,10 @@ describe('command palette interactions', () => {
       ...connections,
       getSnapshot: connections.getConnections,
     };
+    function SelectedInbox() {
+      const [selection, setSelection] = useState<Parameters<typeof Inbox>[0]['selected']>();
+      return <Inbox onSelect={setSelection} selected={selection} />;
+    }
     try {
       await render(
         <CommandPalette>
@@ -243,10 +247,7 @@ describe('command palette interactions', () => {
             store={registration}
             preview={false}>
             <InboxProvider mailboxes={mailboxes}>
-              <Inbox
-                onSelect={() => undefined}
-                selected={undefined}
-              />
+              <SelectedInbox />
             </InboxProvider>
           </RegistrationGate>
         </CommandPalette>,
@@ -272,6 +273,13 @@ describe('command palette interactions', () => {
       ).resolves.toBeVisible();
       expect(screen.queryByText('Archived IMAP message')).toBeNull();
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
+      await fireEvent.press(screen.getByText('Incoming IMAP message'));
+      await open();
+      for (const name of ['Reply', 'Reply All', 'Forward']) {
+        const command = screen.getByRole('button', { name });
+        expect(command).toBeDisabled();
+        expect(command).toHaveTextContent('Unavailable for this mailbox');
+      }
     } finally {
       await screen.unmount();
       await registration.deviceRemoved();
@@ -359,6 +367,103 @@ describe('command palette interactions', () => {
       await registration.deviceRemoved();
     }
   });
+
+  it.each([
+    ['success', false],
+    ['failure', false],
+    ['success', true],
+    ['failure', true],
+  ] as const)(
+    'retires a pending command when its Account locks, outcome=%s, reopened=%s',
+    async (outcome, reopened) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const connected = {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'ready',
+        mailboxes: JSON.stringify([
+          {
+            id: syntheticMailboxes['alex@example.invalid'],
+            address: 'alex@example.invalid',
+            state: 'connected',
+          },
+        ]),
+      } as const;
+      let restore = (): Promise<unknown> => Promise.resolve(connected);
+      const registration = createRegistration({
+        ...session.native,
+        restore: () => restore(),
+      });
+      const completion = Promise.withResolvers<undefined>();
+      const input = createRef<TextInput>();
+      await registration.restoreOnce();
+      try {
+        await render(
+          <CommandPalette>
+            <TextInput ref={input} accessibilityLabel="Previous input" />
+            <RegistrationGate store={registration} preview={false}>
+              <Commands commands={[{
+                id: 'compose',
+                label: 'Held command',
+                group: 'app',
+                onRun: () => completion.promise,
+              }]} />
+            </RegistrationGate>
+          </CommandPalette>,
+        );
+        const previous = input.current;
+        if (previous === null) {
+          throw new Error('Previous input did not mount');
+        }
+        const focus = jest.spyOn(previous, 'focus');
+        const focused = jest.spyOn(TextInput.State, 'currentlyFocusedInput')
+          .mockReturnValue(previous);
+        try {
+          const open = () => fireEvent(
+            screen.getByTestId('command-palette-host'), 'commandKey',
+            { nativeEvent: { key: 'open' } },
+          );
+          await open();
+          await fireEvent.press(screen.getByRole('button', { name: 'Held command' }));
+          restore = () => Promise.reject(Object.assign(new Error('Locked'), { code: 'locked' }));
+          await act(async () => { await registration.resume(); });
+          expect(screen.queryByLabelText('Command Palette')).toBeNull();
+          if (reopened) {
+            restore = () => Promise.resolve(connected);
+            await act(async () => { await registration.resume(); });
+            await open();
+          }
+          await act(async () => {
+            if (outcome === 'failure') {
+              completion.reject(new Error('Old command failed'));
+            } else {
+              completion.resolve(undefined);
+            }
+            await completion.promise.catch(() => undefined);
+          });
+          expect(focus).not.toHaveBeenCalled();
+          if (!reopened) {
+            restore = () => Promise.resolve(connected);
+            await act(async () => { await registration.resume(); });
+            await open();
+          }
+          expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
+          expect(screen.getByRole('button', { name: 'Held command' })).toBeEnabled();
+          expect(screen.queryByText('The command could not finish. Try again.')).toBeNull();
+        } finally {
+          focused.mockRestore();
+          focus.mockRestore();
+        }
+      } finally {
+        completion.resolve(undefined);
+        await screen.unmount();
+        restore = () => Promise.resolve({ kind: 'signed-out' });
+        await registration.deviceRemoved();
+      }
+    },
+  );
 
   it('advances every queued arrow event and backs out of the current picker before React commits', async () => {
     expect.hasAssertions();
@@ -484,6 +589,11 @@ describe('command palette interactions', () => {
         'commandKey',
         { nativeEvent: { key: 'open' } },
       );
+      for (const name of ['Star', 'Remove star', 'Move to Trash', 'Report spam']) {
+        const command = screen.getByRole('button', { name });
+        expect(command).toBeDisabled();
+        expect(command).toHaveTextContent('Select a message');
+      }
       await fireEvent.changeText(
         screen.getByLabelText('Command Palette'),
         'answer',

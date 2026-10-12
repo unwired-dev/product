@@ -130,3 +130,20 @@ selected A: preserve current action semantics, avoid duplicating existing launch
 work, and disclose the limitation. The future Thread requirements above describe the
 confirmed product direction; this section identifies the current integration
 boundary.
+
+
+Settings currently uses the maintained clients' existing Account page navigation,
+including the composer finishing guard. Independent platform Settings presentation
+is tracked in [#911](https://github.com/unwired-dev/product/issues/911); the palette
+does not supply a new Settings coordinator.
+The Settings scope panel chose existing navigation (A) over adding platform
+presentation to this integration (B), unanimously across Claude Fable 5.1,
+GPT-6.1-Sol, and GPT-6-Astra.
+
+The unavailable catalog includes Trash and Spam, and includes Star and Remove Star
+for Gmail contexts, including Settings and an Inbox without a selected message.
+Microsoft contexts omit the unimplemented Star actions, matching their readers.
+For this choice the panel selected provider-aware omission (B) over globally
+showing disabled provider-unsupported actions (A), by 2–1: Claude Fable 5.1 and
+GPT-6-Astra favored matching supported provider behavior; GPT-6.1-Sol favored
+app-wide discoverability.

@@ -4,23 +4,39 @@ import type { InboxMailbox } from './private-storage.ts';
 
 import { Commands } from './command-palette.tsx';
 import { useLocalization } from './localization.ts';
-import { useLeaveComposer } from './mailbox.tsx';
+import { useComposerNavigation } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 
 export function InboxCommands({
   hasSelection,
+  stars,
   mailboxes,
   onInbox,
   onScope,
 }: {
   readonly hasSelection: boolean;
+  readonly stars: boolean;
   readonly mailboxes: readonly InboxMailbox[];
-  readonly onInbox: () => Promise<boolean>;
+  readonly onInbox: () => void;
   readonly onScope: (scope: string) => void;
 }) {
   const { t } = useLocalization();
   const account = use(AccountContext);
-  const leave = useLeaveComposer();
+  const navigation = useComposerNavigation();
+  const leave = async () => {
+    const result = await navigation.leaveResult();
+    if (result === 'failed') {
+      throw new Error('Composer could not finish');
+    }
+    return result;
+  };
+  const openInbox = async () => {
+    if (!(await leave())) {
+      return false;
+    }
+    onInbox();
+    return true;
+  };
   return (
     <Commands
       commands={[
@@ -29,7 +45,7 @@ export function InboxCommands({
           label: t('commandPalette.inbox'),
           keywords: t('commandPalette.inboxKeywords'),
           group: 'navigation',
-          onRun: onInbox,
+          onRun: openInbox,
         },
         ...(account === undefined
           ? []
@@ -53,15 +69,20 @@ export function InboxCommands({
             ['archive', t('gmailActions.label.archive')],
             ['read', t('message.markRead')],
             ['unread', t('message.markUnread')],
+            ['trash', t('gmailActions.label.trash')],
+            ['spam', t('gmailActions.label.spam')],
+            ...(stars
+              ? ([['star', t('gmailActions.label.star')], ['unstar', t('gmailActions.label.unstar')]] as const)
+              : []),
           ] as const
         ).map(([kind, label]) => ({
           id: kind,
           label,
-          keywords: t(
-            kind === 'archive'
-              ? 'commandPalette.archiveKeywords'
-              : 'commandPalette.readKeywords',
-          ),
+          keywords: kind === 'archive'
+            ? t('commandPalette.archiveKeywords')
+            : kind === 'read' || kind === 'unread'
+              ? t('commandPalette.readKeywords')
+              : '',
           group: 'selection' as const,
           disabled: t(
             hasSelection
@@ -95,6 +116,18 @@ export function InboxCommands({
           onRun: () => false,
         },
         {
+          id: 'replyAll',
+          label: t('message.replyAll'),
+          keywords: t('commandPalette.replyKeywords'),
+          group: 'selection',
+          disabled: t(
+            hasSelection
+              ? 'commandPalette.unsupported'
+              : 'commandPalette.select',
+          ),
+          onRun: () => false,
+        },
+        {
           id: 'forward',
           label: t('message.forward'),
           keywords: t('commandPalette.forwardKeywords'),
@@ -117,7 +150,7 @@ export function InboxCommands({
                   label: mailbox.address ?? mailbox.id,
                   group: 'navigation' as const,
                   onRun: async () => {
-                    if (!(await onInbox())) {
+                    if (!(await openInbox())) {
                       return false;
                     }
                     onScope(mailbox.id);

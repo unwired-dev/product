@@ -471,14 +471,14 @@ export function DraftList({
     creating.current = true;
     setCreatingShown(true);
     // Leaving and creating resolve rather than reject, so the press always settles here.
-    const id = await navigation.create(store, mailbox);
+    const result = await navigation.createResult(store, mailbox);
     creating.current = false;
     setCreatingShown(false);
-    if (id !== undefined) {
-      onCompose(id);
+    if (result?.kind === 'created') {
+      onCompose(result.id);
       return true;
     }
-    return false;
+    return result?.kind === 'failed' ? 'failed' as const : false;
   };
   return (
     <View>
@@ -494,7 +494,11 @@ export function DraftList({
               if (sender === undefined) {
                 return false;
               }
-              return compose(sender);
+              const result = await compose(sender);
+              if (result === 'failed') {
+                throw new Error('Composer could not finish');
+              }
+              return result;
             },
           },
         ]}
@@ -1576,7 +1580,7 @@ function Editor({
     }
     if (finished.entries !== undefined) {
       setClosing('recipients');
-      return false;
+      return 'failed' as const;
     }
     setClosing('saving');
     let closed = false;
@@ -1600,7 +1604,7 @@ function Editor({
       return true;
     }
     setClosing('blocked');
-    return false;
+    return 'failed' as const;
   }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
