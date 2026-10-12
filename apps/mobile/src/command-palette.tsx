@@ -48,7 +48,7 @@ const nativeCommands = (
 const NativeHost = requireNativeComponent<
   ViewProps & {
     enabled: boolean;
-    active: boolean;
+    presentation: 'open' | 'dismissed' | 'retired';
     headerInset: number;
     onCommandKey: (event: NativeSyntheticEvent<unknown>) => void;
   }
@@ -265,13 +265,19 @@ export function CommandPalette({
     nativeCommands?.markHintSeen?.();
     store.open();
   }, [store]);
-  const close = useCallback(() => {
+  const close = useCallback((presentation: 'dismissed' | 'retired' = 'retired') => {
     session.current += 1;
-    store.close();
+    if (presentation === 'retired') {
+      previous.current = null;
+    }
+    store.close(presentation);
   }, [store]);
   const context = useMemo(() => ({ store, open, close }), [store, open, close]);
   const dismiss = () => {
-    close();
+    if (!store.getSnapshot().open) {
+      return;
+    }
+    close('dismissed');
     previous.current?.focus();
   };
   useEffect(() => {
@@ -444,7 +450,7 @@ export function CommandPalette({
         style={styles.fill}
         headerInset={topInset}
         enabled={state.commands.length > 0}
-        active={state.open}
+        presentation={state.presentation}
         onCommandKey={key}>
         <View
           collapsable={false}

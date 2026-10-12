@@ -23,6 +23,7 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
 @property(nonatomic, copy) RCTDirectEventBlock onCommandKey;
 @property(nonatomic) BOOL enabled;
 @property(nonatomic) BOOL active;
+@property(nonatomic, copy) NSString *presentation;
 @property(nonatomic) CGFloat headerInset;
 #if TARGET_OS_OSX
 @property(nonatomic, strong) id keyMonitor;
@@ -69,15 +70,6 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
   if (_keyMonitor) [NSEvent removeMonitor:_keyMonitor];
 }
 
-- (void)setActive:(BOOL)active
-{
-  if (active && !_active && !self.previousResponder) self.previousResponder = self.window.firstResponder;
-  if (!active && _active) {
-    [self.window makeFirstResponder:self.previousResponder];
-    self.previousResponder = nil;
-  }
-  _active = active;
-}
 #else
 - (BOOL)canBecomeFirstResponder { return YES; }
 
@@ -120,15 +112,6 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
   if (enabled && self.window && !UnwiredFirstResponder(self.window)) [self becomeFirstResponder];
 }
 
-- (void)setActive:(BOOL)active
-{
-  if (active && !_active && !self.previousResponder) self.previousResponder = UnwiredFirstResponder(self.window);
-  if (!active && _active) {
-    if (![self.previousResponder becomeFirstResponder]) [self becomeFirstResponder];
-    self.previousResponder = nil;
-  }
-  _active = active;
-}
 
 - (NSArray<UIKeyCommand *> *)keyCommands
 {
@@ -161,6 +144,30 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
   if (self.onCommandKey) self.onCommandKey(@{@"key": key});
 }
 #endif
+
+- (void)setPresentation:(NSString *)presentation
+{
+  BOOL active = [presentation isEqualToString:@"open"];
+  if (active && !_active && !self.previousResponder) {
+#if TARGET_OS_OSX
+    self.previousResponder = self.window.firstResponder;
+#else
+    self.previousResponder = UnwiredFirstResponder(self.window);
+#endif
+  }
+  if (!active) {
+    if (_active && [presentation isEqualToString:@"dismissed"]) {
+#if TARGET_OS_OSX
+      [self.window makeFirstResponder:self.previousResponder];
+#else
+      if (![self.previousResponder becomeFirstResponder]) [self becomeFirstResponder];
+#endif
+    }
+    self.previousResponder = nil;
+  }
+  _active = active;
+  _presentation = [presentation copy];
+}
 @end
 
 @interface UnwiredCommandPalette : RCTViewManager
@@ -170,7 +177,7 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
 RCT_EXPORT_MODULE()
 RCT_EXPORT_VIEW_PROPERTY(onCommandKey, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
-RCT_EXPORT_VIEW_PROPERTY(active, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(presentation, NSString)
 RCT_EXPORT_VIEW_PROPERTY(headerInset, CGFloat)
 
 + (BOOL)requiresMainQueueSetup { return YES; }

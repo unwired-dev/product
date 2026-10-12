@@ -53,6 +53,37 @@ describe('a window command palette', () => {
     expect(palette.getSnapshot().commands[0]?.disabled).toBe('Unavailable');
   });
 
+  it('publishes each closed snapshot with its dismissal or retirement reason', () => {
+    expect.hasAssertions();
+    const palette = createCommandPalette('Unavailable');
+    const owner = {};
+    palette.register(owner, [{
+      id: 'compose',
+      label: 'Compose',
+      group: 'app',
+      onRun: () => false,
+    }]);
+    const presentations: ReturnType<typeof palette.getSnapshot>[] = [];
+    const unsubscribe = palette.subscribe(() => {
+      presentations.push(palette.getSnapshot());
+    });
+    palette.open();
+    palette.close('dismissed');
+    palette.open();
+    palette.close();
+    palette.open();
+    palette.remove(owner);
+    unsubscribe();
+    expect(presentations.map(({ open, presentation }) => ({ open, presentation }))).toStrictEqual([
+      { open: true, presentation: 'open' },
+      { open: false, presentation: 'dismissed' },
+      { open: true, presentation: 'open' },
+      { open: false, presentation: 'retired' },
+      { open: true, presentation: 'open' },
+      { open: false, presentation: 'retired' },
+    ]);
+  });
+
   it('orders contextual actions first and matches abbreviations and synonyms without personalizing', () => {
     expect.hasAssertions();
     const palette = createCommandPalette('Unavailable');

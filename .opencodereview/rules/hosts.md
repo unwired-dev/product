@@ -107,6 +107,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Preserve captured targets on ordinary selection changes within the same admitted
   owner.
 
+- `command-palette.tsx` publishing native visibility and its close reason from
+  separately scheduled React and external-store state. Keep them in one store
+  snapshot, including asynchronous command completion, and ignore queued
+  dismissal after retirement while clearing its previous React focus target.
+  Otherwise a synchronous store close can reach the native setter with the old
+  reason, or a late Escape can focus a retired Account or Profile.
+
 - `command-palette.tsx` executing Enter or repeated navigation from the previous
   rendered query, picker path or selected row. Native text and key callbacks can
   arrive before React commits; advance event-facing input synchronously and

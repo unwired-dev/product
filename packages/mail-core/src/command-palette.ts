@@ -50,11 +50,14 @@ export function createCommandPalette(initialUnavailable: string) {
   const groups = new Map<object, readonly PaletteCommand[]>();
   const listeners = new Set<() => void>();
   let captured: readonly Entry[] | undefined = undefined;
+  let closedPresentation: 'dismissed' | 'retired' = 'retired';
   let snapshot: Readonly<{
     open: boolean;
+    presentation: 'open' | 'dismissed' | 'retired';
     commands: readonly PaletteCommand[];
   }> = {
     open: false,
+    presentation: 'retired',
     commands: [],
   };
   const entries = () => {
@@ -91,7 +94,11 @@ export function createCommandPalette(initialUnavailable: string) {
               updated?.command ?? { ...entry.command, disabled: unavailable }
             );
           });
-    snapshot = { open: captured !== undefined, commands };
+    snapshot = {
+      open: captured !== undefined,
+      presentation: captured === undefined ? closedPresentation : 'open',
+      commands,
+    };
     for (const listener of listeners) {
       listener();
     }
@@ -116,6 +123,7 @@ export function createCommandPalette(initialUnavailable: string) {
       groups.delete(owner);
       if (groups.size === 0) {
         captured = undefined;
+        closedPresentation = 'retired';
       }
       publish();
     },
@@ -126,7 +134,8 @@ export function createCommandPalette(initialUnavailable: string) {
       captured = entries();
       publish();
     },
-    close: () => {
+    close: (presentation: 'dismissed' | 'retired' = 'retired') => {
+      closedPresentation = presentation;
       captured = undefined;
       publish();
     },

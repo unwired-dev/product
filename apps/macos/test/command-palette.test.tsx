@@ -405,6 +405,12 @@ describe('command palette interactions', () => {
           restore = () => Promise.reject(Object.assign(new Error('Locked'), { code: 'locked' }));
           await act(async () => { await registration.resume(); });
           expect(screen.queryByLabelText('Command Palette')).toBeNull();
+          expect(screen.getByTestId('command-palette-host')).toHaveProp('presentation', 'retired');
+          await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+            nativeEvent: { key: 'escape' },
+          });
+          expect(focus).not.toHaveBeenCalled();
+          expect(screen.getByTestId('command-palette-host')).toHaveProp('presentation', 'retired');
           if (reopened) {
             restore = () => Promise.resolve(connected);
             await act(async () => { await registration.resume(); });
@@ -632,6 +638,7 @@ describe('command palette interactions', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Move…' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Travel' }));
     expect(moved).toBe(true);
+    expect(screen.getByTestId('command-palette-host')).toHaveProp('presentation', 'dismissed');
     await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
       nativeEvent: { key: 'open' },
     });
@@ -640,6 +647,7 @@ describe('command palette interactions', () => {
       screen.getByRole('button', { name: 'Cancel commands' }),
     );
     expect(screen.getByText('Current draft')).toBeVisible();
+    expect(screen.getByTestId('command-palette-host')).toHaveProp('presentation', 'dismissed');
   });
 
   it('keeps an open palette from applying an action to a changed selection and prevents double execution', async () => {

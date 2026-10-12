@@ -7,6 +7,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   native entry and dismissal, since JavaScript event tests bypass responder
   routing and native navigation bars.
 
+- `UnwiredCommandPaletteView` restoring a saved responder whenever the palette
+  becomes inactive, including Account, Profile or lock retirement. Trace the
+  host close reason through the exported native property and both AppKit/UIKit
+  setters: restore only an ordinary dismissal, and clear the saved responder on
+  retirement before any later dismissal can reach it. Preserve restoration for
+  native responders outside React TextInput. React focus spies and bridge-property
+  assertions do not execute those native setters; record packaged responder
+  validation separately, or a passing component test can hide stale-owner focus.
+
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
 #### Bundled localization resources

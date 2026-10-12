@@ -18,3 +18,5 @@ Respect provider-specific organizing actions and folder availability in the pale
 Show the current response prerequisite in the palette when message content, Draft storage, or a sending mailbox is unavailable.
 
 Show composer finishing failures inside the palette, including New Message, and keep unavailable organizing commands discoverable for supported providers. Retire pending command sessions when their Account, Profile or lock scope changes.
+
+Discard the saved native focus target when an Account, Profile or lock change retires the palette; retain focus restoration on normal dismissal.

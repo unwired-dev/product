@@ -110,6 +110,8 @@ and bulk actions; they do not describe the current integration.
   parameter picker, Escape first returns to the command list.
 - Dismissing restores the previous focus. Successfully running a command closes
   the palette.
+- An Account, Profile or lock scope change retires the palette without restoring
+  its previous React or native focus target. The saved native responder is cleared.
 - Each new opening starts with an empty query.
 
 ## Maintained-client integration scope
