@@ -9,7 +9,7 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { ComponentProps, ReactNode } from 'react';
 
-import { imapSetup } from '@private-email/mail-core/imap-setup';
+import { imapPresetOf, imapSetup } from '@private-email/mail-core/imap-setup';
 import { Fragment, useState, useSyncExternalStore } from 'react';
 import { TextInput, View } from 'react-native';
 
@@ -131,6 +131,9 @@ function ImapForm({
       {...options}
     />
   );
+  // A repair keeps its saved endpoint, but names its provider and the password it needs.
+  const guidance =
+    repair?.imap === undefined ? provider : imapPresetOf(repair.imap);
   const setup = imapSetup(provider, fields);
   // The password leaves this form once it is handed to native storage, or the form is left.
   const forgetPassword = () => {
@@ -141,7 +144,7 @@ function ImapForm({
       <Label
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {t(`imap.providers.${provider}`)}
+        {t(`imap.providers.${guidance}`)}
       </Label>
       <Label style={[styles.text, { color: colors.secondary }]}>
         {t('imap.description')}
@@ -162,7 +165,7 @@ function ImapForm({
         textContentType: 'password',
       })}
       <FormNotes
-        provider={provider}
+        provider={guidance}
         review={setup}
         failure={imapFailure}
       />

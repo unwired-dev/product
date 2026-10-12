@@ -37,6 +37,16 @@ export const imapProviders = {
 } as const;
 export type ImapProvider = keyof typeof imapProviders | 'other';
 
+// The reviewed provider a saved endpoint belongs to, whose guidance its password repair shows.
+export const imapPresetOf = (
+  endpoint: Readonly<{ host: string; port: number }>,
+): ImapProvider =>
+  (['icloud', 'fastmail'] as const).find(
+    (preset) =>
+      imapProviders[preset].host === endpoint.host &&
+      imapProviders[preset].port === endpoint.port,
+  ) ?? 'other';
+
 // The setup to try once more when the server refuses this one: iCloud Mail accepts the full
 // address where it refuses the name part, as Apple's mail settings direct.
 export const imapFallback = (setup: ImapSetup): ImapSetup | undefined =>

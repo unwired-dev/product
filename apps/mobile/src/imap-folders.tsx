@@ -43,7 +43,7 @@ export function FolderPicker({
         style={styles.scopes}>
         {state.folders
           .filter(({ selectable }) => selectable)
-          .map(({ name, roles }) => (
+          .map(({ name }) => (
             <Pressable
               key={name}
               accessibilityRole="button"
@@ -60,7 +60,7 @@ export function FolderPicker({
                 },
               ]}>
               <Text style={{ color: colors.foreground }}>
-                {roles.includes('inbox') ? t('inbox.title') : name}
+                {name === inboxFolder ? t('inbox.title') : name}
               </Text>
             </Pressable>
           ))}

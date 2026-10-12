@@ -36,6 +36,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
+  Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
+  role-bearing folders keep their provider name and separate selection. Exercise
+  INBOX beside a differently named inbox-role folder on both hosts; otherwise
+  distinct folders appear to be the same Inbox.
+
+- `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
+  setup provider, or rebuilding the saved endpoint from a recognized preset.
+  Use the saved host and port to choose the heading and app-specific-password
+  note, while retaining the saved host, port and successful username for setup,
+  including iCloud's full-address fallback. Otherwise repairs hide required
+  password guidance or authorize a different connection identity.
+
 - `imap-folders.tsx.useImapFolder` treating only a `failed` folder view as a
   synchronization failure, or retaining a choice absent from the ready listing's
   selectable folders. Use the shared IMAP projections: cached `ready` rows with

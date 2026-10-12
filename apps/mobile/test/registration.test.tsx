@@ -238,6 +238,80 @@ describe('product registration', () => {
     });
   });
 
+  it('labels only INBOX as the Inbox and keeps preset guidance when repairing an iCloud password', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    imap.addFolder('Primary', ['inbox']);
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'icloud-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@icloud.example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: {
+            host: 'imap.mail.me.com',
+            port: 993,
+            username: 'alex@icloud.example.invalid',
+          },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    // A folder with the inbox role keeps its own name beside the reserved INBOX.
+    await expect(
+      screen.findByRole('button', { name: 'Primary' }),
+    ).resolves.toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Inbox' })).toHaveLength(1);
+    await openAccount();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Enter the password for alex@icloud.example.invalid again',
+        }),
+      );
+    });
+    // Repair names the provider and its app-specific password while keeping the saved endpoint.
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    expect(
+      screen.getByText(
+        "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
+      ),
+    ).toBeVisible();
+  });
+
   it('warns when a cached folder cannot be refreshed and falls back to the Inbox once the folder is gone', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
     expect.hasAssertions();
