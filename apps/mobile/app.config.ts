@@ -50,9 +50,14 @@ if (
 // Release uploads stamp their UTC build number and source commit.
 const buildNumber: unknown = env.UNWIRED_BUILD_NUMBER ?? '1';
 const commit: unknown = env.UNWIRED_COMMIT ?? '';
+// The signing team; without it, Expo asks which keychain identity signs local builds.
+const team: unknown = env.UNWIRED_DEVELOPMENT_TEAM ?? '';
 if (
   !Schema.is(Schema.String.check(Schema.isPattern(/^[0-9]+$/u)))(buildNumber) ||
-  !Schema.is(Schema.String)(commit)
+  !Schema.is(Schema.String)(commit) ||
+  !Schema.is(Schema.String.check(Schema.isPattern(/^(?:[0-9A-Za-z]{10})?$/u)))(
+    team,
+  )
 ) {
   throw new TypeError('Invalid release build configuration');
 }
@@ -67,6 +72,7 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: 'dev.unwired.mail',
     buildNumber,
+    ...(team ? { appleTeamId: team } : {}),
     icon: '../../native/app-icon/UnwiredMail.icon',
     supportsTablet: true,
     // Only Apple's system cryptography and HTTPS are used.

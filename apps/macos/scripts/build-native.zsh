@@ -11,11 +11,18 @@ artifact_root="${PWD}/../../artifacts/macos-inbox"
 mkdir -p "$artifact_root"
 export PATH="$(ruby -e 'print Gem.bindir'):$PATH"
 pnpm native:generate
-pnpm native:pods
+# CocoaPods intermittently fails Pods project generation in pnpm workspaces
+# (CocoaPods/CocoaPods#12866); a repeat succeeds.
+pods_installed=0
+for attempt in 1 2 3; do
+  pnpm native:pods && { pods_installed=1; break; }
+done
+(( pods_installed )) || { print -u2 'CocoaPods installation failed'; exit 1; }
 # The Swift package graph Private Inbox resolved, so the host builds exactly those revisions.
 mkdir -p macos/UnwiredMail.xcworkspace/xcshareddata/swiftpm
 cp ../../native/private-inbox/Package.resolved macos/UnwiredMail.xcworkspace/xcshareddata/swiftpm/
 xcodebuild build -workspace macos/UnwiredMail.xcworkspace -scheme UnwiredMail \
   -onlyUsePackageVersionsFromResolvedFile \
   -configuration "$configuration" -destination 'platform=macOS' \
-  -derivedDataPath "$artifact_root/DerivedData" CODE_SIGN_IDENTITY="${UNWIRED_SIGNING_IDENTITY:--}" ARCHS=arm64 ENABLE_HARDENED_RUNTIME=NO
+  -derivedDataPath "$artifact_root/DerivedData" CODE_SIGN_IDENTITY="${UNWIRED_SIGNING_IDENTITY:--}" \
+  DEVELOPMENT_TEAM="${UNWIRED_DEVELOPMENT_TEAM:-}" ARCHS=arm64 ENABLE_HARDENED_RUNTIME=NO
