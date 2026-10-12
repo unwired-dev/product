@@ -66,7 +66,7 @@ this device had not seen, the next attempt asks for Sign in with Apple.
 On this device, sign-out and deletion remove:
 
 - the saved Product Sign-In and the Gmail mailbox credential;
-- the Product Sync keys, any held Recovery Key and the decrypted mailbox list;
+- the Private Sync keys, any held Recovery Key and the decrypted mailbox list;
 - any open device-approval request;
 - the encrypted [Gmail Inbox cache](gmail-inbox.md);
 - [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement);
@@ -76,7 +76,7 @@ The next Product Account on the device starts from nothing. The replacement has
 no Drafts yet; the preview Inbox fixture is test-only and is not account data.
 Later slices must add their stores to this purge.
 
-Once deletion is authorized, Convex blocks every Product Account, Product Sync,
+Once deletion is authorized, Convex blocks every Product Account, Private Sync,
 device and push request for the account and finishes removing backend data after
 interruptions. Neither the original nor a Linked Sign-In can reopen the account
 or create a new one. A recent authenticated retry can finish an already-authorized

@@ -1,10 +1,10 @@
-# Private Product Sync and the Recovery Key
+# Private Sync and the Recovery Key
 
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/private-product-sync.md).
 
 [#599](https://github.com/unwired-dev/product/issues/599) initializes
-End-to-End Encrypted Product Sync for a new Product Account on iPhone, iPad and
+Private Sync for a new Product Account on iPhone, iPad and
 Mac. It creates the account keys on the first Trusted Device and presents a
 user-held Recovery Key. A small real record round-trips through Convex: the
 authorized Gmail mailbox descriptor.
@@ -38,7 +38,7 @@ is on**, and the key is no longer shown. Showing or replacing it again needs a
 recent-authentication flow that belongs to a later slice.
 
 Once Gmail is connected, the section lists the mailbox addresses decrypted from
-Product Sync, for example `Encrypted mailbox list: alex@example.invalid.`. The
+Private Sync, for example `Encrypted mailbox list: alex@example.invalid.`. The
 entry appears only after the device reads the encrypted record back and opens it.
 
 If setup cannot reach Convex, the section reports that it will continue the next
@@ -48,7 +48,7 @@ now. A connected mailbox whose descriptor has not been read back yet, for exampl
 one chosen after an Apple relaunch, shows that it is not saved to private sync yet
 and offers the same action. Signing in again rechecks a saved Gmail mailbox instead
 of restarting Gmail consent. Reopening an account that already
-has Product Sync keys on a device without them never creates keys. A device that
+has Private Sync keys on a device without them never creates keys. A device that
 signs in to an existing account waits as a [Pending Device](#approving-a-new-device).
 A Trusted Device that lost its local keys shows **Unlock private data on this
 device** and offers [Recovery Key entry](#recovering-with-the-recovery-key), or
@@ -56,7 +56,7 @@ signing out and in again so another device can approve it. Nothing is reset.
 
 If the device loses its encryption key before the initial Recovery Key was
 confirmed, that Recovery Key stays visible and must be confirmed before fresh
-enrollment. Retaining that backup does not permit Product Sync writes or decisions
+enrollment. Retaining that backup does not permit Private Sync writes or decisions
 about another device's enrollment. An unanswered removal also keeps its proposal
 and Recovery Key. Checking again or cancelling reconciles a committed removal;
 confirming again retries only the same previously submitted proposal. Once settled,
@@ -70,7 +70,7 @@ its encryption key, it enters fresh enrollment without reporting the target as r
 Product Sign-In admits only the device that creates the account's keys. Every
 later device, on every account, signs in as a
 [Pending Device](domain/identity.md). It reaches the Product Account but none of
-its data: no account operations, Product Sync reads or push routing, and no Gmail
+its data: no account operations, Private Sync reads or push routing, and no Gmail
 authorization. Its screen, **Add this device**, explains that an existing device
 or the Recovery Key must authorize it. It shows **Approve this device** with a
 one-time [Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in
@@ -97,7 +97,7 @@ the device only with the key its approval or proof named.
 On the new device, **Check for approval** collects the approval. The device stores
 the account keys and then confirms them; only that confirmation makes it a Trusted
 Device, already at the approval's key epoch. It shows **Private sync is on** with
-the mailbox list decrypted from Product Sync, and **Authorize Gmail** appears.
+the mailbox list decrypted from Private Sync, and **Authorize Gmail** appears.
 Gmail on that device still needs its own authorization, and the Recovery Key stays
 with the device that created it. If the approving device is removed, or a removal
 supersedes the approved key epoch, before the new device confirms, the approval is
@@ -153,7 +153,7 @@ with the key, saves the account keys and confirms them, and only then becomes a
 Trusted Device. A Trusted Device that lost its keys reads its account's envelope
 directly. The Recovery Key never leaves the device, and only after the envelope
 opens does the device save the account keys. The device shows **Private sync is
-on** with the mailbox list decrypted from Product Sync, and **Authorize Gmail**
+on** with the mailbox list decrypted from Private Sync, and **Authorize Gmail**
 appears. Gmail on this device still needs its own authorization. The device does
 not keep or show the Recovery Key afterwards.
 
@@ -260,13 +260,13 @@ legacy description. The decrypted mailbox list omits removals.
 
 ## Initialization and relaunch
 
-Account connection reports whether Product Sync material already exists. A device creates keys only when Convex reports it has none and this
+Account connection reports whether Private Sync material already exists. A device creates keys only when Convex reports it has none and this
 device holds no keys for the account. It saves the keys locally before publishing
 anything, so an interrupted attempt resumes with the same keys. A receipt saved
 before this slice reports no state; it shows setup as pending, never enrollment,
 and creates no keys until the next connect reports the account's state. Read all record pages before reporting complete synchronization.
 
-Exactly one device can initialize Product Sync. Repeating the winning publication
+Exactly one device can initialize Private Sync. Repeating the winning publication
 after a lost response succeeds without replacing its keys. A competing device
 discards only its unpublished keys, needs enrollment and writes no records before
 publication succeeds. Replacing recovery material requires recent authentication.
@@ -303,7 +303,7 @@ exactly one envelope for every remaining Trusted Device,
 each sealed to that device's bound key. Then, in one step, it removes the device
 and its push routes, activates the new key epoch, stores each remaining device's
 envelope and makes the replacement Recovery Key current. Either all of it applies
-or none of it does; no other device has to connect first. Product Sync writes
+or none of it does; no other device has to connect first. Private Sync writes
 sealed at an earlier epoch are refused from then on. A device whose write is
 refused adopts the new epoch and seals its pending change again, keeping the usual
 record conflict checks.
@@ -376,7 +376,7 @@ for the implementation boundary and tracked limitations.
 
 Convex rejects record writes and the legacy initialized marker until the recovery
 envelope exists. The legacy recovery-material route publishes a first envelope
-only for an account that has never had Product Sync material, and successful
+only for an account that has never had Private Sync material, and successful
 publication leaves the account initialized. It answers `409` for an account whose
 marker or records predate a missing envelope, because missing keys never reset
 silently.
@@ -385,15 +385,15 @@ On relaunch the device loads its existing keys and never regenerates them.
 With Google, restore refreshes the Product Sign-In, reconnects and reads the
 mailbox descriptors back. Native Sign in with Apple cannot renew its identity
 token silently. An Apple device therefore uses the token from the current
-interactive sign-in for Product Sync, and keeps its local state after relaunch.
+interactive sign-in for Private Sync, and keeps its local state after relaunch.
 Backend reads and writes resume after the next interactive sign-in. The mailbox list last decrypted stays visible, and a mailbox descriptor is marked saved only after this device reads it back. A mailbox connected without a session is
 therefore reported as unsaved until then.
 
 Convex reads and writes require the Trusted Device Credential and remain fenced to
-its Product Account, as before. A Product Sync failure is logged with its error
+its Product Account, as before. A Private Sync failure is logged with its error
 domain and code only, and leaves registration and the mailbox usable. When this
 device's keys or enrollment request cannot be read, registration responses report
-Product Sync as `unavailable`. This includes malformed stored data and key items
+Private Sync as `unavailable`. This includes malformed stored data and key items
 saved for another Product Account. The keys are kept, never replaced, and the failure never changes
 the saved mailbox state.
 
@@ -506,7 +506,7 @@ The account's recovery envelope and single initialization stay unchanged. It als
 success, rejection of foreign records, and relaunch with unchanged keys. An
 interrupted publication resumes; a device that loses the race discards its keys,
 enters enrollment and writes no records. A malformed or mismatched local key item
-reports Product Sync as unavailable while Gmail authorization, restore and
+reports Private Sync as unavailable while Gmail authorization, restore and
 sign-in still connect the mailbox, and the item stays unchanged. A mailbox
 descriptor with a newer schema, an unknown key epoch or a failed authentication
 at the current schema and epoch stays byte-for-byte unchanged and hidden after
@@ -538,7 +538,7 @@ group; both hosts now reset the field when the presented key changes, and the
 passing removal run includes that correction. These journeys compile the real
 bridge but use a synthetic backend; they do not qualify live provider or Convex
 revocation. Mac native removal and revoked-device journeys remain deferred.
-The registration Mock Mail Sessions use a synthetic Product Sync backend
+The registration Mock Mail Sessions use a synthetic Private Sync backend
 persisted in the run's Keychain. The packaged Google journey checks the same key
 after relaunch, confirms it, and reads the decrypted mailbox list after another
 relaunch. The packaged `registration-enrollment` journey signs in to an account
@@ -609,4 +609,4 @@ Check that the Convex dashboard shows the request removed after collection.
 On a third installation, unlock with the written Recovery Key instead. Enter a wrong
 key first and confirm that it unlocks nothing. Then confirm that the mailbox list
 appears and that the account still has one unchanged recovery envelope. Do not record Recovery Keys, tokens or addresses in artifacts. No
-real Product Sync pass is claimed until this path has run.
+real Private Sync pass is claimed until this path has run.

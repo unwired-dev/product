@@ -23,9 +23,9 @@ implemented.
 
 ## Encrypted sync and recovery
 
-- **Product Sync** shares **Synced Categories** across the user's devices
-- **End-to-End Encrypted Product Sync** prevents the product backend from reading **Synced Categories**
-- A **Recovery Key** can restore access to data protected by **End-to-End Encrypted Product Sync**
+- **Private Sync** shares **Synced Categories** across the user's devices
+- **Private Sync** prevents the product backend from reading **Synced Categories**
+- A **Recovery Key** can restore access to data protected by **Private Sync**
 - When every **Trusted Device** and the **Recovery Key** are lost, encrypted product data cannot be recovered; nothing resets it, and provider mail is unaffected
 
 ## Local storage and background freshness
@@ -45,7 +45,7 @@ implemented.
 - Selected-recent bodies take priority over pinned-Thread bodies when the cache is full. Only bodies that fit are protected; refused bodies remain on demand, and a pinned body may lose protection under the hard cap.
 - Every non-Spam, non-Trash message body in a pinned **Thread** is eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise the Thread metadata and **Pin** remain while the missing body is fetched on demand
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a Thread **Pin** for body prefetch
-- Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored data in the **Outgoing Content Store** and synchronize through **End-to-End Encrypted Product Sync** to trusted devices; outgoing content is never evicted automatically, and a full store prevents saving additional authored content until the user removes or shortens an item. Incoming content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
+- Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored data in the **Outgoing Content Store** and synchronize through **Private Sync** to trusted devices; outgoing content is never evicted automatically, and a full store prevents saving additional authored content until the user removes or shortens an item. Incoming content that would exceed the local limit remains encrypted in Private Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; the current cache-fitting protected set is never eligible, and a later selection may stop protecting a pinned body when the hard cap requires it
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
@@ -87,21 +87,21 @@ replaces these defaults for the focused release.
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
-- A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
+- A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **Private Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
 
 ## Profile protection and search
 
 - **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
-- **Spotlight Mail Indexing** is an off-by-default **Device-Local Preference** scoped to one Product Account and Mail Profile. Its complete-file-protection index admits only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata; it excludes bodies, attachments, **Product Sync**, and the product backend. Lock, disablement, authorization revocation, message deletion, connection transfer, and Profile deletion remove stale entries
+- **Spotlight Mail Indexing** is an off-by-default **Device-Local Preference** scoped to one Product Account and Mail Profile. Its complete-file-protection index admits only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata; it excludes bodies, attachments, **Private Sync**, and the product backend. Lock, disablement, authorization revocation, message deletion, connection transfer, and Profile deletion remove stale entries
 
 ## Device-local data and preference conflicts
 
 - Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
-- Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext
-- Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Product Sync records, Pending Provider Actions, and Outbox deliveries
-- Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**
+- Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Private Sync plaintext
+- Rebuilding local indexes or clearing and resynchronizing local mailbox data preserves provider mail, Mailbox Authorization, Drafts, Private Sync records, Pending Provider Actions, and Outbox deliveries
+- Provider credentials remain device-local Keychain material rather than preferences synchronized through **Private Sync**
 - **Device-Local Preferences** save without network access
-- **Mail Workflow Preferences** save locally while offline and visibly remain pending until their encrypted Product Sync updates complete, except the global notification switch, category eligibility, and per-connection notification policy: their **Notification Rule** save contract requires connectivity and fails closed so an uncertain remote write leaves no background-eligible rules cache
+- **Mail Workflow Preferences** save locally while offline and visibly remain pending until their Private Sync updates complete, except the global notification switch, category eligibility, and per-connection notification policy: their **Notification Rule** save contract requires connectivity and fails closed so an uncertain remote write leaves no background-eligible rules cache
 - Non-overlapping offline preference changes merge by field
 - A **Preference Conflict** preserves both values for explicit user resolution rather than choosing by device clock, upload order, or device identity
 - Conflicting signatures and templates may preserve the competing value as a conflict copy

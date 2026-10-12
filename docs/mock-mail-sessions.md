@@ -59,7 +59,7 @@ relaunch from its encrypted cache and return to the account page. A synthetic
 Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph requests
 with one message, its folders and search, applying read-state changes and moves
 for the rest of the launch; `registration-apple` connects it before adding Gmail.
-Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
+Its synthetic [Private Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
 accounts present a Recovery Key and relaunches keep their keys. Like Convex, it
 admits only the device that created an account's keys; any other device waits as a
@@ -171,7 +171,7 @@ simulators. The Mac helper requires the recovery argument to match its own
 bundle identity before touching another process or storage. It terminates only
 that generated identity,
 deletes every item in its exact database and registration Keychain services, including
-Product Sync keys and synthetic records, and removes its Application Support
+Private Sync keys and synthetic records, and removes its Application Support
 directory. The runner then removes that identity's sandbox container. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
 is retained with the ownership record for retry. Evidence remains for diagnosis.
 No system can guarantee trap execution after SIGKILL or power loss; retained

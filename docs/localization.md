@@ -9,7 +9,7 @@ device language, persists across launches, and applies to every open Mac window.
 Returning to System default removes the override.
 
 The preference lives in the app's local `NSUserDefaults` domain as
-`interfaceLanguage`. It is not part of mailbox storage or Product Sync. Locale
+`interfaceLanguage`. It is not part of mailbox storage or Private Sync. Locale
 notifications and foreground activation refresh system settings. The override is
 loaded before the first React render. Mac menus and window titles use the same
 catalog and saved preference, including before JavaScript starts.

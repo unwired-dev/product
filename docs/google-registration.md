@@ -73,9 +73,9 @@ and backend calls that carry credentials. Tokens, credentials, installation
 identifiers and provider subjects never enter TypeScript. Native stores every
 issued device credential before returning its non-secret receipt. A reconnect
 must open the retained Product Account. The flow also sequences
-[Product Sync](private-product-sync.md#initialization-and-relaunch) initialization,
+[Private Sync](private-product-sync.md#initialization-and-relaunch) initialization,
 mailbox descriptor synchronization, device enrollment, Recovery Key recovery, key
-rotation adoption and Device Revocation, and derives the Product Sync status it
+rotation adoption and Device Revocation, and derives the Private Sync status it
 shows. Native code keeps every key operation behind purpose-named steps.
 
 Offline restore retains the Product Account and opens a previously verified
@@ -95,8 +95,8 @@ operation finishes. Unchanged restored state keeps setup and linking feedback;
 changed verification results replace the previous status. Retry cannot replace
 an existing Product identity with a different subject. Product Accounts remain
 identified by verified issuer and subject, never by matching email. No existing
-backend rows, Inbox files or Product Sync keys are reset or regenerated. A new
-Product Account then [initializes private Product Sync](private-product-sync.md). The device
+backend rows, Inbox files or Private Sync keys are reset or regenerated. A new
+Product Account then [initializes Private Sync](private-product-sync.md). The device
 that wins initialization presents the Recovery Key; another device of that account
 [waits for approval](private-product-sync.md#approving-a-new-device) from a Trusted Device
 or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key).
@@ -176,7 +176,7 @@ native application integration evidence, not real OAuth evidence.
 External Mock Mail Sessions also accept `registration-cancelled`,
 `registration-declined`, `registration-no-gmail`, `registration-interrupted`,
 the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence),
-[`registration-link`](linked-sign-in.md#deterministic-evidence), and the Product Sync
+[`registration-link`](linked-sign-in.md#deterministic-evidence), and the Private Sync
 [`registration-enrollment` and `registration-recovery`](private-product-sync.md#deterministic-evidence).
 Their native provider is compiled only with `UNWIRED_REGISTRATION_MOCK` in an
 explicitly selected build, accepts only its fixed scenario, and has no network or
@@ -215,7 +215,7 @@ and complete consent, including selection of another protected Google mailbox.
 Confirm the Product Account ID stays fixed. Expire/revoke the mailbox grant and
 confirm restore does not report a connection. Reauthenticate the original Product
 identity independently. Verify an account with the same email under another
-issuer cannot read this account's devices or encrypted Product Sync data.
+issuer cannot read this account's devices or Private Sync data.
 
 At the real callback boundary, dismiss the session, deliver an old/duplicate
 callback, and deliver a callback with the wrong state. They must not complete a
