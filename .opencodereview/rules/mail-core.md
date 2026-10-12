@@ -362,7 +362,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   only the affected owner on forget. Otherwise multi-mailbox Mac windows multiply
   the decoded-pixel/encoded-byte bound or one removal uncharges another live reader.
 
-- `drafts.ts.readAsset` swallowing `mailbox-revoked` from lazy Product Sync asset
+- `drafts.ts.readAsset` swallowing `mailbox-revoked` from lazy Private Sync asset
   downloads as an incomplete-file fallback. Hand the same-account rejection to
   registration just as record synchronization does, while fencing earlier-account
   results by generation; otherwise native purge leaves the host showing private
@@ -498,7 +498,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `outbox.ts.send` or another editor-owned write pinning a Draft identifier before
   awaited asset verification or earlier saves. Resolve the live editor target at
   the serialized write and on each CAS retry while preserving Send's frozen
-  content. Product Sync can rebind the editor to a conflict copy during that
+  content. Private Sync can rebind the editor to a conflict copy during that
   await; a mismatched target and expected identifier otherwise deletes another
   writer's version and admits it alongside the first editor's rendered message.
   Hold a native asset read, trigger a real editor rebind, and verify admission,
@@ -776,7 +776,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   notifying its editor. Keep the newer stored version's ID and move the stale
   payload; notify after the copy enters the snapshot and before subscribers can
   unmount its editor. Keep the binding through saving and Retry, including durable
-  completion; Product Sync `adopt` also moves editors through `rebindEditors`.
+  completion; Private Sync `adopt` also moves editors through `rebindEditors`.
   Clear it only on editor release or account invalidation. Two storage writers can
   choose the same free local copy ID; preserve both versions and follow any second
   rename, or Discard deletes the other writer's copy despite preserving its content.
@@ -935,7 +935,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - Gmail HTTP 403 classification that treats documented usage-limit reasons (`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) as missing mailbox authorization. A project quota or user rate limit requires retry presentation with cached mail retained; reauthorization cannot fix it.
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
 - A `mailbox-revoked` rejection recovered as a storage failure claiming data was kept after native purge, or a registration handoff that infers revocation from every bare signed-out restore. The purging result establishes the reason; `deviceRemoved` must retain the explanation across ordinary foreground restores, fence it against accepted account changes and explicit removal, and preserve authoritative deletion notices. Otherwise a queued restore erases the explanation or a stale callback mislabels sign-out/deletion.
-- Product Sync account-key material, a provider/device credential or a native database encryption key passed into TypeScript. These stay in the native host. The user-held Recovery Key shown during setup is an explicit presentation field in `RegistrationSnapshotSchema`; keep it transient and out of logs and non-native persistence.
+- Private Sync account-key material, a provider/device credential or a native database encryption key passed into TypeScript. These stay in the native host. The user-held Recovery Key shown during setup is an explicit presentation field in `RegistrationSnapshotSchema`; keep it transient and out of logs and non-native persistence.
 
 - `createGmailInbox` retaining ready mail or synchronization checkpoints in memory after
   its Product Account, provider subject or address changes, or after `canOpenInbox`

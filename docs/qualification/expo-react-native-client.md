@@ -303,10 +303,10 @@ Real Convex/JWT and protected Gmail two-device qualification, signed Mac
 Keychain/E2E without matching disposable-app profiles, and physical-device checks
 remain deferred before release. No legacy coverage is retired by this slice.
 
-## Private Product Sync evidence, 2026-10-01
+## Private Sync evidence, 2026-10-01
 
 [#599](https://github.com/unwired-dev/product/issues/599) adds
-[Product Sync initialization and the Recovery Key](../private-product-sync.md)
+[Private Sync initialization and the Recovery Key](../private-product-sync.md)
 on both hosts.
 
 - All 20 affected workspace lint, format, type and test tasks passed, including
@@ -319,7 +319,7 @@ on both hosts.
   identifier, schema and epoch rejection. They also cover recovery and enrollment
   envelope binding, one-time initialization, the encrypted descriptor round trip
   and relaunch without new keys. Interrupted publication and the losing device's
-  enrollment state are covered too, as are a receipt without Product Sync state and
+  enrollment state are covered too, as are a receipt without Private Sync state and
   an Apple relaunch. That relaunch shows the last decrypted mailbox list and saves a
   new mailbox only after signing in again. Convex and the providers are controlled
   boundaries here.
@@ -333,7 +333,7 @@ on both hosts.
   bundle check with ad-hoc signing. The cleanup helper type-checks. Native runner
   contracts (20 tests) passed.
 
-Native Mac E2E, real Convex Product Sync and providers, and the deployment's JWT
+Native Mac E2E, real Convex Private Sync and providers, and the deployment's JWT
 gateway remain deferred. So do signed Mac Keychain behavior and physical devices.
 The [protected qualification path](../private-product-sync.md#protected-real-qualification)
 has not run. No installed Mac profile covers the disposable `dev.unwired.mock.*`
@@ -418,7 +418,7 @@ with the approved GoogleSignIn 10.0.0 native SDK on both hosts.
   backend and Inbox coverage remains. New application and rendered-host tests
   cover pending setup, retry and mailbox reselection; Convex integration proves
   same-address Google and Apple identities stay separate without creating a
-  mailbox connection or Product Sync key material.
+  mailbox connection or Private Sync key material.
 - Seven app-hosted native tests passed on an owned iOS 27 Simulator against real
   Keychain, CryptoKit and filesystem operations. Added scenarios cover callback
   nonce/audience/subject/issuer/expiry rejection, missing Gmail grants, unavailable

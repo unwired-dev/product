@@ -1,4 +1,4 @@
-# Private product sync: architecture notes
+# Private Sync: architecture notes
 
 Reviewer-only companion to [docs/private-product-sync.md](../private-product-sync.md).
 Read under the [implementation and review workflow](../agents/implementation-review.md).
@@ -144,7 +144,7 @@ device-only credential whose digest Convex stores. It may request or renew
 approval, read its status, receive a sealed ring, submit Recovery Key proof,
 confirm durable key adoption, sign out, or delete the account after recent
 interactive sign-in. All other entry points require Trusted Device proof.
-Product-Sign-In-only legacy Product Sync reads are removed. There are no existing
+Product-Sign-In-only legacy Private Sync reads are removed. There are no existing
 users to migrate, and the legacy Swift host is not adapted.
 
 The requesting device creates a one-time X25519 key and an Enrollment Code with
@@ -397,7 +397,7 @@ admission. ADR 0070 supersedes the temporary previous-Recovery-Key allowance;
 only the current key provides current recovery access.
 
 Issue #756 moved registration sequencing and the revocation guard to TypeScript;
-#757 moved Product Sync initialization and synchronization, and #758 moved
+#757 moved Private Sync initialization and synchronization, and #758 moved
 enrollment, recovery, rotation and revocation coordination. The shared flow reads
 proposal receipts, settles durably adopted removal material through the native
 vault and synchronizes before deriving the removed/superseded notice against the

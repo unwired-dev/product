@@ -89,7 +89,7 @@ A full cache losing an entry relists to refill it. Schema validates list metadat
 delta identities and continuation destinations before use. This avoids deriving
 current state from partial or stale change objects.
 
-Microsoft connection/cache IDs and Product Sync descriptor IDs include the
+Microsoft connection/cache IDs and Private Sync descriptor IDs include the
 provider with the verified Graph subject. Existing Gmail IDs and encrypted
 records stay unchanged. Descriptors carry the encrypted provider/address/epoch,
 not tokens or the subject. Body storage and generation, removal, revocation and

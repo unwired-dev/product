@@ -1,6 +1,6 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the replacement's native code: `native/private-inbox` (Swift package and React Native bridge), `native/localization` and the AppKit host in `apps/macos/macos`.
 
-Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Product Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
+Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
 #### Bundled localization resources
 
@@ -118,13 +118,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   otherwise an input below the nominal limit can exceed the stored-byte budget.
 
 - A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
-- Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
+- Native database keys, Private Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
 - A new key generated when the expected one is missing on an initialized account. A missing account key requires trusted-device approval or the current Recovery Key. A missing bound device private key requires a fresh Pending Device installation and authorization, even when the old ring remains; never replace the immutable public key on its old registration. Otherwise sign-in fabricates usable key custody or reenrollment remains stranded.
 - `RegistrationStore.reenroll` or another destructive reenrollment/cleanup path
   discarding a vault with an unconfirmed Recovery Key or a submitted removal
   before its exact outcome is reconciled. Preserve the sole backup and durable
   proposal locator, including after device-private-key loss; retaining them must
-  not permit ordinary Product Sync writes, enrollment decisions or new removals.
+  not permit ordinary Private Sync writes, enrollment decisions or new removals.
   Trace `draftSync`, `approveEnrollment`, `declineEnrollment` and revocation
   confirmation/cancellation: exact submitted-intent replay may reconcile its
   receipt and locally retained proposal envelope, but fresh enrollment remains
@@ -136,7 +136,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   or silently preserves keyless Trusted Device privileges.
 - Ciphertext written without atomic replacement and file synchronization before the call resolves, without complete file protection on iOS, or into a directory included in backup.
 - A read-modify-write, including first-run seeding, performed outside the native file lock, or that rewrites more than the requested record from a stale in-memory copy.
-- AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Product Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Product Sync storage.
+- AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Private Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Private Sync storage.
 - Filesystem access on iOS before the protected-data availability check, or a locked device reported as a generic failure rather than `locked`.
 - Cleanup of old keys, envelopes or credentials ordered before the replacement is durably adopted.
 - A revocation purge such as `RegistrationStore.purge` that stops account-item cleanup at the first failure, clears in-memory authorization only after a throwing read, or deletes the registration/retry locator before every dependent item is removed. Attempt every known item, retain the first failure and remove the locator last; otherwise credentials remain live in memory or a partial purge loses its account scope and cannot resume.
@@ -425,7 +425,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   before the provider request; otherwise a mismatched saved credential can create
   or stop another mailbox's watch.
 
-- `RegistrationStore.removeMailbox` deleting its relay row before the Product Sync
+- `RegistrationStore.removeMailbox` deleting its relay row before the Private Sync
   removal is acknowledged. Queue the opaque locator alongside durable local
   removal intent and flush after acknowledgement or a superseding incarnation;
   otherwise a crash can delete the route without a synchronized removal.

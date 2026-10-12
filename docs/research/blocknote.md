@@ -147,7 +147,7 @@ email-rendering work enough to justify its ongoing license and integration cost.
 BlockNote integrates Yjs and delegates transporting updates to a provider. Its
 docs list hosted and self-hosted providers, and `y-indexeddb` for offline storage.
 This is an optional collaboration building block, not our encrypted persistence
-or Product Sync implementation. **Recommendation:** initially use a local editor
+or Private Sync implementation. **Recommendation:** initially use a local editor
 with our existing ordered save bridge. Do not silently replace conflict Drafts
 with CRDT merging or store private Drafts in browser IndexedDB.
 [Collaboration documentation](https://www.blocknotejs.org/docs/features/collaboration),

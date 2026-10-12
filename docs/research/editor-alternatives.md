@@ -48,7 +48,7 @@ encrypted original bytes; the editor receives limited display thumbnails.
 
 The durable contract remains our **Semantic Message Document**, not editor HTML,
 Markdown, or a vendor JSON format. Ordered saves, retryable failures, close/save
-coordination, stale-window conflict Drafts, and encrypted Product Sync must
+coordination, stale-window conflict Drafts, and Private Sync must
 survive. Assistance stays explicit, on-device, revision-bound and separate until
 acceptance. Editor collaboration or vendor AI is not a substitute for those
 behaviors. The accepted assistance contract includes default-off enablement;

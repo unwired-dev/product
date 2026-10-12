@@ -406,7 +406,7 @@ retain explicit download with a neutral `application/octet-stream` descriptor wh
 their repeated Content-Type tokens disagree.
 A download rereads the owning message and revalidates the part selector,
 name, MIME type and size. Only the verified connection and generation can save it;
-bytes never enter the encrypted body cache or Product Sync.
+bytes never enter the encrypted body cache or Private Sync.
 Host attachment actions, including cancellation, reuse the committed reader/body
 predicate before calling the store, so queued input cannot present an old file or
 cancel a later reader's download. A native generation invalidation during reading
