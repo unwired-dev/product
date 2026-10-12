@@ -23,7 +23,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
 
-- Expo 57.0.26, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.24.
+- Expo 57.0.28, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.26.
 - Route parameters identify the selected message.
 - Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
 - Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
@@ -67,9 +67,11 @@ and rejected import forms and the [boundary rules](agents/effect.md#enforcement)
 
 ### Compatibility pins
 
-Dependencies were refreshed on 2026-10-05. Native packages follow Expo 57's exact
+Expo compatibility patches were refreshed on 2026-10-12. Native packages follow Expo 57's exact
 compatibility map, rather than independently upgrading the renderer or native
-peers. Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
+peers. Keep the mobile Babel preset within the selected Expo package's declared
+dependency range; [`catalogs.mobile`](../pnpm-workspace.yaml) holds both pins.
+Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
 native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.

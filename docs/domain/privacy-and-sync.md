@@ -3,7 +3,7 @@
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](../architecture/domain/privacy-and-sync.md).
 
-[Domain index](../../GLOSSARY.md) · [behavior notes](../product/privacy-and-sync.md)
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/privacy-and-sync.md) · [opt-in telemetry requirements](../telemetry.md)
 
 Privacy and encryption boundaries remain applicable. Category-Aware Notification
 and Generic Notification Fallback retain prototype meanings; replacement
@@ -109,6 +109,18 @@ _Avoid_: Device setting, provider credential
 **Device-Local Preference**:
 A choice tied to one device's hardware, operating-system permission, appearance, storage, or diagnostics.
 _Avoid_: Synced mail workflow
+
+**Product Analytics Consent**:
+A person's device-local permission to share allowlisted product-usage events from this installation, independent of permission to share app failures.
+_Avoid_: Account-wide tracking permission, App Error Reporting Consent
+
+**App Error Reporting Consent**:
+A person's device-local permission to share sanitized app failures, including JavaScript errors and native crashes, independent of permission to share product-usage events.
+_Avoid_: Product Analytics Consent, diagnostic export
+
+**Analytics Installation**:
+One participating app installation counted independently of the person's other devices and Product Account. A returning Analytics Installation represents that installation returning to the app, not a unique person returning across devices.
+_Avoid_: Active user, Product Account, Trusted Device
 
 **Preference Conflict**:
 Two changes to the same field of a **Mail Workflow Preference** that were made from the same older synchronized revision.

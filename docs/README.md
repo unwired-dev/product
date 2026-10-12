@@ -31,6 +31,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Private Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
+- [Planned opt-in analytics and error reporting](telemetry.md)
 
 ## Shared policies
 
