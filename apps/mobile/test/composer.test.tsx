@@ -301,18 +301,24 @@ describe('composing Drafts', () => {
       const app = await render(view('work'));
       await press('New Message');
       await expect(
-        screen.findByRole('button', { name: 'Send from other@example.invalid' }),
+        screen.findByRole('button', {
+          name: 'Send from other@example.invalid',
+        }),
       ).resolves.toHaveProp('accessibilityState', {
         selected: true,
         disabled: false,
       });
       expect(
-        screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
+        screen.queryByRole('button', {
+          name: 'Send from alex@example.invalid',
+        }),
       ).toBeNull();
       expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
       await press('Close');
       await app.rerender(view('unknown'));
-      expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'New Message' }),
+      ).toBeDisabled();
     },
     10_000,
   );
