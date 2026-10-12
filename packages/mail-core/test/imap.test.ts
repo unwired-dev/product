@@ -727,6 +727,30 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.messageBody(shown.id)).toBeUndefined();
   });
 
+  it('reports the saved body of a row still shown from an evicted folder', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Folder 0');
+    // Its body is saved while the folder is still cached.
+    const shown = firstMessage(inbox.folder('Folder 0'));
+    const release = inbox.retainMessage(shown.id);
+    await inbox.readMessage(shown.id);
+    release();
+    for (const name of names.slice(1)) {
+      await inbox.openFolder(name);
+    }
+    await expect(inbox.savedBodies([shown.id])).resolves.toStrictEqual(
+      new Set([shown.id]),
+    );
+  });
+
   it('returns the same folder snapshot on consecutive reads after a reload drops its view', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

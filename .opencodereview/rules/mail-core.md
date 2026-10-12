@@ -51,8 +51,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   metadata or an in-memory reader. `mailboxes.ts.savedMessageBodies` treats a
   missing lookup as a fully saved preview store. Bind native `listMessageBodies`
   to the owning connection, decode its reply, exclude markers, fence scope and
-  listed-message membership, and leave failed reads unknown; otherwise search
-  falsely promises offline access to bodies never downloaded or no longer saved.
+  row membership through persisted metadata or ready folder views, and leave failed
+  reads unknown. Keep new body-cache admission restricted to `listed`; otherwise
+  search misreports saved bodies for still-visible evicted folders or promises
+  offline access to bodies never downloaded or no longer saved.
 
 - `imap-inbox.ts.openFolder` or body-cache admission swallowing native access
   failures as folder-specific retries or harmless cache-write refusals. Propagate

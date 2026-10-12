@@ -732,6 +732,8 @@ export function createImapInbox(
         view.kind === 'ready' ? view.messages : [],
       ),
     ].find((message) => message.id === id);
+  // A row still shown from an evicted folder reads its saved body offline too.
+  const visibleRow = (id: string) => messageOf(id) !== undefined;
 
   // The message's raw source from the server, as the body the reader presents.
   const bodyOf = Effect.fnUntraced(function* (message: ImapMessage) {
@@ -771,7 +773,7 @@ export function createImapInbox(
   // names none, and a failed read leaves the answer unknown.
   const savedBodies = (ids: readonly string[]) => {
     const scope = opened;
-    const wanted = ids.filter(listed);
+    const wanted = ids.filter(visibleRow);
     if (scope === undefined || wanted.length === 0) {
       return Promise.resolve(new Set<string>());
     }
@@ -784,7 +786,7 @@ export function createImapInbox(
           const markers = new Set(excluded);
           return new Set(
             current(scope)
-              ? stored.filter((id) => !markers.has(id) && listed(id))
+              ? stored.filter((id) => !markers.has(id) && visibleRow(id))
               : [],
           );
         }),
