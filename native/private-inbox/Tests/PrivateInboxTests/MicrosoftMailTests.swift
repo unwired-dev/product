@@ -112,7 +112,19 @@ extension PrivateInboxTests {
     let microsoft = SyntheticMicrosoftMailProvider()
     microsoft.subject = "synthetic-product-subject"
     let backend = SyntheticProductSyncBackend()
-    let store = backend.store(keys: keys, google: google, microsoft: microsoft)
+    var proofUnavailable = false
+    var revoked = false
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, microsoft: microsoft, productSync: backend.backend,
+      deviceRevoked: { _ in
+        if proofUnavailable { throw RegistrationError.unavailable }
+        return revoked
+      },
+      transport: { try backend.transport($0) },
+      connect: { identity, device, _ in
+        try backend.connect("account-" + identity.subject, device: device)
+      })
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
     let googlePrompts = google.hints
@@ -164,6 +176,21 @@ extension PrivateInboxTests {
       }
     }
     #expect(microsoft.graphRequests.count == 1)
+
+    // Cache preflight permits offline reads, but neither Graph mutation may use an old proof.
+    proofUnavailable = true
+    try await store.prepareMailbox(id)
+    let beforeProofFailure = microsoft.refreshes
+    for (read, folder) in [(true, nil), (nil, "archive")] as [(Bool?, String?)] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.graphModify(
+          message: "AAMk-id=", read: read, folder: folder, connection: id,
+          address: "casey@example.invalid", generation: generation)
+      }
+    }
+    #expect(microsoft.refreshes == beforeProofFailure)
+    #expect(microsoft.graphWrites.isEmpty)
+    proofUnavailable = false
 
     // Organizing writes one message's read state or moves it, in a request native code builds.
     _ = try await store.graphModify(
@@ -227,6 +254,25 @@ extension PrivateInboxTests {
     #expect(removals.map { $0["provider"] as? String } == ["microsoft-graph"])
     #expect(removals.map { $0["id"] as? String } == [id])
     #expect(try store.load()?.connections.map(\.receipt.mailProvider) == [.gmail])
+
+    // Reconnecting explicitly restores access; revocation before a write purges that access.
+    _ = try await store.signInMailbox(nil, suggest: false, provider: .microsoftGraph)
+    _ = try await store.verifyMailbox()
+    try await store.retryMailboxCleanup()
+    try store.storeMailbox()
+    try await store.synchronizeRegistration()
+    let renewed = store.mailboxGeneration(id).uuidString
+    let beforeRevocation = microsoft.refreshes
+    revoked = true
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.graphModify(
+        message: "AAMk-id=", read: nil, folder: "archive", connection: id,
+        address: "casey@example.invalid", generation: renewed)
+    }
+    #expect(microsoft.refreshes == beforeRevocation)
+    #expect(microsoft.graphWrites.count == 2)
+    #expect(try keys.read("registration") == nil)
+    #expect(try keys.read("product-sync." + account) == nil)
   }
 
   // The authorization callback names the outcome: a code for this request, a declined consent,

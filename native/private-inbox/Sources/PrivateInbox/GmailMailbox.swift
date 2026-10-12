@@ -159,6 +159,16 @@ extension RegistrationStore {
       generation == mailboxGeneration(id) && verifiedMailboxes.contains(id)
         && (try? connectedMailbox(id))?.1.account == mailbox.account
     }
+    // A write requires current device trust; the offline cache preflight cannot authorize it.
+    if body != nil {
+      let product = try mailboxAccount(id)
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        try await purge()
+        throw RegistrationError.revoked
+      }
+      guard current() else { throw PrivateInboxError.mailboxInvalidated }
+    }
     let microsoft = try microsoftProvider()
     let identity: MicrosoftMailIdentity
     do {

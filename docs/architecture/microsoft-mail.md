@@ -142,7 +142,10 @@ provider-derived state, and interrupted writes reconcile before another dispatch
 
 Native `graphModify` admits only one read-state change or destination folder,
 validates identifiers and constructs PATCH message or POST move requests behind
-the existing `graphCall` authorization and generation fences. Tokens stay native;
+the existing `graphCall` authorization and generation fences. Each write requires
+a current credential-only Trusted Device check before provider renewal; an
+unavailable check prevents dispatch, and a revoked device is purged first.
+Tokens stay native;
 `Prefer: IdType="ImmutableId"` preserves message identity across moves.
 
 Online search uses Graph's own-mailbox `/me/messages?$search`, quoted and escaped,

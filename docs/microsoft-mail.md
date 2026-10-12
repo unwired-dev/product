@@ -90,6 +90,8 @@ folder roles are known and present in the mailbox.
 Each change shows at once, is saved on this device and is sent to Microsoft in
 order, exactly as for [Gmail](gmail-inbox.md):
 
+- a change waits until the current Trusted Device can be verified, even when
+  saved mail remains readable;
 - a change Microsoft could not receive, or that it throttles or answers with a
   server error, waits and is sent again, including after relaunch;
 - a change whose reply was lost is checked against where Microsoft has the message

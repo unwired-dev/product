@@ -60,8 +60,9 @@ Issue #645 carries decoded ownership into `createMailboxes` snapshots and scopes
 Both hosts filter reader access through their `ProfileScope` and `MailboxScope`;
 unknown or mismatched ownership has no readable mailbox. Gmail and Microsoft Graph
 connections, including authorization notices, use the same Profile filter. Graph
-bodies and attachments retain their connection scope; online provider search
-remains Gmail-only in this slice. `readingProfile` decodes
+bodies and attachments retain their connection scope. The original #645 slice
+searched only Gmail online; [Microsoft organizing and search](microsoft-mail.md#organization-and-search)
+adds Graph through the same explicit Profile filter. `readingProfile` decodes
 the mobile `profileId` URL parameter and native selectors: absent legacy values
 mean Default, malformed or repeated values use an
 empty selector that cannot match a decoded nonempty connection owner. Mobile
