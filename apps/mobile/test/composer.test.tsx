@@ -295,14 +295,24 @@ describe('composing Drafts', () => {
         profile={profile}
       />
     );
+    const started = performance.now();
+    const checkpoint = (stage: string) => {
+      process.stderr.write(
+        `[DEBUG-pr914] ${stage}: ${Math.round(performance.now() - started)} ms\n`,
+      );
+    };
+    checkpoint('before render');
     const app = await render(view('work'));
+    checkpoint('after render');
     await press('New Message');
+    checkpoint('after New Message');
     await expect(
       screen.findByRole('button', { name: 'Send from other@example.invalid' }),
     ).resolves.toHaveProp('accessibilityState', {
       selected: true,
       disabled: false,
     });
+    checkpoint('after sender assertion');
     expect(
       screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
     ).toBeNull();
