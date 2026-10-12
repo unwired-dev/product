@@ -33,6 +33,7 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
+import { Chip } from './design.tsx';
 import { FolderPicker, useImapFolder } from './imap-folders.tsx';
 import { InboxCommands } from './inbox-commands.tsx';
 import { styles } from './inbox-styles.ts';
@@ -127,6 +128,9 @@ function MessageRow({
   readonly actions?: readonly RowAction[] | undefined;
 }) {
   const colors = usePalette();
+  const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
+  const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
+  const focusColor = selected ? colors.accentOnFill : colors.accentInk;
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat();
   const [focused, setFocused] = useState(false);
@@ -166,49 +170,77 @@ function MessageRow({
       style={({ pressed }) => [
         styles.row,
         {
-          backgroundColor:
-            selected || pressed ? colors.selected : colors.sidebar,
-          borderColor: focused ? colors.accent : 'transparent',
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.surfaceContent,
+          borderColor: focused ? focusColor : 'transparent',
         },
+        selected && { backgroundColor: colors.accentFill },
       ]}>
-      <View style={styles.rowHeading}>
-        <Text
-          style={[styles.sender, { color: colors.foreground }]}
-          numberOfLines={1}>
-          {message.sender}
-        </Text>
-        <Text style={[styles.date, { color: colors.secondary }]}>
-          {dateFormat.format(new Date(message.receivedAt))}
-        </Text>
-      </View>
-      <View style={styles.subjectLine}>
-        {message.unread ? (
-          <View style={[styles.unread, { backgroundColor: colors.accent }]} />
-        ) : null}
-        <Text
-          style={[styles.subject, { color: colors.foreground }]}
-          numberOfLines={1}>
-          {message.subject}
-        </Text>
-      </View>
-      <Text
-        style={[styles.preview, { color: colors.secondary }]}
-        numberOfLines={2}>
-        {message.preview}
-      </Text>
-      {mailbox === undefined ? null : (
-        <Text
-          numberOfLines={1}
-          style={[styles.mailbox, { color: colors.secondary }]}>
-          {t('inbox.inMailbox', { mailbox })}
-        </Text>
-      )}
-      {status === undefined ? null : (
-        <Text
-          numberOfLines={1}
-          style={[styles.mailbox, { color: colors.secondary }]}>
-          {status}
-        </Text>
+      {({ pressed }) => (
+        <>
+          <View style={styles.rowHeading}>
+            <Text
+              style={[
+                styles.sender,
+                {
+                  color: primaryColor,
+                  fontWeight: message.unread ? '600' : '400',
+                },
+              ]}
+              numberOfLines={1}>
+              {message.sender}
+            </Text>
+            <Text style={[styles.date, { color: secondaryColor }]}>
+              {dateFormat.format(new Date(message.receivedAt))}
+            </Text>
+          </View>
+          <View style={styles.subjectLine}>
+            {message.unread ? (
+              <View
+                style={[
+                  styles.unread,
+                  {
+                    backgroundColor: pressed
+                      ? colors.accentInk
+                      : colors.accentFill,
+                  },
+                  selected && { backgroundColor: colors.accentOnFill },
+                ]}
+              />
+            ) : null}
+            <Text
+              style={[
+                styles.subject,
+                {
+                  color: primaryColor,
+                  fontWeight: message.unread ? '600' : '400',
+                },
+              ]}
+              numberOfLines={1}>
+              {message.subject}
+            </Text>
+          </View>
+          <Text
+            style={[styles.preview, { color: secondaryColor }]}
+            numberOfLines={2}>
+            {message.preview}
+          </Text>
+          {mailbox === undefined ? null : (
+            <Text
+              numberOfLines={1}
+              style={[styles.mailbox, { color: secondaryColor }]}>
+              {t('inbox.inMailbox', { mailbox })}
+            </Text>
+          )}
+          {status === undefined ? null : (
+            <Text
+              numberOfLines={1}
+              style={[styles.mailbox, { color: secondaryColor }]}>
+              {status}
+            </Text>
+          )}
+        </>
       )}
     </Pressable>
   );
@@ -243,7 +275,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     <>
       <Text
         accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.secondary }]}>
+        style={[styles.footer, { color: colors.textSecondary }]}>
         {about(t, address, t(`gmailSync.${state.sync}`, { provider }))}
       </Text>
       {state.sync === 'authentication' &&
@@ -254,7 +286,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
           onPress={() => {
             void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
           }}>
-          <Text style={[styles.notice, { color: colors.accent }]}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
             {t('common.allowAccess', { provider })}
           </Text>
         </Pressable>
@@ -267,7 +299,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
               ? actions.load()
               : account.refreshInbox(actions.load));
           }}>
-          <Text style={[styles.notice, { color: colors.accent }]}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
             {t('common.retry')}
           </Text>
         </Pressable>
@@ -288,7 +320,7 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
         <>
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
+            style={[styles.notice, { color: colors.textPrimary }]}>
             {about(
               t,
               address,
@@ -302,7 +334,7 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
             onPress={() => {
               void actions.load();
             }}>
-            <Text style={[styles.notice, { color: colors.accent }]}>
+            <Text style={[styles.notice, { color: colors.accentInk }]}>
               {t('common.retry')}
             </Text>
           </Pressable>
@@ -340,7 +372,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
     <>
       <Text
         accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.secondary }]}>
+        style={[styles.footer, { color: colors.textSecondary }]}>
         {about(t, address, t(`imapSync.${state.status}`))}
       </Text>
       {state.status === 'authentication' && account !== undefined ? (
@@ -349,7 +381,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
           onPress={() => {
             void openAccount();
           }}>
-          <Text style={[styles.notice, { color: colors.accent }]}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
             {t('mailboxes.enterPassword', {
               address: mailbox?.address ?? state.address,
             })}
@@ -384,7 +416,7 @@ function AuthorizationNeeded({
     <View>
       <Text
         accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.secondary }]}>
+        style={[styles.footer, { color: colors.textSecondary }]}>
         {about(t, address, t('gmailSync.authentication', { provider }))}
       </Text>
       <Pressable
@@ -392,7 +424,7 @@ function AuthorizationNeeded({
         onPress={() => {
           void onAllow();
         }}>
-        <Text style={[styles.notice, { color: colors.accent }]}>
+        <Text style={[styles.notice, { color: colors.accentInk }]}>
           {t('mailboxes.allow', { address, provider })}
         </Text>
       </Pressable>
@@ -412,13 +444,13 @@ function ImapAuthorizationNeeded({
   const { t } = useLocalization();
   return (
     <View>
-      <Text style={[styles.footer, { color: colors.secondary }]}>
+      <Text style={[styles.footer, { color: colors.textSecondary }]}>
         {about(t, address, t('imapSync.authentication'))}
       </Text>
       <Pressable
         accessibilityRole="button"
         onPress={onRepair}>
-        <Text style={[styles.notice, { color: colors.accent }]}>
+        <Text style={[styles.notice, { color: colors.accentInk }]}>
           {t('mailboxes.enterPassword', { address })}
         </Text>
       </Pressable>
@@ -436,7 +468,6 @@ function ScopePicker({
   readonly scope: string | undefined;
   readonly onScope: (scope: string | undefined) => void;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const choices = [
     { id: undefined, label: t('inbox.allInboxes') },
@@ -445,22 +476,15 @@ function ScopePicker({
   return (
     <View style={styles.scopes}>
       {choices.map(({ id, label }) => (
-        <Pressable
+        <Chip
           key={id ?? 'all'}
-          accessibilityRole="button"
-          accessibilityState={{ selected: id === scope }}
+          icon={id === undefined ? 'tray.2' : 'tray'}
+          label={label}
+          selected={id === scope}
           onPress={() => {
             onScope(id);
           }}
-          style={[
-            styles.scope,
-            {
-              backgroundColor: id === scope ? colors.selected : colors.sidebar,
-              borderColor: id === scope ? colors.accent : 'transparent',
-            },
-          ]}>
-          <Text style={{ color: colors.foreground }}>{label}</Text>
-        </Pressable>
+        />
       ))}
     </View>
   );
@@ -496,7 +520,7 @@ function OnlineResults({
         onPress={() => {
           void search.search();
         }}>
-        <Text style={[styles.notice, { color: colors.accent }]}>
+        <Text style={[styles.notice, { color: colors.accentInk }]}>
           {t('search.online', { query })}
         </Text>
       </Pressable>
@@ -505,7 +529,7 @@ function OnlineResults({
   return (
     <View>
       {found?.results.length === 0 && found.failures.length === 0 ? (
-        <Text style={[styles.notice, { color: colors.secondary }]}>
+        <Text style={[styles.notice, { color: colors.textSecondary }]}>
           {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
@@ -518,7 +542,7 @@ function OnlineResults({
           onPress={() => {
             void search.more();
           }}>
-          <Text style={[styles.notice, { color: colors.accent }]}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
             {t('search.more')}
           </Text>
         </Pressable>
@@ -529,7 +553,7 @@ function OnlineResults({
           onPress={() => {
             void search.search();
           }}>
-          <Text style={[styles.notice, { color: colors.accent }]}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
             {t('search.retry')}
           </Text>
         </Pressable>
@@ -553,14 +577,14 @@ function OnlineHeading({
     <View>
       <Text
         accessibilityRole="header"
-        style={[styles.footer, { color: colors.secondary }]}>
+        style={[styles.footer, { color: colors.textSecondary }]}>
         {t('search.onlineHeading')}
       </Text>
       {found?.failures.map(({ mailbox, reason }) => (
         <Text
           key={mailbox.id}
           accessibilityLiveRegion="polite"
-          style={[styles.footer, { color: colors.secondary }]}>
+          style={[styles.footer, { color: colors.textSecondary }]}>
           {about(
             t,
             several ? mailbox.address : undefined,
@@ -571,7 +595,7 @@ function OnlineHeading({
       {found?.limited.map((mailbox) => (
         <Text
           key={`limited\n${mailbox.id}`}
-          style={[styles.footer, { color: colors.secondary }]}>
+          style={[styles.footer, { color: colors.textSecondary }]}>
           {about(
             t,
             several ? mailbox.address : undefined,
@@ -742,7 +766,7 @@ export function Inbox({
     results === undefined && gmail && syncing ? (
       <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
     ) : (
-      <Text style={[styles.notice, { color: colors.secondary }]}>
+      <Text style={[styles.notice, { color: colors.textSecondary }]}>
         {results === undefined
           ? t('inbox.empty')
           : t('search.empty', { query: searched })}
@@ -752,7 +776,7 @@ export function Inbox({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true }}
       style={styles.fill}>
-      <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
+      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
         <InboxCommands
           scope={scope}
           hasSelection={selected !== undefined}
@@ -770,10 +794,10 @@ export function Inbox({
           <View style={styles.headingText}>
             <Text
               accessibilityRole="header"
-              style={[styles.title, { color: colors.foreground }]}>
+              style={[styles.title, { color: colors.textPrimary }]}>
               {t('inbox.title')}
             </Text>
-            <Text style={[styles.subtitle, { color: colors.secondary }]}>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {subtitle}
             </Text>
           </View>
@@ -783,7 +807,7 @@ export function Inbox({
               onPress={() => {
                 void openAccount(account.openAccount);
               }}>
-              <Text style={[styles.account, { color: colors.accent }]}>
+              <Text style={[styles.account, { color: colors.accentInk }]}>
                 {t('inbox.account')}
               </Text>
             </Pressable>
@@ -812,11 +836,11 @@ export function Inbox({
             clearButtonMode="while-editing"
             onChangeText={setQuery}
             placeholder={t('search.label')}
-            placeholderTextColor={colors.secondary}
+            placeholderTextColor={colors.textSecondary}
             returnKeyType="search"
             style={[
               styles.search,
-              { borderColor: colors.separator, color: colors.foreground },
+              { borderColor: colors.separator, color: colors.textPrimary },
             ]}
             value={query}
           />
@@ -957,7 +981,7 @@ export function Inbox({
           }}
         />
         <LanguageSelector />
-        <Text style={[styles.footer, { color: colors.secondary }]}>
+        <Text style={[styles.footer, { color: colors.textSecondary }]}>
           {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
         </Text>
       </View>

@@ -102,7 +102,8 @@ through Turborepo.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
 after changing native dependencies or app configuration. Keep native changes in
-config plugins. The bundle ID is `dev.unwired.mail`, the version comes from
+config plugins. The design plugin compiles `native/design`, the SF Symbol and
+Liquid Glass views the Mac host shares. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in
 `native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
 [`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):

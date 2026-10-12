@@ -19,6 +19,7 @@ import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mai
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -32,6 +33,7 @@ import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
+import type { usePalette } from '../src/theme.ts';
 
 import { CommandPalette } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -84,6 +86,43 @@ describe('preview Inbox', () => {
       singleMailbox(fixture, preview),
     );
   });
+
+  it.each(['light', 'dark'] as const)(
+    'keeps the selected row legible after focus leaves in %s appearance',
+    async (appearance) => {
+      expect.hasAssertions();
+      const colors = palette[appearance];
+      const paletteSpy = jest
+        .spyOn(
+          jest.requireActual<{ usePalette: typeof usePalette }>(
+            '../src/theme.ts',
+          ),
+          'usePalette',
+        )
+        .mockReturnValue(colors);
+      try {
+        await render(<InboxJourney />);
+        const message = await screen.findByRole('button', {
+          name: 'Unread. Oliver Park. Saturday, by the river?',
+        });
+        expect(message).toHaveStyle({ backgroundColor: colors.surfaceContent });
+        await fireEvent.press(message);
+        await fireEvent(message, 'focus');
+        expect(message).toHaveStyle({ borderColor: colors.accentOnFill });
+        await fireEvent(message, 'blur');
+        expect(message).toHaveStyle({
+          backgroundColor: colors.accentFill,
+          borderColor: 'transparent',
+        });
+        expect(within(message).getByText('Oliver Park')).toHaveStyle({
+          color: colors.accentOnFill,
+          fontWeight: '600',
+        });
+      } finally {
+        paletteSpy.mockRestore();
+      }
+    },
+  );
 
   it('opens the activated message and exposes its selected state', async () => {
     expect.hasAssertions();
@@ -178,6 +217,15 @@ describe('preview Inbox', () => {
     await expect(
       screen.findByRole('button', { name: 'Mark as unread' }),
     ).resolves.toBeVisible();
+    const readRow = screen.getByRole('button', {
+      name: 'Maya Chen. A little more room to think',
+    });
+    expect(within(readRow).getByText('Maya Chen')).toHaveStyle({
+      fontWeight: '400',
+    });
+    expect(
+      within(readRow).getByText('A little more room to think'),
+    ).toHaveStyle({ fontWeight: '400' });
     await app.unmount();
     await render(<InboxJourney />);
     await fireEvent.press(

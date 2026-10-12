@@ -22,7 +22,7 @@ import {
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
@@ -35,6 +35,7 @@ import {
 import type { InboxMailbox } from './private-storage.ts';
 
 import { Commands } from './command-palette.tsx';
+import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -42,43 +43,50 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.small,
-    marginBottom: spacing.large,
+    gap: spacing.s,
+    marginBottom: spacing.xl,
   },
+  toolbar: { marginBottom: spacing.xl },
   button: {
     minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.m,
     borderWidth: 2,
-    borderRadius: 8,
+    borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  label: { fontSize: 15 },
-  panel: { gap: 4, marginBottom: spacing.large },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.small },
+  label: { ...textStyles.subheadline },
+  panel: { gap: 4, marginBottom: spacing.xl },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   labelName: { flex: 1 },
-  secondary: { fontSize: 14, lineHeight: 21 },
-  status: { paddingHorizontal: spacing.large, paddingBottom: spacing.small },
+  secondary: { ...textStyles.subheadline },
+  status: { paddingHorizontal: spacing.xl, paddingBottom: spacing.s },
 });
 
 // A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
+// Buttons on a toolbar's glass have no fill of their own.
 function ActionButton({
   label,
   onPress,
   checked,
+  fill = 'quiet',
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly checked?: boolean;
+  readonly fill?: 'quiet' | 'none';
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
+  const idle = fill === 'quiet' ? colors.fillQuiet : 'transparent';
   return (
     <Pressable
       accessibilityLabel={label}
@@ -95,13 +103,17 @@ function ActionButton({
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor: pressed ? colors.selected : colors.sidebar,
-          borderColor: focused ? colors.accent : 'transparent',
+          backgroundColor: pressed ? colors.accentSelectionSubtle : idle,
+          borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
-      <Text style={[styles.label, { color: colors.accent }]}>
-        {checked === true ? `✓ ${label}` : label}
-      </Text>
+      {checked === true ? (
+        <SFSymbol
+          name="checkmark"
+          color={colors.textPrimary}
+        />
+      ) : null}
+      <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -369,26 +381,30 @@ function ImapMessageActions({
           },
         ]}
       />
-      <View style={styles.bar}>
-        {actions.map(({ name, label, action }) => (
-          <ActionButton
-            key={name}
-            label={label}
-            onPress={() => {
-              act(action);
-            }}
-          />
-        ))}
-        {targets.length === 0 ? null : (
-          <ActionButton
-            label={t(
-              moving ? 'gmailActions.hideFolders' : 'gmailActions.folders',
-            )}
-            onPress={() => {
-              setMoving(!moving);
-            }}
-          />
-        )}
+      <View style={styles.toolbar}>
+        <GlassGroup>
+          {actions.map(({ name, label, action }) => (
+            <ActionButton
+              fill="none"
+              key={name}
+              label={label}
+              onPress={() => {
+                act(action);
+              }}
+            />
+          ))}
+          {targets.length === 0 ? null : (
+            <ActionButton
+              fill="none"
+              label={t(
+                moving ? 'gmailActions.hideFolders' : 'gmailActions.folders',
+              )}
+              onPress={() => {
+                setMoving(!moving);
+              }}
+            />
+          )}
+        </GlassGroup>
       </View>
       {moving && targets.length > 0 ? (
         <View style={styles.panel}>
@@ -456,7 +472,7 @@ function GmailMessageActions({
           id={id}
           message={message}
         />
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('gmailActions.savedOnly', { provider: providerName })}
         </Text>
       </>
@@ -530,42 +546,50 @@ function GmailMessageActions({
           },
         ]}
       />
-      <View style={styles.bar}>
-        {actions
-          .filter(({ disabled }) => disabled === undefined)
-          .map(({ name, label, action }) => (
-            <ActionButton
-              key={name}
-              label={label}
-              onPress={() => {
-                act(action);
-              }}
-            />
-          ))}
-        <ActionButton
-          label={
-            folders
-              ? t(
-                  labeling
-                    ? 'gmailActions.hideFolders'
-                    : 'gmailActions.folders',
-                )
-              : t(labeling ? 'gmailActions.hideLabels' : 'gmailActions.labels')
-          }
-          onPress={() => {
-            setLabeling(!labeling);
-          }}
-        />
+      <View style={styles.toolbar}>
+        <GlassGroup>
+          {actions
+            .filter(({ disabled }) => disabled === undefined)
+            .map(({ name, label, action }) => (
+              <ActionButton
+                fill="none"
+                key={name}
+                label={label}
+                onPress={() => {
+                  act(action);
+                }}
+              />
+            ))}
+          <ActionButton
+            fill="none"
+            label={
+              folders
+                ? t(
+                    labeling
+                      ? 'gmailActions.hideFolders'
+                      : 'gmailActions.folders',
+                  )
+                : t(
+                    labeling
+                      ? 'gmailActions.hideLabels'
+                      : 'gmailActions.labels',
+                  )
+            }
+            onPress={() => {
+              setLabeling(!labeling);
+            }}
+          />
+        </GlassGroup>
       </View>
       {labeling ? (
         <View style={styles.panel}>
           {state.labels.length === 0 ? (
-            <Text style={[styles.secondary, { color: colors.secondary }]}>
+            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
               {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
             </Text>
           ) : null}
           {state.labelsLimited === true ? (
-            <Text style={[styles.secondary, { color: colors.secondary }]}>
+            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
               {t('gmailActions.foldersLimited', { count: state.labels.length })}
             </Text>
           ) : null}
@@ -644,7 +668,7 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
       {notice === undefined ? null : (
         <Text
           accessibilityRole={notice.kind === 'done' ? 'text' : 'alert'}
-          style={[styles.secondary, { color: colors.foreground }]}>
+          style={[styles.secondary, { color: colors.textPrimary }]}>
           {imapActionCopy(t, notice, provider)}
         </Text>
       )}
@@ -669,7 +693,7 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
         />
       )}
       {waiting ? (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('gmailActions.pending', { count: imap.pending, provider })}
         </Text>
       ) : null}
@@ -716,7 +740,7 @@ function GmailOrganizeStatus() {
         // Keep refusal semantics; the effect above owns the explicit announcement.
         <Text
           accessibilityRole={notice.kind === 'done' ? 'text' : 'alert'}
-          style={[styles.secondary, { color: colors.foreground }]}>
+          style={[styles.secondary, { color: colors.textPrimary }]}>
           {gmailActionCopy(t, notice, provider)}
         </Text>
       )}
@@ -733,7 +757,7 @@ function GmailOrganizeStatus() {
       {state.saving > 0 ? (
         <Text
           accessibilityRole="alert"
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('gmailActions.saving')}
         </Text>
       ) : null}
@@ -741,7 +765,7 @@ function GmailOrganizeStatus() {
         <>
           <Text
             accessibilityRole="alert"
-            style={[styles.secondary, { color: colors.secondary }]}>
+            style={[styles.secondary, { color: colors.textSecondary }]}>
             {gmailActionCopy(
               t,
               { ...state.blockedAction, kind: 'blocked' },
@@ -765,7 +789,7 @@ function GmailOrganizeStatus() {
         </>
       )}
       {waiting ? (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('gmailActions.pending', { count: state.pending, provider })}
         </Text>
       ) : null}

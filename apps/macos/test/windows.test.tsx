@@ -14,10 +14,12 @@ import {
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { palette } from '@private-email/mail-core/theme';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { AccessibilityInfo, AppState, View } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
+import type { usePalette } from '../src/theme.ts';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
@@ -81,6 +83,46 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     showMailboxes(singleMailbox(fixture, 'preview'));
   });
+
+  it.each(['light', 'dark'] as const)(
+    'keeps the selected row legible after focus leaves in %s appearance',
+    async (appearance) => {
+      expect.hasAssertions();
+      const colors = palette[appearance];
+      const paletteSpy = jest
+        .spyOn(
+          jest.requireActual<{ usePalette: typeof usePalette }>(
+            '../src/theme.ts',
+          ),
+          'usePalette',
+        )
+        .mockReturnValue(colors);
+      try {
+        const app = await render(
+          <Windows
+            first
+            second={false}
+          />,
+        );
+        const message = await app.findByRole('button', { name: maya });
+        expect(message).toHaveStyle({ backgroundColor: colors.surfaceContent });
+        await fireEvent.press(message);
+        await fireEvent(message, 'focus');
+        expect(message).toHaveStyle({ borderColor: colors.accentOnFill });
+        await fireEvent(message, 'blur');
+        expect(message).toHaveStyle({
+          backgroundColor: colors.accentFill,
+          borderColor: 'transparent',
+        });
+        expect(within(message).getByText('Maya Chen')).toHaveStyle({
+          color: colors.accentOnFill,
+          fontWeight: '600',
+        });
+      } finally {
+        paletteSpy.mockRestore();
+      }
+    },
+  );
 
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();

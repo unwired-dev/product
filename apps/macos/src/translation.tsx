@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 
 import { draftTextIssue } from '@private-email/mail-core/assistance';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   canRetryTranslation,
   createTranslation,
@@ -41,34 +41,36 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
+import { OnDeviceMarker } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   panel: {
-    gap: spacing.small,
-    padding: spacing.medium,
-    borderRadius: 8,
+    width: '100%',
+    gap: spacing.s,
+    padding: spacing.l,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.large,
+    gap: spacing.xl,
   },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.small },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   option: {
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.small,
+    paddingHorizontal: spacing.s,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
-  title: { fontSize: 15, fontWeight: '600' },
-  text: { fontSize: 16, lineHeight: 24 },
-  secondary: { fontSize: 14, lineHeight: 21 },
+  title: { ...textStyles.bodyEmphasized },
+  text: { ...textStyles.reading.body },
+  secondary: { ...textStyles.body },
 });
 
 interface TranslationModule extends TurboModule, NativeTranslation {}
@@ -149,7 +151,7 @@ function TargetLanguages({
       <Text
         selectable
         accessibilityRole="alert"
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {t('translation.noLanguages')}
       </Text>
     );
@@ -175,11 +177,11 @@ function TargetLanguages({
             {
               borderColor:
                 selected?.code === language.code
-                  ? colors.accent
+                  ? colors.accentInk
                   : colors.separator,
             },
           ]}>
-          <Text style={[styles.secondary, { color: colors.foreground }]}>
+          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
             {selected?.code === language.code ? '✓ ' : ''}
             {language.name}
           </Text>
@@ -283,7 +285,7 @@ function Outcome({
       <Text
         selectable
         accessibilityRole="alert"
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {t(
           `translation.${state.kind === 'unavailable' ? state.reason : state.kind}`,
         )}
@@ -295,26 +297,22 @@ function Outcome({
       <Text
         selectable
         accessibilityRole="header"
-        style={[styles.title, { color: colors.foreground }]}>
+        style={[styles.title, { color: colors.textPrimary }]}>
         {t('translation.title', { language: target })}
       </Text>
       <Text
         selectable
-        style={[styles.text, { color: colors.foreground }]}>
+        style={[styles.text, { color: colors.textPrimary }]}>
         {state.text}
       </Text>
       {state.omitted ? (
         <Text
           selectable
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('translation.omitted')}
         </Text>
       ) : null}
-      <Text
-        selectable
-        style={[styles.secondary, { color: colors.secondary }]}>
-        {t('translation.disclaimer', { source, target })}
-      </Text>
+      <OnDeviceMarker label={t('translation.disclaimer', { source, target })} />
     </>
   );
 }
@@ -340,7 +338,10 @@ function TranslationPanel({
   return (
     <View
       accessibilityLabel={label}
-      style={[styles.panel, { borderColor: colors.separator }]}>
+      style={[
+        styles.panel,
+        { borderColor: colors.separator, backgroundColor: colors.fillQuiet },
+      ]}>
       <TargetLanguages
         languages={languages}
         selected={target}
@@ -351,7 +352,7 @@ function TranslationPanel({
           <ActivityIndicator accessibilityLabel={t('translation.progress')} />
           <Text
             selectable
-            style={[styles.secondary, { color: colors.secondary }]}>
+            style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('translation.translating')}
           </Text>
           <Action
@@ -537,11 +538,14 @@ export function DraftTranslation({
     return (
       <View
         accessibilityLabel={t('translation.draftRegion')}
-        style={[styles.panel, { borderColor: colors.separator }]}>
+        style={[
+          styles.panel,
+          { borderColor: colors.separator, backgroundColor: colors.fillQuiet },
+        ]}>
         <Text
           selectable
           accessibilityRole="alert"
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t(
             issue === 'inline-image'
               ? 'translation.selectionHasImage'

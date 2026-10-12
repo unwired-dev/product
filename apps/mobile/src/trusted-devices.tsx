@@ -41,16 +41,16 @@ function RevocationProposal({
     <View style={styles.device}>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('revocation.proposal', { name })}
       </Text>
       <Text
         selectable
         testID="revocation-recovery-key"
-        style={[styles.recoveryKey, { color: colors.foreground }]}>
+        style={[styles.recoveryKey, { color: colors.textPrimary }]}>
         {recoveryKey}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('revocation.prompt', { name })}
       </Text>
       <TextInput
@@ -62,17 +62,17 @@ function RevocationProposal({
           setEntry(recoveryKeyEntry(text));
         }}
         placeholder={t('revocation.label')}
-        placeholderTextColor={colors.secondary}
+        placeholderTextColor={colors.textSecondary}
         style={[
           styles.input,
-          { borderColor: colors.separator, color: colors.foreground },
+          { borderColor: colors.separator, color: colors.textPrimary },
         ]}
         value={entry}
       />
       {failure === 'mismatch' ? (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t('revocation.mismatch')}
         </Text>
       ) : null}
@@ -129,13 +129,13 @@ export function TrustedDevices({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('revocation.title')}
       </Text>
       {notice === undefined ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {notice}
         </Text>
       )}
@@ -151,7 +151,7 @@ export function TrustedDevices({
         />
       )}
       {devices.length === 0 ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {t('revocation.description')}
         </Text>
       )}
@@ -159,15 +159,15 @@ export function TrustedDevices({
         <View
           key={device.id}
           style={styles.device}>
-          <Text style={[styles.text, { color: colors.foreground }]}>
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
             {device.name}
           </Text>
-          <Text style={[styles.text, { color: colors.secondary }]}>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
             {t('revocation.added', { date: added.format(device.registeredAt) })}
           </Text>
           {confirming === device.id ? (
             <>
-              <Text style={[styles.text, { color: colors.foreground }]}>
+              <Text style={[styles.text, { color: colors.textPrimary }]}>
                 {t('revocation.confirm', { name: device.name })}
               </Text>
               {button(

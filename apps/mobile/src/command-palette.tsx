@@ -448,7 +448,7 @@ export function CommandPalette({
       ref={input}
       accessibilityLabel={t('commandPalette.title')}
       placeholder={t('commandPalette.placeholder')}
-      placeholderTextColor={colors.secondary}
+      placeholderTextColor={colors.textSecondary}
       autoCorrect={false}
       autoCapitalize="none"
       value={query}
@@ -467,7 +467,7 @@ export function CommandPalette({
       submitBehavior="submit"
       style={[
         styles.input,
-        { color: colors.foreground, borderColor: colors.separator },
+        { color: colors.textPrimary, borderColor: colors.separator },
       ]}
     />
   );
@@ -498,13 +498,16 @@ export function CommandPalette({
                   {
                     paddingTop: topInset + 8,
                     borderColor: colors.separator,
-                    backgroundColor: colors.background,
+                    backgroundColor: colors.surfaceContent,
                   },
                 ]}>
                 <Text
                   style={[
                     styles.input,
-                    { color: colors.secondary, borderColor: colors.separator },
+                    {
+                      color: colors.textSecondary,
+                      borderColor: colors.separator,
+                    },
                   ]}>
                   {t('commandPalette.placeholder')} ⌘P
                 </Text>
@@ -529,8 +532,8 @@ export function CommandPalette({
                 position: 'absolute',
                 top: topInset + 52,
                 alignSelf: 'center',
-                color: colors.secondary,
-                backgroundColor: colors.background,
+                color: colors.textSecondary,
+                backgroundColor: colors.surfaceContent,
               },
             ]}>
             {t('commandPalette.hint')}
@@ -544,7 +547,7 @@ export function CommandPalette({
               accessible={false}
               style={[
                 styles.shade,
-                { backgroundColor: colors.foreground, opacity: 0.2 },
+                { backgroundColor: colors.textPrimary, opacity: 0.2 },
               ]}
               onPress={dismiss}
             />
@@ -553,7 +556,7 @@ export function CommandPalette({
               style={[
                 styles.panel,
                 {
-                  backgroundColor: colors.background,
+                  backgroundColor: colors.surfaceContent,
                   borderColor: colors.separator,
                 },
               ]}>
@@ -563,12 +566,12 @@ export function CommandPalette({
                   <Pressable
                     accessibilityRole="button"
                     onPress={back}>
-                    <Text style={{ color: colors.accent }}>
+                    <Text style={{ color: colors.accentInk }}>
                       {t('commandPalette.back')}
                     </Text>
                   </Pressable>
                 ) : (
-                  <Text style={[styles.label, { color: colors.foreground }]}>
+                  <Text style={[styles.label, { color: colors.textPrimary }]}>
                     {t('commandPalette.title')}
                   </Text>
                 )}
@@ -576,7 +579,7 @@ export function CommandPalette({
                   accessibilityRole="button"
                   accessibilityLabel={t('commandPalette.cancel')}
                   onPress={dismiss}>
-                  <Text style={{ color: colors.accent }}>
+                  <Text style={{ color: colors.accentInk }}>
                     {t('common.cancel')}
                   </Text>
                 </Pressable>
@@ -584,7 +587,7 @@ export function CommandPalette({
               {failure ? (
                 <Text
                   accessibilityRole="alert"
-                  style={[styles.hint, { color: colors.destructive }]}>
+                  style={[styles.hint, { color: colors.statusDestructive }]}>
                   {t('commandPalette.failed')}
                 </Text>
               ) : null}
@@ -592,7 +595,7 @@ export function CommandPalette({
                 ref={list}
                 keyboardShouldPersistTaps="handled">
                 {results.length === 0 ? (
-                  <Text style={[styles.hint, { color: colors.secondary }]}>
+                  <Text style={[styles.hint, { color: colors.textSecondary }]}>
                     {t('commandPalette.empty')}
                   </Text>
                 ) : null}
@@ -622,10 +625,12 @@ export function CommandPalette({
                         styles.row,
                         {
                           backgroundColor:
-                            row === index ? colors.selected : colors.background,
+                            row === index
+                              ? colors.accentSelectionSubtle
+                              : colors.surfaceContent,
                           borderLeftWidth: 3,
                           borderLeftColor:
-                            row === index ? colors.accent : 'transparent',
+                            row === index ? colors.accentInk : 'transparent',
                         },
                       ]}>
                       <View style={styles.line}>
@@ -635,14 +640,14 @@ export function CommandPalette({
                             {
                               color:
                                 disabled === undefined
-                                  ? colors.foreground
-                                  : colors.secondary,
+                                  ? colors.textPrimary
+                                  : colors.textSecondary,
                             },
                           ]}>
                           {command.label}
                         </Text>
                         {command.shortcut === undefined ? null : (
-                          <Text style={{ color: colors.secondary }}>
+                          <Text style={{ color: colors.textSecondary }}>
                             {command.shortcut}
                           </Text>
                         )}
@@ -651,7 +656,7 @@ export function CommandPalette({
                         <Text
                           style={[
                             styles.secondary,
-                            { color: colors.secondary },
+                            { color: colors.textSecondary },
                           ]}>
                           {disabled}
                         </Text>
