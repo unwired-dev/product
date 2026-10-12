@@ -34,6 +34,8 @@ export {
   removeTrustedDevice,
   storeDescriptor,
   storedDescriptor,
+  storeProfile,
+  storedProfiles,
 } from './registration-product-sync.ts';
 export type { SyntheticProductSync } from './registration-product-sync.ts';
 

@@ -439,6 +439,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   address updates and subsequent removals cannot extend an old grant to another
   incarnation; otherwise concurrent additions lose valid mail or resurrect
   authorization after removal.
+- `mail-profiles.ts` retaining authenticated listing or CAS results only until
+  the entire publication batch succeeds. Persist confirmed records and version
+  floors before another publication can fail, including valid records read
+  alongside a replayed one. Otherwise a later unrelated refusal can erase a
+  learned removal or ownership change and admit an older authenticated replay
+  after relaunch. Exercise both interrupted reads-to-publication and a successful
+  CAS followed by another failed publication.
 - `product-sync.ts` mailbox reconciliation acknowledging a queued removal from absent or unreadable
   ciphertext, or discarding removal intent on a pre-publication re-add. Require a
   read-back tombstone or an authoritative superseding incarnation, preserve

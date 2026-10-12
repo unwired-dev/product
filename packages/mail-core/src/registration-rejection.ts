@@ -22,6 +22,10 @@ const CodeSchema = Schema.Literals([
   // Distinguished by the flow only; hosts see them as other codes.
   'apple-authorization-required',
   'pending-device-unavailable',
+  // A Mail Profile or its ownership changed on another device meanwhile.
+  'profile-changed',
+  // A Mail Profile still owns a Mailbox Connection.
+  'profile-in-use',
   // An IMAP server refused the login, or offered no verified TLS.
   'imap-refused',
   'imap-insecure',

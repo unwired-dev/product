@@ -592,6 +592,27 @@ final class UnwiredRegistration: NSObject {
       try $0.recordMailboxReadback(addresses: addresses, confirmed: confirmed, epochs: epochs)
     }
   }
+  @objc(sealProfileRecord:resolver:rejecter:)
+  func sealProfileRecord(
+    _ record: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("sealProfileRecord", resolve, reject: reject) { try $0.sealProfileRecord(record) }
+  }
+  @objc(openProfileRecords:resolver:rejecter:)
+  func openProfileRecords(
+    _ records: [Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("openProfileRecords", resolve, reject: reject) { try $0.openProfileRecords(records) }
+  }
+  @objc(recordProfiles:resolver:rejecter:)
+  func recordProfiles(
+    _ state: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordProfiles", resolve, reject: reject) { try $0.recordProfiles(state) }
+  }
   @objc(forgetMailboxAccess:rejecter:)
   func forgetMailboxAccess(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock

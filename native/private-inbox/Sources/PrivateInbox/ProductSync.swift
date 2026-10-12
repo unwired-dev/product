@@ -511,6 +511,9 @@ extension RegistrationStore {
     }
     if let mailboxes = vault.readMailboxes { entry["readMailboxes"] = mailboxes }
     if let mailboxes = vault.savedMailboxes { entry["savedMailboxes"] = mailboxes }
+    if let profiles = saved.profiles {
+      entry["profiles"] = try JSONSerialization.jsonObject(with: profiles)
+    }
     result["vault"] = entry
     return result
   }

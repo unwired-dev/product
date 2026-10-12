@@ -476,6 +476,49 @@ purge retains watch, credential and cache cleanup custody. The shared registrati
 store serializes host actions; the bridge gate serializes each native operation.
 The remaining #758–#759 migrations authorize no new native application subsystem.
 
+## Synchronized Mail Profiles
+
+Issue #920 adds independently updated `profile.` definitions and `mailbox-profile.`
+ownership records without changing the mailbox descriptor format. Native derives
+each opaque identifier with the existing first-epoch HMAC: the Profile identity
+for a definition, and the descriptor's opaque record identifier for ownership.
+Opening verifies that the authenticated content derives the served identifier.
+Definitions carry an authenticated write version and an optional name; absence
+of that name is a removal tombstone. Ownership names a descriptor epoch, so a
+later incarnation starts in Default. The Default Profile has no record.
+
+`mail-profiles.ts` owns listing, merging and CAS publication. The account's
+device-only `SavedRegistration.profiles` retains the confirmed records and version
+floors, plus pending names. Lower authenticated versions are read-only even under
+a newer unauthenticated row revision. Absent or unreadable ownership retains the
+last confirmed owner. Pending names survive a CAS loss and apply to the winner on
+the next pass; a remote tombstone drops them. Removal publishes a tombstone even
+for a never-confirmed Profile, fencing a delayed first publication. Removal also
+refuses unknown ownership or unreadable descriptors instead of assuming emptiness.
+Concurrent moves into a removed Profile converge to Default. A device that never
+observed a newer version retains the existing backend rollback limitation.
+Each authenticated listing and CAS winner is persisted before later fallible work.
+Publication and lifecycle callers therefore need no separate save step, and a
+later refusal cannot discard a confirmed version floor.
+
+The review panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`) chose retaining
+confirmed ownership through ciphertext omission over projecting Default while
+retaining a separate version floor, 3–0. Initial absent ownership still means
+Default; omission of an already confirmed record is unknown, not an authenticated
+move. Moving back to Default writes explicit ownership.
+
+The #920 review panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`) chose
+the optional registration field over a separate Profile Keychain item, 3–0.
+Registration survives authorized re-enrollment while the key-ring vault is
+replaced; keeping authored metadata outside that replaceable vault preserves
+pending identities and edits without another purge boundary. Projection retains
+`productSync.vault.profiles` when key material is available. Pending devices cannot
+record or publish Profiles; account purge removes the registration and metadata.
+
+Issue #921 owns the remaining Profile Record Scope callers, and #922 owns app
+controls, window restoration and incompatible-client fencing. Neither host offers
+Profile creation in #920.
+
 ## Synchronized Draft records and assets
 
 Issue #614 keeps merge orchestration in the framework-independent TypeScript Draft

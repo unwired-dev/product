@@ -29,6 +29,54 @@ const SetupReasonSchema = Schema.Literals([
 ]);
 export type SetupReason = typeof SetupReasonSchema.Type;
 
+const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
+// A Mail Profile definition or a connection's ownership as native code seals and opens it.
+export const ProfileRecordSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal('profile'),
+    id: Schema.NonEmptyString,
+    // The record's write count, sealed with it so an older write is never served as newer.
+    version: Version,
+    // Absent once the Profile is removed.
+    name: Schema.optionalKey(Schema.NonEmptyString),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('mailbox'),
+    // The connection's descriptor record, and the epoch of the incarnation this owns.
+    record: Schema.NonEmptyString,
+    epoch: Schema.NonEmptyString,
+    version: Version,
+    profile: Schema.NonEmptyString,
+  }),
+]);
+export type ProfileRecord = typeof ProfileRecordSchema.Type;
+// Mail Profile definitions and connection ownership as this device last read them, and the
+// Profiles it named while offline. Native code keeps it in the account's device-only vault.
+export const ProfileStateSchema = Schema.Struct({
+  profiles: Schema.Array(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      // The stored record: its name, absent once removed, its write count and Convex revision.
+      // All absent until the Profile is first published.
+      name: Schema.optionalKey(Schema.NonEmptyString),
+      version: Schema.optionalKey(Version),
+      updatedAt: Schema.optionalKey(Schema.Finite),
+      // A name this device chose that Product Sync does not hold yet.
+      pending: Schema.optionalKey(Schema.NonEmptyString),
+    }),
+  ),
+  owners: Schema.Array(
+    Schema.Struct({
+      record: Schema.NonEmptyString,
+      epoch: Schema.NonEmptyString,
+      profile: Schema.NonEmptyString,
+      version: Version,
+      updatedAt: Schema.Finite,
+    }),
+  ),
+});
+export type ProfileState = typeof ProfileStateSchema.Type;
+
 // This device's Product Sync state as native device storage projects it: no key, credential or
 // provider subject. The Recovery Key and Enrollment Code are text for display only. `record` is the
 // opaque identifier Product Sync stores a mailbox's descriptor under.
@@ -82,6 +130,7 @@ const ProductSyncStateSchema = Schema.Struct({
           observedEpoch: Schema.optionalKey(Schema.String),
         }),
       ),
+      profiles: Schema.optionalKey(ProfileStateSchema),
       // Removed connections whose descriptors are still to be marked removed.
       removals: Schema.Array(
         Schema.Struct({
@@ -307,6 +356,16 @@ export interface NativeRegistrationVault {
     confirmed: Readonly<Record<string, string>>,
     epochs: Readonly<Record<string, string>>,
   ) => Promise<unknown>;
+  // Seals a Profile definition or connection ownership under the identifier native code derives
+  // from its Profile or connection; resolves `{ payloadIdentifier, encryptedPayload }`.
+  readonly sealProfileRecord: (record: ProfileRecord) => Promise<unknown>;
+  // Each stored record's Profile definition or ownership, or null when it does not open under the
+  // identifier its own content determines.
+  readonly openProfileRecords: (
+    records: ReadonlyArray<typeof StoredPayload.Type>,
+  ) => Promise<unknown>;
+  // Saves the Profile state in the account's device-only vault.
+  readonly recordProfiles: (state: ProfileState) => Promise<unknown>;
   readonly forgetMailboxAccess: () => Promise<unknown>;
   readonly retryMailboxCleanup: () => Promise<unknown>;
   readonly refreshMailbox: (connection: string) => Promise<unknown>;

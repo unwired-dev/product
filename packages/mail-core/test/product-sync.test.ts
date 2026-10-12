@@ -334,13 +334,15 @@ describe('product sync', () => {
         ({ path }) =>
           path === 'productSync:listEncryptedPayloadsForTrustedDevice',
       )
+      .filter(({ args }) => args.payloadIdentifierPrefix === 'mailbox.')
       .map(({ args }) => args.paginationOpts);
     expect(cursors).toStrictEqual([
       { cursor: null, numItems: 100 },
       { cursor: '100', numItems: 100 },
       { cursor: '200', numItems: 100 },
     ]);
-    expect(sync.listedPages).toBe(3);
+    // Plus one empty page each of Profile definitions and connection ownership.
+    expect(sync.listedPages).toBe(5);
   });
 
   // Replaces ProductSyncTests.writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt.

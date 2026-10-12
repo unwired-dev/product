@@ -814,6 +814,109 @@ extension PrivateInboxTests {
     #expect(try store.registration()?["productSync"] as? String == "unreadable")
   }
 
+  // The native half of Mail Profile synchronization, which TypeScript sequences
+  // (packages/mail-core/test/mail-profiles.test.ts): a definition or ownership opens only under the
+  // identifier its own Profile or connection determines, and the Profile state TypeScript records
+  // stays in protected registration across relaunch and replacement of key material.
+  @Test @MainActor func profileRecordsOpenOnlyUnderTheirOwnIdentifier() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    _ = try store.createKeyRing()
+    try store.recordInitialization(true)
+    let ring = try #require(try store.loadVault(account)).ring
+
+    let work: [String: Any] = ["kind": "profile", "id": "work", "version": 1.0, "name": "Work"]
+    let mailbox = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
+    let owner: [String: Any] = [
+      "kind": "mailbox", "record": mailbox, "epoch": "epoch-1", "version": 2.0,
+      "profile": "work",
+    ]
+    let removed: [String: Any] = ["kind": "profile", "id": "home", "version": 3.0]
+    let sealed = try [work, owner, removed].map(store.sealProfileRecord)
+    #expect(sealed[0]["payloadIdentifier"] as? String == (try ring.identifier("profile", "work")))
+    #expect(
+      sealed[1]["payloadIdentifier"] as? String
+        == (try ring.identifier("mailbox-profile", mailbox)))
+    let opened = try store.openProfileRecords(
+      sealed + [
+        // Served under another Profile's or connection's identifier, it opens nowhere.
+        [
+          "payloadIdentifier": try ring.identifier("profile", "home"),
+          "encryptedPayload": sealed[0]["encryptedPayload"] as Any,
+        ],
+        [
+          "payloadIdentifier": try ring.identifier("mailbox-profile", "mailbox.other"),
+          "encryptedPayload": sealed[1]["encryptedPayload"] as Any,
+        ],
+        // A Profile record listed under the descriptor prefix opens as neither.
+        [
+          "payloadIdentifier": mailbox, "encryptedPayload": sealed[0]["encryptedPayload"] as Any,
+        ],
+      ])
+    #expect((opened[0] as? [String: Any])?["name"] as? String == "Work")
+    #expect((opened[0] as? [String: Any])?["kind"] as? String == "profile")
+    #expect((opened[1] as? [String: Any])?["profile"] as? String == "work")
+    #expect((opened[1] as? [String: Any])?["epoch"] as? String == "epoch-1")
+    // A removed Profile keeps its identifier and write count, without a name.
+    let tombstone = try #require(opened[2] as? [String: Any])
+    #expect(tombstone["id"] as? String == "home" && tombstone["name"] == nil)
+    #expect(opened.dropFirst(3).allSatisfy { $0 is NSNull })
+    // Even correctly authenticated ciphertext cannot bind another Profile's or connection's content
+    // to this identifier. This exercises the content check separately from outer AEAD binding.
+    let mismatched: [(String, Data)] = [
+      (
+        try ring.identifier("profile", "home"),
+        try JSONEncoder().encode(MailProfileRecord(id: "work", version: 1, name: "Work"))
+      ),
+      (
+        try ring.identifier("mailbox-profile", "mailbox.other"),
+        try JSONEncoder().encode(
+          MailboxProfileRecord(record: mailbox, epoch: "epoch-1", version: 2, profile: "work"))
+      ),
+    ]
+    for (identifier, plaintext) in mismatched {
+      let payload = try ring.seal(
+        record: plaintext, account: account, identifier: identifier, schemaVersion: 1)
+      let result = try store.openProfileRecords([
+        [
+          "payloadIdentifier": identifier,
+          "encryptedPayload": try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)),
+        ]
+      ])
+      #expect(result.allSatisfy { $0 is NSNull })
+    }
+    // Malformed records are refused rather than sealed.
+    for malformed: [String: Any] in [
+      ["kind": "profile", "id": "work", "version": 0.0, "name": "Work"],
+      ["kind": "profile", "id": "work", "version": 1.0, "name": ""],
+      ["kind": "mailbox", "record": "draft.other", "epoch": "e", "version": 1.0, "profile": "work"],
+      ["kind": "other", "id": "work", "version": 1.0],
+    ] {
+      #expect(throws: RegistrationError.unavailable) { try store.sealProfileRecord(malformed) }
+    }
+
+    // TypeScript's Profile state stays in protected registration and crosses back unchanged.
+    let state: [String: Any] = [
+      "profiles": [["id": "work", "name": "Work", "version": 1]], "owners": [],
+    ]
+    try store.recordProfiles(state)
+    // Replacing key material during recovery or admission cannot discard unpublished Profile data.
+    try store.saveVault(
+      ProductSyncVault(
+        productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true))
+    let relaunched = backend.store(keys: keys, google: google)
+    let projected = (try syncState(relaunched)["vault"] as? [String: Any])?["profiles"]
+    #expect((projected as? NSDictionary)?.isEqual(to: state) == true)
+  }
+
   // Enrollment, Recovery Key recovery, key rotation adoption and Device Revocation moved to
   // TypeScript. Each retired test names its replacement in device-trust.test.ts (enrollment and
   // recovery) or device-revocation.test.ts (rotation and removal), under packages/mail-core/test;

@@ -80,6 +80,9 @@ export const registration = createRegistration(
     removeQueuedPushRoutes: () => native().removeQueuedPushRoutes(),
     recordMailboxReadback: (addresses, confirmed, epochs) =>
       native().recordMailboxReadback(addresses, confirmed, epochs),
+    sealProfileRecord: (record) => native().sealProfileRecord(record),
+    openProfileRecords: (records) => native().openProfileRecords(records),
+    recordProfiles: (state) => native().recordProfiles(state),
     forgetMailboxAccess: () => native().forgetMailboxAccess(),
     retryMailboxCleanup: () => native().retryMailboxCleanup(),
     refreshMailbox: (connection) => native().refreshMailbox(connection),

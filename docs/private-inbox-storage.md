@@ -96,12 +96,50 @@ retryable after relaunch.
 [#644](https://github.com/unwired-dev/product/issues/644) introduces the
 [Default Profile](domain/identity.md) without changing visible mail behavior.
 Every Mailbox Connection belongs to exactly one Mail Profile. A connection listed
-without one, which is every connection today, belongs to the Default Profile.
+without one belongs to the Default Profile.
 No connection, Draft, Outbox or encrypted-record identity, credential or cache
 moves or changes. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
-another Profile stays unavailable until both migration batches below finish and
-[#647](https://github.com/unwired-dev/product/issues/647) enables it.
+another Profile stays unavailable in the apps until
+[#647](https://github.com/unwired-dev/product/issues/647) enables it. Its remaining
+slices are [#921](https://github.com/unwired-dev/product/issues/921), which routes
+the remaining callers, and [#922](https://github.com/unwired-dev/product/issues/922),
+which adds the apps' Profile management and switching.
+
+[#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
+definitions and ownership through [Private Sync](private-product-sync.md); the shared
+registration store already offers these operations:
+
+- **Create and rename.** A Profile is named on this device first and keeps an opaque
+  identity in the account's device-only vault. It is published once Private Sync is
+  reachable, and publishing again after a lost reply writes nothing new. When two
+  devices rename the same Profile, a device whose write loses publishes its own name
+  over the newer record on the next pass. A removal from another device always wins.
+  A pending Profile keeps its identity through authorized re-enrollment after
+  losing the device key. Sign-out and account purge remove its device-local state.
+- **Ownership.** Each connection's owner names the connection's incarnation by its
+  descriptor epoch. The registration snapshot lists that owner as the connection's
+  `profile`. A connection added again after removal starts in the Default Profile, as
+  does one whose owning Profile was removed.
+- **Moving a connection** needs Private Sync and is one compare-and-set write of its
+  ownership. The target must be the Default Profile or a Profile Private Sync
+  already holds. If another device moved the connection first, the move changes
+  nothing and reports `profile-changed`. The connection's identity, authorization,
+  cache, Drafts and Outbox stay in place.
+- **Removing a Profile** needs Private Sync. It is refused for the Default Profile
+  and, with `profile-in-use`, while the Profile owns a live connection. Unreadable
+  ownership or connection descriptions leave removal unavailable. Removing a Profile
+  still pending on this device also prevents a delayed first publication from
+  bringing it back.
+
+A record older than one this device already confirmed cannot revive a removed
+Profile or move a connection back. Synchronization keeps the last confirmed state
+and leaves those records unavailable for writes. Missing or unreadable ownership
+also keeps a connection's last confirmed owner.
+A connection with no confirmed owner belongs to the Default Profile; losing a
+previously confirmed assignment alone does not move it there.
+Confirmed reads and writes survive a later publication failure, including across
+relaunch; a failed unrelated edit cannot erase a removal or ownership change.
 
 Reading and search name their Profile explicitly
 ([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and
@@ -142,8 +180,8 @@ Profile, which every Draft and Outbox entry sending from it shares, and
 Storage, Private Sync records, Delivery Owners, Outbox claims and their payloads
 are unchanged. Push wakes carry no content and synchronize every connection. The
 replacement has no recipient suggestions or visible notifications yet. Before another Profile can be created,
-[#647](https://github.com/unwired-dev/product/issues/647) must synchronize Profile
-assignment and route the remaining backend and native callers by Profile Record Scope:
+[#921](https://github.com/unwired-dev/product/issues/921) must route the remaining
+backend and native callers by Profile Record Scope:
 
 - Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
 - Native: `PushRoutes.swift` and `DraftSync.swift`.

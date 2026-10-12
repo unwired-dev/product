@@ -1,3 +1,4 @@
+import type { ProfileState } from '../registration-vault.ts';
 import type { MailProvider, SignInProvider } from '../registration.ts';
 
 export interface Identity {
@@ -82,6 +83,7 @@ export interface SavedRecord {
   credential: number;
   contactEmail?: string;
   product?: Receipt;
+  profiles?: ProfileState;
   mailboxSetupReason?: string;
   connections: Connection[];
   removal?: {

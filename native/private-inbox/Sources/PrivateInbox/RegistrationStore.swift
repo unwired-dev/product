@@ -294,6 +294,8 @@ struct SavedRegistration: Codable {
   var identityCredential: Data
   var contactEmail: String?
   var product: ProductRegistrationReceipt?
+  // Profile metadata survives replacement of the key-ring vault during authorized re-enrollment.
+  var profiles: Data?
   // The single mailbox of records written before Mailbox Connections; read as one connection.
   var mailboxCredential: Data?
   var mailbox: GmailRegistrationReceipt?
