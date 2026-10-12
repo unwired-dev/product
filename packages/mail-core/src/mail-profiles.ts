@@ -206,17 +206,24 @@ const merged = (
 // Convex stores exactly these sealed writes.
 const wrote = (
   sealed: ReadonlyArray<
-    Readonly<{ encryptedPayload: typeof EncryptedPayload.Type }>
+    Readonly<{
+      payloadIdentifier: string;
+      encryptedPayload: typeof EncryptedPayload.Type;
+    }>
   >,
   stored: readonly Stored[],
 ) => {
-  const ours = new Set(
-    sealed.map(({ encryptedPayload }) => encryptedPayload.ciphertextBase64),
+  const ours = new Map(
+    sealed.map(({ payloadIdentifier, encryptedPayload }) => [
+      payloadIdentifier,
+      encryptedPayload.ciphertextBase64,
+    ]),
   );
   return (
     stored.length === sealed.length &&
-    stored.every(({ encryptedPayload }) =>
-      ours.has(encryptedPayload.ciphertextBase64),
+    stored.every(
+      ({ payloadIdentifier, encryptedPayload }) =>
+        ours.get(payloadIdentifier) === encryptedPayload.ciphertextBase64,
     )
   );
 };

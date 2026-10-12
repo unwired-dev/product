@@ -101,6 +101,48 @@ const alterProfileReplies = (vault: NativeRegistrationVault) =>
     },
   });
 
+// A backend reply that proves only the Profile fence, duplicated to hide missing ownership.
+const repeatProfileFenceReply = (vault: NativeRegistrationVault) => {
+  const payloads = Schema.Array(Schema.Unknown);
+  const resultSchema = Schema.fromJsonString(
+    Schema.Struct({
+      status: Schema.Literal('success'),
+      value: Schema.Struct({
+        committed: Schema.Boolean,
+        payloads,
+      }),
+    }),
+  );
+  return createRegistrationFlow({
+    ...vault,
+    call: async (request) => {
+      if (request.path !== 'productSync:putEncryptedPayloadsAtomically') {
+        return vault.call(request);
+      }
+      // The server stores only the Profile fence, then repeats its authentic record as proof
+      // for both writes. No ownership was stored.
+      const writes = Schema.decodeUnknownSync(payloads)(request.args.writes);
+      const reply = Schema.decodeUnknownSync(ReplySchema)(
+        await vault.call({
+          ...request,
+          args: { ...request.args, writes: writes.slice(1) },
+        }),
+      );
+      const result = Schema.decodeSync(resultSchema)(reply.body);
+      return {
+        ...reply,
+        body: JSON.stringify({
+          ...result,
+          value: {
+            ...result.value,
+            payloads: [...result.value.payloads, ...result.value.payloads],
+          },
+        }),
+      };
+    },
+  });
+};
+
 // A device that knows the definitions but has never opened the now-unreadable ownership record.
 const unreadableOwnership = ({ device, sync }: ReturnType<typeof setup>) => {
   const saved = device.record;
@@ -379,6 +421,20 @@ describe('mail profiles', () => {
       id: home,
       version: 2,
     });
+  });
+
+  it('refuses a claimed atomic move when its reply repeats the Profile instead of proving ownership', async () => {
+    expect.hasAssertions();
+    const { flow, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    const altered = repeatProfileFenceReply(vault);
+    await expect(altered.moveMailbox(id, work)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect(owners(await flow.refreshPrivateSync())).toStrictEqual([
+      defaultProfile,
+    ]);
   });
 
   it('never commits both a move into a Profile and that Profile’s removal', async () => {

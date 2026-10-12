@@ -496,10 +496,17 @@ the next pass; a remote tombstone drops them. Removal publishes a tombstone even
 for a never-confirmed Profile, fencing a delayed first publication. Removal also
 refuses unknown ownership, unreadable descriptors or an omitted owned descriptor
 instead of assuming emptiness. Online lifecycle writes require an authenticated
-CAS winner matching their ciphertext; an unreadable winner leaves publication
+CAS winner matching each write's identifier and ciphertext, with unique and
+complete returned records for a claimed commit; an unreadable winner leaves publication
 pending and a move or removal unavailable.
-Concurrent moves into a removed Profile converge to Default. A device that never
-observed a newer version retains the existing backend rollback limitation.
+A move into a non-Default Profile atomically rewrites that Profile's definition
+alongside ownership, incrementing its version while retaining its stored name and
+any pending local rename. Both writes use their observed row revisions, so a
+concurrent removal and move cannot both commit. Moving to Default writes only
+ownership. The fence was selected by the #920 review panel, 2–1, over documenting
+the disjoint-record race as a limitation. Connections already owned by a removed
+Profile still project into Default. A device that never observed a newer version
+retains the existing backend rollback limitation.
 Each authenticated listing and CAS winner is persisted before later fallible work.
 Publication and lifecycle callers therefore need no separate save step, and a
 later refusal cannot discard a confirmed version floor.

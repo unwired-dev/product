@@ -439,6 +439,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   address updates and subsequent removals cannot extend an old grant to another
   incarnation; otherwise concurrent additions lose valid mail or resurrect
   authorization after removal.
+- `mail-profiles.ts.move` writing only connection ownership while concurrent
+  `remove` checks the target Profile before tombstoning a different record. A
+  read-time empty check cannot prevent both disjoint writes from committing.
+  For a non-Default target, conditionally rewrite its stored definition and
+  ownership in one atomic transaction; preserve a pending local rename and the
+  stored name. Exercise both commit orders, including no partial ownership write
+  when the move loses. Keep moves to Default independent of a Profile record.
+- `product-sync.ts.writeAll` or `mail-profiles.ts.wrote` accepting duplicate,
+  missing or unrelated returned records as proof of an atomic commitment.
+  Require unique requested identifiers and complete returned coverage for a
+  claimed commit, and compare each authenticated winner with its corresponding
+  sealed write. A duplicate authentic record cannot prove another write; exercise
+  a reply that repeats the Profile fence while omitting connection ownership.
 - `mail-profiles.ts.remove` treating an owned descriptor omitted from
   `product-sync.ts`'s listing as proof that its connection is no longer live.
   Keep absent and unreadable descriptors unknown; require an authenticated

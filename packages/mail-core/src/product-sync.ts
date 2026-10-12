@@ -475,7 +475,12 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       AtomicWrite,
     );
     const records = new Set(writes.map(({ record }) => record));
+    const returned = new Set(
+      reply.payloads.map(({ payloadIdentifier }) => payloadIdentifier),
+    );
     if (
+      returned.size !== reply.payloads.length ||
+      (reply.committed && returned.size !== records.size) ||
       reply.payloads.some(
         ({ payloadIdentifier }) => !records.has(payloadIdentifier),
       )
