@@ -603,9 +603,9 @@ export function CommandPalette({
                 ref={list}
                 keyboardShouldPersistTaps="handled">
                 {results.length === 0 ? (
-                  <Text style={[styles.hint, { color: colors.textSecondary }]}>
+                  <Label style={[styles.hint, { color: colors.textSecondary }]}>
                     {t('commandPalette.empty')}
-                  </Text>
+                  </Label>
                 ) : null}
                 {results.map((command, row) => {
                   const disabled =

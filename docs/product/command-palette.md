@@ -108,6 +108,7 @@ and bulk actions; they do not describe the current integration.
 - With an empty query, contextual actions appear first, followed by app-wide
   actions and navigation destinations.
 - Typing filters commands by name with fuzzy matching and common synonyms.
+- An unmatched query shows a no-results status that assistive technology can read.
 - Ordering is predictable; the first version does not personalize results based
   on usage.
 
@@ -118,6 +119,9 @@ and bulk actions; they do not describe the current integration.
 - Back returns from the picker to the command list.
 - Palette commands use the same confirmations, Undo, and error behavior as the
   corresponding buttons or menus.
+- Navigation waiting for composer exit checks the Product Account identity again
+  before opening its destination. Routine status updates within the same admitted
+  Account do not retire that navigation.
 - A failed command keeps the palette open with visible error feedback that
   assistive technology can read. A cancelled or superseded action stays quiet
   and does not count as success.

@@ -259,7 +259,7 @@ describe('command palette interactions', () => {
           ]),
         }),
     });
-    let openMailbox = imap.native.openMailbox;
+    let { openMailbox } = imap.native;
     const connections = createMailboxes(
       syntheticConnections(
         {},
@@ -342,7 +342,7 @@ describe('command palette interactions', () => {
         expect(command).toBeDisabled();
         expect(command).toHaveTextContent(/Private storage is locked/u);
       }
-      openMailbox = imap.native.openMailbox;
+      ({ openMailbox } = imap.native);
       await act(selectedInbox.load);
       await waitFor(() => {
         expect(

@@ -119,9 +119,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 - `inbox-commands.tsx.InboxCommands` navigating through a captured Inbox,
   Settings or mailbox callback after `leaveResult` waits for composer exit. Fence
-  Profile, mailbox-scope, coordinator replacement and unmount at commit, and
-  revalidate immediately before the synchronous destination callback. Keep the
-  Inbox reset and mailbox choice in that same guarded turn; a second await can
+  Product Account identity, Profile, mailbox-scope, coordinator replacement and
+  unmount at commit, and revalidate immediately before the synchronous destination
+  callback. Trace the stable Account identity from `RegistrationGate` rather than
+  fencing the entire status-dependent `AccountContext` object: routine updates
+  within the same admitted Account must still complete. Keep the Inbox reset and
+  mailbox choice in that same guarded turn; a second await can
   reopen a retired scope after the first navigation. Exercise delayed exit, owner
   retirement, visible destination and a later current-owner success for each
   destination. Palette dismissal/session checks alone do not fence navigation.
@@ -311,9 +314,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   failures through an accessible labeled parent on Mac, or VoiceOver misses them.
 
 - Mac `message-summary.tsx`, `translation.tsx`, `inbox.tsx.OnlineHeading`,
-  `command-palette.tsx` failure feedback or `organize.tsx.ImapOrganizeStatus`
-  rendering standalone title, progress, failure,
-  omission, pending-change or privacy disclosure only in nonselectable `Text`.
+  `command-palette.tsx` failure or no-results feedback, or
+  `organize.tsx.ImapOrganizeStatus` rendering standalone title, progress, failure,
+  empty state, omission, pending-change or privacy disclosure only in nonselectable
+  `Text`.
   The installed Mac Fabric paragraph is not an accessibility element; use
   selectable text or an accessible labeled wrapper. A generic panel label alone
   does not expose its children. Otherwise VoiceOver reads the result but misses

@@ -87,6 +87,7 @@ import { TrustedDevices } from './trusted-devices.tsx';
 // through this.
 export const AccountContext = createContext<
   | Readonly<{
+      productAccountId?: string;
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
       openAccount: () => void;
@@ -762,6 +763,7 @@ export function RegistrationGate({
   }, [preview, mailAssistance, assistanceScope]);
   const actions = useMemo(
     () => ({
+      productAccountId: inboxAccount,
       mailboxes: mailboxesOf(snapshot),
       openAccount: () => {
         if (inboxAccount !== undefined) {

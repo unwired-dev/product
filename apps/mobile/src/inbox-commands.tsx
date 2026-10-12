@@ -33,15 +33,16 @@ export function InboxCommands({
 }) {
   const { t } = useLocalization();
   const account = use(AccountContext);
+  const accountId = account?.productAccountId;
   const navigation = useComposerNavigation();
   const profile = useProfile();
   const scopeOwner = useRef<object | undefined>(undefined);
   useLayoutEffect(() => {
-    scopeOwner.current = { navigation, profile, scope };
+    scopeOwner.current = { accountId, navigation, profile, scope };
     return () => {
       scopeOwner.current = undefined;
     };
-  }, [navigation, profile, scope]);
+  }, [accountId, navigation, profile, scope]);
   const selectionState = selectionMailbox?.state;
   const selectionReasons = {
     loading: t('message.loading'),
