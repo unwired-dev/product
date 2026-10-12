@@ -42,7 +42,6 @@ jest.mock('react-native', () => {
 });
 
 describe('command palette pending navigation', () => {
-  /* oxlint-disable vitest/max-expects -- Each journey checks palette opening, availability, recovery and retirement together. */
   it.each([
     { destination: 'inbox', labels: ['Go to Inbox'], expected: 'inbox' },
     { destination: 'settings', labels: ['Settings'], expected: 'settings' },
