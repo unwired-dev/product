@@ -414,7 +414,14 @@ function ResponseActions({
     profileOf(mailbox?.id, mailboxes),
   ).find(({ id }) => id === mailbox?.id);
   if (!('responseSource' in inbox) || !('threadId' in message)) {
-    return null;
+    return (
+      <ResponseCommands
+        owner={owner}
+        target={`${mailbox?.id}/${message.id}`}
+        disabled={t('commandPalette.unsupported')}
+        onStart={() => false}
+      />
+    );
   }
   if (
     onCompose === undefined ||

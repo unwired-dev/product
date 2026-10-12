@@ -97,6 +97,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   palette matches owner, ID and target together; changing only the wrapper can
   remount that owner and strand a recovered command. Exercise the same open
   palette through unavailable, ready and unavailable states without retargeting.
+  Recovery into a provider-unsupported reader must retain that same owner and
+  mailbox/message target for every disabled response variant; otherwise captured
+  rows keep the generic retired-command reason instead of the provider reason.
   Include initial capture while `MailboxMessage` is loading, locked or failed,
   before `ResponseActions` mounts; keep a target-bound registration with that
   reader's persistent owner so recovery cannot strand a targetless Inbox fallback.
@@ -147,6 +150,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   boundary too, without restoring the retired owner's focus. Settle a delayed
   success and failure before and after reopening; a later opening already fences
   old results, but a direct store close can still restore stale focus before it.
+  Release the retired execution's busy latch immediately, and let settlement
+  release only its own execution token. Execute a new held command before the
+  old success or failure settles, checking that the old result cannot dismiss,
+  show errors in or release the new run; otherwise reopening is blocked or the
+  old completion admits overlapping commands in the new scope.
   Preserve captured targets on ordinary selection changes within the same admitted
   owner.
 
@@ -633,6 +641,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
+  in single-line placeholders. Keep "same as incoming if blank" in visible,
+  wrapping text beside each field, including after entry, and retain the field's
+  accessible name. Otherwise narrow layouts truncate the default and entered
+  values hide it. Check both hosts; native captures remain deferred when unavailable.
 
 - Freshness or lifecycle changes in `src/freshness.ts`, host startup, or
   `InboxProvider` checked only against background execution. Verify each affected

@@ -358,7 +358,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   const { t } = useLocalization();
   if (
     state.kind !== 'ready' ||
-    !('receiveOnly' in state) ||
+    !('imap' in state) ||
     state.status === 'current'
   ) {
     return null;

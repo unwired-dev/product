@@ -5,7 +5,10 @@ Setup, coding rules, validation and observable requirements remain in this file.
 [#615](https://github.com/unwired-dev/product/issues/615) adds **Send** to the
 composer on iPhone, iPad and Mac. A sent Draft leaves the Drafts list for the
 **Outbox**, waits out the **Undo Send Window**, and is handed to Gmail from this
-device. A handoff whose outcome is uncertain is never resubmitted; only a definite
+device. [#631](https://github.com/unwired-dev/product/issues/631) sends from IMAP
+connections through their SMTP server with the same rules, then files a copy in their
+Sent folder, as [IMAP sending](imap-mailboxes.md#sending) describes; the rules below
+name Gmail where IMAP wording differs only by provider. A handoff whose outcome is uncertain is never resubmitted; only a definite
 refusal, such as a rate limit, is tried again.
 [#616](https://github.com/unwired-dev/product/issues/616) recovers interrupted sends
 after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sending
@@ -99,7 +102,7 @@ with the app in the background or with Mac windows closed is
 - When storage refuses to record Gmail's answer, the app saves it again with the
   next retry while it keeps running, so a message Gmail never received stays
   retryable rather than reading as unknown.
-- Native code owns encrypted file access and Gmail credentials. Keys, credentials
+- Native code owns encrypted file access and Gmail and SMTP credentials. Keys, credentials
   and asset bytes never cross the JavaScript bridge; logs contain no mail content,
   addresses or identifiers.
 - Sent messages preserve the formatted body, plain-text alternative, quoted
@@ -156,6 +159,9 @@ cover:
 - a mailbox refresh refusing handoff before submission, retaining the claim and
   sending on the next pass;
 - each refusal at Send.
+
+`imap-send.test.ts` runs the same Outbox through SMTP and Sent filing, as
+[IMAP mailboxes](imap-mailboxes.md#validate) lists.
 
 `outgoing-message.test.ts` checks header folding, encoding and injection, the
 exact message size, and the HTML and plain-text block structure.

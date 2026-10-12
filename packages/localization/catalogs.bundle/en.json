@@ -103,7 +103,9 @@
       "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}.",
       "imap-refused": "The mail server did not accept that user name and password. Your Product Account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
       "imap-offline": "The mail server could not be reached. Your Product Account is retained. Check the server name and port, try again when you are online, or choose another mailbox.",
-      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name and port, or choose another mailbox."
+      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name and port, or choose another mailbox.",
+      "smtp-refused": "The outgoing mail server did not accept that user name and password. Your Product Account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
+      "smtp-insecure": "The outgoing mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name, port and security, or choose another mailbox."
     },
     "devicePending": {
       "title": "Add this device",
@@ -179,7 +181,7 @@
     "remove": "Remove {{address}}",
     "confirm": "Removing {{address}} deletes its {{provider}} access and the mail saved for it from this device, including changes still waiting for {{provider}}, and removes it from your other devices when they next connect. Your mail stays in {{provider}}.",
     "cancel": "Cancel",
-    "receiveOnly": "Receive only. Sending from this mailbox is not available yet.",
+    "receiveOnly": "Receive only. Enter the password again to set up sending.",
     "addImap": "Add an IMAP mailbox",
     "enterPassword": "Enter the password for {{address}} again",
     "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server."
@@ -594,6 +596,7 @@
     },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
+      "password": "This mailbox needs its password entered again, with sending set up, before it can send. Enter it in Settings or choose another mailbox.",
       "removed": "This mailbox was removed from this account. Choose another mailbox to send from.",
       "renamed": "This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox."
     },
@@ -608,8 +611,10 @@
       "entries": "Correct or remove the invalid address before sending.",
       "addresses": "An address in this message uses characters this app cannot send yet. Use a plain email address.",
       "sender": "This mailbox cannot send now. Choose another mailbox to send from.",
+      "sent-folder": "Unwired Mail cannot identify one Sent folder for this mailbox's copy, so it cannot send. Choose another mailbox to send from.",
       "assets": "Some files are not ready to send. Remove them, or wait until they are added.",
       "too-large": "This message is too large for Gmail. Remove some files and try again.",
+      "too-large_imap": "This message is too large to send. Remove some files and try again.",
       "changed": "This Draft changed in another window. Review it, then send it again.",
       "storage": "This message could not be queued because Drafts are not saved. Try again."
     },
@@ -711,28 +716,43 @@
     "state": {
       "waiting": "Sending soon",
       "sending": "Sending…",
-      "unknown": "Delivery unknown. Check Sent in Gmail before sending it again."
+      "filing": "Sent. Saving a copy to Sent…",
+      "unknown": "Delivery unknown. Check Sent in Gmail before sending it again.",
+      "unknown_imap": "Delivery unknown. Check your Sent folder before sending it again."
+    },
+    "filing": {
+      "offline": "Sent. Its copy is saved to Sent when the mail server can be reached.",
+      "locked": "Sent. Its copy is saved to Sent once private storage is unlocked.",
+      "authorization": "Sent. Enter this mailbox's password again in Settings to save its copy to Sent.",
+      "sent-folder": "Sent. Waiting for one Sent folder to be identified before saving its copy."
     },
     "unknown": {
       "check": "Check Again",
       "checking": "Checking…",
       "unconfirmed": "Gmail did not confirm this message. Check Sent in Gmail.",
+      "unconfirmed_imap": "Your Sent folder did not confirm this message. Check it on the mail server.",
       "confirming": "Gmail may already have sent this message. Edit it only if it is not in Sent in Gmail.",
+      "confirming_imap": "The mail server may already have sent this message. Edit it only if it is not in your Sent folder.",
       "cancel": "Cancel",
       "editAnyway": "Edit Anyway"
     },
     "queued": {
       "offline": "Waiting to send. It sends when this device can reach Gmail and your Unwired Mail account.",
+      "offline_imap": "Waiting to send. It sends when this device can reach the mail server and your Unwired Mail account.",
       "locked": "Waiting to send while private storage is locked. Unlock your device.",
       "rate-limited": "Waiting to send. Gmail asked to wait before sending more."
     },
     "failed": {
       "claimed": "Not sent. Another of your devices claimed this message to send it.",
       "authorization": "Not sent. This mailbox needs Gmail access again.",
+      "authorization_imap": "Not sent. The mail server did not accept this mailbox's password. Enter it again in Settings.",
       "mailbox": "Not sent. This mailbox is no longer connected.",
       "assets": "Not sent. Its files are no longer on this device.",
       "too-large": "Not sent. It is too large for Gmail.",
-      "refused": "Not sent. Gmail refused this message."
+      "too-large_imap": "Not sent. It is too large for the mail server.",
+      "refused": "Not sent. Gmail refused this message.",
+      "refused_imap": "Not sent. The mail server refused this message.",
+      "sent-folder": "Not sent. Unwired Mail cannot identify one Sent folder for this mailbox's copy."
     }
   },
   "commandPalette": {
@@ -775,21 +795,37 @@
       "other": "Another IMAP server"
     },
     "choose": "Connect {{provider}}",
-    "description": "Mail is read with IMAP. Sending from this mailbox is not available yet, so it is receive only.",
+    "description": "Mail is read with IMAP and sent with SMTP.",
     "address": "Email address",
     "username": "User name",
     "password": "Password",
     "appPassword": "{{provider}} requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
     "host": "IMAP server",
     "port": "Port",
+    "outgoing": "Outgoing (SMTP)",
+    "smtpHost": "SMTP server",
+    "smtpPort": "SMTP port",
+    "smtpSecurity": "SMTP security",
+    "security": {
+      "tls": "SSL/TLS",
+      "starttls": "STARTTLS"
+    },
+    "smtpUsername": "SMTP user name, same as incoming if blank",
+    "smtpPassword": "SMTP password, same as incoming if blank",
     "review": "Unwired Mail connects to {{host}} on port {{port}} using TLS and checks that its certificate is valid. Your password stays on this device and is never sent to Unwired Mail.",
-    "incomplete": "Enter the email address, user name, password, server and a port between 1 and 65535.",
+    "sendingReview": {
+      "tls": "Mail is sent through {{host}} on port {{port}} using SSL/TLS, and its certificate is checked too.",
+      "starttls": "Mail is sent through {{host}} on port {{port}}, which must switch to TLS with STARTTLS before any password is sent. Its certificate is checked too."
+    },
+    "incomplete": "Enter the email address, password, both servers, and ports between 1 and 65535.",
     "connect": "Connect",
     "connecting": "Connecting to the mail server",
     "cancel": "Cancel",
     "failure": {
       "imap-refused": "The mail server did not accept that user name and password. Nothing was changed.",
       "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Nothing was changed.",
+      "smtp-refused": "The outgoing mail server did not accept that user name and password. Nothing was changed.",
+      "smtp-insecure": "The outgoing mail server did not offer a verified secure connection, so your password was not sent. Nothing was changed.",
       "failed": "The mail server could not be reached. Nothing was changed. Check the server name and port, or try again when you are online."
     },
     "folders": "Folders",

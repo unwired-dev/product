@@ -84,7 +84,8 @@ scheme.add_test_target(tests)
 if platform == :ios
   scheme.test_action.should_use_launch_scheme_args_env = false
   scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new([
-    { key: 'UNWIRED_IMAP_TLS_TEST_PORT', value: ENV.fetch('UNWIRED_IMAP_TLS_TEST_PORT'), enabled: true }
+    { key: 'UNWIRED_IMAP_TLS_TEST_PORT', value: ENV.fetch('UNWIRED_IMAP_TLS_TEST_PORT'), enabled: true },
+    { key: 'UNWIRED_SMTP_TLS_TEST_PORTS', value: ENV.fetch('UNWIRED_SMTP_TLS_TEST_PORTS'), enabled: true }
   ])
 end
 scheme.save_as(project.path, 'StorageProbe', true)

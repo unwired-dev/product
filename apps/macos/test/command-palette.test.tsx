@@ -278,9 +278,11 @@ describe('command palette interactions', () => {
       ok(selectedInbox, 'Expected the selected IMAP mailbox');
       await act(() => selectedInbox.forget());
       await open();
-      expect(
-        screen.getByRole('button', { name: 'Mark as read' }),
-      ).toHaveTextContent(/Loading message/u);
+      for (const name of ['Mark as read', 'Reply', 'Reply All', 'Forward']) {
+        const command = screen.getByRole('button', { name });
+        expect(command).toBeDisabled();
+        expect(command).toHaveTextContent(/Loading message/u);
+      }
       await act(selectedInbox.load);
       await waitFor(() => {
         expect(
@@ -439,6 +441,14 @@ describe('command palette interactions', () => {
         complete = resolve;
         fail = reject;
       });
+      let completeNext: (value: false) => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Hold a new command while the retired command settles.
+      const nextCompletion = new Promise<false>((resolve) => {
+        completeNext = resolve;
+      });
+      const runCommand = jest
+        .fn((): Promise<false | undefined> => nextCompletion)
+        .mockReturnValueOnce(completion);
       const input = createRef<TextInput>();
       await registration.restoreOnce();
       try {
@@ -457,7 +467,7 @@ describe('command palette interactions', () => {
                     id: 'compose',
                     label: 'Held command',
                     group: 'app',
-                    onRun: () => completion,
+                    onRun: runCommand,
                   },
                 ]}
               />
@@ -513,6 +523,13 @@ describe('command palette interactions', () => {
               await registration.resume();
             });
             await open();
+            expect(
+              screen.getByRole('button', { name: 'Held command' }),
+            ).toBeEnabled();
+            await fireEvent.press(
+              screen.getByRole('button', { name: 'Held command' }),
+            );
+            expect(runCommand).toHaveBeenCalledTimes(2);
           }
           await act(async () => {
             // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
@@ -524,6 +541,20 @@ describe('command palette interactions', () => {
             await completion.catch(() => undefined);
           });
           expect(focus.mock.contexts).not.toContain(previous);
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- The retired completion cannot release the newer execution.
+          if (reopened) {
+            expect(screen.getByLabelText('Command Palette')).toBeVisible();
+            expect(
+              screen.getByRole('button', { name: 'Held command' }),
+            ).toBeDisabled();
+            expect(
+              screen.queryByText('The command could not finish. Try again.'),
+            ).toBeNull();
+            await act(async () => {
+              completeNext(false);
+              await nextCompletion;
+            });
+          }
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise reopening after the retired command settles.
           if (!reopened) {
             restore = () => Promise.resolve(connected);
@@ -548,6 +579,7 @@ describe('command palette interactions', () => {
         }
       } finally {
         complete(undefined);
+        completeNext(false);
         await screen.unmount();
         restore = () => Promise.resolve({ kind: 'signed-out' });
         await registration.deviceRemoved();

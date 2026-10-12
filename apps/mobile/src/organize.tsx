@@ -141,7 +141,7 @@ export function rowActions({
   if (state.kind !== 'ready') {
     return [];
   }
-  if ('openFolder' in inbox && 'receiveOnly' in state && 'folder' in message) {
+  if ('openFolder' in inbox && 'imap' in state && 'folder' in message) {
     return imapQuickActions(t, message, state).map(
       ({ name, label, action }) => ({
         name,
@@ -319,7 +319,7 @@ function ImapMessageActions({
   );
   if (
     state.kind !== 'ready' ||
-    !('receiveOnly' in state) ||
+    !('imap' in state) ||
     message === undefined
   ) {
     return (
@@ -646,8 +646,7 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const provider = useProviderName();
-  const imap =
-    state.kind === 'ready' && 'receiveOnly' in state ? state : undefined;
+  const imap = state.kind === 'ready' && 'imap' in state ? state : undefined;
   const notice = imap?.notice;
   useEffect(() => {
     if (notice !== undefined && !announced.has(notice)) {

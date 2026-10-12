@@ -25,6 +25,12 @@ const setup = (password: string) => ({
   port: 993,
   username: 'alex@example.invalid',
   password,
+  smtp: {
+    host: 'smtp.example.invalid',
+    port: 465,
+    security: 'tls' as const,
+    username: 'alex@example.invalid',
+  },
 });
 
 const ready = (state: ImapInboxState) => {
@@ -352,7 +358,7 @@ describe('connecting IMAP mailboxes', () => {
     const inbox = imapInbox(mailboxes);
     await mailboxes.load();
     const listed = ready(inbox.getSnapshot());
-    expect(listed.receiveOnly).toBe(true);
+    expect(listed.imap).toBe(true);
     expect(listed.folders.map(({ name }) => name)).toStrictEqual(['INBOX']);
     expect(
       listed.messages.map(({ subject, unread }) => ({ subject, unread })),

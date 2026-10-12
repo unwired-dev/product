@@ -95,10 +95,11 @@ export const SyncedSchema = Schema.Struct({
 export type Synced = typeof SyncedSchema.Type;
 
 // Why an Outbox message waits or stopped. A queued message reached no provider and is retried:
-// Product Sync or Gmail was unreachable ('offline'), storage was locked or Gmail limited the rate.
-// A failed one was refused for good: another device holds its claim ('claimed'), Gmail needs
-// authorization again, its mailbox is gone, its files are no longer on this device, it is too
-// large, or Gmail refused it.
+// Product Sync or the provider was unreachable ('offline'), storage was locked or Gmail limited the
+// rate. A failed one was refused for good: another device holds its claim ('claimed'), the mailbox
+// needs authorization or its password again, its mailbox is gone, its files are no longer on this
+// device, it is too large, the provider refused it, or its mail server has no Sent folder to keep
+// its copy ('sent-folder'). A message being filed keeps why its Sent copy waits.
 const DeliveryProblemSchema = Schema.Literals([
   'offline',
   'locked',
@@ -109,14 +110,17 @@ const DeliveryProblemSchema = Schema.Literals([
   'assets',
   'too-large',
   'refused',
+  'sent-folder',
 ]);
 export type DeliveryProblem = typeof DeliveryProblemSchema.Type;
 
 // A message admitted to the Outbox by Send on this device, its Delivery Owner. It keeps the exact
 // Draft that was sent, which never changes, until its outcome is final.
-// 'waiting': within the Undo Send Window. 'queued': not handed to Gmail yet. 'sending': handed to
-// Gmail, which may have accepted it. 'failed': refused before any delivery. 'unknown': handed to
-// Gmail without a confirmed outcome; it is never sent again automatically.
+// 'waiting': within the Undo Send Window. 'queued': not handed to the provider yet. 'sending':
+// handed to the provider, which may have accepted it. 'filing': SMTP accepted it and its copy is not
+// in the Sent folder yet; only the copy is ever tried again. 'failed': refused before any delivery.
+// 'unknown': handed to the provider without a confirmed outcome; it is never sent again
+// automatically.
 export const OutboxEntrySchema = Schema.Struct({
   // The Draft's identifier, which its Convex claim names.
   id: Schema.NonEmptyString,
@@ -139,7 +143,14 @@ export const OutboxEntrySchema = Schema.Struct({
   }),
   // Milliseconds since 1970 when the Undo Send Window ends.
   sendAt: Schema.Finite,
-  state: Schema.Literals(['waiting', 'queued', 'sending', 'failed', 'unknown']),
+  state: Schema.Literals([
+    'waiting',
+    'queued',
+    'sending',
+    'filing',
+    'failed',
+    'unknown',
+  ]),
   // Whether this device asked Convex for the Draft's claim, and whether it holds it.
   claim: Schema.optionalKey(Schema.Literals(['requested', 'held'])),
   problem: Schema.optionalKey(DeliveryProblemSchema),

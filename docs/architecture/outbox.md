@@ -10,7 +10,7 @@ Read under the [implementation and review workflow](../agents/implementation-rev
   **Delivery Owner**. Admission removes the Draft and stores its exact content in
   the same write. The Outbox never synchronizes. Its files stay stored until the
   message is sent or returns to the Drafts.
-- Before Gmail sees the message, storage records it as handed over. A request
+- Before the provider sees the message, storage records it as handed over. A request
   whose answer may have been lost, an unreadable reply or an app stopped
   meanwhile reads as unknown, never as permission to send again.
 - The Convex claim (`draftDelivery:claim`) names the Draft only by an opaque
@@ -44,8 +44,8 @@ their storage compare-and-set succeeds, rechecking the requested transition
 against competing local progress after a conflict. A stale writer cannot roll
 back a handoff or report a cancelled message while durable storage still queues it.
 
-If storage refuses a known Gmail outcome, the running Outbox remembers it and
-retries only recording that answer from `sending` or `unknown`, never Gmail
+If storage refuses a known provider outcome, the running Outbox remembers it and
+retries only recording that answer from `sending` or `unknown`, never provider
 submission. Another store's conservative recovery to `unknown` cannot erase
 the live handoff's known answer; only that handoff's Outbox holds the answer.
 It forgets the answer when the entry advances or disappears and on disposal. A relaunch without
@@ -96,3 +96,25 @@ budgets, 3–0, with the same models and reasoning settings. This supersedes the
 outside this replacement slice. Unknown outcomes remain excluded from automatic
 resubmission under ADR 0062. These decisions do not qualify real Gmail, Convex or
 native process-termination behavior.
+
+## SMTP acceptance and filing (#631)
+
+The same admission, originating-device ownership and frozen-message rules apply
+to SMTP. A unique server-declared Sent folder is required before handoff. SMTP
+messages add a Message-ID at admission. The native adapter inserts verified asset
+bytes, uses To/Cc/Bcc as envelope recipients and removes Bcc from the submitted
+copy; the IMAP Sent copy retains it.
+
+A decoded SMTP acceptance is persisted as `filing`. Accepted messages cannot
+return to Drafts; retries only file their Sent copy. An unreadable acceptance
+reply remains unknown, and an unreadable filing reply keeps filing pending.
+If the known acceptance cannot be saved, the existing live outcome retention
+retries recording it without another submission. A relaunch without that answer
+keeps the original durable handoff unknown.
+
+Filing searches before APPEND using the frozen MIME boundary, so a lost reply or
+relaunch finds an already-filed copy. Unknown reconciliation confirms exactly one
+copy in the unique Sent folder; absence or ambiguity never authorizes resubmission.
+Removing the connection settles an accepted entry without filing its remaining
+copy. Shared controlled-provider tests and hosted iOS wire evidence are distinct;
+real-provider and full native send journeys remain deferred release qualification.

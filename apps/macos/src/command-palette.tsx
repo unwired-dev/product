@@ -250,7 +250,7 @@ export function CommandPalette({
   const [path, setPath] = useState<readonly string[]>([]);
   const [selected, setSelected] = useState(0);
   const [pending, setPending] = useState(false);
-  const running = useRef(false);
+  const running = useRef<object | undefined>(undefined);
   const session = useRef(0);
   const [failure, setFailure] = useState(false);
   const input = useRef<TextInput>(null);
@@ -289,6 +289,8 @@ export function CommandPalette({
   const close = useCallback(
     (presentation: 'dismissed' | 'retired' = 'retired') => {
       session.current += 1;
+      running.current = undefined;
+      setPending(false);
       if (presentation === 'retired') {
         previous.current = null;
       }
@@ -353,7 +355,7 @@ export function CommandPalette({
       return;
     }
     const started = session.current;
-    if (running.current || command.disabled !== undefined) {
+    if (running.current !== undefined || command.disabled !== undefined) {
       return;
     }
     if (command.choices !== undefined) {
@@ -365,7 +367,8 @@ export function CommandPalette({
       setSelected(0);
       return;
     }
-    running.current = true;
+    const execution = {};
+    running.current = execution;
     setPending(true);
     setFailure(false);
     try {
@@ -378,8 +381,10 @@ export function CommandPalette({
         setFailure(true);
       }
     }
-    running.current = false;
-    setPending(false);
+    if (running.current === execution) {
+      running.current = undefined;
+      setPending(false);
+    }
   };
   const inputMatches = () =>
     matchingCommands(

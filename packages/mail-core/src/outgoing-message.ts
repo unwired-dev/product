@@ -307,13 +307,17 @@ const sizeOf = (
   );
 };
 
-// The message Gmail sends for a Draft: its recipients, subject and reply headers, the formatted body
-// with a plain-text alternative, inline images by Content-ID and attachments. Boundaries start with
-// `=_`, which base64 and the encoded headers never produce at the start of a line. Every asset must
-// be complete.
+// The message sent for a Draft: its recipients, subject and reply headers, the formatted body with a
+// plain-text alternative, inline images by Content-ID and attachments, and a Message-ID when the
+// sender names one. Boundaries start with `=_`, which base64 and the encoded headers never produce
+// at the start of a line. Every asset must be complete.
 export function outgoingMessage(
   draft: Draft,
-  { date, boundary }: Readonly<{ date: number; boundary: string }>,
+  {
+    date,
+    boundary,
+    messageId,
+  }: Readonly<{ date: number; boundary: string; messageId?: string }>,
 ): OutgoingMessage {
   const body = [...draft.body, ...(draft.quoted ?? [])];
   // A repeated image is one part, however often the body shows it.
@@ -354,8 +358,11 @@ export function outgoingMessage(
   const threading =
     (inReplyTo.length === 0 ? '' : header('In-Reply-To', inReplyTo)) +
     (references.length === 0 ? '' : header('References', references));
-  // Gmail delivers to Bcc recipients and removes the header from what others receive.
-  const head = `From: ${draft.from}${crlf}${addressList('To', draft.to)}${addressList('Cc', draft.cc)}${addressList('Bcc', draft.bcc)}${unstructured('Subject', draft.subject)}Date: ${dateOf(date)}${crlf}${threading}MIME-Version: 1.0${crlf}`;
+  const identity =
+    messageId === undefined ? '' : `Message-ID: <${messageId}>${crlf}`;
+  // Gmail and native SMTP delivery deliver to Bcc recipients and remove the header from what others
+  // receive; only the sender's Sent copy keeps it.
+  const head = `From: ${draft.from}${crlf}${addressList('To', draft.to)}${addressList('Cc', draft.cc)}${addressList('Bcc', draft.bcc)}${unstructured('Subject', draft.subject)}Date: ${dateOf(date)}${crlf}${identity}${threading}MIME-Version: 1.0${crlf}`;
   const segments = [
     { text: head + content.head + crlf },
     ...content.body,

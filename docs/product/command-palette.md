@@ -73,7 +73,8 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   Draft storage loading, locked or failed, or no eligible sending mailbox. Recovery
   updates the existing captured response commands without changing their message
   target, including when the selected reader initially shows loading or a storage
-  failure.
+  failure. If recovery reaches a reader without response capability, the same
+  captured rows explain that the mailbox does not support responses.
 - When the selected reader cannot mount action controls, selected-message fallbacks
   explain the mailbox's loading, locked or failed storage prerequisite.
 - Read and Star actions disabled by the message's current state explain that state.
@@ -123,6 +124,9 @@ and bulk actions; they do not describe the current integration.
   the palette.
 - An Account, Profile or lock scope change retires the palette without restoring
   its previous React or native focus target. The saved native responder is cleared.
+  Retirement releases the palette's busy state so a newly opened scope can execute
+  commands before an old operation settles. The old completion cannot dismiss,
+  show errors in or release a newer execution.
 - Pending Inbox New Message completion cannot open a composer after its initiating
   Profile, mailbox scope or screen retires. A Draft already created stays with its
   original sender; completion neither reopens the retired Profile nor retargets

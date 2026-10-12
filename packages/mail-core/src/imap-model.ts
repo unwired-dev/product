@@ -138,6 +138,12 @@ export const decodeModify = Schema.decodeUnknownEffect(
 export const decodeIdle = Schema.decodeUnknownEffect(
   Schema.Struct({ changed: Schema.Boolean }),
 );
+// How many Sent messages carry a MIME boundary.
+export const decodeCount = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+);
 const EnvelopeSchema = Schema.Struct({
   uid: Uid,
   flags: Schema.Array(Schema.String),
