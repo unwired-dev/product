@@ -417,6 +417,7 @@ export function DraftList({
   readonly scope: string | undefined;
 }) {
   const account = use(AccountContext);
+  const accountId = account?.productAccountId;
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
@@ -427,11 +428,11 @@ export function DraftList({
   const scopeOwner = useRef<object | undefined>(undefined);
   const [creatingShown, setCreatingShown] = useState(false);
   useLayoutEffect(() => {
-    scopeOwner.current = { navigation, scope, store, windowProfile };
+    scopeOwner.current = { accountId, navigation, scope, store, windowProfile };
     return () => {
       scopeOwner.current = undefined;
     };
-  }, [navigation, scope, store, windowProfile]);
+  }, [accountId, navigation, scope, store, windowProfile]);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }

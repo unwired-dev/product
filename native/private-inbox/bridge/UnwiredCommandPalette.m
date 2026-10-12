@@ -169,6 +169,18 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
   }
   _active = active;
   _presentation = [presentation copy];
+#if !TARGET_OS_OSX
+  if ([presentation isEqualToString:@"completed"]) {
+    // Wait for the palette input to detach; a destination that took focus keeps it.
+    __weak UnwiredCommandPaletteView *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      UnwiredCommandPaletteView *owner = weakSelf;
+      if (owner.enabled && [owner.presentation isEqualToString:@"completed"] && owner.window && !UnwiredFirstResponder(owner.window)) {
+        [owner becomeFirstResponder];
+      }
+    });
+  }
+#endif
 }
 @end
 

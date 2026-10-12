@@ -57,14 +57,20 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   creating or navigating to a Draft.
 
 - `composer.tsx.DraftList.compose` opening a Draft through a captured `onCompose`
-  after its Profile, mailbox scope or mounted owner retires during creation.
-  Fence the post-await navigation at the React lifetime boundary; palette session
-  checks only fence dismissal, and the shared coordinator need not see a route
-  change. Keep Profile, mailbox scope, coordinator, Draft store and unmount
-  invalidation when correcting effect dependency diagnostics: make the captured
-  lifetime identities explicit in the effect instead of deleting dependencies. Exercise delayed creation from both the button and palette through a
-  Profile replacement, checking visible navigation and the next sender. Otherwise
-  a late completion can reopen the retired Profile or retarget the current one.
+  after its Product Account, Profile, mailbox scope or mounted owner retires during
+  creation. Fence the post-await navigation at the React lifetime boundary;
+  palette session checks only fence dismissal, and the shared coordinator need
+  not see a route change. Fence the stable `AccountContext.productAccountId`,
+  not the status-dependent context object: a same-Account context update must
+  still complete. Exercise held creation from both the button and palette through
+  Account replacement and same-Account context updates, retaining the created
+  Draft with its original sender. Keep Account, Profile, mailbox scope,
+  coordinator, Draft store and unmount invalidation when correcting effect
+  dependency diagnostics: make the captured lifetime identities explicit in the
+  effect instead of deleting dependencies. Exercise delayed creation from both
+  the button and palette through a Profile replacement, checking visible
+  navigation and the next sender. Otherwise a late completion can reopen the
+  retired Account or Profile or retarget the current one.
 
 - `command-palette.tsx` registering disabled fallback commands outside the supported
   screen lifetime. Trace `RegistrationGate` sign-in, initial setup and locked

@@ -728,6 +728,12 @@ final class InboxTests: XCTestCase {
     app.buttons["Mark as read"].tap()
     XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.typeKey("p", modifierFlags: .command)
+      XCTAssertTrue(commands.waitForExistence(timeout: 10))
+      app.buttons["Cancel commands"].tap()
+      XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
+    }
     let committed = XCTAttachment(screenshot: app.screenshot())
     committed.name = "Committed read state"
     committed.lifetime = .keepAlways

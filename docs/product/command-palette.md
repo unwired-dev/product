@@ -132,6 +132,8 @@ and bulk actions; they do not describe the current integration.
   parameter picker, Escape first returns to the command list.
 - Dismissing restores the previous focus. Successfully running a command closes
   the palette without restoring the old focus, so the destination retains focus.
+  On iPad, when no destination has focus, the palette host resumes handling
+  keyboard shortcuts so Command-P can open it again.
 - Dismissing a pending command does not cancel its work or release its busy state.
   A reopened palette waits for that execution to settle before another command
   can start; the old result cannot close it or show a stale error.
@@ -141,8 +143,8 @@ and bulk actions; they do not describe the current integration.
   commands before an old operation settles. The old completion cannot dismiss,
   show errors in or release a newer execution.
 - Pending Inbox New Message completion cannot open a composer after its initiating
-  Profile, mailbox scope or screen retires. A Draft already created stays with its
-  original sender; completion neither reopens the retired Profile nor retargets
+  Account, Profile, mailbox scope or screen retires. A Draft already created stays
+  with its original sender; completion neither reopens the retired Profile nor retargets
   the current one.
 - Inbox, Settings and mailbox navigation that waits for composer exit cannot
   reopen an Account, Profile or mailbox scope that retires before exit completes.

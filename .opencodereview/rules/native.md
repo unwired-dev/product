@@ -23,6 +23,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   assertions do not execute those native setters; record packaged responder
   validation separately, or a passing component test can hide stale-owner focus.
 
+- `UnwiredCommandPaletteView.setPresentation:` clearing completion focus without
+  leaving a UIKit responder to handle iPad Command-P. After the palette input
+  detaches, let the enabled, still-completed host regain responder status only
+  when its current window has no first responder. Recheck those conditions in
+  any deferred callback; never restore the old responder, steal destination
+  focus or revive an open, retired, disabled or detached owner. Exercise packaged
+  Command-P reopening after a command that has no focused destination; JavaScript
+  presentation assertions do not prove responder-chain reachability.
+
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
 #### Bundled localization resources
