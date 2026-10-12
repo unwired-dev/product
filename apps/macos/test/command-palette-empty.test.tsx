@@ -21,12 +21,17 @@ it('exposes no matching commands to Mac assistive technology and recovers on sea
   await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
     nativeEvent: { key: 'open' },
   });
-  await fireEvent.changeText(screen.getByLabelText('Command Palette'), 'zzzzzz');
+  await fireEvent.changeText(
+    screen.getByLabelText('Command Palette'),
+    'zzzzzz',
+  );
   expect(screen.getByRole('text', { name: 'No matching commands' })).toHaveProp(
     'accessibilityLabel',
     'No matching commands',
   );
   await fireEvent.changeText(screen.getByLabelText('Command Palette'), 'inbox');
-  expect(screen.queryByRole('text', { name: 'No matching commands' })).toBeNull();
+  expect(
+    screen.queryByRole('text', { name: 'No matching commands' }),
+  ).toBeNull();
   expect(screen.getByRole('button', { name: 'Go to Inbox' })).toBeVisible();
 });

@@ -90,10 +90,13 @@ describe.each([
         });
         const mailboxes = createMailboxes(
           syntheticConnections({
-            [syntheticMailboxes['alex@example.invalid']]: createSyntheticGmail(),
-            [syntheticMailboxes['other@example.invalid']]: createSyntheticGmail({
-              address: 'other@example.invalid',
-            }),
+            [syntheticMailboxes['alex@example.invalid']]:
+              createSyntheticGmail(),
+            [syntheticMailboxes['other@example.invalid']]: createSyntheticGmail(
+              {
+                address: 'other@example.invalid',
+              },
+            ),
           }),
           registration,
         );
@@ -210,7 +213,9 @@ describe.each([
           expect(screen.getByText(pendingRoute(expected))).toBeVisible();
           await choose();
           await waitFor(() => {
-            expect(screen.getByText(`${nextProfile}:${expected}`)).toBeVisible();
+            expect(
+              screen.getByText(`${nextProfile}:${expected}`),
+            ).toBeVisible();
           });
           expect(screen.queryByLabelText('Command Palette')).toBeNull();
         } finally {
