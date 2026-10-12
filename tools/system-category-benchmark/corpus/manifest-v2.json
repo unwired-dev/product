@@ -1,0 +1,150 @@
+{
+  "version": "v2",
+  "seed": 828,
+  "sources": {
+    "enron-0.parquet": {
+      "url": "https://huggingface.co/datasets/corbt/enron-emails/resolve/cfc06c758093d90993abce1a43668fb7357258a6/data/train-00000-of-00003.parquet",
+      "sha256": "97165e587875e3e57715c14f63547fedbf664f748de1124122d4d2952c56a9fc"
+    },
+    "enron-1.parquet": {
+      "url": "https://huggingface.co/datasets/corbt/enron-emails/resolve/cfc06c758093d90993abce1a43668fb7357258a6/data/train-00001-of-00003.parquet",
+      "sha256": "c14be60e6c1be0c7a80d20dc8a6769d587988ba5260368868f7944d83a364e7a"
+    },
+    "enron-2.parquet": {
+      "url": "https://huggingface.co/datasets/corbt/enron-emails/resolve/cfc06c758093d90993abce1a43668fb7357258a6/data/train-00002-of-00003.parquet",
+      "sha256": "79d1b6b9d73461289a84aecdbfbbf1a242fedb21c57a28b57ea07a2d171e1cf7"
+    },
+    "20030228_easy_ham.tar.bz2": {
+      "url": "https://spamassassin.apache.org/old/publiccorpus/20030228_easy_ham.tar.bz2",
+      "sha256": "2b7b65904bcfcc31d2b5f51946f2d261370b257402cbbd62930b46ab83367438"
+    },
+    "20030228_easy_ham_2.tar.bz2": {
+      "url": "https://spamassassin.apache.org/old/publiccorpus/20030228_easy_ham_2.tar.bz2",
+      "sha256": "b4bd3dc5ae5b40f38e99a0e41ad7d16b428b56e818e3a6ffa07330d62004dd38"
+    },
+    "20030228_hard_ham.tar.bz2": {
+      "url": "https://spamassassin.apache.org/old/publiccorpus/20030228_hard_ham.tar.bz2",
+      "sha256": "ce2ce67880643dbde65ea7f85bffbfe4417349c4bd80b6b0de56262ae6b0a9c9"
+    }
+  },
+  "sample_sizes": {
+    "enron-random": 600,
+    "enron-enriched": 300,
+    "spamassassin-random": 250
+  },
+  "enrichment_pattern": "itinerar|flight|airline|e-?ticket|boarding|invit|rsvp|party|luncheon|order|receipt|invoice|purchase|shipp|newsletter|unsubscribe|subscri|special offer|sale\\b",
+  "targeted_pools": {
+    "flights": {
+      "pattern": "itinerar|e-?ticket|flight|airline|boarding",
+      "size": 150
+    },
+    "orders": {
+      "pattern": "receipt|invoice|order (confirm|status|#)|your order|shipped|shipping confirm|purchase confirm|payment (confirm|received)",
+      "size": 150
+    },
+    "invites": {
+      "pattern": "invitation|invite|rsvp|meeting request",
+      "size": 100
+    }
+  },
+  "labels_sha256": "76fedd402e6101b32307eb210d028718cf6edae1424bb8b620f923c140962ba1",
+  "synthetic_generator_sha256": "aeb1761fcac5aa5bd339f9fbecb0d5015318c54da682eb2501235452e8c0161e",
+  "frozen_test_sha256": "cc0891ae2e629ff947aa920b188cfde2d7ad38146c510ea7f63d35e64b80f8ea",
+  "corpus_sha256": "45e087a91f72816b64b7bb85c3d1917029d7536c36e11916b098f23f50e76f88",
+  "counts": {
+    "cs/synthetic/test/Flights": 48,
+    "cs/synthetic/test/Invites": 38,
+    "cs/synthetic/test/Newsletters & Promotions": 61,
+    "cs/synthetic/test/Orders": 48,
+    "cs/synthetic/test/People": 6,
+    "cs/synthetic/test/messages": 163,
+    "cs/synthetic/test/multi-label": 44,
+    "cs/synthetic/test/uncategorized": 6,
+    "cs/synthetic/train/Flights": 120,
+    "cs/synthetic/train/Invites": 109,
+    "cs/synthetic/train/Newsletters & Promotions": 122,
+    "cs/synthetic/train/Orders": 120,
+    "cs/synthetic/train/People": 37,
+    "cs/synthetic/train/messages": 552,
+    "cs/synthetic/train/multi-label": 47,
+    "cs/synthetic/train/uncategorized": 91,
+    "cs/synthetic/validation/Flights": 48,
+    "cs/synthetic/validation/Invites": 46,
+    "cs/synthetic/validation/Newsletters & Promotions": 48,
+    "cs/synthetic/validation/Orders": 44,
+    "cs/synthetic/validation/People": 7,
+    "cs/synthetic/validation/messages": 170,
+    "cs/synthetic/validation/multi-label": 47,
+    "cs/synthetic/validation/uncategorized": 24,
+    "en/real-enriched/test/Flights": 6,
+    "en/real-enriched/test/Invites": 20,
+    "en/real-enriched/test/Newsletters & Promotions": 50,
+    "en/real-enriched/test/Orders": 13,
+    "en/real-enriched/test/People": 62,
+    "en/real-enriched/test/messages": 161,
+    "en/real-enriched/test/multi-label": 4,
+    "en/real-enriched/test/uncategorized": 14,
+    "en/real-enriched/train/Flights": 27,
+    "en/real-enriched/train/Invites": 53,
+    "en/real-enriched/train/Newsletters & Promotions": 197,
+    "en/real-enriched/train/Orders": 52,
+    "en/real-enriched/train/People": 284,
+    "en/real-enriched/train/messages": 633,
+    "en/real-enriched/train/multi-label": 20,
+    "en/real-enriched/train/uncategorized": 40,
+    "en/real-enriched/validation/Flights": 7,
+    "en/real-enriched/validation/Invites": 23,
+    "en/real-enriched/validation/Newsletters & Promotions": 59,
+    "en/real-enriched/validation/Orders": 6,
+    "en/real-enriched/validation/People": 41,
+    "en/real-enriched/validation/messages": 142,
+    "en/real-enriched/validation/multi-label": 1,
+    "en/real-enriched/validation/uncategorized": 7,
+    "en/real-random/test/Invites": 5,
+    "en/real-random/test/Newsletters & Promotions": 10,
+    "en/real-random/test/Orders": 1,
+    "en/real-random/test/People": 69,
+    "en/real-random/test/messages": 171,
+    "en/real-random/test/multi-label": 0,
+    "en/real-random/test/uncategorized": 86,
+    "en/real-random/train/Flights": 2,
+    "en/real-random/train/Invites": 14,
+    "en/real-random/train/Newsletters & Promotions": 68,
+    "en/real-random/train/Orders": 3,
+    "en/real-random/train/People": 285,
+    "en/real-random/train/messages": 538,
+    "en/real-random/train/multi-label": 2,
+    "en/real-random/train/uncategorized": 168,
+    "en/real-random/validation/Invites": 8,
+    "en/real-random/validation/Newsletters & Promotions": 8,
+    "en/real-random/validation/Orders": 1,
+    "en/real-random/validation/People": 74,
+    "en/real-random/validation/messages": 134,
+    "en/real-random/validation/multi-label": 0,
+    "en/real-random/validation/uncategorized": 43,
+    "en/synthetic/test/Flights": 48,
+    "en/synthetic/test/Invites": 38,
+    "en/synthetic/test/Newsletters & Promotions": 59,
+    "en/synthetic/test/Orders": 48,
+    "en/synthetic/test/People": 13,
+    "en/synthetic/test/messages": 170,
+    "en/synthetic/test/multi-label": 42,
+    "en/synthetic/test/uncategorized": 6,
+    "en/synthetic/train/Flights": 120,
+    "en/synthetic/train/Invites": 107,
+    "en/synthetic/train/Newsletters & Promotions": 124,
+    "en/synthetic/train/Orders": 120,
+    "en/synthetic/train/People": 39,
+    "en/synthetic/train/messages": 557,
+    "en/synthetic/train/multi-label": 47,
+    "en/synthetic/train/uncategorized": 94,
+    "en/synthetic/validation/Flights": 48,
+    "en/synthetic/validation/Invites": 46,
+    "en/synthetic/validation/Newsletters & Promotions": 49,
+    "en/synthetic/validation/Orders": 44,
+    "en/synthetic/validation/People": 7,
+    "en/synthetic/validation/messages": 170,
+    "en/synthetic/validation/multi-label": 48,
+    "en/synthetic/validation/uncategorized": 24
+  }
+}
