@@ -213,8 +213,17 @@ describe('command palette interactions', () => {
           ]),
         }),
     });
+    let openMailbox = imap.native.openMailbox;
     const connections = createMailboxes(
-      syntheticConnections({}, { [connection]: imap.native }),
+      syntheticConnections(
+        {},
+        {
+          [connection]: {
+            ...imap.native,
+            openMailbox: () => openMailbox(),
+          },
+        },
+      ),
       registration,
     );
     const mailboxes = {
@@ -276,13 +285,18 @@ describe('command palette interactions', () => {
       await fireEvent.press(screen.getByText('Incoming IMAP message'));
       const selectedInbox = mailboxes.getSnapshot()[0]?.inbox;
       ok(selectedInbox, 'Expected the selected IMAP mailbox');
-      await act(() => selectedInbox.forget());
+      openMailbox = () =>
+        Promise.reject(
+          Object.assign(new Error('Storage locked'), { code: 'locked' }),
+        );
+      await act(selectedInbox.load);
       await open();
       for (const name of ['Mark as read', 'Reply', 'Reply All', 'Forward']) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
-        expect(command).toHaveTextContent(/Loading message/u);
+        expect(command).toHaveTextContent(/Private storage is locked/u);
       }
+      openMailbox = imap.native.openMailbox;
       await act(selectedInbox.load);
       await waitFor(() => {
         expect(

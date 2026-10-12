@@ -45,16 +45,35 @@ jest.mock('react-native', () => {
 describe('command palette mailbox recovery', () => {
   /* oxlint-disable vitest/max-expects -- Each journey checks palette opening, availability, recovery and retirement together. */
   it.each([
-    ['gmail', createSyntheticGmail, ['Star']],
-    ['microsoft-graph', createSyntheticGraph, []],
+    [
+      'gmail',
+      () => {
+        const fixture = createSyntheticGmail({
+          address: 'alex@example.invalid',
+          messages: 1,
+        });
+        fixture.createLabel('Projects');
+        return fixture;
+      },
+      ['Star'],
+    ],
+    [
+      'microsoft-graph',
+      () => {
+        const fixture = createSyntheticGraph({
+          address: 'alex@example.invalid',
+          messages: 1,
+        });
+        fixture.createFolder('Projects');
+        return fixture;
+      },
+      [],
+    ],
   ] as const)(
     'shows selected %s storage prerequisites and recovers its palette actions',
     async (provider, createFixture, starActions) => {
       expect.hasAssertions();
-      const fixture = createFixture({
-        address: 'alex@example.invalid',
-        messages: 1,
-      });
+      const fixture = createFixture();
       const { openMailbox: readyOpenMailbox } = fixture.native;
       let openMailbox = readyOpenMailbox;
       const session = createMockRegistrationSession('registration-success');
