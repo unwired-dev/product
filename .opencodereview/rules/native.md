@@ -3,9 +3,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `UnwiredCommandPalette.m` routing a key or header gesture outside its owning
   active window, host bounds or the product's platform entry contract. Keep
   Command-P on Mac/iPad and phone opening on the app-header gesture and
-  accessibility action; list swipes must still scroll. Exercise packaged
-  native entry and dismissal, since JavaScript event tests bypass responder
-  routing and native navigation bars.
+  accessibility action; list swipes must still scroll. Extend header recognition
+  to the rendered Inbox heading and native navigation bars, including subtitles
+  and Dynamic Type. Preserve existing entry on other supported screens: Settings
+  replaces the split view with a scrolling Account page whose title can leave
+  the viewport. A marker-only replacement can therefore remove entry after
+  scrolling. Check blank header padding, lower header touches and scrolling
+  after the hint disappears. Exercise packaged native entry and dismissal, since
+  JavaScript event tests bypass responder routing and native navigation bars.
+
+- `UnwiredCommandPalette.m` consuming modified Up or Down events as palette row
+  navigation. Preserve Shift selection and native Command, Control and Option
+  text editing in the focused input, while only unmodified arrows change rows.
+  Exercise native query selection and replacement in both directions; a
+  JavaScript command-key callback cannot show that AppKit received the editing
+  chord. Otherwise extending the query selection moves a command instead.
 
 - `UnwiredCommandPalette.m` intercepting palette navigation, Return or Escape
   while the focused AppKit text input client has marked text. Let its input

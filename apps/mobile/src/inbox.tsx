@@ -27,6 +27,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { RowAction } from './organize.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 
+import { CommandHeader } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -790,7 +791,9 @@ export function Inbox({
           onInbox={goInbox}
           onScope={setChosen}
         />
-        <View style={styles.heading}>
+        <CommandHeader
+          testID="inbox-command-header"
+          style={styles.heading}>
           <View style={styles.headingText}>
             <Text
               accessibilityRole="header"
@@ -812,7 +815,7 @@ export function Inbox({
               </Text>
             </Pressable>
           )}
-        </View>
+        </CommandHeader>
         {mailboxes.length > 1 ? (
           <ScopePicker
             mailboxes={mailboxes}

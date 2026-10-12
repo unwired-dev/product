@@ -119,7 +119,7 @@ describe('command palette mailbox recovery', () => {
         );
       }
       try {
-        await render(
+        const app = await render(
           <CommandPalette>
             <RegistrationGate
               store={registration}
@@ -296,6 +296,49 @@ describe('command palette mailbox recovery', () => {
           });
         });
         expect(screen.queryByLabelText('Command Palette')).toBeNull();
+        await app.rerender(
+          <CommandPalette>
+            <RegistrationGate
+              store={registration}
+              preview={false}>
+              <InboxProvider
+                mailboxes={mailboxes}
+                drafts={drafts}>
+                <Inbox
+                  selected={{ mailbox: connection, id: 'missing-message' }}
+                  onSelect={() => undefined}
+                />
+                <MessageDetail
+                  id="missing-message"
+                  mailbox={connection}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPalette>,
+        );
+        await open();
+        for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
+          const command = screen.getByRole('button', { name });
+          expect(command).toBeDisabled();
+          expect(command).toHaveTextContent(
+            /This action is no longer available\./u,
+          );
+        }
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Cancel commands' }),
+        );
+        await act(() => inbox.forget());
+        openMailbox = async () => ({
+          ...(await fixture.native.openMailbox()),
+          availability: 'retry' as const,
+        });
+        await act(inbox.load);
+        await open();
+        for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
+          expect(screen.getByRole('button', { name })).toHaveTextContent(
+            /This action is no longer available\./u,
+          );
+        }
       } finally {
         await screen.unmount();
         await registration.deviceRemoved();

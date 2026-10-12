@@ -98,6 +98,16 @@ final class InboxTests: XCTestCase {
     shot.name = "Resumed Gmail registration"
     shot.lifetime = .keepAlways
     add(shot)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.scrollViews.firstMatch.swipeUp()
+      XCTAssertFalse(app.staticTexts["Mail connected"].isHittable)
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.11))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
+      let commands = app.textFields["Command Palette"]
+      XCTAssertTrue(commands.waitForExistence(timeout: 10))
+      app.buttons["Cancel commands"].tap()
+      XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
+    }
   }
 
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
@@ -677,6 +687,16 @@ final class InboxTests: XCTestCase {
   private func inboxJourney(_ app: XCUIApplication) {
     XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
     verifyLanguagePreference(in: app)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let header = app.otherElements["inbox-command-header"]
+      XCTAssertTrue(header.waitForExistence(timeout: 10))
+      let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
+      let commands = app.textFields["Command Palette"]
+      XCTAssertTrue(commands.waitForExistence(timeout: 10))
+      app.buttons["Cancel commands"].tap()
+      XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
+    }
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
@@ -719,7 +739,7 @@ final class InboxTests: XCTestCase {
     } else {
       app.typeKey("p", modifierFlags: .command)
       XCTAssertFalse(app.textFields["Command Palette"].exists)
-      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.11))
+      let start = app.navigationBars.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
       start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
     }
     let commands = app.textFields["Command Palette"]

@@ -16,6 +16,12 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
 }
 #endif
 
+@interface UnwiredCommandPaletteHeaderView : RCTView
+@end
+
+@implementation UnwiredCommandPaletteHeaderView
+@end
+
 @interface UnwiredCommandPaletteView : RCTView
 #if !TARGET_OS_OSX
 <UIGestureRecognizerDelegate>
@@ -52,7 +58,7 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
     NSString *key = nil;
     NSEventModifierFlags modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
     if ((modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift)) == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"p"]) key = @"open";
-    if (owner.active && !(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+    if (owner.active && !(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift))) {
       NSResponder *responder = owner.window.firstResponder;
       if ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [(id<NSTextInputClient>)responder hasMarkedText]) return event;
       if (event.keyCode == 126) key = @"up";
@@ -90,7 +96,11 @@ static UIResponder *UnwiredFirstResponder(UIView *view)
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch
 {
   CGPoint point = [touch locationInView:self];
-  return self.enabled && !self.active && CGRectContainsPoint(self.bounds, point) && point.y >= self.headerInset && point.y <= self.headerInset + 60;
+  if (!self.enabled || self.active || !CGRectContainsPoint(self.bounds, point) || point.y < self.headerInset) return NO;
+  for (UIView *view = touch.view; view && view != self.window; view = view.superview) {
+    if ([view isKindOfClass:UnwiredCommandPaletteHeaderView.class] || [view isKindOfClass:UINavigationBar.class]) return YES;
+  }
+  return point.y <= self.headerInset + 60;
 }
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture
@@ -204,4 +214,13 @@ RCT_EXPORT_METHOD(markHintSeen)
 {
   [NSUserDefaults.standardUserDefaults setBool:YES forKey:UnwiredCommandHintSeen];
 }
+@end
+
+@interface UnwiredCommandPaletteHeader : RCTViewManager
+@end
+
+@implementation UnwiredCommandPaletteHeader
+RCT_EXPORT_MODULE()
++ (BOOL)requiresMainQueueSetup { return YES; }
+- (RCTView *)view { return [UnwiredCommandPaletteHeaderView new]; }
 @end

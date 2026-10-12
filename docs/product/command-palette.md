@@ -30,10 +30,11 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
 - Clicking the input or pressing Command-P opens the Command Palette.
 - Results open directly beneath the persistent input, overlaying the current
   screen without shifting its layout. The input receives focus immediately.
-- Up and Down select a command, and Enter runs it. Existing keyboard shortcuts
-  appear beside their commands. While the Mac input has marked text, the input
-  method keeps arrow, Return and Escape keys to choose, confirm or cancel its
-  composition before those keys can act on palette commands.
+- Unmodified Up and Down select a command, and Enter runs it. Shift-modified
+  arrows stay with the input to extend its text selection. Existing keyboard
+  shortcuts appear beside their commands. While the Mac input has marked text,
+  the input method keeps arrow, Return and Escape keys to choose, confirm or
+  cancel its composition before those keys can act on palette commands.
 
 ## Phone entry
 
@@ -41,7 +42,10 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   a visible palette entry button.
 - A downward swipe starting on the app header, below the system status bar, opens
   the palette regardless of the content's scroll position. Swipes starting in the
-  message list continue to scroll normally.
+  message list continue to scroll normally. Inbox swipes recognize the full
+  rendered heading, including its subtitle and Dynamic Type height; reader
+  swipes also recognize native navigation bars. Other screens retain their
+  existing top-of-screen gesture region.
 - A one-time hint says Swipe down on the header for commands. The hint explains
   the gesture without adding a button or another opening method.
 
@@ -88,7 +92,8 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   reconnect. Organizing commands recover within the same open palette, keeping
   their original message target.
 - Commands reserve “Unavailable for this mailbox” for missing provider capability,
-  never a storage or connection prerequisite.
+  never a storage or connection prerequisite. When the selected message is no
+  longer present, disabled commands say This action is no longer available.
 
 ## Future Thread and bulk targets
 

@@ -54,6 +54,10 @@ const NativeHost = requireNativeComponent<
   }
 >('UnwiredCommandPalette');
 
+const NativeHeader = requireNativeComponent<ViewProps>(
+  'UnwiredCommandPaletteHeader',
+);
+
 type Palette = ReturnType<typeof createCommandPalette>;
 const CommandContext = createContext<
   Readonly<{ store: Palette; open: () => void; close: () => void }> | undefined
@@ -143,17 +147,18 @@ const styles = StyleSheet.create({
   hint: { padding: 8, fontSize: 13 },
 });
 
-function CommandHeader({
+export function CommandHeader({
   children,
   label,
-}: {
-  readonly children: ReactNode;
+  ...props
+}: ViewProps & {
   readonly label?: string;
 }) {
   const context = use(CommandContext);
   const { t } = useLocalization();
   return (
-    <View
+    <NativeHeader
+      {...props}
       accessible={label !== undefined}
       accessibilityLabel={label}
       accessibilityActions={[
@@ -165,7 +170,7 @@ function CommandHeader({
         }
       }}>
       {children}
-    </View>
+    </NativeHeader>
   );
 }
 

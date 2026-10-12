@@ -211,13 +211,13 @@ export function OrganizingCommands({
     if (state.kind !== 'ready') {
       return unavailable;
     }
+    if (message === undefined) {
+      return t('commandPalette.unavailable');
+    }
     if ('organize' in state && !state.organize) {
       return t('gmailActions.savedOnly', {
         provider: t(`mailProviders.${mailbox?.provider ?? 'gmail'}`),
       });
-    }
-    if (message === undefined) {
-      return unavailable;
     }
     if (kind === 'read' && !message.unread) {
       return t('commandPalette.alreadyRead');

@@ -47,9 +47,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   storage before the reader mounts, cached `ready` states with `organize: false`,
   plus the inverse Read/Unread and Star/Remove Star actions on ready messages.
   Cached organizing waits for provider verification and needs reconnect guidance,
-  not a provider-unsupported reason. State-dependent omissions need their actual
+  not a provider-unsupported reason. In a ready mailbox, check target presence
+  before provider capability or cached-only verification reasons, in both
+  `InboxCommands` and `organize.tsx.OrganizingCommands`; an absent selected message
+  needs the unavailable-target reason. Exercise missing targets in verified and
+  cached ready states on both hosts. State-dependent omissions need their actual
   prerequisite or current-state reason; otherwise recovery guidance falsely
-  claims the provider lacks a supported action.
+  claims the provider lacks a supported action or asks for a reconnect that
+  cannot restore the target.
 - `composer.tsx.DraftList.compose` returning `undefined` for a concurrent creation
   while the palette treats a void result as completion. Return the command's
   quiet refusal value and exercise queued Inbox and palette callbacks before

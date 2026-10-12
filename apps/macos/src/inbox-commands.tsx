@@ -48,7 +48,10 @@ export function InboxCommands({
     loading: t('message.loading'),
     locked: t('storage.locked'),
     failed: t('storage.failed'),
-    ready: t('commandPalette.unsupported'),
+    ready:
+      selectionMessage === undefined
+        ? t('commandPalette.unavailable')
+        : t('commandPalette.unsupported'),
   };
   const selectionReason = hasSelection
     ? selectionReasons[selectionState?.kind ?? 'ready']
@@ -60,6 +63,7 @@ export function InboxCommands({
   };
   const savedOnly =
     hasSelection &&
+    selectionMessage !== undefined &&
     selectionState?.kind === 'ready' &&
     'organize' in selectionState &&
     !selectionState.organize;
