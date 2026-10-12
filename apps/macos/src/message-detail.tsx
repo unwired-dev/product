@@ -44,7 +44,7 @@ import {
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
@@ -53,38 +53,35 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    padding: spacing.extraLarge,
+    padding: spacing.xl,
   },
-  subject: {
-    fontSize: 28,
-    lineHeight: 36,
-    fontWeight: '600',
-    letterSpacing: -0.5,
-  },
+  subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 5,
-    marginTop: spacing.large,
-    paddingBottom: spacing.large,
+    marginTop: spacing.xl,
+    paddingBottom: spacing.xl,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  sender: { fontSize: 16, fontWeight: '600' },
+  sender: { ...textStyles.bodyEmphasized },
+  control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
+  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   responses: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.large,
-    marginTop: spacing.large,
+    gap: spacing.xl,
+    marginTop: spacing.xl,
   },
-  secondary: { fontSize: 14, lineHeight: 21 },
-  body: { fontSize: 17, lineHeight: 28, marginTop: spacing.large },
+  secondary: { ...textStyles.body },
+  body: { ...textStyles.reading.body, marginTop: spacing.xl },
   empty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.extraLarge,
-    gap: spacing.small,
+    padding: spacing.xl,
+    gap: spacing.s,
   },
-  emptyTitle: { fontSize: 22, fontWeight: '500', textAlign: 'center' },
-  emptyDescription: { fontSize: 16, textAlign: 'center' },
+  emptyTitle: { ...textStyles.title3Emphasized, textAlign: 'center' },
+  emptyDescription: { ...textStyles.body, textAlign: 'center' },
 });
 
 // Nothing selected, or a message that is not in any open mailbox.
@@ -92,7 +89,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <View style={[styles.fill, { backgroundColor: colors.background }]}>
+    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <View
         accessible
         accessibilityRole="text"
@@ -102,10 +99,11 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
         style={styles.empty}>
         <Text
           accessibilityRole="header"
-          style={[styles.emptyTitle, { color: colors.foreground }]}>
+          style={[styles.emptyTitle, { color: colors.textPrimary }]}>
           {id ? t('message.unavailable') : t('message.empty')}
         </Text>
-        <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
+        <Text
+          style={[styles.emptyDescription, { color: colors.textSecondary }]}>
           {id ? t('message.chooseAnother') : t('message.select')}
         </Text>
       </View>
@@ -193,19 +191,20 @@ function AttachToNewMessage({
             }
             accessibilityLiveRegion="polite"
             accessibilityRole="alert">
-            <Text style={[styles.secondary, { color: colors.foreground }]}>
+            <Text style={[styles.secondary, { color: colors.textPrimary }]}>
               {drafts.kind === 'locked'
                 ? t('drafts.listLocked')
                 : t('drafts.listFailed')}
             </Text>
           </View>
           <Pressable
+            style={styles.control}
             accessibilityRole="button"
             accessibilityLabel={t('common.retry')}
             onPress={() => {
               void store.load();
             }}>
-            <Text style={[styles.secondary, { color: colors.accent }]}>
+            <Text style={[styles.secondary, { color: colors.accentInk }]}>
               {t('common.retry')}
             </Text>
           </Pressable>
@@ -217,7 +216,7 @@ function AttachToNewMessage({
           accessibilityLabel={t('attachment.attachFailed')}
           accessibilityLiveRegion="polite"
           accessibilityRole="alert">
-          <Text style={[styles.secondary, { color: colors.foreground }]}>
+          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
             {t('attachment.attachFailed')}
           </Text>
         </View>
@@ -380,6 +379,7 @@ function ResponseActions({
       <View style={styles.responses}>
         {actions.map(([kind, label]) => (
           <Pressable
+            style={styles.control}
             key={kind}
             accessibilityRole="button"
             accessibilityLabel={label}
@@ -388,7 +388,7 @@ function ResponseActions({
             onPress={() => {
               void start(kind);
             }}>
-            <Text style={[styles.secondary, { color: colors.accent }]}>
+            <Text style={[styles.secondary, { color: colors.accentInk }]}>
               {label}
             </Text>
           </Pressable>
@@ -399,7 +399,7 @@ function ResponseActions({
           accessible
           accessibilityLabel={t('message.preparingForward')}
           accessibilityLiveRegion="polite">
-          <Text style={[styles.secondary, { color: colors.secondary }]}>
+          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('message.preparingForward')}
           </Text>
         </View>
@@ -410,7 +410,7 @@ function ResponseActions({
           accessibilityLabel={t('message.respondFailed')}
           accessibilityLiveRegion="polite"
           accessibilityRole="alert">
-          <Text style={[styles.secondary, { color: colors.foreground }]}>
+          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
             {t('message.respondFailed')}
           </Text>
         </View>
@@ -451,20 +451,22 @@ function ReaderBody({
   }
   return (
     <>
-      <MessageSummary
-        source={inbox}
-        id={message.id}
-        subject={message.subject}
-        body={'body' in message ? message.body : message.preview}
-      />
-      <MessageTranslation
-        source={inbox}
-        id={message.id}
-        body={'body' in message ? message.body : message.preview}
-      />
+      <View style={styles.assistance}>
+        <MessageSummary
+          source={inbox}
+          id={message.id}
+          subject={message.subject}
+          body={'body' in message ? message.body : message.preview}
+        />
+        <MessageTranslation
+          source={inbox}
+          id={message.id}
+          body={'body' in message ? message.body : message.preview}
+        />
+      </View>
       <Text
         selectable
-        style={[styles.body, { color: colors.foreground }]}>
+        style={[styles.body, { color: colors.textPrimary }]}>
         {'body' in message ? message.body : message.preview}
       </Text>
     </>
@@ -516,15 +518,16 @@ function MailboxMessage({
       <View style={styles.empty}>
         <Text
           accessibilityRole="alert"
-          style={[styles.emptyDescription, { color: colors.foreground }]}>
+          style={[styles.emptyDescription, { color: colors.textPrimary }]}>
           {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
         <Pressable
+          style={styles.control}
           accessibilityRole="button"
           onPress={() => {
             void actions.load();
           }}>
-          <Text style={[styles.secondary, { color: colors.accent }]}>
+          <Text style={[styles.secondary, { color: colors.accentInk }]}>
             {t('common.retry')}
           </Text>
         </Pressable>
@@ -533,7 +536,7 @@ function MailboxMessage({
   }
 
   return (
-    <View style={[styles.fill, { backgroundColor: colors.background }]}>
+    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       {message === undefined ? (
         <View
           accessible
@@ -542,10 +545,11 @@ function MailboxMessage({
           style={styles.empty}>
           <Text
             accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.foreground }]}>
+            style={[styles.emptyTitle, { color: colors.textPrimary }]}>
             {t('message.unavailable')}
           </Text>
-          <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
+          <Text
+            style={[styles.emptyDescription, { color: colors.textSecondary }]}>
             {t('message.chooseAnother')}
           </Text>
         </View>
@@ -556,11 +560,12 @@ function MailboxMessage({
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable
+                style={styles.control}
                 accessibilityRole="button"
                 onPress={() => {
                   void actions.setUnread(message.id, !message.unread);
                 }}>
-                <Text style={[styles.secondary, { color: colors.accent }]}>
+                <Text style={[styles.secondary, { color: colors.accentInk }]}>
                   {message.unread
                     ? t('message.markRead')
                     : t('message.markUnread')}
@@ -575,7 +580,7 @@ function MailboxMessage({
             <Text
               accessibilityRole="header"
               selectable
-              style={[styles.subject, { color: colors.foreground }]}>
+              style={[styles.subject, { color: colors.textPrimary }]}>
               {message.subject}
             </Text>
             <View
@@ -585,26 +590,28 @@ function MailboxMessage({
               ]}>
               <Text
                 selectable
-                style={[styles.sender, { color: colors.foreground }]}>
+                style={[styles.sender, { color: colors.textPrimary }]}>
                 {message.sender}
               </Text>
               <Text
                 selectable
-                style={[styles.secondary, { color: colors.secondary }]}>
+                style={[styles.secondary, { color: colors.textSecondary }]}>
                 {message.address}
               </Text>
-              <Text style={[styles.secondary, { color: colors.secondary }]}>
+              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
                 {t('message.received', {
                   date: dateFormat.format(new Date(message.receivedAt)),
                 })}
               </Text>
               {address === undefined ? null : (
-                <Text style={[styles.secondary, { color: colors.secondary }]}>
+                <Text
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
                   {t('inbox.inMailbox', { mailbox: address })}
                 </Text>
               )}
               {labelNames.length === 0 ? null : (
-                <Text style={[styles.secondary, { color: colors.secondary }]}>
+                <Text
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
                   {t('message.labels', { labels: labelNames.join(', ') })}
                 </Text>
               )}

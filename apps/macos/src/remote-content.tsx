@@ -11,7 +11,7 @@ import {
   createRemoteContentSettings,
   remoteContentPolicy,
 } from '@private-email/mail-core/remote-content';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { createContext, use, useState, useSyncExternalStore } from 'react';
 import {
   Pressable,
@@ -23,7 +23,7 @@ import {
 
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 interface RemoteContentModule extends TurboModule, NativeRemoteContent {}
 
@@ -61,18 +61,18 @@ export function useRemoteContentPolicy(
 }
 
 const styles = StyleSheet.create({
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.small },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   choice: {
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.medium,
+    paddingHorizontal: spacing.l,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  label: { fontSize: 15 },
-  heading: { fontSize: 20, fontWeight: '600' },
-  text: { fontSize: 17, lineHeight: 25 },
+  label: { ...textStyles.body },
+  heading: { ...textStyles.title3Emphasized },
+  text: { ...textStyles.body },
 });
 
 type Choice = RemoteContentPolicy | 'device';
@@ -109,14 +109,15 @@ export function PolicyChoice({
             styles.choice,
             {
               borderColor:
-                choice === selected ? colors.accent : colors.separator,
+                choice === selected ? colors.accentInk : colors.separator,
             },
           ]}>
           <Text
             style={[
               styles.label,
               {
-                color: choice === selected ? colors.accent : colors.foreground,
+                color:
+                  choice === selected ? colors.accentInk : colors.textPrimary,
               },
             ]}>
             {t(`remoteContent.policies.${choice}`)}
@@ -149,10 +150,10 @@ export function RemoteContentSettings({
     <>
       <Label
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('remoteContent.title')}
       </Label>
-      <Label style={[styles.text, { color: colors.secondary }]}>
+      <Label style={[styles.text, { color: colors.textSecondary }]}>
         {t('remoteContent.description')}
       </Label>
       <PolicyChoice
@@ -171,7 +172,7 @@ export function RemoteContentSettings({
       {cleared === undefined ? null : (
         <Label
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.secondary }]}>
+          style={[styles.text, { color: colors.textSecondary }]}>
           {cleared
             ? t('remoteContent.cleared')
             : t('remoteContent.clearFailed')}

@@ -32,5 +32,11 @@ and update all windows without changing their selections.
 The checked-in Objective-C++ host, Podfile and Ruby project generator own the
 native setup.
 
+The generator also compiles the first-party SF Symbol and Liquid Glass view
+managers from `native/design`. Host components consume them through Fabric's
+legacy-view interop. This adds no autolinked package and preserves the existing
+third-party module allowlist. Native visual and accessibility qualification is
+separate from compilation and JavaScript bundle verification.
+
 The native build phase exports and verifies the bundle before
 copying it into the app.

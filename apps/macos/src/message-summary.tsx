@@ -12,7 +12,7 @@ import {
   readableBodyText,
   summaryInput,
 } from '@private-email/mail-core/assistance';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -31,26 +31,27 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
+import { OnDeviceMarker } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   summary: {
-    gap: spacing.small,
-    padding: spacing.medium,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: spacing.s,
+    padding: spacing.m,
+    borderRadius: radius.card,
+    width: '100%',
   },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.large,
+    gap: spacing.xl,
   },
-  title: { fontSize: 15, fontWeight: '600' },
-  text: { fontSize: 16, lineHeight: 24 },
-  secondary: { fontSize: 14, lineHeight: 21 },
+  title: { ...textStyles.bodyEmphasized },
+  text: { ...textStyles.reading.body },
+  secondary: { ...textStyles.body },
 });
 
 interface AssistanceModule extends TurboModule, NativeAssistance {}
@@ -101,7 +102,7 @@ function SummaryContent({
         <ActivityIndicator accessibilityLabel={t('summary.progress')} />
         <Text
           selectable
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('summary.summarizing')}
         </Text>
         <Action
@@ -120,26 +121,22 @@ function SummaryContent({
         <Text
           selectable
           accessibilityRole="header"
-          style={[styles.title, { color: colors.foreground }]}>
+          style={[styles.title, { color: colors.textPrimary }]}>
           {t('summary.title')}
         </Text>
         <Text
           selectable
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {state.text}
         </Text>
         {state.omitted ? (
           <Text
             selectable
-            style={[styles.secondary, { color: colors.secondary }]}>
+            style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('summary.omitted')}
           </Text>
         ) : null}
-        <Text
-          selectable
-          style={[styles.secondary, { color: colors.secondary }]}>
-          {t('summary.disclaimer')}
-        </Text>
+        <OnDeviceMarker label={t('summary.disclaimer')} />
         {dismiss}
       </>
     );
@@ -149,7 +146,7 @@ function SummaryContent({
       <Text
         selectable
         accessibilityRole="alert"
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {t(
           `summary.${state.kind === 'unavailable' ? state.reason : state.kind}`,
         )}
@@ -273,7 +270,7 @@ function Summary({
   return (
     <View
       accessibilityLabel={t('summary.region')}
-      style={[styles.summary, { borderColor: colors.separator }]}>
+      style={[styles.summary, { backgroundColor: colors.onDeviceSurface }]}>
       <SummaryContent
         summary={summary}
         state={state}
