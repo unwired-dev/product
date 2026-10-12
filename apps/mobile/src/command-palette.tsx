@@ -179,11 +179,7 @@ export function UnavailableCommands() {
           ['move', t('commandPalette.move'), t('commandPalette.moveKeywords')],
           ['reply', t('message.reply'), t('commandPalette.replyKeywords')],
           ['replyAll', t('message.replyAll'), t('commandPalette.replyKeywords')],
-          [
-            'forward',
-            t('message.forward'),
-            t('commandPalette.forwardKeywords'),
-          ],
+          ['forward', t('message.forward'), t('commandPalette.forwardKeywords')],
         ] as const
       ).map(([id, label, keywords]) => ({
         id,
@@ -311,11 +307,7 @@ export function CommandPalette({
       (candidate) =>
         candidate.id === requested.id && candidate.target === requested.target,
     );
-    if (
-      !current.open ||
-      command === undefined ||
-      latest.disabled !== undefined
-    ) {
+    if (!current.open || command === undefined || latest.disabled !== undefined) {
       return;
     }
     const started = session.current;
@@ -450,9 +442,7 @@ export function CommandPalette({
           collapsable={false}
           style={styles.fill}
           accessibilityElementsHidden={state.open}
-          importantForAccessibility={
-            state.open ? 'no-hide-descendants' : 'auto'
-          }>
+          importantForAccessibility={state.open ? 'no-hide-descendants' : 'auto'}>
           {persistent && state.commands.length > 0 ? (
             <CommandHeader>
               <Pressable
@@ -615,10 +605,7 @@ export function CommandPalette({
                       </View>
                       {disabled === undefined ? null : (
                         <Text
-                          style={[
-                            styles.secondary,
-                            { color: colors.secondary },
-                          ]}>
+                          style={[styles.secondary, { color: colors.secondary }]}>
                           {disabled}
                         </Text>
                       )}

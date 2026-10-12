@@ -48,6 +48,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   live reader with the fallback mounted. A missing row hides a supported action;
   a mismatched ID duplicates it or prevents live availability from replacing it.
 
+- `message-detail.tsx.ResponseActions` returning only the unsupported-mailbox
+  fallback for a supported response whose source, Draft storage or eligible
+  sender is temporarily unavailable. Keep target-bound Reply, Reply All and
+  Forward registrations with the actual prerequisite reason, and preserve their
+  registration owner through ready and unavailable transitions. The captured
+  palette matches owner, ID and target together; changing only the wrapper can
+  remount that owner and strand a recovered command. Exercise the same open
+  palette through unavailable, ready and unavailable states without retargeting.
+
 - `message-detail.tsx.ResponseActions` or another command owner swallowing a
   rejected action into the same false result used for cancellation. Trace failures
   through both the reader button and the open palette: failures must reach visible

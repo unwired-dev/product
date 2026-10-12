@@ -14,3 +14,5 @@ Keep failed Reply, Reply All, and Forward commands open with visible feedback in
 Keep palette entry and the phone hint inside supported screens, and keep Reply All searchable with an unavailable reason when no message is open.
 
 Respect provider-specific organizing actions and folder availability in the palette. Keep supported Microsoft actions visible with an unavailable reason when their destination folder is missing.
+
+Show the current response prerequisite in the palette when message content, Draft storage, or a sending mailbox is unavailable.

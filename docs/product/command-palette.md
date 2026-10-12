@@ -69,6 +69,9 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   reason such as Select a message. The palette includes supported app commands
   and does not advertise unimplemented features. Reply All remains searchable
   alongside Reply and Forward when no message is open.
+- Response commands explain the current prerequisite: message content not ready,
+  Draft storage loading, locked or failed, or no eligible sending mailbox. Recovery
+  updates the existing captured command without changing its message target.
 
 ## Future Thread and bulk targets
 
@@ -117,7 +120,7 @@ thread-wide execution, bulk selection, or Pin support before those features
 exist. Those commands can be exposed when their owning launch work supplies
 supported actions. [Keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849)
 remains separate from [Command Palette #891](https://github.com/unwired-dev/product/issues/891).
-[Issue #845](https://github.com/unwired-dev/product/issues/845)
+[Complete conversation reading #846](https://github.com/unwired-dev/product/issues/846)
 owns the future conversation integration.
 
 The implementation decision panel considered reusing the supported message

@@ -196,11 +196,7 @@ export function MessageActions({
         <ActionButton
           label={
             folders
-              ? t(
-                  labeling
-                    ? 'gmailActions.hideFolders'
-                    : 'gmailActions.folders',
-                )
+              ? t(labeling ? 'gmailActions.hideFolders' : 'gmailActions.folders')
               : t(labeling ? 'gmailActions.hideLabels' : 'gmailActions.labels')
           }
           onPress={() => {

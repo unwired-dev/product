@@ -287,12 +287,12 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 // response always sends from the reader's own mailbox; one that cannot send offers none.
 function ResponseCommands({
   target,
-  pending,
+  disabled,
   onStart,
 }: {
   readonly target: string;
-  readonly pending: boolean;
-  readonly onStart: (kind: ResponseKind) => Promise<boolean>;
+  readonly disabled: string | undefined;
+  readonly onStart: (kind: ResponseKind) => boolean | Promise<boolean>;
 }) {
   const { t } = useLocalization();
   return (
@@ -307,7 +307,7 @@ function ResponseCommands({
         ),
         group: 'selection',
         target,
-        disabled: pending ? t('commandPalette.busy') : undefined,
+        disabled,
         onRun: () => onStart(kind),
       }))}
     />
@@ -386,15 +386,37 @@ function ResponseActions({
     mailboxes,
     profileOf(mailbox?.id, mailboxes),
   ).find(({ id }) => id === mailbox?.id);
+  if (!('responseSource' in inbox) || !('threadId' in message)) {
+    return null;
+  }
   if (
-    !('responseSource' in inbox) ||
-    !('threadId' in message) ||
     onCompose === undefined ||
     sender === undefined ||
     source === undefined ||
     drafts.kind !== 'ready'
   ) {
-    return null;
+    const draftReasons = {
+      closed: t('commandPalette.unavailable'),
+      loading: t('commandPalette.busy'),
+      locked: t('drafts.listLocked'),
+      failed: t('drafts.listFailed'),
+      ready: undefined,
+    };
+    const disabled =
+      draftReasons[drafts.kind] ??
+      (sender === undefined ? t('commandPalette.noSender') : undefined) ??
+      (source === undefined
+        ? t('commandPalette.responseSource')
+        : t('commandPalette.unavailable'));
+    return (
+      <View>
+        <ResponseCommands
+          target={`${mailbox?.id}/${message.id}`}
+          disabled={disabled}
+          onStart={() => false}
+        />
+      </View>
+    );
   }
   const received = t('message.received', {
     date: dateFormat.format(new Date(message.receivedAt)),
@@ -452,7 +474,7 @@ function ResponseActions({
     <View>
       <ResponseCommands
         target={`${mailbox?.id}/${message.id}`}
-        pending={pending !== undefined}
+        disabled={pending !== undefined ? t('commandPalette.busy') : undefined}
         onStart={start}
       />
       <View style={styles.responses}>

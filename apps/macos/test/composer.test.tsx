@@ -2939,13 +2939,16 @@ describe('adding files and images to a Draft', () => {
     });
     const drafts = createDrafts(storage.native, registration);
     const shown = (senders: ReturnType<typeof mailboxesOf>) => (
-      <ReaderApp
-        drafts={drafts}
-        gmail={gmail}
-        message={message}
-        registration={registration}
-        senders={senders}
-      />
+      <CommandPalette>
+        <UnavailableCommands />
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+          senders={senders}
+        />
+      </CommandPalette>
     );
     // Keep the downloaded reader alive while changing the host's sending eligibility.
     const senders = mailboxesOf(registration.getSnapshot().snapshot);
@@ -2968,7 +2971,37 @@ describe('adding files and images to a Draft', () => {
       screen.getByRole('button', { name: 'Open invoice.pdf' }),
     ).toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    for (const label of ['Reply', 'Reply All', 'Forward']) {
+      const command = screen.getByRole('button', { name: label });
+      expect(command).toBeDisabled();
+      expect(
+        within(command).getByText('No eligible sending mailbox is available'),
+      ).toBeVisible();
+    }
     await screen.rerender(shown(senders));
+    for (const label of ['Reply', 'Reply All', 'Forward']) {
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+    }
+    await screen.rerender(
+      shown(senders.map((mailbox) => ({ ...mailbox, state: 'authorization' }))),
+    );
+    for (const label of ['Reply', 'Reply All', 'Forward']) {
+      const command = screen.getByRole('button', { name: label });
+      expect(command).toBeDisabled();
+      expect(
+        within(command).getByText('No eligible sending mailbox is available'),
+      ).toBeVisible();
+    }
+    await screen.rerender(shown(senders));
+    for (const label of ['Reply', 'Reply All', 'Forward']) {
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+    }
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'escape' },
+    });
     await expect(
       screen.findByRole('button', {
         name: 'Attach invoice.pdf to a new message',
@@ -3021,12 +3054,15 @@ describe('adding files and images to a Draft', () => {
         registration,
       );
       await render(
-        <ReaderApp
-          drafts={drafts}
-          gmail={gmail}
-          message={message}
-          registration={registration}
-        />,
+        <CommandPalette>
+          <UnavailableCommands />
+          <ReaderApp
+            drafts={drafts}
+            gmail={gmail}
+            message={message}
+            registration={registration}
+          />
+        </CommandPalette>,
       );
       await press('Download invoice.pdf');
       const reader = within(screen.getByTestId('message-reader'));
@@ -3040,6 +3076,21 @@ describe('adding files and images to a Draft', () => {
       expect(
         reader.getByRole('button', { name: 'Open invoice.pdf' }),
       ).toBeOnTheScreen();
+      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+        nativeEvent: { key: 'open' },
+      });
+      const reason =
+        failure === 'locked'
+          ? 'Drafts are locked. Unlock your device and try again.'
+          : 'Drafts could not be opened. They have been kept.';
+      for (const label of ['Reply', 'Reply All', 'Forward']) {
+        const command = screen.getByRole('button', { name: label });
+        expect(command).toBeDisabled();
+        expect(within(command).getByText(reason)).toBeVisible();
+      }
+      await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+        nativeEvent: { key: 'escape' },
+      });
       open = storage.native.openDrafts;
       await act(async () => {
         await fireEvent.press(
@@ -3289,6 +3340,73 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('explains a pending response source and enables the captured message after loading', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Shall we meet on Friday?' },
+    });
+    const body = deferred();
+    const held = {
+      ...gmail,
+      native: {
+        ...gmail.native,
+        gmailRequest: async (
+          ...args: Parameters<typeof gmail.native.gmailRequest>
+        ) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the provider's body request.
+          if (
+            args[1].some(([name, value]) => name === 'format' && value === 'full')
+          ) {
+            await body.promise;
+          }
+          return gmail.native.gmailRequest(...args);
+        },
+      },
+    };
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <CommandPalette>
+        <UnavailableCommands />
+        <ReaderApp
+          drafts={drafts}
+          gmail={held}
+          message={message}
+          registration={registration}
+        />
+      </CommandPalette>,
+    );
+    await screen.findByRole('header', { name: 'Plans' });
+    await waitFor(() => {
+      expect(drafts.getSnapshot()).toMatchObject({ kind: 'ready' });
+    });
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    for (const label of ['Reply', 'Reply All', 'Forward']) {
+      const command = screen.getByRole('button', { name: label });
+      expect(command).toBeDisabled();
+      expect(
+        within(command).getByText('Message content is not ready for a response'),
+      ).toBeVisible();
+    }
+    await act(async () => {
+      body.resolve(undefined);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Reply All' })).toBeEnabled();
+    });
+    await press('Reply All');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+  });
+
   it.each([
     ['Reply', 'Re: Plans'],
     ['Reply All', 'Re: Plans'],

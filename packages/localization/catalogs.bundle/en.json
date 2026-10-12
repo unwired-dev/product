@@ -739,6 +739,8 @@
     "unavailable": "This action is no longer available.",
     "select": "Select a message",
     "unsupported": "Unavailable for this mailbox",
+    "noSender": "No eligible sending mailbox is available",
+    "responseSource": "Message content is not ready for a response",
     "busy": "Please wait",
     "empty": "No matching commands",
     "failed": "The command could not finish. Try again.",

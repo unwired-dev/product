@@ -168,8 +168,7 @@ describe('command palette interactions', () => {
           true,
         );
         expect(
-          screen.queryByRole('button', { name: 'Open Command Palette' }) !==
-            null,
+          screen.queryByRole('button', { name: 'Open Command Palette' }) !== null,
         ).toBe(isPad);
         expect(
           screen.queryByText('Swipe down on the header for commands') !== null,
