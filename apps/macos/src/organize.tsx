@@ -242,16 +242,17 @@ export function OrganizingCommands({
               ] as const)
             : []),
         ] as const
-      ).map(([kind, label]) =>
-        commands.find((command) => command.id === kind) ?? {
-          id: kind,
-          label,
-          keywords: keywords[kind] ?? '',
-          group: 'selection' as const,
-          target: `${mailbox?.id}/${id}`,
-          disabled: reason(kind),
-          onRun: () => false,
-        },
+      ).map(
+        ([kind, label]) =>
+          commands.find((command) => command.id === kind) ?? {
+            id: kind,
+            label,
+            keywords: keywords[kind] ?? '',
+            group: 'selection' as const,
+            target: `${mailbox?.id}/${id}`,
+            disabled: reason(kind),
+            onRun: () => false,
+          },
       )}
     />
   );

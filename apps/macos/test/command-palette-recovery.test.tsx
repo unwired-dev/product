@@ -215,7 +215,9 @@ describe('command palette mailbox recovery', () => {
           expect(
             screen.getByRole('button', { name: 'Remove star' }),
           ).toHaveTextContent('This message has no star.');
-          await fireEvent.press(screen.getByRole('button', { name: starAction }));
+          await fireEvent.press(
+            screen.getByRole('button', { name: starAction }),
+          );
           await open();
           await waitFor(() => {
             expect(
