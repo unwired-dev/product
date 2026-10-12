@@ -36,6 +36,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
 - [Implementation handoff, pinned OCR and thermo-nuclear review agents](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
+- [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
 - [Effect conventions and lint enforcement](agents/effect.md)
 - [Effect service constructors, methods and layers](agents/effect-services.md)
