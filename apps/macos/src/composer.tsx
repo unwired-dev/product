@@ -482,9 +482,10 @@ export function DraftList({
             label: t('drafts.newMessage'),
             keywords: t('commandPalette.composeKeywords'),
             group: 'app',
-            disabled:
-              state.kind !== 'ready' || sender === undefined || creatingShown
-                ? t('commandPalette.busy')
+            disabled: creatingShown
+              ? t('commandPalette.busy')
+              : state.kind !== 'ready' || sender === undefined
+                ? t('commandPalette.unavailable')
                 : undefined,
             onRun: async () => {
               if (sender === undefined) {

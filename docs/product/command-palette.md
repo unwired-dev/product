@@ -11,9 +11,13 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
 - The first version finds and runs actions, including navigation to app destinations.
 - Email content search remains in the existing search interface; email results do
   not appear in the Command Palette.
-- Initial commands cover navigation, Compose, Reply, Forward, and supported mail
-  actions including Archive, Move, Mark Read or Unread, and Pin. The palette
-  includes app-wide commands and commands for the current selection.
+- The current maintained-client integration covers navigation, Compose, Reply,
+  Forward, and supported mail actions including Archive, Move, and Mark Read or
+  Unread. It includes app-wide commands and commands for the current individual
+  message selection.
+- The confirmed product direction also includes Pin, Thread-wide targets, and
+  bulk actions. These remain future Command Palette integration work until their
+  owning features supply supported actions; see the integration scope below.
 - The palette is available in Inbox, message reading, the composer, and Settings.
   Opening it preserves the current screen, selection, and unfinished Draft.
 
@@ -52,7 +56,21 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
 - The header exposes an Open Command Palette accessibility action for VoiceOver
   and other assistive controls without adding a visible entry button.
 
-## Command targets and availability
+## Current command targets and availability
+
+- Mail commands use the existing individual-message handlers for the selected or
+  open message. The palette never silently chooses a message.
+- The target message is fixed when the palette opens. Incoming mail or changes
+  to the list do not change that target. Command availability is rechecked before
+  execution, and a disappeared target is never replaced by another message.
+- Commands that cannot currently run remain visible but disabled, with a short
+  reason such as Select a message. The palette includes supported app commands
+  and does not advertise unimplemented features.
+
+## Future Thread and bulk targets
+
+These confirmed requirements apply when the maintained clients support Thread
+and bulk actions; they do not describe the current integration.
 
 - Mail commands act on the selected Threads, or on the open Thread when reading
   one. The palette never silently chooses a message.
@@ -61,9 +79,6 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
 - The target Threads are fixed when the palette opens. Incoming mail or changes
   to the list do not change those targets. Command availability is rechecked
   before execution, and a disappeared target is never replaced by another Thread.
-- Commands that cannot currently run remain visible but disabled, with a short
-  reason such as Select a conversation. The palette includes supported app
-  commands and does not advertise unimplemented features.
 
 ## Finding commands
 
@@ -97,11 +112,13 @@ thread-wide execution, bulk selection, or Pin support before those features
 exist. Those commands can be exposed when their owning launch work supplies
 supported actions. [Keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849)
 remains separate from [Command Palette #891](https://github.com/unwired-dev/product/issues/891).
+[Issue #845](https://github.com/unwired-dev/product/issues/845)
+owns the future conversation integration.
 
 The implementation decision panel considered reusing the supported message
 semantics (A) or expanding this issue to implement the missing thread, bulk, and
 Pin infrastructure first (B). Claude Fable 5.1, GPT-6.1-Sol, and GPT-6-Astra all
 selected A: preserve current action semantics, avoid duplicating existing launch
-work, and disclose the limitation. The Thread terminology above describes the
+work, and disclose the limitation. The future Thread requirements above describe the
 confirmed product direction; this section identifies the current integration
 boundary.

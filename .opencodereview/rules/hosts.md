@@ -36,6 +36,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx.DraftList` or another command owner mapping every disabled state
+  to a busy reason. Reserve waiting copy for active work; locked or failed Draft
+  storage and absent eligible senders need an unavailable reason. Trace localized
+  selection prompts through the handlers' actual message or Thread targets too,
+  or the palette tells people to wait or select a conversation when neither can
+  satisfy the command's real prerequisite.
+
 - `inbox.tsx.goInbox` treating route dismissal and query clearing as enough to
   reach Inbox while `useImapFolder` retains a different folder. Reuse the folder
   selection handler after the composer exit succeeds, and exercise palette

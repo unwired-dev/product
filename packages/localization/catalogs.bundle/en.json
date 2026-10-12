@@ -733,7 +733,7 @@
     "open": "Open Command Palette",
     "hint": "Swipe down on the header for commands",
     "unavailable": "This action is no longer available.",
-    "select": "Select a conversation",
+    "select": "Select a message",
     "unsupported": "Unavailable for this mailbox",
     "busy": "Please wait",
     "empty": "No matching commands",

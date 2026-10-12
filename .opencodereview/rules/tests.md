@@ -68,6 +68,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - An assertion that cannot fail for the regression in question: it asserts the fixture, a mock's return value, a call count or call order, or mirrors the implementation line by line. Ask what plausible defect would turn it red.
 - The collaboration under test replaced by a mock. Substitute only the external boundary (provider response, native module, clock); stores, Effect services and layers, and Convex functions run for real.
 - A store or Convex function tested through an internal helper rather than its public interface (`getSnapshot`/`subscribe`/actions, or the registered function against the test database and identity context).
+- Before calling a same-package test import private, resolve its target against
+  that package's `exports` map. For example,
+  `packages/mail-core/test/command-palette.test.ts` reaches the declared
+  `command-palette` entry point through `../src/command-palette.ts`; the relative
+  specifier alone is no violation. Import-by-name applies across package
+  boundaries, as `packages/README.md` states; conflating it with same-package
+  entry-point testing creates false positives and needless import churn.
 - An HTTP-driven Convex test in `packages/convex/test`, such as the Gmail ingress
   scenarios in `pushRelay.test.ts`, checking stored or scheduled work without
   asserting the protocol response status. Work can commit before a route returns
