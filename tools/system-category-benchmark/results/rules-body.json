@@ -1,0 +1,4620 @@
+{
+ "run": "rules-body",
+ "method": "rules",
+ "input": "body",
+ "slices": {
+  "all": {
+   "messages": 665,
+   "macro_f1": 0.41726020214267817,
+   "macro_f1_ci95": [
+    0.36948237792823324,
+    0.4557549070542723
+   ],
+   "macro_over": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Invites",
+    "Flights",
+    "People"
+   ],
+   "exact_match": 0.34135338345864663,
+   "coverage": 0.8631578947368421,
+   "gold_coverage": 0.8315789473684211,
+   "uncategorized_precision": 0.08791208791208792,
+   "uncategorized_recall": 0.07142857142857142,
+   "overlap_messages": 90,
+   "overlap_errors": 65,
+   "people_false_positives": 241,
+   "people_false_positives_on_uncategorized": 88,
+   "per_category": {
+    "Orders": {
+     "support": 110,
+     "predicted": 115,
+     "precision": 0.5043478260869565,
+     "recall": 0.5272727272727272,
+     "f1": 0.5155555555555555
+    },
+    "Newsletters & Promotions": {
+     "support": 180,
+     "predicted": 66,
+     "precision": 0.7272727272727273,
+     "recall": 0.26666666666666666,
+     "f1": 0.3902439024390244
+    },
+    "Invites": {
+     "support": 101,
+     "predicted": 54,
+     "precision": 0.6481481481481481,
+     "recall": 0.3465346534653465,
+     "f1": 0.45161290322580644
+    },
+    "Flights": {
+     "support": 102,
+     "predicted": 55,
+     "precision": 0.5454545454545454,
+     "recall": 0.29411764705882354,
+     "f1": 0.3821656050955414
+    },
+    "People": {
+     "support": 150,
+     "predicted": 323,
+     "precision": 0.25386996904024767,
+     "recall": 0.5466666666666666,
+     "f1": 0.346723044397463
+    }
+   }
+  },
+  "cs/synthetic": {
+   "messages": 163,
+   "macro_f1": 0.019834710743801654,
+   "macro_f1_ci95": [
+    0.006608882617751798,
+    0.035827012478590645
+   ],
+   "macro_over": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Invites",
+    "Flights",
+    "People"
+   ],
+   "exact_match": 0.03680981595092025,
+   "coverage": 0.7055214723926381,
+   "gold_coverage": 0.9631901840490797,
+   "uncategorized_precision": 0.0,
+   "uncategorized_recall": 0.0,
+   "overlap_messages": 44,
+   "overlap_errors": 44,
+   "people_false_positives": 109,
+   "people_false_positives_on_uncategorized": 6,
+   "per_category": {
+    "Orders": {
+     "support": 48,
+     "predicted": 0,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "Newsletters & Promotions": {
+     "support": 61,
+     "predicted": 0,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "Invites": {
+     "support": 38,
+     "predicted": 0,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "Flights": {
+     "support": 48,
+     "predicted": 0,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "People": {
+     "support": 6,
+     "predicted": 115,
+     "precision": 0.05217391304347826,
+     "recall": 1.0,
+     "f1": 0.09917355371900827
+    }
+   }
+  },
+  "en/real-enriched": {
+   "messages": 161,
+   "macro_f1": 0.4055661943683629,
+   "macro_f1_ci95": [
+    0.3197858214288565,
+    0.47943257591911925
+   ],
+   "macro_over": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Invites",
+    "Flights",
+    "People"
+   ],
+   "exact_match": 0.34782608695652173,
+   "coverage": 0.9316770186335404,
+   "gold_coverage": 0.9130434782608695,
+   "uncategorized_precision": 0.2727272727272727,
+   "uncategorized_recall": 0.21428571428571427,
+   "overlap_messages": 4,
+   "overlap_errors": 3,
+   "people_false_positives": 12,
+   "people_false_positives_on_uncategorized": 4,
+   "per_category": {
+    "Orders": {
+     "support": 13,
+     "predicted": 54,
+     "precision": 0.18518518518518517,
+     "recall": 0.7692307692307693,
+     "f1": 0.29850746268656714
+    },
+    "Newsletters & Promotions": {
+     "support": 50,
+     "predicted": 29,
+     "precision": 0.7931034482758621,
+     "recall": 0.46,
+     "f1": 0.5822784810126582
+    },
+    "Invites": {
+     "support": 20,
+     "predicted": 32,
+     "precision": 0.46875,
+     "recall": 0.75,
+     "f1": 0.5769230769230769
+    },
+    "Flights": {
+     "support": 6,
+     "predicted": 26,
+     "precision": 0.23076923076923078,
+     "recall": 1.0,
+     "f1": 0.375
+    },
+    "People": {
+     "support": 62,
+     "predicted": 20,
+     "precision": 0.4,
+     "recall": 0.12903225806451613,
+     "f1": 0.1951219512195122
+    }
+   }
+  },
+  "en/real-random": {
+   "messages": 171,
+   "macro_f1": 0.1572071107303491,
+   "macro_f1_ci95": [
+    0.12051282051282051,
+    0.20673069918092038
+   ],
+   "macro_over": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Invites",
+    "People"
+   ],
+   "exact_match": 0.3508771929824561,
+   "coverage": 0.9532163742690059,
+   "gold_coverage": 0.49707602339181284,
+   "uncategorized_precision": 0.625,
+   "uncategorized_recall": 0.05813953488372093,
+   "overlap_messages": 0,
+   "overlap_errors": 0,
+   "people_false_positives": 79,
+   "people_false_positives_on_uncategorized": 72,
+   "per_category": {
+    "Orders": {
+     "support": 1,
+     "predicted": 13,
+     "precision": 0.0,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "Newsletters & Promotions": {
+     "support": 10,
+     "predicted": 13,
+     "precision": 0.07692307692307693,
+     "recall": 0.1,
+     "f1": 0.08695652173913043
+    },
+    "Invites": {
+     "support": 5,
+     "predicted": 2,
+     "precision": 0.0,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "Flights": {
+     "support": 0,
+     "predicted": 5,
+     "precision": 0.0,
+     "recall": null,
+     "f1": null
+    },
+    "People": {
+     "support": 69,
+     "predicted": 134,
+     "precision": 0.41044776119402987,
+     "recall": 0.7971014492753623,
+     "f1": 0.541871921182266
+    }
+   }
+  },
+  "en/synthetic": {
+   "messages": 170,
+   "macro_f1": 0.664538958717009,
+   "macro_f1_ci95": [
+    0.5945115315579395,
+    0.7286022762665954
+   ],
+   "macro_over": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Invites",
+    "Flights",
+    "People"
+   ],
+   "exact_match": 0.6176470588235294,
+   "coverage": 0.8588235294117647,
+   "gold_coverage": 0.9647058823529412,
+   "uncategorized_precision": 0.0,
+   "uncategorized_recall": 0.0,
+   "overlap_messages": 42,
+   "overlap_errors": 18,
+   "people_false_positives": 41,
+   "people_false_positives_on_uncategorized": 6,
+   "per_category": {
+    "Orders": {
+     "support": 48,
+     "predicted": 48,
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    },
+    "Newsletters & Promotions": {
+     "support": 59,
+     "predicted": 24,
+     "precision": 1.0,
+     "recall": 0.4067796610169492,
+     "f1": 0.5783132530120482
+    },
+    "Invites": {
+     "support": 38,
+     "predicted": 20,
+     "precision": 1.0,
+     "recall": 0.5263157894736842,
+     "f1": 0.6896551724137931
+    },
+    "Flights": {
+     "support": 48,
+     "predicted": 24,
+     "precision": 1.0,
+     "recall": 0.5,
+     "f1": 0.6666666666666666
+    },
+    "People": {
+     "support": 13,
+     "predicted": 54,
+     "precision": 0.24074074074074073,
+     "recall": 1.0,
+     "f1": 0.3880597014925373
+    }
+   }
+  }
+ },
+ "errors": [
+  {
+   "id": "enron:<16720067.1075843417895.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<8389237.1075840758156.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<9546685.1075860810485.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<5745208.1075856520327.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<15332339.1075852139667.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<28989192.1075861439666.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<29469766.1075839981398.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<6597144.1075859877413.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<16965271.1075860832479.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<30191082.1075840502588.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<12862171.1075840607353.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<7695756.1075857986015.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<22863988.1075862125472.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<9906328.1075859956664.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<5792470.1075852920086.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<10086447.1075861941932.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<23944524.1075863405344.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<29408409.1075847341710.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<15751827.1075855059010.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<4653450.1075856527985.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<29406842.1075852680170.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<18037679.1075841368038.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<14569097.1075860825788.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<11114778.1075862114730.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<8925130.1075854798932.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<30075159.1075855049574.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<32119797.1075863016514.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<30193051.1075841309022.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<9016005.1075846188102.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<28240968.1075841295855.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<16501709.1075840507643.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<4194676.1075860371034.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<22944350.1075851707344.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<32583153.1075852941971.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<16714849.1075845160654.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<13133699.1075845107798.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<11153637.1075860834556.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<9731850.1075841548251.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<21136813.1075841002507.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<14742351.1075859108244.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<6915503.1075862104121.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<6390886.1075852174087.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<28180427.1075852292103.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<10371658.1075855727327.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<4675403.1075859457480.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<2349341.1075853414320.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<22211235.1075843320037.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<26268210.1075859809797.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<25378186.1075841346684.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<32552915.1075839980511.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<10869272.1075846170299.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<24619128.1075851704172.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<1843852.1075841298102.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<17378912.1075840602250.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<7608442.1075840324990.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<10151611.1075844383759.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<11571735.1075860835668.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<12001838.1075856513363.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<8197196.1075845439760.JavaMail.evans@thyme>",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<26230406.1075858511623.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<1483763.1075855383033.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<30348034.1075843324730.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<10707849.1075855111580.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<12455761.1075840449425.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<4249404.1075843022507.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<23101280.1075852900141.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<25703126.1075855383778.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<11486202.1075856512036.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<25572189.1075862156162.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<31712453.1075840348098.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<32730910.1075849277149.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<25616557.1075852896305.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<5186277.1075851740775.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<11766024.1075843532971.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<1790210.1075847586120.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<11382548.1075856197405.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<11104739.1075840324966.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<13681621.1075840317955.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<15812268.1075843038599.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<394421.1075856988055.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<24264481.1075861442626.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<3618916.1075843311649.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<8312731.1075852891903.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<11133072.1075847343698.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<501289.1075859877593.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions",
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<15141337.1075847654319.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<26813810.1075845219592.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<9342501.1075858897148.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<23302537.1075862850812.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<21835122.1075861817250.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<23634253.1075861047225.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "enron:<6091853.1075861254559.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<13714800.1075861029273.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<32324433.1075847349566.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<15749013.1075855508369.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<14141882.1075862288302.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<9101643.1075860205976.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<28547493.1075858459571.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions",
+    "Invites",
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<24249085.1075842226811.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "enron:<22449248.1075863144440.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00174.ea47d0c060fa8ce10dfb448db1f27be8",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01813.2711af4b8a31e4ff0c38fe92f2fa79d7",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00802.5b2b41e76c466cbf4eea8076fd8669ac",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00323.8f7195f98946c42be7c95881ad779fbe",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/02457.b9ce53f6744f6deb11a365882297639d",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01720.edac63c7227d89192cc41c922d689d22",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00673.aea009bf14e6a5ca613e7ae735506890",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01684.94ca5ccaec9be05c252bf32961a86a3d",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00215.d09b3f3c0df56258c17c3de4dfbfc6c6",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00774.1af9be3cd1aba6a371ee11dacc7d1025",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00519.595dfd5bc0bec7bd5f06673fc428bbb3",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01086.3d81baca8ac423ad247f870f4848bf30",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01443.fbf45616f74c213bc92c655133eeee73",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00805.77504386507753ce46fc385f2aa4ec37",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00827.9eeade6e8d5bd981fb4fe82132f2645e",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00826.6ab31aba455701b24c69fd1f6dd59184",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01359.8252955a19112d1adb6abeef20ffb9ea",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01614.005f290e71d13de44d3503c640dfe57c",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00570.d98ca90ac201b5d881f2397c95838eb2",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Orders",
+    "Flights"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00696.767a9ee8575785978ea5174d3ad3ee26",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00833.cc61a5d9b6ac040ef4ce65d1ee5ec069",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00161.ff20c49f90c9405fc62064706ddcd615",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00670.be029e37187b8615a231865e3663dcf9",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00729.733ee0faa56c33c52cb73337b7986261",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00703.f305b0d4c58eed983e9540d3105e7fac",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01122.55278f83c3bf2dc1059f93244d037d21",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01437.a16dc704b4bfe8b170724a4b68389a40",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01429.6d9cae984e2f92f32d70594f5cc37c87",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01501.78f2f952275ec4ddeb969cf596d3ac66",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00569.d6da87140fd0ef187bcf217a57153cca",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00843.0c778329d09499853d99746d0f6f2dc1",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00922.8cf18af404b07fec0251f809c8ccf370",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00821.ecfe5e599c9cdec3a6fa0f5d87674f69",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00024.066b89ecd18c7688e91833f97cf415ca",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00461.94c0b7cab722e5ac253b285e50b047e1",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01433.4392b7c4884f0f218e74a0b86cc5b8c3",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00560.c78137c1f7c46d509629b5283860497f",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00489.6da145a3fb2e350f6e3613b4c5e6cc74",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00863.f20cfe969a2e3162ce6ce19fd80188bd",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00778.d83af9d544ca2957ea6f326728ad004c",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00960.32448b09e83c0a903e939e543d29cf82",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00320.9933c126186ef60960c78df427a2d8d6",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01009.49e0775eca368702b005aec33ae46943",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00697.edd28212eb2b368046311fd1918aae7d",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01587.574845236697b5ca4b2133ec681b224a",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01079.09c849f3b4f261cc7efdb659c9908340",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01480.1d6e92e72f85630b288a712075387058",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00095.24caf7db5c45203f312f742f49385618",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/01524.59942583cc58fa95ab7d333121598c2c",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham/00343.81675074f7fcb53fd83ebabd4d158cb7",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/01290.c34d994ff61cfc0f12de8158434a9b3e",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:easy_ham_2/00648.fc71a05914ca9ff0ecaaf09744c4c5f5",
+   "slice": "en/real-random",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00011.acdfa5be40e7b6c3ad3df28c63670c7c",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00018.75bf8472753f24aa22df72c7301e07ec",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00033.a09f363a94e0c632227ab453b9fd4908",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00041.aee0699a14f472a43d9a9d178aa21d70",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "spamassassin:hard_ham/00060.bb5f0a4bb14bf8126f7024c538c22c92",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "spamassassin:hard_ham/00064.a80b45bb0339ed948bbbd968c074c60e",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "spamassassin:hard_ham/00100.78af3dc4c39277a6e1893f287cc2771f",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00103.3c2ed4232a349875b6ba4d78a9a7eb08",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00127.ab907b37736fd663c0db15b5575cc416",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "spamassassin:hard_ham/00148.6a591b7b90744a8a411dd6f8c0e73ca6",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00181.01c5d96083c6e7770b1704791cf4bb3e",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "spamassassin:hard_ham/00185.b30a53aad9d675993a9cec62cf515f2a",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00187.cc3d499cfabdc2d517c1ff46e9fa1fdf",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00192.660d3367a86966f1a2a38d328215c905",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00194.c7439a37e68aa99a7fb9242d46f02666",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00195.892bab5152116f1fb3f1f0660135f193",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00203.f60fed4761dba24a8e626e8280d53191",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00205.bd40fad9d7f6867e5567ee7ac1452de5",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00207.3220a87d3a67fa61c448256e39017ea5",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00209.ea2b5d16e8491f2cd718e004db246a40",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00218.c8c8534c14d8e1b43c43a7565a16f28a",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Orders",
+    "Newsletters & Promotions"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00228.0eaef7857bbbf3ebf5edbbdae2b30493",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "spamassassin:hard_ham/00240.8623673c2a6f2cde10ab31423f708feb",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions",
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<2540567.1075841323286.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<27438553.1075856550855.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<3514478.1075856543631.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<32534760.1075840325677.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<30476461.1075860206125.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<172236.1075860205952.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<24334789.1075856502573.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<9897345.1075860842962.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<23684301.1075860206076.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<26699741.1075856733840.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<11569400.1075840325653.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<3802090.1075853096235.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<28689054.1075855048078.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<17777860.1075860179614.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<7835884.1075841345202.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<13739428.1075854587780.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<33223738.1075841346397.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Flights"
+   ]
+  },
+  {
+   "id": "enron:<11039229.1075856212954.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<12803499.1075859168379.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<29009522.1075860373230.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<29129210.1075840498721.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "enron:<17093085.1075855692300.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<26305018.1075853169316.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<3018870.1075859132743.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<21034615.1075859429822.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<19557634.1075860870048.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<18389470.1075853119659.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<15502547.1075859428814.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<16866319.1075859084090.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<19397104.1075841502373.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<8415618.1075859377165.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<23101518.1075856555618.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Orders"
+   ]
+  },
+  {
+   "id": "enron:<2231515.1075860894020.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<3424386.1075858752280.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<26363380.1075855619587.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<11977000.1075842236946.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<19568848.1075858485286.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<30746164.1075843458852.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<18350952.1075844722787.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<26535325.1075856525339.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "enron:<5901521.1075863360972.JavaMail.evans@thyme>",
+   "slice": "en/real-enriched",
+   "gold": [
+    "People"
+   ],
+   "predicted": [
+    "Invites"
+   ]
+  },
+  {
+   "id": "synthetic:en-flights-5:0",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:1",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:2",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:3",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:4",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:5",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:6",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:7",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:8",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:9",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:10",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:11",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:12",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:13",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:14",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:15",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:16",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:17",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:18",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:19",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:20",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:21",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:22",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-flights-5:23",
+   "slice": "en/synthetic",
+   "subject": "Your seat upgrade is confirmed",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:0",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Friday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:1",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Saturday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:2",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Monday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:3",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Wednesday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:4",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Tuesday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-uncategorized-5:19",
+   "slice": "en/synthetic",
+   "subject": "Office closed on Thursday",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:0",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:1",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:2",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:3",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:4",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:5",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:8",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:9",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:10",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:11",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:13",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:14",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:15",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:16",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:17",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:19",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:20",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-overlap-invites-newsletters-2:21",
+   "slice": "en/synthetic",
+   "subject": "Last chance to register for the summit",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:0",
+   "slice": "en/synthetic",
+   "subject": "Fares to Berlin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:1",
+   "slice": "en/synthetic",
+   "subject": "Fares to Berlin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:3",
+   "slice": "en/synthetic",
+   "subject": "Fares to Madrid from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:4",
+   "slice": "en/synthetic",
+   "subject": "Fares to Chicago from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:5",
+   "slice": "en/synthetic",
+   "subject": "Fares to Lisbon from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:6",
+   "slice": "en/synthetic",
+   "subject": "Fares to Oslo from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:7",
+   "slice": "en/synthetic",
+   "subject": "Fares to Madrid from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:8",
+   "slice": "en/synthetic",
+   "subject": "Fares to London from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:9",
+   "slice": "en/synthetic",
+   "subject": "Fares to Dublin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:10",
+   "slice": "en/synthetic",
+   "subject": "Fares to Madrid from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:12",
+   "slice": "en/synthetic",
+   "subject": "Fares to Berlin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:14",
+   "slice": "en/synthetic",
+   "subject": "Fares to Chicago from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:17",
+   "slice": "en/synthetic",
+   "subject": "Fares to London from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:18",
+   "slice": "en/synthetic",
+   "subject": "Fares to Chicago from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:21",
+   "slice": "en/synthetic",
+   "subject": "Fares to Dublin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:22",
+   "slice": "en/synthetic",
+   "subject": "Fares to Dublin from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:en-hard-not-people-2:23",
+   "slice": "en/synthetic",
+   "subject": "Fares to Toronto from $99",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:0",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:1",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:2",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:3",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:4",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:5",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:6",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:7",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:8",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:9",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:10",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:11",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:12",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:13",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:14",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:15",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:16",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:17",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:18",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:19",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:20",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:21",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:22",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-orders-5:23",
+   "slice": "cs/synthetic",
+   "subject": "Platba se nezdařila",
+   "gold": [
+    "Orders"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:0",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:1",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:2",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:3",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:4",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:5",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:6",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:7",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:8",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:9",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:10",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:11",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:12",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:13",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:14",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:15",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:16",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:17",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:18",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:19",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:20",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:21",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:22",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-newsletters-5:23",
+   "slice": "cs/synthetic",
+   "subject": "Dárek jen pro vás",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:0",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:1",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:2",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:3",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:4",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:6",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:7",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:8",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:9",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:10",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:11",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:12",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:14",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:15",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:16",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:17",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:18",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-invites-5:22",
+   "slice": "cs/synthetic",
+   "subject": "Pozvání na přednášku",
+   "gold": [
+    "Invites"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-flights-5:0",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:1",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:2",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:3",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:4",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:5",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:6",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:7",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:8",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:9",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:10",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:11",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:12",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:13",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:14",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:15",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:16",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:17",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:18",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:19",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:20",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:21",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:22",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-flights-5:23",
+   "slice": "cs/synthetic",
+   "subject": "Upgrade sedadla potvrzen",
+   "gold": [
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:0",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář v pondělí zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:1",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář ve čtvrtek zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:2",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář v úterý zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:4",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář v sobotu zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:6",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář ve středu zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-uncategorized-5:9",
+   "slice": "cs/synthetic",
+   "subject": "Kancelář v pátek zavřená",
+   "gold": [],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:0",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:1",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:2",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:3",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:4",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:5",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:6",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:7",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:8",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:9",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:10",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:11",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:12",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:13",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:14",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:15",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:16",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:17",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:18",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:19",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:20",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:21",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:22",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-orders-flights-2:23",
+   "slice": "cs/synthetic",
+   "subject": "Potvrzení poplatku za změnu",
+   "gold": [
+    "Orders",
+    "Flights"
+   ],
+   "predicted": []
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:0",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:1",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:2",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:3",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:4",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:5",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:6",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:7",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:8",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:9",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:10",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:13",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:14",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:15",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:17",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:18",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:19",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:21",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:22",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-overlap-invites-newsletters-2:23",
+   "slice": "cs/synthetic",
+   "subject": "Poslední šance registrovat se na konferenci",
+   "gold": [
+    "Invites",
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:0",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Barcelona od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:1",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Ostrava od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:2",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Brno od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:3",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Barcelona od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:4",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Praha od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:5",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Ostrava od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:7",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Barcelona od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:8",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Londýn od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:12",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Brno od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:13",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Ostrava od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:15",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Řím od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:16",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Londýn od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:17",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Řím od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:19",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Brno od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:20",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Praha od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:21",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Vídeň od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  },
+  {
+   "id": "synthetic:cs-hard-not-people-2:22",
+   "slice": "cs/synthetic",
+   "subject": "Letenky do destinace Barcelona od 1 990 Kč",
+   "gold": [
+    "Newsletters & Promotions"
+   ],
+   "predicted": [
+    "People"
+   ]
+  }
+ ]
+}

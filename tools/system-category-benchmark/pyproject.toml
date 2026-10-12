@@ -1,0 +1,28 @@
+[project]
+name = "system-category-benchmark"
+version = "1.0.0"
+description = "Spike #828: compare rules, text features and DeBERTa v3 for English and Czech System Categories"
+requires-python = "==3.12.*"
+dependencies = [
+  "numpy",
+  "pyarrow",
+  "huggingface-hub",
+  "scikit-learn",
+  "sentencepiece",
+  "protobuf",
+  "tiktoken",
+  "torch",
+  "transformers",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
