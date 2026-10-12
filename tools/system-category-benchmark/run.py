@@ -41,6 +41,12 @@ HYPERPARAMETERS = {
 }
 
 
+def benchmark_sha256() -> str:
+    """Identify the shared experiment code, settings and locked dependencies."""
+    files = ("run.py", "rules.py", "corpus.py", "uv.lock")
+    return hashlib.sha256(b"\0".join((ROOT / name).read_bytes() for name in files)).hexdigest()
+
+
 def snippet(record: dict) -> str:
     # Gmail-style snippet: the first 200 characters of normalized body text.
     return corpus.normalize(record["body"])[:200]
@@ -166,7 +172,15 @@ def evaluate(name: str, test: list[dict], predicted: np.ndarray, extra: dict) ->
     slices = {"all": np.ones(len(test), dtype=bool)}
     for key in sorted({(r["language"], r["stratum"]) for r in test}):
         slices["/".join(key)] = np.array([(r["language"], r["stratum"]) == key for r in test])
-    report = {"run": name, **extra, "slices": {}}
+    # Stamp the verified corpus and experiment, so report.py can refuse stale results.
+    corpus_hash = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
+    report = {
+        "run": name,
+        "corpus_sha256": corpus_hash,
+        "benchmark_sha256": benchmark_sha256(),
+        **extra,
+        "slices": {},
+    }
     for key, mask in slices.items():
         rows = np.flatnonzero(mask)
         report["slices"][key] = slice_metrics([test[i] for i in rows], truth[rows], predicted[rows])

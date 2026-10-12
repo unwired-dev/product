@@ -83,6 +83,36 @@ hashes and all manifest counts matched. This resolves the split-isolation blocke
 The withdrawn v1 results are not evidence for the completed comparison. The
 annotation decision and insufficient-evidence limits are unchanged.
 
+## Result provenance
+
+Result loading verifies both the manifest's full-record corpus hash and a shared
+digest of `run.py`, `rules.py`, `corpus.py` and `uv.lock`. This includes input
+rendering, threshold calibration, training settings, pinned checkpoints and
+locked dependencies while allowing the declared model, input-budget and seed
+grid. Hashing whole files is deliberately conservative: even a formatting-only
+edit invalidates saved results. This avoids an incomplete inventory of settings
+or helper functions that can change the experiment.
+
+The 24 original v2 DeBERTa results were migrated to both provenance fields without
+retraining. Rules and TF-IDF baselines were rerun to stamp the corpus hash; their
+benchmark digests were subsequently backfilled after the same audit. Only TF-IDF
+wall times changed. T3 checkpoint `bee7a533` at 2026-10-12 03:11 +02:00 contains the
+full-record guard before the v2 grid started at 03:13:43 in the local grid log.
+Checkpoint `e8d4bd43` at 03:14 contains the current v2 manifest hash; checkpoints
+from `56b2d373` through `e6950c94` contain all 24 byte-identical DeBERTa results
+later committed at `2b28b71b`. Their v2 log scores and error counts, training
+counts and saved thresholds agree with the results.
+
+Review compared historical and current input rendering for every one of the
+3,561 frozen records, verified unchanged model revisions, token budgets,
+hyperparameters and seeds, and compared the training, calibration and metric
+helper definitions, rules and dependency lockfile. Earlier normalization and
+split-grouping refactors preserved the rendered inputs and full corpus digest.
+The new experiment digest identifies the compatible instrumented code after
+that audit, rather than claiming it was emitted by the original training runs.
+The migration changes no predictions, thresholds or metrics. Future experiments
+must rerun instead of restamping existing artifacts after a substantive change.
+
 ## Extraction inventory
 
 The operational README retains all input fields, token budgets, training settings,

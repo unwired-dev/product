@@ -1,5 +1,7 @@
 {
  "run": "rules-body",
+ "corpus_sha256": "45e087a91f72816b64b7bb85c3d1917029d7536c36e11916b098f23f50e76f88",
+ "benchmark_sha256": "9d74019fa2e761da1b7cab59f132390676c3972ab850d88b7e3ea4b1ed8ebc66",
  "method": "rules",
  "input": "body",
  "slices": {

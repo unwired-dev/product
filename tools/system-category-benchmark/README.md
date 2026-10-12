@@ -57,6 +57,16 @@ Thread spans two splits, and verifies the existing manifest before writing the
 reconstructed corpus. Every `run.py` command checks a hash of all records, inputs
 and split memberships against `corpus/manifest-v2.json`. Changed data requires a
 new corpus version, not replacement of the manifest.
+Each result records that corpus hash and a digest of `run.py`, `rules.py`,
+`corpus.py` and `uv.lock`. `report.py` refuses results with missing or mismatched
+digests. Rerun every result after changing the corpus or any of those files,
+including preprocessing, training settings or dependency versions. The intended
+model, input-budget and seed variants use the same benchmark digest.
+The 24 v2 DeBERTa results had both provenance fields backfilled after a
+configuration audit, without retraining. Rules and TF-IDF baselines were rerun to
+record the corpus hash; their benchmark digests were then backfilled after the
+same audit. Scores, thresholds and errors are unchanged; only TF-IDF wall times
+changed.
 The twelve primary DeBERTa runs took about 2.5 hours (2.4 hours of training) on an
 Apple M4 Mac mini with 16 GB of memory (see the report). PyTorch's MPS backend
 is not bitwise deterministic, so a rerun can differ slightly from the committed

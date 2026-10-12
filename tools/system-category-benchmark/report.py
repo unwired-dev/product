@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import corpus
+from run import benchmark_sha256
 
 ROOT = Path(__file__).parent
 RESULTS = ROOT / "results"
@@ -22,6 +23,16 @@ def number(value, digits=2):
 
 def runs() -> list[dict]:
     results = [json.loads(path.read_text()) for path in RESULTS.glob("*.json")]
+    expected = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
+    stale = sorted(r["run"] for r in results if r.get("corpus_sha256") != expected)
+    if stale:
+        raise ValueError(f"results not produced from {corpus.MANIFEST.name}: {', '.join(stale)}")
+    expected_benchmark = benchmark_sha256()
+    stale = sorted(r["run"] for r in results if r.get("benchmark_sha256") != expected_benchmark)
+    if stale:
+        raise ValueError(
+            f"results not produced with the current benchmark configuration: {', '.join(stale)}"
+        )
 
     def key(result):
         family = next(i for i, prefix in enumerate(ORDER) if result["run"].startswith(prefix))

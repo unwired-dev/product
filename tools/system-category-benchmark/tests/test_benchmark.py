@@ -164,3 +164,68 @@ def test_saved_errors_keep_public_ids_and_only_synthetic_subjects(tmp_path, monk
     assert result["errors"][0]["id"] == "public:1"
     assert "subject" not in result["errors"][0]
     assert result["errors"][1]["subject"] == "Synthetic example"
+
+
+def test_report_refuses_results_from_another_corpus(tmp_path, monkeypatch):
+    import report
+
+    monkeypatch.setattr(report, "RESULTS", tmp_path)
+    expected = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
+    current = {
+        "run": "tfidf-minimized",
+        "input": "minimized",
+        "corpus_sha256": expected,
+        "benchmark_sha256": run.benchmark_sha256(),
+    }
+    (tmp_path / "tfidf-minimized.json").write_text(json.dumps(current))
+    assert [r["run"] for r in report.runs()] == ["tfidf-minimized"]
+    for stale in ({"corpus_sha256": "0" * 64}, {}):
+        result = {"run": "rules-body", "input": "body", **stale}
+        (tmp_path / "rules-body.json").write_text(json.dumps(result))
+        with pytest.raises(ValueError, match="rules-body"):
+            report.runs()
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (b"[:200]", b"[:100]"),
+        (b'"epochs": 4', b'"epochs": 5'),
+        (b"4b419818330868dff6a60ad3e6b1c730f8b8c0c6", b"different-model-revision"),
+    ],
+)
+def test_report_refuses_changed_benchmark_preprocessing_or_settings(
+    tmp_path, monkeypatch, before, after
+):
+    import report
+
+    for name in ("run.py", "rules.py", "corpus.py", "uv.lock"):
+        (tmp_path / name).write_bytes((run.ROOT / name).read_bytes())
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.setattr(run, "RESULTS", tmp_path / "results")
+    monkeypatch.setattr(report, "RESULTS", run.RESULTS)
+    test = [
+        {
+            "id": "synthetic:1",
+            "language": "en",
+            "stratum": "synthetic",
+            "subject": "Synthetic example",
+            "labels": ["People"],
+        }
+    ]
+    run.evaluate("tfidf-minimized", test, np.zeros((1, 5), dtype=bool), {"input": "minimized"})
+    assert [r["run"] for r in report.runs()] == ["tfidf-minimized"]
+    result_path = run.RESULTS / "tfidf-minimized.json"
+    saved = result_path.read_text()
+    unstamped = json.loads(saved)
+    del unstamped["benchmark_sha256"]
+    result_path.write_text(json.dumps(unstamped))
+    with pytest.raises(ValueError, match="benchmark configuration.*tfidf-minimized"):
+        report.runs()
+    result_path.write_text(saved)
+    source = tmp_path / "run.py"
+    original = source.read_bytes()
+    assert before in original
+    source.write_bytes(original.replace(before, after))
+    with pytest.raises(ValueError, match="benchmark configuration.*tfidf-minimized"):
+        report.runs()
