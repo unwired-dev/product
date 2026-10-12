@@ -10,7 +10,7 @@ The prototype stays in use until cutover removes it. Review it against its own d
 
 #### Privacy and isolation
 
-- A credential, token, mail body, subject, sender or decrypted Product Sync value written to a log, to analytics, to storage outside the approved device-local stores, or sent to the backend. Provider credentials and protocol decisions never enter Product Sync or Convex.
+- A credential, token, mail body, subject, sender or decrypted Private Sync value written to a log, to analytics, to storage outside the approved device-local stores, or sent to the backend. Provider credentials and protocol decisions never enter Private Sync or Convex.
 - State, cache or credentials from one Product Account or Mailbox Connection readable from another: a cache key, SwiftData predicate or Keychain account that omits the owning identifiers.
 - A Keychain item with weakened accessibility or made synchronizable.
 - HTML rendered without sanitization, with JavaScript enabled, with a persistent data store, or remote content loaded without the user's choice.
@@ -20,7 +20,7 @@ The prototype stays in use until cutover removes it. Review it against its own d
 
 - A provider submission retried automatically after an uncertain outcome, or a queued action replayed after its authorization generation changed. Ambiguous outcomes reconcile; they do not resend.
 - A Pending Provider Action attempted before it is persisted, or a failure attributed to a different action on the same connection.
-- Product Sync written through an unconditional or write-if-absent path, or a record caller that creates key material. Use the typed record boundary described in `.patterns/product-sync-records.md`.
+- Private Sync written through an unconditional or write-if-absent path, or a record caller that creates key material. Use the typed record boundary described in `.patterns/product-sync-records.md`.
 - TLS, certificate or hostname verification weakened for a mail transport.
 
 #### Concurrency and lifecycle

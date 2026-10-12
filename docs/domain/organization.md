@@ -52,7 +52,7 @@ A Profile-scoped, product-owned suppression state for a **Thread** that prevents
 _Avoid_: Provider mute, hidden Thread, notification rule
 
 **Thread Snooze**:
-Profile-scoped product state synchronized through **End-to-End Encrypted Product Sync** that hides a Thread from ordinary Inbox until its absolute due instant or a new message arrives. It retains the Thread in Snoozed, All Mail, and Profile-scoped search without changing provider mail.
+Profile-scoped product state synchronized through **Private Sync** that hides a Thread from ordinary Inbox until its absolute due instant or a new message arrives. It retains the Thread in Snoozed, All Mail, and Profile-scoped search without changing provider mail.
 _Avoid_: Provider snooze, archive, scheduled delivery
 
 **Follow-Up Nudge**:

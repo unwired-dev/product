@@ -1,7 +1,7 @@
-# Product Sync Record Patterns
+# Private Sync Record Patterns
 
-Use the typed Product Sync record boundary for product-owned state synchronized through
-[End-to-End Encrypted Product Sync](../GLOSSARY.md#language). The privacy and recovery decision
+Use the typed Private Sync record boundary for product-owned state synchronized through
+[Private Sync](../GLOSSARY.md#language). The privacy and recovery decision
 remains [ADR 0001](../docs/adr/0001-end-to-end-encrypted-product-sync.md); use the established
 domain vocabulary in [`GLOSSARY.md`](../GLOSSARY.md) instead of defining record-specific synonyms.
 
@@ -25,7 +25,7 @@ data, or raw account-key bytes.
 Create singleton or family handles from `ProductSyncRecordBoundary`. The boundary owns key lookup,
 JSON encoding, AES-GCM associated data bound to the exact payload identifier, encryption,
 decryption, bounded reads, conditional writes, cancellation-aware retry limits, and lock ordering.
-Only Product Account bootstrap, recovery, and rotation code may create or restore Product Sync key
+Only Product Account bootstrap, recovery, and rotation code may create or restore Private Sync key
 material. Record callers require existing material and must never create a replacement key.
 
 The production `ConvexProductSyncRecordTransport` exposes only paginated listing, bounded exact
@@ -34,7 +34,7 @@ conflict behavior belongs to the typed handle and the domain decision closure.
 
 ## Select a cache policy explicitly
 
-- `authoritative`: every read comes from Product Sync.
+- `authoritative`: every read comes from Private Sync.
 - `authoritativeWithCiphertextFallback`: an authoritative read may fall back only to the permitted
   device-local encrypted snapshot.
 - `invalidateBeforeWrite`: clear ciphertext before a write can start.

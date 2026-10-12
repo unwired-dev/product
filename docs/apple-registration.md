@@ -63,7 +63,7 @@ with Apple. A positive
 [Device Revocation](private-product-sync.md#removing-a-trusted-device) result
 purges the account even when the Apple grant is unavailable. Offline, it keeps
 the saved account. Backend operations that need a current Apple token must reauthenticate
-interactively or add a server-side token exchange. [Private Product Sync](private-product-sync.md#initialization-and-relaunch)
+interactively or add a server-side token exchange. [Private Sync](private-product-sync.md#initialization-and-relaunch)
 uses the token from the current interactive sign-in and keeps its local state on relaunch.
 
 Cancelling the Apple sheet returns to the previous status without an error.

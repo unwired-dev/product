@@ -83,7 +83,7 @@ A default-on, per-Mail Profile preference permitting the current notification-ow
 _Avoid_: Return to Attention, guaranteed reminder, automatic send
 
 **Quiet State**:
-A Mail Profile's interruption-suppression state, synchronized through **End-to-End Encrypted Product Sync**, that may be inactive, indefinite, or active until an absolute instant. While active, it suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work.
+A Mail Profile's interruption-suppression state, synchronized through **Private Sync**, that may be inactive, indefinite, or active until an absolute instant. While active, it suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work.
 _Avoid_: Quiet, Profile Quiet, Profile Lock, paused synchronization
 
 **Quiet Hours**:
@@ -95,19 +95,15 @@ Device-local protection scoped to one Product Account and Mail Profile that requ
 _Avoid_: Quiet State, Product Sign-In, synchronized lock
 
 **Spotlight Mail Indexing**:
-An off-by-default Device-Local Preference scoped to one Product Account and Mail Profile that permits a complete-file-protection Spotlight index of only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata. It excludes bodies, attachments, Product Sync, and the product backend, and removes stale entries on lock, disablement, authorization revocation, message deletion, connection transfer, or Profile deletion.
+An off-by-default Device-Local Preference scoped to one Product Account and Mail Profile that permits a complete-file-protection Spotlight index of only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata. It excludes bodies, attachments, Private Sync, and the product backend, and removes stale entries on lock, disablement, authorization revocation, message deletion, connection transfer, or Profile deletion.
 _Avoid_: Full-text mail index, synchronized search index, backend search
 
-**Product Sync**:
-Synchronization of product-owned user data across devices through the product's backend.
-_Avoid_: iCloud sync, provider sync
-
-**End-to-End Encrypted Product Sync**:
-**Product Sync** where synced product data is readable only by the user's trusted devices.
-_Avoid_: Server-readable sync, plaintext sync
+**Private Sync**:
+End-to-end encrypted synchronization of product-owned user data across devices through the product's backend, readable only by the user's trusted devices.
+_Avoid_: Product Sync, End-to-End Encrypted Product Sync, iCloud sync, provider sync, server-readable sync, plaintext sync
 
 **Mail Workflow Preference**:
-A user-owned choice about handling mail that follows the user across trusted devices through **End-to-End Encrypted Product Sync**.
+A user-owned choice about handling mail that follows the user across trusted devices through **Private Sync**.
 _Avoid_: Device setting, provider credential
 
 **Device-Local Preference**:

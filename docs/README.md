@@ -29,7 +29,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
-- [Private Product Sync and the Recovery Key](private-product-sync.md)
+- [Private Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
 
@@ -37,7 +37,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, pinned OCR and thermo-nuclear review agents](agents/implementation-review.md)
+- [Implementation handoff, pinned OCR, thermo-nuclear and design review agents](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
@@ -60,7 +60,7 @@ commands and results do not transfer to new hosts.
 - [Scoped Swift agent guide](../apps/unwired-mail/AGENTS.md)
 - [Mail test environment](mail-test-environment.md)
 - [Protected Gmail test tenant](gmail-provider-test-tenant.md)
-- [Storage and Product Sync export](storage-and-product-sync-export.md)
+- [Storage and Private Sync export](storage-and-product-sync-export.md)
 
 ## Review handoff
 

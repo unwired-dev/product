@@ -32,7 +32,7 @@ Documentation here is product truth that agents execute: an implementer follows 
   statements with the entered Recovery Key, Enrollment Code and IMAP password
   exceptions. Otherwise blanket prohibitions conceal values TypeScript handles and can
   misdirect privacy review.
-- A Product Sync catch-up statement in `docs/private-product-sync.md`, its
+- A Private Sync catch-up statement in `docs/private-product-sync.md`, its
   architecture companion or ADR 0070 that omits or misassigns envelope retention
   ownership. Trace `productSyncKeyEnvelopes` through activation, acknowledgement
   and device deletion: Convex retains each device's latest complete ring envelope
@@ -54,10 +54,11 @@ Documentation here is product truth that agents execute: an implementer follows 
 #### Vocabulary
 
 - A term from `GLOSSARY.md` or a topic glossary replaced by a synonym, a new domain term used without a definition, or a glossary entry changed outside `docs/agents/domain.md`'s policy.
-- Product Sign-In, Trusted Device, Mailbox Connection and Product Sync used interchangeably; they are distinct and their difference carries privacy meaning.
+- Product Sign-In, Trusted Device, Mailbox Connection and Private Sync used interchangeably; they are distinct and their difference carries privacy meaning.
 
 #### Authority and placement
 
+- A design instruction in `AGENTS.md`, `docs/agents/` or another workflow/guide that gives a stale frame priority over a product requirement or sends a conflict already resolved by documented authority to the decision panel. Check `DESIGN.md`'s authority statements and the owning product requirements or feature guides before following the frame or escalating. Preserve design follow-ups for stale frames and escalation for unresolved conflicts, missing states or scope changes; otherwise the workflow can override required behavior, controls or defaults or reopen an accepted decision.
 - Architecture, design rationale or internal implementation mechanisms written into an implementer-facing file (`AGENTS.md`, `README.md`, `docs/*.md`, `docs/agents/`, `docs/product/`, `docs/domain/`). They belong in `docs/architecture/` or an ADR; the implementer-facing file keeps setup, commands, validation, observable behavior and concise boundary-ownership requirements that its implementer must satisfy.
 - A requirement that exists only in a reviewer-only file after the change. The implementer must still be able to read every requirement it has to satisfy.
 - An accepted ADR edited to reverse its decision without a supersession note, or a new decision recorded outside an ADR. Use the full ADR filename where numbers collide.

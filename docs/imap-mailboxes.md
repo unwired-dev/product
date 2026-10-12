@@ -48,19 +48,19 @@ plaintext ports are not offered in this slice.
 
 Native code owns IMAP password custody. The password is supplied only when connecting
 or repairing a connection; it is never returned to JavaScript or sent to Convex,
-Product Sync or Google. Hosts may receive the address and reviewed endpoint, without
+Private Sync or Google. Hosts may receive the address and reviewed endpoint, without
 its password.
 
 The connection is identified by its endpoint and user name, so connecting the same
 account again repairs it with the new password instead of adding a second one. Its
-synchronized Product Sync descriptor names provider `imap` and the address; other
+synchronized Private Sync descriptor names provider `imap` and the address; other
 Trusted Devices list its address as a synchronized mailbox. Connecting it on another
 device still requires choosing its provider and reviewing its endpoint as well as
 entering its password; the synchronized address alone grants no server access.
 
 After a successful password repair, a retained Inbox that reported authentication
 failure reloads immediately on both hosts. Only the repaired connection retries;
-Product Sync checks, Profile changes and failed repairs do not retry other refused
+Private Sync checks, Profile changes and failed repairs do not retry other refused
 IMAP Inboxes.
 
 ## Failures and recovery

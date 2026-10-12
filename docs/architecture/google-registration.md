@@ -61,7 +61,7 @@ operation per call:
   installation identifier, or the Apple authorization code. Native attaches them and
   returns the HTTP status and body; TypeScript decodes the reply and maps Convex
   codes. Native refuses `productAccount:connect` through this path.
-- **Product Sync initialization and synchronization** run in
+- **Private Sync initialization and synchronization** run in
   `packages/mail-core/src/product-sync.ts`. The flow derives status from a
   non-secret projection, selects descriptor reads and CAS writes, and calls native
   operations to create/store keys and seal/open records. Credentialed calls attach

@@ -50,8 +50,8 @@ implemented.
 - Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
 - The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, and opens the normal composer without a direct-send path or backend-readable copy.
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which retains its complete content and assets until the attempt becomes terminal or is cancelled.
-- **Draft Assets** synchronize through **End-to-End Encrypted Product Sync**. Send remains unavailable until every required asset is complete and valid on the sending device.
-- Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Product Sync Draft operations
+- **Draft Assets** synchronize through **Private Sync**. Send remains unavailable until every required asset is complete and valid on the sending device.
+- Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Private Sync Draft operations
 - Discarding a **Draft** or durably admitting it to the **Outbox** preserves the sent or discarded state across devices. A conflicting offline edit becomes a user-visible conflicted Draft copy whose assets remain retained until it is resolved or discarded.
 
 ## Historical cross-device scheduling
@@ -97,7 +97,7 @@ supersedes that ownership model for the replacement, including future scheduling
 - Pointer right-click, touch long-press, and keyboard context-menu access expose the same current-block choices: paragraph, headings one through three, bulleted list, numbered list, blockquote, and code block; inline styles remain selection-based
 - Pasting or dropping image data into the message body creates an **Inline Image**, while choosing an image through the attachment picker creates an **Attachment**; an explicit context action converts either representation to the other
 - Before **Outbox** admission, the client computes final transfer-encoded MIME size and enforces a known limit from the selected sending **Mailbox Connection**; an unknown provider limit permits attempted delivery with a visible estimate, while excess size requires removal or local image compression
-- During provider delivery, outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** without passing through the product backend; their encrypted Draft Assets synchronize through **Product Sync** before handoff
+- During provider delivery, outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** without passing through the product backend; their encrypted Draft Assets synchronize through **Private Sync** before handoff
 - The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
 - Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
@@ -126,7 +126,7 @@ supersedes that ownership model for the replacement, including future scheduling
 - If the receiving **Sending Identity** is unavailable on the current device, Send remains blocked until the user authorizes it or explicitly chooses another active-Profile identity
 - A new message defaults to the Profile's **Default Sending Identity** and always exposes its From address
 - To, Cc, and Bcc show **Recipient Suggestions** beneath the active field from recent local correspondence and permissioned Apple Contacts; pointer, touch, Up Arrow, Down Arrow, Return, and Tab can select or accept a suggestion, which creates one validated recipient token without duplicates
-- To remains visible, while a trailing “Cc/Bcc” control reveals both optional fields; once either has a recipient, both remain visible for that Draft across autosave, reopen, Product Sync, and adaptive-layout changes, and Reply All reveals populated fields automatically
+- To remains visible, while a trailing “Cc/Bcc” control reveals both optional fields; once either has a recipient, both remain visible for that Draft across autosave, reopen, Private Sync, and adaptive-layout changes, and Reply All reveals populated fields automatically
 - For manual entry, comma, semicolon, Return, Tab, or leaving a recipient field asks the mail parser to create a removable name-and-address token; invalid text remains editable with an inline explanation and blocks Send
 - A duplicate address across To, Cc, and Bcc is not added and reports “Already added” beside the active field
 - Manual valid addresses remain available, and recipient addresses and suggestion queries never pass through the product backend

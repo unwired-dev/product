@@ -61,7 +61,7 @@ native runtimes, bounded depth/parts and blocked remote content. IMAP reader own
 use the same display allocation coordinator as Gmail, charging repeated images and
 simultaneous windows, releasing allocations on reader cleanup and rich-body failure.
 
-Product Sync descriptors carry `provider: imap`. The native receipt's subject is
+Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies
 the connection identity and descriptor key under the shared provider scheme.
 Existing Gmail keys remain unchanged. The

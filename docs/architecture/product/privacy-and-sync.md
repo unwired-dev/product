@@ -16,7 +16,7 @@ notification behavior comes from
 
 - [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
 - [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [End-to-end encrypted product sync](../../adr/0001-end-to-end-encrypted-product-sync.md)
+- [Private Sync](../../adr/0001-end-to-end-encrypted-product-sync.md)
 - [Use local-first metadata and a bounded encrypted body cache](../../adr/0012-bounded-encrypted-body-cache.md)
 - [Accept best-effort background mail freshness](../../adr/0013-best-effort-device-side-mail-freshness.md)
 - [Sync mail workflow preferences, not device state](../../adr/0019-sync-mail-workflow-preferences-not-device-state.md)

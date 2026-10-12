@@ -16,7 +16,8 @@ the project toolchain. Resolve companion skills from the session catalogue,
 especially `ponytail` and `babysit-pr`. The required independent review
 needs an agent host supporting `gpt-6.1-sol` with `high` reasoning, the OCR
 version specified by the repository workflow, and the global
-`thermo-nuclear-code-quality-review` skill. Report unavailable prerequisites
+`thermo-nuclear-code-quality-review` skill, plus Figma MCP access for the
+design review of user-visible changes. Report unavailable prerequisites
 accurately; do not substitute a different reviewer or claim a completed handoff.
 
 ## Establish the issue and scope
@@ -115,7 +116,10 @@ including task-owned untracked files and any pre-existing changes. The reviewer
 owns architecture checking and fixes to validated findings. After its final
 report, hand the same pinned diff, evidence and that report to a second reviewer
 with the same arguments for the workflow's thermo-nuclear code quality review.
-Pause implementer writes until both final reports. Later implementation edits require another review.
+When the issue changes anything user-visible, then hand the diff, evidence, both
+reports, the changed screens and the Figma sections used to a third reviewer
+with the same arguments for the workflow's design review.
+Pause implementer writes until every required final report. Later implementation edits require another review.
 An unavailable or incomplete required review blocks delivery.
 
 ## Publish and hand off

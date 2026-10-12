@@ -880,12 +880,12 @@ verification, so a route removed during that verification reads no mail.
 Removing a mailbox first drops its waiting wakes. It then asks
 `pushRelay:shouldStopGmailWatch` and stops the watch (`users/me/stop`) unless
 another device's route still needs it. The credential and cache leave locally,
-including offline; the opaque relay removal is saved with the Product Sync removal
+including offline; the opaque relay removal is saved with the Private Sync removal
 intent. After that removal is acknowledged (or overtaken by a later addition), it
 removes the route (`pushRelay:removeGmailConnection`). Removing the last route unregisters the device
 (`pushRelay:unregisterDevice`). A route the relay cannot remove yet is retried at
-the next routing or Product Sync restoration without the credential, and its watch
-lapses. A mailbox another device removed through Product Sync stops its watch
+the next routing or Private Sync restoration without the credential, and its watch
+lapses. A mailbox another device removed through Private Sync stops its watch
 before dropping the credential and tears down its route immediately. Sign-out and account
 deletion stop each watch no other device needs before the backend removes this
 device's routes; a removed device purges its routes with everything else.
@@ -1233,7 +1233,7 @@ All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds seven nat
 tests, bringing the suite to 41: connections deduplicated by Google account, mixed
 authorization and reauthorization with the same account, removal of one connection's
 credential and cache, the upgrade of a single-mailbox record and cache into one
-connection, and descriptor removal and epochs through the synthetic Product Sync
+connection, and descriptor removal and epochs through the synthetic Private Sync
 boundary, including unreadable descriptions, remove/re-add before publication,
 offline consent encountering a removal, interrupted cache cleanup with relaunch retry,
 concurrent additions of one mailbox converging on one epoch, and bodies written before
@@ -1271,7 +1271,7 @@ last one, dropping waiting wakes and retrying an unremovable route; and the wake
 queue handing JavaScript only the route, completing each wake once, failing at the
 deadline and replacing a reloaded reader. They also cover pending proofs retaining
 polling, partial registration teardown, renewal after a refused destructive operation,
-offline removal deferring relay deletion until Product Sync acknowledgement, and a
+offline removal deferring relay deletion until Private Sync acknowledgement, and a
 synchronized removal stopping the watch before discarding its credential.
 The routing and removal scenarios also cover first-token arrival after an earlier
 unrouted attempt, rotation with saved routes before process-local mailbox

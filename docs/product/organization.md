@@ -48,7 +48,7 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - If the selected configurable **Mail View** disappears, selection falls back to the **All Messages Mail View** while preserving the selected mailbox and Thread when possible
 - Each **Mail View** badge shows the selected mailbox scope's unread-Thread count capped at 99+; a Thread counts once in each matching view when any of its messages is unread
 - One global **Mail View** configuration applies across all mailboxes; changing the selected mailbox changes only the view's message scope
-- **Mail View** configuration is a **Mail Workflow Preference** synchronized through **End-to-End Encrypted Product Sync**
+- **Mail View** configuration is a **Mail Workflow Preference** synchronized through **Private Sync**
 - The selected mailbox and **Mail View** are transient device-local navigation state; a new application session starts in Unified Inbox with Important selected
 - The interface uses an Apple-native, content-first visual system that respects the device's System, Light, or Dark appearance preference and renders coherently in either appearance
 - Mail lists and reading surfaces use a flat hierarchy with separators rather than nested cards; typography prioritizes sender, subject, and preview in that order
@@ -67,17 +67,17 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 
 ## Pins
 
-- A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Thread Identity**, and remains independent of provider-visible flags
+- A **Pin** is protected by **Private Sync**, is keyed by its **Mailbox Connection** and **Stable Thread Identity**, and remains independent of provider-visible flags
 - Pinned **Threads** from all **Mailbox Connections** appear together in the unified pinned view
 - Legacy message Pins migrate to their containing **Thread**, deduplicate and remain until the Thread **Pin** synchronizes durably; a message without reliable linkage forms a one-message Thread.
 
 ## Mute and blocked senders
 
-- A **Muted Thread** is protected by **End-to-End Encrypted Product Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
+- A **Muted Thread** is protected by **Private Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
 - A **Muted Thread** remains in Inbox, Mail Views, All Mail, and search with ordinary unread behavior; only notifications and proactive suggestions are suppressed until Unmute
 - New replies do not clear a **Muted Thread**, and repaired threading preserves its mute state without changing provider mail.
 - Product-owned actions such as **Pin** and **Muted Thread** do not wait for a mail provider and synchronize independently
-- A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **End-to-End Encrypted Product Sync**; the backend receives neither its readable address nor provider execution requests
+- A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **Private Sync**; the backend receives neither its readable address nor provider execution requests
 - Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
 - Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
 
@@ -118,7 +118,7 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - A **Custom Category** may have a **Category Description**
 - Deleting a Custom Category removes it from active Mail Views and notification eligibility while preserving historical memberships and learning records as inactive references. An offline edit conflicts rather than recreating the Category silently.
 - Custom Category names are trimmed, contain 1–40 characters, and are case-insensitively unique across System and Custom Categories; descriptions contain at most 500 characters
-- System Categories have fixed product-defined **Category Appearance**; Custom Categories choose from curated SF Symbols and an accessibility-tested color palette, and their appearance synchronizes through **End-to-End Encrypted Product Sync**
+- System Categories have fixed product-defined **Category Appearance**; Custom Categories choose from curated SF Symbols and an accessibility-tested color palette, and their appearance synchronizes through **Private Sync**
 - System Categorization evaluates every enabled **Custom Category** independently and may assign several alongside System Categories; disabling a Custom Category affects only future automatic assignment
 - **System Categorization** uses **Minimized Classification Input** before inspecting message body text
 - A message in **Uncategorized State** has no **Message Category**
