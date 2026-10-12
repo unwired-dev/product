@@ -168,7 +168,7 @@ final class WindowTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Gmail connected", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
     entry.typeText(String(presented.suffix(4)))
@@ -211,7 +211,7 @@ final class WindowTests: XCTestCase {
     let relaunched = app.windows["Inbox 1"]
     XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
     relaunched.buttons["Account"].click()
-    XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
     XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
@@ -224,7 +224,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
     first.buttons["Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Mail connected", in: first).waitForExistence(timeout: 15))
     let entry = first.textFields["Last four characters"]
     entry.click()
     // Confirm each character reached the controlled field before sending the next one.
@@ -241,11 +241,18 @@ final class WindowTests: XCTestCase {
     first.buttons["Confirm Recovery Key"].click()
     XCTAssertTrue(
       first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
+    first.buttons["Account"].click()
+    first.buttons["Turn on on-device assistance"].click()
+    XCTAssertTrue(text("On-device assistance is on.", in: first).waitForExistence(timeout: 15))
+    first.buttons["Open Inbox"].click()
     // The disposable Draft belongs to this run's synthetic Product Account only.
     first.buttons["New Message"].click()
     XCTAssertTrue(text("Evaluation editor", in: first).waitForExistence(timeout: 15))
     let body = first.webViews.textViews["Message body"]
     XCTAssertTrue(body.waitForExistence(timeout: 15))
+    // The toolbar appears once the page is ready and moves the page down; focus it after that.
+    XCTAssertTrue(first.buttons["Undo"].waitForExistence(timeout: 30))
     // Focus: typing reaches the page only once its editable body holds keyboard focus.
     body.click()
     body.typeText("Evaluation paragraph")
@@ -265,6 +272,7 @@ final class WindowTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: resized, object: nil)], timeout: 10),
       .completed)
     XCTAssertTrue(typed.exists)
+    formattingJourney(app, typed: typed)
     // Teardown: Close saves and removes the page's web view.
     first.buttons["Close"].click()
     XCTAssertTrue(text("Evaluation editor", in: first).waitForNonExistence(timeout: 10))
@@ -276,10 +284,147 @@ final class WindowTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(draft.waitForExistence(timeout: 20))
     draft.click()
+    // The accepted reply body reopens as it was saved.
     XCTAssertTrue(
-      relaunched.webViews.staticTexts.matching(
-        NSPredicate(format: "value == %@", "Evaluation paragraph")
-      ).firstMatch.waitForExistence(timeout: 15))
+      webText("Synthetic reply to local mail.", in: relaunched).waitForExistence(timeout: 15))
+  }
+
+  private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {
+    window.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", value))
+      .firstMatch
+  }
+
+  // #819: Command-B formats the selection in the page, Command-Z and Shift-Command-Z step the
+  // page's history, and an accepted rewrite is one edit that one Undo reverts.
+  private func formattingJourney(_ app: XCUIApplication, typed: XCUIElement) {
+    let window = app.windows["Inbox 1"]
+    // Select the whole body, so every word of it is bold when the Draft reopens.
+    typed.click()
+    window.typeKey("a", modifierFlags: .command)
+    window.typeKey("b", modifierFlags: .command)
+    let numbered = window.buttons["Numbered list"]
+    numbered.click()
+    let paragraph = window.webViews.staticTexts.matching(
+      NSPredicate(format: "value == %@", "Evaluation paragraph")
+    ).firstMatch
+    XCTAssertTrue(paragraph.waitForNonExistence(timeout: 10))
+    window.typeKey("z", modifierFlags: .command)
+    window.typeKey("z", modifierFlags: .command)
+    XCTAssertTrue(paragraph.waitForExistence(timeout: 10))
+    window.typeKey("z", modifierFlags: [.command, .shift])
+    window.typeKey("z", modifierFlags: [.command, .shift])
+    XCTAssertTrue(paragraph.waitForNonExistence(timeout: 10))
+    reopenDraft(app)
+    webText("Evaluation paragraph", in: window).doubleClick()
+    waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
+    assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
+      window.webViews.staticTexts.firstMatch.doubleClick()
+      let rewrite = window.buttons["Rewrite the selected text"]
+      XCTAssertTrue(rewrite.waitForExistence(timeout: 15))
+      rewrite.click()
+    }
+    assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
+      window.webViews.textViews["Message body"].click()
+      let rewrite = window.buttons["Rewrite the message body"]
+      XCTAssertTrue(rewrite.waitForExistence(timeout: 15))
+      rewrite.click()
+    }
+    assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
+      let translate = window.buttons["Translate the selected text"]
+      window.webViews.staticTexts.firstMatch.doubleClick()
+      waitUntil { translate.isEnabled }
+      translate.click()
+      window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
+        .firstMatch.click()
+    }
+    window.buttons["Close"].click()
+    XCTAssertTrue(text("Evaluation editor", in: window).waitForNonExistence(timeout: 10))
+    window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
+      .firstMatch.click()
+    window.buttons["Reply"].click()
+    XCTAssertTrue(window.buttons["Suggest a reply to the quoted message"].waitForExistence(timeout: 30))
+    assistanceRoundTrips(
+      app, result: "Synthetic reply to local mail.", apply: "Replace your reply with this suggestion",
+      draft: "Garden plans for spring", numbered: false, boldAfterApply: false
+    ) {
+      window.buttons["Suggest a reply to the quoted message"].click()
+    }
+  }
+
+  private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {
+    let met = NSPredicate { _, _ in condition() }
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: met, object: nil)], timeout: timeout),
+      .completed)
+  }
+
+  private func reopenDraft(_ app: XCUIApplication, titled title: String = "") {
+    let window = app.windows["Inbox 1"]
+    window.buttons["Close"].click()
+    XCTAssertTrue(text("Evaluation editor", in: window).waitForNonExistence(timeout: 10))
+    XCTAssertEqual(window.webViews.count, 0)
+    app.terminate()
+    app.launch()
+    // A Draft row names its subject; without a title, the only Draft so far.
+    // CONTAINS never matches an empty string, so an untitled reopen matches the prefix alone.
+    let draft = window.buttons.matching(
+      title.isEmpty
+        ? NSPredicate(format: "label BEGINSWITH %@", "Draft.")
+        : NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", title)
+    ).firstMatch
+    // Restoring the session after a launch can take a while on a loaded host.
+    XCTAssertTrue(draft.waitForExistence(timeout: 45))
+    // Rows can still move while the restored list settles; tap the row once it stays in place.
+    var placed = draft.frame
+    for _ in 0..<10 {
+      RunLoop.current.run(until: Date().addingTimeInterval(1))
+      if draft.frame == placed { break }
+      placed = draft.frame
+    }
+    draft.click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+  }
+
+  private func assistanceRoundTrips(
+    _ app: XCUIApplication, result: String, apply: String, draft title: String = "",
+    numbered: Bool = true, boldAfterApply: Bool, start: () -> Void
+  ) {
+    let window = app.windows["Inbox 1"]
+    for leaveUndone in [true, false] {
+      let original = window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+      let originalBold = window.buttons["Bold"].isSelected
+      start()
+      XCTAssertTrue(text(result, in: window).waitForExistence(timeout: 15))
+      let accept = window.buttons[apply]
+      XCTAssertTrue(accept.waitForExistence(timeout: 15))
+      accept.click()
+      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } != original }
+      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }.joined(separator: " ").contains(result) }
+      let accepted = window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+      waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
+      waitUntil { window.buttons["Undo"].isEnabled }
+      window.buttons["Undo"].click()
+      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } == original }
+      waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == originalBold }
+      if !leaveUndone {
+        waitUntil { window.buttons["Redo"].isEnabled }
+        window.buttons["Redo"].click()
+        waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } == accepted }
+        waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
+      }
+      reopenDraft(app, titled: title)
+      // The reopened page replaces any editor shown at launch once it has loaded.
+      let expected = leaveUndone ? original : accepted
+      waitUntil {
+        window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+          == expected
+      }
+      let expectedBold = leaveUndone ? originalBold : boldAfterApply
+      waitUntil {
+        window.buttons["Numbered list"].isSelected == numbered
+          && window.buttons["Bold"].isSelected == expectedBold
+      }
+    }
   }
 
   // A new device of an existing account waits until a trusted device approves it; signing in alone

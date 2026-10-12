@@ -70,6 +70,40 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('automatically reauthorizes a saved Gmail connection after an IMAP connection', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    await session.native.signIn('google');
+    await session.native.addMailbox('gmail', false);
+    const mailboxNeeded = {
+      kind: 'mailbox-needed',
+      signInProvider: 'google',
+      reason: 'declined',
+      productAccountId: 'synthetic-product-account',
+      mailboxes: JSON.stringify([
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          state: 'authorization',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'imap' },
+        },
+        {
+          id: syntheticMailboxes['alex@example.invalid'],
+          address: 'alex@example.invalid',
+          state: 'authorization',
+        },
+      ]),
+    };
+    const store = createRegistration({
+      ...session.native,
+      signIn: async () => mailboxNeeded,
+    });
+    await store.register('google');
+    expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    expect(store.getSnapshot().failed).toBe(false);
+  });
+
   it('fakes only canonical Mock Mail Session scenarios besides test-only success', () => {
     expect.assertions(1);
     expect(scenarios.build).toStrictEqual(

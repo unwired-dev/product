@@ -407,6 +407,11 @@ these migrations do not establish live-provider qualification.
 
 ## Mailbox Connections (#606)
 
+Issue #629 extends descriptors with the IMAP provider while retaining old Gmail
+decoding and keys. IMAP endpoint-derived subjects keep their `imap:` keys; passwords
+remain device-local. The [IMAP companion](imap-mailboxes.md) records this adapter's
+ownership and qualification separately from Gmail.
+
 Each connection's descriptor remains schema 1 and adds optional `epoch` and
 `removed` fields, retaining older readable records. Its HMAC-derived record
 identifier deduplicates the provider-scoped subject within the Product Account;

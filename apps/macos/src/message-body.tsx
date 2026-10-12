@@ -23,7 +23,6 @@ import {
   decodeMessageContentHeight,
   decodeRemoteImagePositions,
 } from '@private-email/mail-core/message-body';
-import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   Fragment,
@@ -41,7 +40,6 @@ import {
   Linking,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -50,6 +48,7 @@ import { WebView } from 'react-native-webview';
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
+import { styles } from './message-body-styles.ts';
 import { MessageSummary } from './message-summary.tsx';
 import { useRemoteContentPolicy } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
@@ -58,47 +57,11 @@ import { MessageTranslation } from './translation.tsx';
 // A taller document scrolls inside its view instead of the reader.
 const heightCap = 20_000;
 
-const styles = StyleSheet.create({
-  body: { gap: spacing.medium, marginTop: spacing.large },
-  paragraph: { fontSize: 17, lineHeight: 28 },
-  secondary: { fontSize: 14, lineHeight: 21 },
-  confirm: {
-    gap: spacing.small,
-    padding: spacing.medium,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.large },
-  attachments: {
-    gap: spacing.small,
-    paddingTop: spacing.medium,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  attachment: { gap: 2 },
-  attachmentName: { fontSize: 15, fontWeight: '600' },
-  link: { textDecorationLine: 'underline' },
-  linkControl: {
-    borderWidth: 2,
-    borderRadius: 4,
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.small,
-  },
-  notice: { gap: spacing.small },
-  rich: { width: '100%', backgroundColor: '#FFFFFF' },
-  hidden: { opacity: 0 },
-  fill: { flex: 1 },
-  bar: {
-    paddingHorizontal: spacing.large,
-    paddingVertical: spacing.medium,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-});
-
 // A link awaiting confirmation, with the check that its body is still the one on screen and the
 // subscription that reports when that may change.
 interface PendingLink {
-  readonly inbox: GmailInbox;
+  // The store whose body showed the link; only its identity is compared.
+  readonly inbox: object;
   readonly id: string;
   readonly link: BodyLink;
   readonly current: () => boolean;
@@ -107,7 +70,7 @@ interface PendingLink {
 
 const noSubscription = () => () => undefined;
 
-const LinkConfirmationContext = createContext<
+export const LinkConfirmationContext = createContext<
   ((pending: PendingLink | undefined) => void) | undefined
 >(undefined);
 
@@ -531,7 +494,7 @@ function RichDocument({
   );
 }
 
-function Presentation({
+export function Presentation({
   presentation,
   onChoose,
   onFailure,
@@ -995,7 +958,9 @@ export function GmailMessageBody({
             : undefined
         }
         onFailure={() => {
-          inbox.discardRichMessage(id, body.presentation, reader);
+          if (current()) {
+            inbox.discardRichMessage(id, body.presentation, reader);
+          }
         }}
         onChoose={(link) => {
           if (current()) {

@@ -73,12 +73,13 @@
   },
   "mailProviders": {
     "gmail": "Gmail",
-    "microsoft-graph": "Microsoft"
+    "microsoft-graph": "Microsoft",
+    "imap": "IMAP"
   },
   "registration": {
     "welcome": {
       "title": "Welcome to Unwired Mail",
-      "description": "Create your Product Account with Apple or Google, then choose whether to grant Gmail access."
+      "description": "Create your Product Account with Apple or Google, then choose the mailbox to connect."
     },
     "revoked": {
       "title": "This device was removed",
@@ -92,14 +93,17 @@
     "accountWithEmail": "Signed in with {{provider}}. Contact email: {{email}}.",
     "mailboxNeeded": {
       "title": "Connect your mail",
-      "google": "Your Product Account is ready. Connect a mailbox to finish setup: Gmail, with this or another Google account, or Microsoft mail.",
-      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Connect Gmail or Microsoft mail to finish setup.",
+      "google": "Your Product Account is ready. Connect a mailbox to finish setup: Gmail, with this or another Google account, Microsoft mail, iCloud Mail, Fastmail or another IMAP server.",
+      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Connect Gmail, Microsoft mail, iCloud Mail, Fastmail or another IMAP server to finish setup.",
       "cancelled": "Mailbox authorization was cancelled. Your Product Account is retained. Retry or choose another mailbox.",
       "declined": "Mail access was not granted. Your Product Account is retained. Retry or choose another mailbox.",
       "gmail-unavailable": "Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.",
       "microsoft-unavailable": "Microsoft mail is unavailable for this account. Its organization may need to approve Unwired Mail, or the account may have no Outlook mailbox. Your Product Account is retained. Retry or choose another mailbox.",
       "interrupted": "Mailbox authorization was interrupted. Your Product Account is retained. Retry to finish setup.",
-      "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}."
+      "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}.",
+      "imap-refused": "The mail server did not accept that user name and password. Your Product Account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
+      "imap-offline": "The mail server could not be reached. Your Product Account is retained. Check the server name and port, try again when you are online, or choose another mailbox.",
+      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name and port, or choose another mailbox."
     },
     "devicePending": {
       "title": "Add this device",
@@ -165,14 +169,20 @@
     "states": {
       "connected": "Connected",
       "cached": "Saved mail only until {{provider}} can be checked",
-      "authorization": "{{provider}} needs your permission again"
+      "authorization": "{{provider}} needs your permission again",
+      "imap-authorization": "The mail server needs your password again",
+      "imap-cached": "Saved mail only until the mail server can be checked"
     },
     "add": "Add another Gmail mailbox",
     "addMicrosoft": "Add a Microsoft mailbox",
     "allow": "Allow {{provider}} access for {{address}}",
     "remove": "Remove {{address}}",
     "confirm": "Removing {{address}} deletes its {{provider}} access and the mail saved for it from this device, including changes still waiting for {{provider}}, and removes it from your other devices when they next connect. Your mail stays in {{provider}}.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "receiveOnly": "Receive only. Sending from this mailbox is not available yet.",
+    "addImap": "Add an IMAP mailbox",
+    "enterPassword": "Enter the password for {{address}} again",
+    "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server."
   },
   "remoteContent": {
     "title": "Remote images",
@@ -310,7 +320,14 @@
     "opening": "Opening message",
     "message": "Message",
     "showQuoted": "Show quoted text",
-    "hideQuoted": "Hide quoted text"
+    "hideQuoted": "Hide quoted text",
+    "imap-download": "This message is not saved on this device, and the mail server could not be reached to download it.",
+    "imap-authentication": "The mail server needs your password again to download this message.",
+    "imap-missing": "This message is no longer in this folder on the mail server.",
+    "too-large": "This message is too large to open on this device.",
+    "imap-remote": "Images from the internet are not loaded in mail from IMAP mailboxes yet.",
+    "imap-attachments_one": "This message has {{count}} attachment. Attachments from IMAP mailboxes cannot be opened here yet.",
+    "imap-attachments_other": "This message has {{count}} attachments. Attachments from IMAP mailboxes cannot be opened here yet."
   },
   "attachment": {
     "oversized": "Too large to download on this device.",
@@ -674,7 +691,7 @@
     "evaluation": {
       "title": "Evaluation editor",
       "saveBlocked": "This Draft could not be saved, so it stays open. Try again once storage is available.",
-      "unsupported": "The evaluation editor opens plain paragraphs only, so this Draft stays unchanged. Close it to return to the Inbox.",
+      "unsupported": "The evaluation editor does not open Drafts with inline images yet, so this Draft stays unchanged. Close it to return to the Inbox.",
       "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
     }
   },
@@ -735,5 +752,39 @@
     "forwardKeywords": "forward share",
     "cancel": "Cancel commands",
     "app": "Unwired Mail"
+  },
+  "imap": {
+    "title": "Connect a mailbox with IMAP",
+    "providers": {
+      "icloud": "iCloud Mail",
+      "fastmail": "Fastmail",
+      "other": "Another IMAP server"
+    },
+    "choose": "Connect {{provider}}",
+    "description": "Mail is read with IMAP. Sending from this mailbox is not available yet, so it is receive only.",
+    "address": "Email address",
+    "username": "User name",
+    "password": "Password",
+    "appPassword": "{{provider}} requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
+    "host": "IMAP server",
+    "port": "Port",
+    "review": "Unwired Mail connects to {{host}} on port {{port}} using TLS and checks that its certificate is valid. Your password stays on this device and is never sent to Unwired Mail.",
+    "incomplete": "Enter the email address, user name, password, server and a port between 1 and 65535.",
+    "connect": "Connect",
+    "connecting": "Connecting to the mail server",
+    "cancel": "Cancel",
+    "failure": {
+      "imap-refused": "The mail server did not accept that user name and password. Nothing was changed.",
+      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Nothing was changed.",
+      "failed": "The mail server could not be reached. Nothing was changed. Check the server name and port, or try again when you are online."
+    },
+    "folders": "Folders",
+    "folder": "{{folder}}",
+    "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached."
+  },
+  "imapSync": {
+    "syncing": "Checking the mail server…",
+    "authentication": "The mail server needs your password again to show new mail.",
+    "retry": "The mail server could not be reached. Showing mail saved on this device."
   }
 }

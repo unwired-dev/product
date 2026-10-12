@@ -11,17 +11,138 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
+- `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
+  views for folders a complete listing no longer offers as selectable, or deleting
+  views before that listing commits. Retire both only after successful cache
+  adoption, preserve INBOX and still-selectable evicted views, and verify failed
+  LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
+  refusal leaves a selected folder loading with unreadable rows.
+- `imap-inbox.ts.open` recreating a cached folder view as `current` without
+  reading that folder. Preserve its previous ready status, including `syncing`
+  for a read queued behind the semaphore, until that folder read settles; retain
+  access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
+  different folder's retry or authentication warning.
+- `imap-inbox.ts.open` rebuilding views only from the bounded metadata cache.
+  Preserve ready views of evicted, still-selectable folders during same-owner reloads, including
+  password-generation renewal, until a folder read replaces them or access closes.
+  Verify lock/owner cleanup still clears them; otherwise a Mac window still showing
+  an evicted folder falls into permanent loading or recovers former-owner rows.
+- `imap-inbox.ts.messageOf` searching only the persisted metadata document while
+  ready folder views survive its bounded folder eviction. Keep shown rows
+  resolvable until their view is replaced or access closes, without widening
+  `listed` body-cache admission. Otherwise another Mac window displays rows that
+  cannot open, or opening an evicted row stores an unlisted body.
+
+- `imap-inbox.ts.folder` returning a new fallback view on each snapshot read
+  after reload or forget clears `folderViews`. Unchanged loading or cached
+  messages must return the same object, and a changed cache must yield a new
+  view; otherwise either host's external-store subscription loops or stays stale.
+
 - Named-capture extraction in `drafts.ts.recipientOf`, `gmail-inbox.ts.sender`,
   `message-body.ts` or another shared parser that assumes `.groups` is present on
   `exec`, `match` or `matchAll` results in code bundled for Hermes. A host's Babel
   named-group transform can leave `.groups` unset while positional captures
   survive and Node tests pass, rejecting valid named recipients, retaining a
   whole From header as an address or dropping message content and link destinations.
-  Read positional captures while retaining named groups in the pattern for lint;
+  Read positional captures and use positional replacement references such as
+  `$1` instead of `$<name>` for quoted-pair unescaping in `mime.ts.parameter`,
+  while retaining named groups in the pattern for lint;
   exercise absent `.groups` in a regression and validate changed parsing in the
   packaged host when its transform differs from the test runtime.
 
+#### Shared palette and visible states
+
+- A change to `theme.ts.palette` that checks text contrast but overlooks the
+  surfaces and state indicators in its mobile and Mac consumers. Trace text,
+  unread dots and selection/focus indicators against their actual adjacent
+  backgrounds in both modes, including selected rows after focus leaves.
+  Recheck the issue's text and non-text contrast thresholds, and compare the
+  changed selection indicator with the pinned baseline: weaker selected/sidebar
+  separation can hide the selected Inbox message or Draft even when every text
+  role passes AA. A focus-only border does not identify persistent selection.
+  Distinguish an introduced regression from an existing non-text contrast
+  limitation under R0; send a fix requiring new component behavior or a change
+  to the locked design scope through the workflow's decision panel.
+- A change to `theme.ts.palette.separator` that checks only decorative dividers
+  and overlooks its use as the sole outline of controls in the mobile and Mac
+  hosts. Trace boundary roles to their actual adjacent surfaces and compare each
+  changed pair with the pinned baseline in both modes; a weaker outline can hide
+  a control even when its label still passes text contrast. Preserve the issue's
+  required visibility without treating an existing sub-3:1 boundary as a new
+  regression under R0.
+- Accepting a changed palette pair because its rounded contrast ratio meets a
+  rounded issue threshold when the requirement is to preserve baseline contrast.
+  Calculate the old and new ratios from their actual colors using full precision,
+  compare before rounding, and round only reported values. Check independent
+  numeric floors too; rounding must not turn a lower value into a pass. If a
+  rounded baseline summary conflicts with the locked mapping or baseline
+  requirement, report the discrepancy and use the workflow's decision panel.
+
 #### Untrusted boundaries fail closed
+
+- `registration.ts.MailboxesSchema` or
+  `registration-vault.ts.RegistrationRecordSchema` admitting an IMAP connection
+  without its non-secret endpoint, an invalid port, or an endpoint on another
+  provider. Decode both projections against the same endpoint invariant;
+  otherwise password repair can offer a form whose Connect action never enables.
+- `registration-flow.ts.connectImap` omitting iCloud's documented full-address
+  fallback or retrying it beyond one authentication refusal. Preserve the reviewed
+  host, require a differing username, and save the successful endpoint. Exercise
+  refused full-address and transport/TLS failures through the public store;
+  otherwise supported iCloud accounts cannot connect or failures repeat logins.
+  Carry the decoded successful connection receipt into the repair notification
+  rather than matching the attempted username, and strip action metadata before
+  publishing host snapshots; otherwise fallback repair reloads no Inbox or the
+  wrong name-part connection that remained connected.
+
+- `registration-flow.ts.authorizeMailbox` or `connectImap` recording a setup
+  failure when retained sign-in confirmation is merely offline and other usable
+  mailboxes remain. Report that refusal through the action without changing the
+  registration snapshot; otherwise adding one mailbox closes every existing
+  Inbox. Preserve access-ending and non-offline sign-in refusal handling.
+
+- `imap-inbox.ts.createImapInbox` omitting `savedBodies` or deriving it from
+  metadata or an in-memory reader. `mailboxes.ts.savedMessageBodies` treats a
+  missing lookup as a fully saved preview store. Bind native `listMessageBodies`
+  to the owning connection, decode its reply, exclude markers, fence scope and
+  row membership through persisted metadata or ready folder views, and leave failed
+  reads unknown. Keep new body-cache admission restricted to `listed`; otherwise
+  search misreports saved bodies for still-visible evicted folders or promises
+  offline access to bodies never downloaded or no longer saved.
+
+- `imap-inbox.ts.openFolder` or body-cache admission swallowing native access
+  failures as folder-specific retries or harmless cache-write refusals. Propagate
+  authentication to the shared repair notice, clear folder/message/body
+  presentation on lock, revocation or owner invalidation, and fence pending body
+  reads across recovery even when native generation is unchanged. Otherwise a
+  selected cached folder or a late downloaded body can remain visible after
+  access closes. Exercise folder reads, cache reopen and body commit separately.
+
+- IMAP folder reads or cached documents accepting zero UIDVALIDITY. Require
+  nonzero validity in each decoded checkpoint and message identity, and verify
+  that a rejected read commits no messages and remains retryable. Otherwise a
+  server whose identity was never established can reuse cached bodies by UID.
+
+- `createRegistration.register` using the first saved connection to decide Gmail
+  reauthorization. Select the saved Gmail connection independently of preceding
+  IMAP connections; otherwise provider choice works for new accounts but strands
+  an existing Gmail grant after sign-in in a mixed-provider account.
+
+- `mime.ts.multipartBodies` materializing all delimiter lines/parts before its
+  part limit, or `parseMime` walking siblings after refusal. Stop allocation and
+  traversal at the MIME budget, and reject oversized headers before splitting
+  their fields; otherwise a bounded raw message amplifies into an unbounded tree.
+- `imap-inbox.ts` admitting CID images directly through `presentation` instead of
+  the shared `BodyLoads` coordinator. Charge repeated rendered occurrences and
+  simultaneous readers across Gmail and IMAP, and release on cleanup/failure;
+  otherwise IMAP bypasses the device display budget despite bounded unique assets.
+- `imap-inbox.ts` releasing a reader's image reservation without re-admitting
+  surviving budget-limited readers in that store, including a legacy reader group
+  whose count decreases but remains positive. Retry with the reduced multiplicity,
+  preserve unchanged presentation identities and notify once after the transition;
+  exclude terminal rich-renderer fallbacks. Otherwise now-admissible CIDs stay
+  hidden until reopen, or closing an uncharged reader clears another window's
+  pending link confirmation and reloads its unchanged WebView.
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
@@ -70,6 +191,31 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   authorization notice waits for an unrelated synchronization.
 
 #### Running programs and shared state
+
+- `imap-inbox.ts.readMessage` downloading a body outside the shared `BodyLoads`
+  coordinator. Acquire the connection's two-permit semaphore before the shared
+  four-permit semaphore, and bracket waiting and downloading with
+  `shared.begin`/`shared.end` through `Effect.acquireUseRelease`, as Gmail does.
+  Keep cache hits outside download permits, and release acquired permits and
+  interactive ownership on failure or interruption. Otherwise simultaneous
+  windows/connections multiply native sessions and MIME allocations, while Gmail
+  speculation competes with explicit IMAP downloads.
+
+- `createMailboxes` retaining a ready/authentication IMAP Inbox after successful
+  password repair without reopening its native generation, or inferring repair
+  from every newly published registration snapshot. Send a success-only,
+  connection-scoped signal from `createRegistration.connectImap`, reconcile owners
+  before loading that Inbox, and preserve explicit scoped-wake suppression.
+  Otherwise repair keeps the stale refusal until relaunch, or unrelated Product
+  Sync/Profile changes retry unchanged passwords on other connections. Exercise
+  generation rotation and two refused connections through the public stores.
+
+- `imap-inbox.ts.openFolder` retrying a cache CAS conflict with the revision it
+  already held, or leaving recovery to an unrelated Inbox load. Reopen the native
+  cache before one bounded folder retry, preserving generation/lifetime fences
+  and access-changing failures through `folderFailed`. Exercise two stores over
+  one connection's cache; otherwise another window's commit makes later folder
+  reads conflict indefinitely.
 
 - `registration-flow.ts.confirmRevocation` consuming stale authentication without renewing the saved identity and retrying the same confirmation at most once, or skipping the `guarded` preflight for preparation, confirmation or cancellation. Trace the native fixed rejection code and Schema-decoded notice/projection together; renewal must not submit a different proposal or bypass saved-key confirmation. Otherwise a form left open cannot activate its confirmed removal, or retries authorize new material without consent.
 - `remote-content.ts.createRemoteContentSettings` or another privacy-relevant
@@ -953,6 +1099,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
   blocked-image placeholders. Placeholder-only mail must keep its rich document
   and readable images notice, including after rendering failure.
+- `imap-inbox.ts.synchronizeFolder` leaving orphaned bodies after a successful
+  folder commit, or pruning from stale shown rows of a still-cached folder.
+  Derive retention from every committed folder and shown rows of evicted folders,
+  use the committed revision with native transaction validation, and retry skipped
+  pruning after later synchronization. Preserve access-changing failure recovery
+  and notify the shared cache coordinator after success; otherwise expunged or
+  UIDVALIDITY-reset bodies consume the device budget, still-shown evicted bodies
+  disappear, or saved-body status remains stale.
 - `createGmailInbox` abandoning failed best-effort body pruning when later
   synchronization commits nothing, or pruning from a stale metadata revision.
   Retry after successful synchronization, preserve cache-only access, and require

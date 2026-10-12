@@ -3,6 +3,7 @@ import type { Message } from '@private-email/mail-core';
 import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
+import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
@@ -10,19 +11,18 @@ import {
   quickActions,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
   inboxMessages,
   profileMailboxes,
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import { spacing } from '@private-email/mail-core/theme';
 import { use, useDeferredValue, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   SectionList,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -36,7 +36,9 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
+import { FolderPicker, useImapFolder } from './imap-folders.tsx';
 import { InboxCommands } from './inbox-commands.tsx';
+import { styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
@@ -58,67 +60,6 @@ import { OrganizeStatus } from './organize.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
-
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  heading: { flex: 1, padding: spacing.large, paddingBottom: spacing.medium },
-  account: { fontSize: 15, padding: spacing.large },
-  title: { fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
-  subtitle: { fontSize: 14, marginTop: 4 },
-  list: { paddingHorizontal: spacing.small, gap: 4 },
-  row: {
-    minHeight: 116,
-    padding: 14,
-    borderWidth: 2,
-    borderRadius: 12,
-    borderCurve: 'continuous',
-  },
-  rowHeading: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.small,
-  },
-  sender: { flex: 1, fontSize: 16, fontWeight: '600' },
-  date: { fontSize: 12 },
-  subjectLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 5,
-  },
-  subject: { flex: 1, fontSize: 15, fontWeight: '500' },
-  unread: { width: 6, height: 6, borderRadius: 3 },
-  preview: { fontSize: 14, lineHeight: 20, marginTop: 5 },
-  footer: { fontSize: 12, padding: spacing.large },
-  notice: { padding: spacing.large, fontSize: 16 },
-  mailbox: { fontSize: 12, marginTop: 5 },
-  search: {
-    minHeight: 44,
-    marginHorizontal: spacing.large,
-    marginBottom: spacing.medium,
-    paddingHorizontal: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    borderCurve: 'continuous',
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.small,
-    paddingHorizontal: spacing.large,
-    paddingBottom: spacing.medium,
-  },
-  scope: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderWidth: 2,
-    borderRadius: 8,
-    borderCurve: 'continuous',
-  },
-});
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
 const composeNothing = () => undefined;
@@ -155,7 +96,7 @@ function MessageRow({
   onSelect,
   onOrganize,
 }: {
-  readonly message: Message | GmailMessage;
+  readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
   readonly mailbox: string | undefined;
   // Whether a search result's body is saved on this device, once known.
@@ -366,10 +307,63 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
         </>
       ) : null}
       <SyncNotice address={address} />
+      <ImapNotice address={address} />
       <OrganizeStatus />
     </>
   );
 }
+
+// An IMAP mailbox says when the server could not be read and keeps its saved mail; a refused
+// password is entered again on the account page.
+function ImapNotice({ address }: { readonly address: string | undefined }) {
+  const state = useInbox();
+  const mailbox = useMailbox();
+  const account = use(AccountContext);
+  const leave = useLeaveComposer();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (
+    state.kind !== 'ready' ||
+    !('receiveOnly' in state) ||
+    state.status === 'current'
+  ) {
+    return null;
+  }
+  const openAccount = async () => {
+    if (await leave()) {
+      account?.openAccount();
+    }
+  };
+  return (
+    <>
+      <Text
+        accessibilityLiveRegion="polite"
+        style={[styles.footer, { color: colors.secondary }]}>
+        {about(t, address, t(`imapSync.${state.status}`))}
+      </Text>
+      {state.status === 'authentication' && account !== undefined ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void openAccount();
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            {t('mailboxes.enterPassword', {
+              address: mailbox?.address ?? state.address,
+            })}
+          </Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
+// A Gmail or IMAP Inbox still checking its server.
+const checking = (state: InboxMailbox['state']) =>
+  state.kind === 'loading' ||
+  (state.kind === 'ready' &&
+    (('sync' in state && state.sync === 'syncing') ||
+      ('status' in state && state.status === 'syncing')));
 
 // A connection whose grant its provider refused has no Inbox until it is authorized again.
 function AuthorizationNeeded({
@@ -403,6 +397,32 @@ function AuthorizationNeeded({
         }}>
         <Text style={[styles.notice, { color: colors.accent }]}>
           {t('mailboxes.allow', { address, provider })}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// A saved IMAP connection needs its own password, independently of Gmail consent.
+function ImapAuthorizationNeeded({
+  address,
+  onRepair,
+}: {
+  readonly address: string;
+  readonly onRepair: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <View>
+      <Text style={[styles.footer, { color: colors.secondary }]}>
+        {about(t, address, t('imapSync.authentication'))}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRepair}>
+        <Text style={[styles.notice, { color: colors.accent }]}>
+          {t('mailboxes.enterPassword', { address })}
         </Text>
       </Pressable>
     </View>
@@ -671,9 +691,13 @@ export function Inbox({
   const [query, setQuery] = useState('');
   // Typing stays responsive while the list catches up with the latest query.
   const searched = useDeferredValue(query.trim());
-  const listed = useMemo(
+  const inboxListed = useMemo(
     () => inboxMessages(mailboxes, view),
     [mailboxes, view],
+  );
+  const { imap, folder, listed, failed, chooseFolder } = useImapFolder(
+    shown,
+    inboxListed,
   );
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
@@ -701,11 +725,7 @@ export function Inbox({
     [selected, saved, composing],
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
-  const syncing = shown.some(
-    ({ state }) =>
-      state.kind === 'loading' ||
-      (state.kind === 'ready' && 'sync' in state && state.sync === 'syncing'),
-  );
+  const syncing = shown.some(({ state }) => checking(state));
   const subtitle = subtitleOf(t, shown, { several, gmail });
   const organize =
     (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
@@ -725,6 +745,7 @@ export function Inbox({
       return false;
     }
     setQuery('');
+    chooseFolder(inboxFolder);
     onInbox?.();
     return true;
   };
@@ -785,6 +806,12 @@ export function Inbox({
             scope={scope}
           />
         ) : null}
+        <FolderPicker
+          mailbox={imap}
+          folder={folder}
+          failed={failed}
+          onFolder={chooseFolder}
+        />
         {ready ? (
           <TextInput
             accessibilityLabel={t('search.label')}
@@ -813,17 +840,29 @@ export function Inbox({
             <MailboxStatus address={several ? mailbox.address : undefined} />
           </MailboxScope>
         ))}
-        {waiting.map((mailbox) => (
-          <AuthorizationNeeded
-            key={mailbox.id}
-            address={mailbox.address}
-            provider={mailbox.provider}
-            onAllow={async () => {
-              await account?.authorizeMailbox(mailbox.id);
-              await reload();
-            }}
-          />
-        ))}
+        {waiting.map((mailbox) =>
+          mailbox.provider === 'imap' ? (
+            <ImapAuthorizationNeeded
+              key={mailbox.id}
+              address={mailbox.address}
+              onRepair={() => {
+                if (account !== undefined) {
+                  void openAccount(account.openAccount);
+                }
+              }}
+            />
+          ) : (
+            <AuthorizationNeeded
+              key={mailbox.id}
+              address={mailbox.address}
+              provider={mailbox.provider}
+              onAllow={async () => {
+                await account?.authorizeMailbox(mailbox.id);
+                await reload();
+              }}
+            />
+          ),
+        )}
         <SectionList
           accessibilityLabel={t('inbox.messages')}
           contentContainerStyle={styles.list}

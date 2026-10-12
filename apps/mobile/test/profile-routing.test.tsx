@@ -10,6 +10,7 @@ import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type MessageRoute from '../app/message/[id].tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -112,6 +113,18 @@ function showMail(profile: string) {
   );
 }
 
+function RoutedApp() {
+  return (
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 390, height: 844 },
+        insets: { top: 59, right: 0, bottom: 34, left: 0 },
+      }}>
+      <RootLayout />
+    </SafeAreaProvider>
+  );
+}
+
 describe('profile-scoped mobile routes', () => {
   it.each([
     { name: 'legacy Default', profile: defaultProfile, params: {} },
@@ -122,7 +135,7 @@ describe('profile-scoped mobile routes', () => {
       expect.hasAssertions();
       showMail(profile);
       route.setParams(params);
-      await render(<RootLayout />);
+      await render(<RoutedApp />);
       await fireEvent.press(
         await screen.findByRole('button', { name: /Garden plan/u }),
       );
@@ -154,7 +167,7 @@ describe('profile-scoped mobile routes', () => {
         mailbox: 'garden',
         id: 'message-1',
       });
-      const app = await render(<RootLayout />);
+      const app = await render(<RoutedApp />);
       expect(
         screen.getByRole('header', { name: 'Message unavailable' }),
       ).toBeVisible();
@@ -173,7 +186,7 @@ describe('profile-scoped mobile routes', () => {
     expect.hasAssertions();
     showMail(defaultProfile);
     route.setParams({});
-    await render(<RootLayout />);
+    await render(<RoutedApp />);
     await fireEvent.changeText(
       await screen.findByLabelText('Search senders and subjects'),
       'personal search',

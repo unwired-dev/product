@@ -86,6 +86,8 @@ export const registration = createRegistration(
     signInMailbox: (connection, suggest, provider) =>
       native().signInMailbox(connection, suggest, provider),
     verifyMailbox: () => native().verifyMailbox(),
+    connectImap: (setup) => native().connectImap(setup),
+    verifyImap: (connection) => native().verifyImap(connection),
     confirmMailbox: (connection) => native().confirmMailbox(connection),
     storeMailbox: () => native().storeMailbox(),
     markMailbox: (connection, access) =>
@@ -159,6 +161,10 @@ export const gmailMailboxes = createMailboxes(
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
     gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
+    imapFolders: (mailbox) => native().imapFolders(mailbox),
+    imapSynchronize: (mailbox, request) =>
+      native().imapSynchronize(mailbox, request),
+    imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
     commitMailbox: (mailbox, expectedRevision, document) =>
       native().commitMailbox(mailbox, expectedRevision, document),
     openMessageBody: (mailbox, id) => native().openMessageBody(mailbox, id),

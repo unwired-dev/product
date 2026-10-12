@@ -44,6 +44,22 @@ Dir.glob('../../../native/private-inbox/{Sources/PrivateInbox,bridge}/*.{swift,m
   name = file.delete_prefix('../../../native/private-inbox/')
   target.add_file_references([private_inbox.new_file(name)])
 end
+# Private Inbox's Swift packages, pinned in its manifest; the build adopts its Package.resolved.
+manifest = File.read('../../../native/private-inbox/Package.swift')
+products = manifest.scan(/\.product\(name: "([^"]+)", package: "([^"]+)"\)/)
+manifest.scan(/url: "([^"]+)",\s*revision: "([0-9a-f]{40})"/) do |url, revision|
+  package = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+  package.repositoryURL = url
+  package.requirement = { 'kind' => 'revision', 'revision' => revision }
+  project.root_object.package_references << package
+  products.select { |_, name| name == File.basename(url, '.git') }.each do |product_name, _|
+    product = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    product.package = package
+    product.product_name = product_name
+    target.package_product_dependencies << product
+    target.frameworks_build_phase.add_file_reference(nil).product_ref = product
+  end
+end
 localization = project.main_group.new_group('Localization', '../../../native/localization')
 target.add_file_references(%w[UnwiredLocalization.m UnwiredLanguagePreferences.m].map { |name| localization.new_file(name) })
 localization.new_file('UnwiredLanguagePreferences.h')

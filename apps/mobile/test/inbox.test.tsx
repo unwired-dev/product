@@ -246,6 +246,7 @@ function renderConnected(
       ),
     addMailbox: () => Promise.reject(new Error('Not adding')),
     authorizeMailbox,
+    connectImap: () => Promise.reject(new Error('Not connecting')),
     removeMailbox: () => Promise.reject(new Error('Not removing')),
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),

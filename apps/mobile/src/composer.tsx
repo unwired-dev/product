@@ -237,7 +237,7 @@ const markStyle = (marks: readonly Mark[] = []): TextStyle => {
 type MarkName = `drafts.marks.${Mark}`;
 type BlockName = `drafts.blocks.${Exclude<BlockKind, 'paragraph'>}`;
 
-const markControls: ReadonlyArray<
+export const markControls: ReadonlyArray<
   readonly [Mark, string, MarkName, StyleProp<TextStyle>]
 > = [
   ['bold', 'B', 'drafts.marks.bold', { fontWeight: '700' }],
@@ -257,7 +257,9 @@ const markControls: ReadonlyArray<
   ['code', '</>', 'drafts.marks.code', { fontFamily: 'Menlo' }],
 ];
 
-const blockControls: ReadonlyArray<readonly [BlockKind, string, BlockName]> = [
+export const blockControls: ReadonlyArray<
+  readonly [BlockKind, string, BlockName]
+> = [
   ['heading1', 'H1', 'drafts.blocks.heading1'],
   ['heading2', 'H2', 'drafts.blocks.heading2'],
   ['heading3', 'H3', 'drafts.blocks.heading3'],
@@ -1021,7 +1023,7 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
-const rewriteLabel = (at: Selection) =>
+export const rewriteLabel = (at: Selection) =>
   at.start === at.end
     ? 'assistance.rewriteDraftLabel'
     : 'assistance.rewriteSelectionLabel';
@@ -1045,7 +1047,7 @@ function SendRefusalNotice({
 
 // A body or admitted reply-context revision retires the captured input. So does Mail Assistance
 // Enablement turning off, so turning it on again never restarts the request by itself.
-const retires = (
+export const retires = (
   captured: CapturedDraftText,
   draft: CapturedDraftText['draft'],
   {
@@ -1060,7 +1062,7 @@ const retires = (
   (captured.purpose === 'translate' ? translation : assistance) === undefined;
 
 // The review panel for captured Draft text, while its framework is enabled.
-function CapturedAssistance({
+export function CapturedAssistance({
   captured,
   assistance,
   translation,

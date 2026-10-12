@@ -20,8 +20,10 @@ import {
 } from 'react-native';
 
 import type { SavedAttachment } from './message-body.tsx';
+import type { InboxStore } from './private-storage.ts';
 
 import { Commands } from './command-palette.tsx';
+import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -385,7 +387,7 @@ function ResponseActions({
     profileOf(mailbox?.id, mailboxes),
   ).find(({ id }) => id === mailbox?.id);
   if (
-    !('readMessage' in inbox) ||
+    !('responseSource' in inbox) ||
     !('threadId' in message) ||
     onCompose === undefined ||
     sender === undefined ||
@@ -493,6 +495,58 @@ function ResponseActions({
   );
 }
 
+// The reader for the message's store: an IMAP or Gmail body, or the preview fixture's text.
+function ReaderBody({
+  inbox,
+  message,
+  connection,
+}: {
+  readonly inbox: InboxStore;
+  readonly message: NonNullable<ReturnType<typeof shownMessage>>;
+  readonly connection: string | undefined;
+}) {
+  const colors = usePalette();
+  if ('openFolder' in inbox) {
+    return (
+      <ImapMessageBody
+        id={message.id}
+        inbox={inbox}
+        subject={message.subject}
+      />
+    );
+  }
+  if ('responseSource' in inbox) {
+    return (
+      <GmailMessageBody
+        id={message.id}
+        inbox={inbox}
+        subject={message.subject}
+        connection={connection}
+      />
+    );
+  }
+  return (
+    <>
+      <MessageSummary
+        source={inbox}
+        id={message.id}
+        subject={message.subject}
+        body={'body' in message ? message.body : message.preview}
+      />
+      <MessageTranslation
+        source={inbox}
+        id={message.id}
+        body={'body' in message ? message.body : message.preview}
+      />
+      <Text
+        selectable
+        style={[styles.body, { color: colors.foreground }]}>
+        {'body' in message ? message.body : message.preview}
+      </Text>
+    </>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
@@ -509,7 +563,11 @@ function MailboxMessage({
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
-  const message = shownMessage(state, id);
+  // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
+  const folderMessage = useSyncExternalStore(actions.subscribe, () =>
+    'openFolder' in actions ? actions.message(id) : undefined,
+  );
+  const message = folderMessage ?? shownMessage(state, id);
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );
@@ -626,34 +684,12 @@ function MailboxMessage({
               message={message}
               onCompose={onCompose}
             />
-            {'readMessage' in actions ? (
-              <GmailMessageBody
-                key={message.id}
-                id={message.id}
-                inbox={actions}
-                subject={message.subject}
-                connection={mailbox?.id}
-              />
-            ) : (
-              <>
-                <MessageSummary
-                  source={actions}
-                  id={message.id}
-                  subject={message.subject}
-                  body={'body' in message ? message.body : message.preview}
-                />
-                <MessageTranslation
-                  source={actions}
-                  id={message.id}
-                  body={'body' in message ? message.body : message.preview}
-                />
-                <Text
-                  selectable
-                  style={[styles.body, { color: colors.foreground }]}>
-                  {'body' in message ? message.body : message.preview}
-                </Text>
-              </>
-            )}
+            <ReaderBody
+              key={message.id}
+              inbox={actions}
+              message={message}
+              connection={mailbox?.id}
+            />
           </ReaderScrollView>
         </LinkConfirmationProvider>
       )}

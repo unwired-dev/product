@@ -117,7 +117,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#00000033',
   },
   panel: {
     margin: 8,
@@ -503,7 +502,10 @@ export function CommandPalette({
             style={[styles.overlay, { top: topInset }]}>
             <Pressable
               accessible={false}
-              style={styles.shade}
+              style={[
+                styles.shade,
+                { backgroundColor: colors.foreground, opacity: 0.2 },
+              ]}
               onPress={dismiss}
             />
             <View
@@ -581,6 +583,9 @@ export function CommandPalette({
                         {
                           backgroundColor:
                             row === index ? colors.selected : colors.background,
+                          borderLeftWidth: 3,
+                          borderLeftColor:
+                            row === index ? colors.accent : 'transparent',
                         },
                       ]}>
                       <View style={styles.line}>

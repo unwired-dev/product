@@ -164,7 +164,7 @@ extension RegistrationStore {
     guard let topic, let saved = try load(), let product = saved.product, product.pending != true,
       let device = device ?? saved.pushDevice
     else { return }
-    // Only Gmail watches deliver wakes; Microsoft mail keeps the host's polling.
+    // Only Gmail watches deliver wakes; Microsoft and IMAP mail keep the host's polling.
     let due = saved.usableConnections.filter {
       $0.receipt.mailProvider == .gmail && verifiedMailboxes.contains($0.id)
         && ($0.pushVerified != true || ($0.pushExpiration ?? 0) - now < Self.watchRenewal)
@@ -219,6 +219,7 @@ extension RegistrationStore {
   private func watch(
     _ connection: MailboxConnection, _ product: ProductRegistrationReceipt, topic: String
   ) async throws -> (Verification, Double) {
+    guard connection.receipt.mailProvider == .gmail else { throw RegistrationError.unavailable }
     let gmail = try await provider.refresh(connection.credential)
     guard gmail.subject == connection.receipt.subject else {
       throw RegistrationError.invalidIdentity
@@ -249,6 +250,8 @@ extension RegistrationStore {
   private func stopWatch(_ connection: MailboxConnection, _ product: ProductRegistrationReceipt)
     async throws
   {
+    // Only a Gmail connection has a Gmail watch.
+    guard connection.receipt.mailProvider == .gmail else { return }
     let relayConnection = Self.relayConnection(
       account: product.productAccountId, subject: connection.receipt.subject)
     let stop: Bool = try await relay(

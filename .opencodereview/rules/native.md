@@ -20,6 +20,47 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `SwiftMailImap.folders` returning a truncated LIST as successful, or accepting
+  wildcard fallback after an advertised namespace lookup fails. Preserve complete
+  namespace coverage and reject overflow or unresolved discovery through the
+  existing failure boundary before publishing a listing used for retirement.
+  Exercise overflow and failed discovery through the controlled TLS fixture;
+  otherwise still-existing folders and their saved bodies can be deleted.
+
+- `SwiftMailImap.folders` exposing case variants of the reserved ASCII INBOX
+  name as separate identities, or folding a distinct Unicode name or an
+  attribute-only inbox folder into it. Canonicalize only the reserved name,
+  preserve other names and roles, and exercise both through the controlled TLS
+  fixture. Otherwise folder selection creates duplicate cache namespaces or
+  reads a different mailbox under the same message identity.
+
+- `SwiftMailImap.folders` claiming a response-count bound from a prefix applied
+  after SwiftMail's LIST handler collects all responses. Trace admission in the
+  pinned upstream handler and parser; per-response byte limits do not bound the
+  accumulated collection. Require a receive-time count limit and controlled TLS
+  flood evidence when the upstream API supports it. SwiftMail 1.16.0's missing
+  public bound remains tracked in #888; a smaller returned array does not resolve
+  that native-memory risk.
+
+- `SwiftMailImap.synchronize` estimating arrivals from the whole folder minus
+  cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
+  both when UIDNEXT is known, preserving the unknown-UIDNEXT fallback; old
+  uncached messages and expunged arrivals otherwise cause repeated envelope
+  relisting. Exercise a large unchanged folder and a small folder with a UID gap
+  through the controlled TLS fixture.
+
+- `SwiftMailImap` accepting SwiftMail's default zero UIDVALIDITY when EXAMINE
+  omits it. Require nonzero validity before any FETCH, including verification,
+  synchronization and body reads; exercise omission with the controlled TLS
+  server. Otherwise repeated default identities can reuse a different message's
+  encrypted cached body.
+
+- `SwiftMailImap` trusting RFC822.SIZE or checking a fetched body only after the
+  upstream parser buffered it. Bound body literals and response attributes in the
+  real engine parser before accepting payload bytes, with a controlled TLS server
+  declaring an oversized literal without sending it; otherwise an untrusted server
+  can exhaust native memory before the application size check runs.
+
 - `DeviceRevocation.proposal`, `confirmRevocation` or another removal-status path
   reporting `removed` or `superseded` from roster absence, a conflict or lost-key
   cleanup alone. Require an exact committed proposal receipt or a definite backend

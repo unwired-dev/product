@@ -25,13 +25,12 @@ Drafts in the current composer.
 
 ## Behavior
 
-In an evaluation build, **New Message** and Draft rows open the **Evaluation editor**
-in place of the composer, in the same place on each host. It shows **Close**, the
-sending mailbox, the save status and the body. The body edits plain paragraphs:
-typing, Return for a new paragraph and deletion. Tiptap's own Undo history is
-active in the page, but Undo and Redo controls and their native qualification
-belong to #819 and #822. Recipients, subject, formatting, files and Send stay with
-the current composer.
+In an evaluation build, **New Message**, Draft rows and **Reply** open the
+**Evaluation editor** in place of the composer, in the same place on each host. It
+shows **Close**, the sending mailbox, the save status, the
+[formatting toolbar](#formatting-and-history) and the body. Recipients, subject,
+quoted correspondence, files and Send stay with the current composer; no edit in the
+page changes them.
 
 - **Saving.** Every change is saved through the Draft store, as in the current
   composer, and the status shows **Saved on this device**, **Saving…**, or why the
@@ -40,12 +39,70 @@ the current composer.
   stays open with **Try again**. Closing an empty Draft discards it.
 - **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
   first saves the Draft, as the current composer does.
-- **Unsupported bodies.** A Draft with formatting, other block kinds or Inline Images
-  is not opened. The editor says it opens plain paragraphs only and leaves the Draft
-  unchanged.
-- **Failures.** If the page stops, the editor says so; saved changes are kept. Callbacks from a closed editor cannot submit further edits.
+- **Unsupported bodies.** A Draft with an Inline Image is not opened until
+  [#820](https://github.com/unwired-dev/product/issues/820). The editor says so and
+  leaves the Draft unchanged.
+- **Failures.** If the page stops, the editor says so, clears assistance previews and
+  keeps saved changes. Callbacks from a stopped or closed page cannot submit edits
+  or accept results. Close the Draft and reopen it to resume editing.
 - **Account.** Drafts belong to the signed-in Product Account. Locked or unavailable
   Draft storage shows the current composer's **Drafts are locked** and **Try again**.
+
+## Formatting and history
+
+The body edits the current [Semantic Message Document](drafts.md#composing):
+paragraphs, headings one to three, bulleted and numbered lists, quotes and code
+blocks, with bold, italic, underline, strikethrough and inline code. Its rules are
+the current composer's:
+
+- **Toolbar.** **Undo**, **Redo**, the five marks and the seven block kinds, then
+  **Translate**, **Rewrite** and **Suggest reply** while
+  [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is on.
+  The toolbar appears once the page reports that it has loaded, so no command or
+  accepted result can reach a page that cannot apply it. Each press is one command
+  to the page. A mark applies to the selection, or to the
+  next typed text at the caret until the caret moves. A block kind applies to every
+  selected block, and returns them to paragraphs when they all have it. The page
+  reports the marks and block kind at the selection, which the toolbar shows as
+  selected.
+- **Markdown shortcuts.** `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three
+  backticks at the start of a paragraph apply that block kind and remove the marker;
+  one **Undo** restores the literal marker. Return continues a list, quote or code
+  block, including an empty list item or quote line; deleting into a list marker turns
+  the item into a paragraph. Inline Markdown
+  such as `**bold**` is not a shortcut, as in the current composer.
+- **Undo and Redo.** One step per activation, a word of typing at a time; a space
+  and every other edit are steps of their own. Repeated commands before the host
+  redraws each advance the history. Command-Z and Shift-Command-Z on Mac, and the
+  page's other Tiptap keyboard shortcuts, act in the page.
+- **Assistance.** [Draft rewrites, reply suggestions](draft-assistance.md) and
+  [Draft translation](message-translation.md) capture the selection or body the page
+  last reported, through the same capture rules and review panels as the current
+  composer. On iPhone and iPad, choosing one ends editing in the page so the software
+  keyboard does not cover the review panel; the selection is kept. An accepted
+  result replaces exactly the captured text in the page as
+  one edit that one **Undo** reverts and **Redo** restores; surrounding formatting is
+  kept. A result for an earlier body revision is never applied: any edit retires the
+  capture, and the page refuses a replacement computed from another revision.
+- **Paste.** Pasted HTML keeps only supported meaning: headings one to three,
+  paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
+  styled text become paragraphs; a heading or code inside a quote or list item
+  becomes that quote line or item; nested lists become items of their own; a pasted
+  numbered list counts from one; links keep their text without the destination;
+  images, styles, colors and sizes are dropped; and multi-line code becomes one code
+  line per line. Plain text becomes one paragraph per line. Nothing else reaches
+  the stored document.
+
+### Semantic mismatches
+
+The current Semantic Message Document cannot store link destinations, so this
+editor offers no link authoring and pasted links retain only their text.
+[#878](https://github.com/unwired-dev/product/issues/878) owns link support for both
+composers and blocks the adoption decision in #823.
+
+Return in code always starts another code line; use **Code block** to return the
+selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
+for inline code and Command-Option-1 for a heading, also work in the page.
 
 ## Isolation
 
@@ -76,13 +133,16 @@ not distributed.
 | --------------------------------------------------------------------------------------------------- | ------- | ------- | ---------------------- |
 | `@tiptap/core`                                                                                      | 3.31.4  | MIT     | Editor                 |
 | `@tiptap/pm`                                                                                        | 3.31.4  | MIT     | ProseMirror re-exports |
-| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.31.4  | MIT     | Plain-paragraph schema |
+| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.31.4  | MIT     | Document schema        |
+| `@tiptap/extension-heading`, `-list`, `-blockquote`                                                 | 3.31.4  | MIT     | Block kinds            |
+| `@tiptap/extension-bold`, `-italic`, `-underline`, `-strike`, `-code`                               | 3.31.4  | MIT     | Marks                  |
 | `@tiptap/extensions`                                                                                | 3.31.4  | MIT     | Undo and Redo          |
 | `prosemirror-model`, `-state`, `-view`, `-transform`, `-history`, `-keymap`, `-commands` and others | 1.x–2.x | MIT     | Through `@tiptap/pm`   |
 | `esbuild`                                                                                           | 0.28.2  | MIT     | Builds the page        |
 | `happy-dom`                                                                                         | 20.14.5 | MIT     | Page tests in Vitest   |
 
-The packaged page is about 309 KB, including Tiptap, ProseMirror and the bridge.
+The packaged page is about 351 KB, including Tiptap, ProseMirror and the bridge
+(309 KB with plain paragraphs only).
 
 **TenTap was not used.** The evaluated host adapter is the existing patched
 `react-native-webview` 13.16.1 on both hosts.
@@ -116,10 +176,17 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 ```
 
 Metro builds the page when it loads its configuration for this scenario. Each
-journey signs in, starts **New Message**, types a paragraph into the page, waits for
+journey signs in, turns on on-device assistance (this build's model and Translation
+are synthetic), starts **New Message**, types a paragraph into the page, waits for
 **Saved on this device**, rotates the device (iPhone, iPad) or narrows the window
-(Mac), closes the Draft, relaunches and reopens it. The mobile journey attaches screenshots to the
-XCTest results; the Mac journey records its assertions when signing permits execution.
+(Mac), then formats the paragraph and steps **Undo** and **Redo**. It relaunches and
+reopens this formatted Draft, checks bold and numbered-list selection state, then
+accepts selected-text and whole-body rewrites, selected-text translation, and a
+reply suggestion. Each operation checks the complete visible authored text after
+one **Undo** and **Redo**, and relaunches to reopen both its undone and accepted
+states. The Mac journey also uses Command-B, Command-Z and Shift-Command-Z. The
+mobile journey attaches screenshots to the XCTest results; the Mac journey records
+its assertions when signing permits execution.
 
 Shared and component checks:
 
@@ -190,6 +257,64 @@ failed with `pathname contains null byte` on both setup attempts
 host still has no development signing identity, so the signed Mac journey remains
 outstanding.
 
+### Formatting fidelity (#819)
+
+Page tests run the real Tiptap configuration in `happy-dom`. They round-trip every
+ordered pair of block kinds, empty and with mixed marks and Unicode, through open,
+edit and post; match every textblock's display offsets to the current composer's,
+including list markers and numbering; apply marks to selections and to the next typed
+text; set and clear block kinds; apply each Markdown shortcut and restore its literal
+marker with one Undo; step Undo and Redo a word at a time, once per command; continue
+lists, quotes and code with Return; enforce the paste policy; and apply a revision-
+guarded replacement as one undoable edit. Component journeys on both hosts drive the
+toolbar, rewrite, reply suggestion and translation through the Draft store and the
+page bridge with the synthetic assistance and translation providers, and retire a
+capture when the body changes.
+
+The reply component journeys also populate To, Cc, Bcc, subject, quoted
+correspondence and reply threading, accept the page's body update, close and load a
+fresh Draft store, and compare the saved Draft with those fields unchanged. Their
+storage boundary is substituted; they do not inspect those hidden fields in the
+native evaluation UI.
+
+Native execution on 2026-10-11, same host and toolchain as above, Release build with
+Hermes: the iPhone 18 Pro and iPad Pro 11-inch (M5) simulator journeys passed
+(`Executed 1 test, with 0 failures` on each) in fresh task-owned simulators, with
+screenshots and result bundles in `artifacts/expo-bootstrap/native-db9UIL/`. Each
+journey turned on on-device assistance, typed and rotated, made the paragraph bold
+and a numbered list, stepped **Undo** and **Redo**, then relaunched and reopened the
+Draft with its marks and block kind shown as selected. For a rewrite of a selection,
+a rewrite of the whole body, a German translation of a selection and a reply
+suggestion in a **Reply** Draft, it accepted the result, reverted it with one **Undo**,
+and relaunched and reopened the undone body; then it accepted the result again,
+reverted and restored it with one **Undo** and **Redo**, and relaunched and reopened
+the accepted body. Each reopened body matched the page's text before closing. The
+model and Translation results are this build's synthetic ones; they show the bridge
+and the edit, not Apple's models.
+
+The second review added expected result text and explicit Bold and numbered-list
+state assertions after each assistance Apply, Undo, Redo and reopening, including
+the non-list Reply body. The final source passed on fresh iPhone 18 Pro and iPad Pro
+11-inch (M5) simulators with the same Release/Hermes app (`Executed 1 test, with 0
+failures` and zero skips on each): `artifacts/expo-bootstrap/native-o61Jt7/`. The
+first revised run failed while reopening: the editor was visible but its WebKit page
+was not ready, and the retry tapped an Inbox row that was no longer visible. The
+retry now taps only while the editor is absent, using the existing wait budget; the
+subsequent full run passed. The failed run is retained in
+`artifacts/expo-bootstrap/native-pcgL4O/` and does not qualify the journey.
+
+Earlier runs of the journey found two defects that are now fixed: the review panel
+sat under the software keyboard on iPhone, and a result accepted before the page had
+loaded was dropped. Other earlier runs failed on test synchronization (taps during
+layout or list changes after launch, selections and Draft-row targeting, since
+corrected in the journey), on host load (load average up to about 200 from other
+jobs) and once on a reboot; those runs are in `artifacts/expo-bootstrap/native-*` and
+are not evidence.
+
+The earlier Mac `Testing` build succeeded with the page in its bundle. The updated
+journey (both rewrite scopes, translation, reply suggestions, and undone/accepted
+reopening) type-checks; it was not run, for the signing reason above.
+
 Outstanding before any adoption decision: the Mac native journey with a signed
 mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
@@ -210,3 +335,9 @@ The Mac remains **unproven**, not failed: its build and bundle checks pass, but
 its native journey needs a signed mock profile. Run it before Mac-dependent
 evaluation work treats the Mac host as feasible. This finding is not an adoption
 recommendation; that is #823.
+
+**#819 finding.** The current block kinds and marks pass the page and host checks
+above. Link editing remains deferred to #878, Mac native formatting remains
+unproven, and iPhone/iPad simulator text, history and the exercised post-assistance
+formatting assertions have passing evidence. This does not approve adoption; #823
+owns that decision.

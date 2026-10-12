@@ -1,8 +1,11 @@
 import type { PaletteCommand } from '@private-email/mail-core/command-palette';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import {
   createMockRegistrationSession,
   syntheticMailboxes,
@@ -12,6 +15,8 @@ import { use } from 'react';
 import { Pressable, Text } from 'react-native';
 
 import { CommandPalette, Commands } from '../src/command-palette.tsx';
+import { Inbox } from '../src/inbox.tsx';
+import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 
 function Harness({
@@ -61,6 +66,87 @@ function MailboxCommands() {
 }
 
 describe('command palette interactions', () => {
+  it('returns from an IMAP folder to Inbox while opening and cancelling preserve the folder', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Incoming IMAP message' });
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Archived IMAP message' });
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'imap-connection';
+    const registration = createRegistration({
+      ...session.native,
+      restore: () =>
+        Promise.resolve({
+          kind: 'connected',
+          productAccountId: 'synthetic-product-account',
+          signInProvider: 'google',
+          privateSync: 'ready',
+          mailboxes: JSON.stringify([
+            {
+              id: connection,
+              address: 'alex@example.invalid',
+              state: 'connected',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
+            },
+          ]),
+        }),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      registration,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    try {
+      await render(
+        <CommandPalette>
+          <RegistrationGate
+            store={registration}
+            preview={false}>
+            <InboxProvider mailboxes={mailboxes}>
+              <Inbox
+                onSelect={() => undefined}
+                selected={undefined}
+              />
+            </InboxProvider>
+          </RegistrationGate>
+        </CommandPalette>,
+      );
+      await screen.findByText('Incoming IMAP message');
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      await screen.findByText('Archived IMAP message');
+      const open = () =>
+        fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+          nativeEvent: { key: 'open' },
+        });
+      await open();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Cancel commands' }),
+      );
+      expect(screen.getByText('Archived IMAP message')).toBeVisible();
+      await open();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Go to Inbox' }),
+      );
+      await expect(
+        screen.findByText('Incoming IMAP message'),
+      ).resolves.toBeVisible();
+      expect(screen.queryByText('Archived IMAP message')).toBeNull();
+      expect(screen.queryByLabelText('Command Palette')).toBeNull();
+    } finally {
+      await screen.unmount();
+      await registration.deviceRemoved();
+    }
+  });
+
   it('retires a captured mailbox picker when its Product Account locks or is removed', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
