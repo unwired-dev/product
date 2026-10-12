@@ -57,6 +57,10 @@ This adds Graft instructions to `AGENTS.md` and builds the ignored `graft/` cach
 `.worktreeinclude` includes the cache when creating worktrees. Run `graft build`
 to regenerate it when needed.
 
+`.mcp.json` registers Figma's remote MCP server for Claude Code. Approve the
+project server when Claude Code prompts, then run `/mcp`, select `figma`, and
+authenticate with your Figma account.
+
 Turborepo runs the app and backend tasks from the repository root:
 
 | Command                                     | Runs                                                      |
