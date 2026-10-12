@@ -23,7 +23,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
 
-- Expo 57.0.26, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.24.
+- Expo 57.0.28, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.26.
 - Route parameters identify the selected message.
 - Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
 - Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
