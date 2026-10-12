@@ -112,9 +112,10 @@ user-visible change according to them.
   Figma MCP server: the macOS, iPadOS and iOS pages are organized into numbered
   or platform-prefixed sections (for example "2 · Inbox" or "iPhone · Mail"), each
   with Light and Dark frames.
-- Use the shared tokens in `packages/mail-core/src/theme.ts`, which mirror
-  DESIGN.md, and SF Symbols. Do not introduce new colors, type sizes, radii or
-  icon styles.
+- Use DESIGN.md's color, typography, spacing and radius tokens, and SF Symbols.
+  Reuse matching shared tokens in `packages/mail-core/src/theme.ts`; add or
+  update only the tokens needed for the task. Do not invent undocumented values
+  or icon styles.
 - Follow the frames for layout, copy, states and platform behavior on Mac, iPad
   and iPhone. When the design conflicts with a product requirement, or a needed
   state has no frame, send it to the
