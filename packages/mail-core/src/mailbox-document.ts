@@ -41,8 +41,10 @@ const MailboxDocumentSchema = Schema.Struct({
   messages: Schema.Array(GmailMessageSchema),
   // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
   pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
-  // The mailbox's own labels, for labeling and moving.
+  // The mailbox's own labels, for labeling and moving, or its folders for moving.
   labels: Schema.optionalKey(Schema.Array(GmailLabelSchema)),
+  // More folders exist than were listed.
+  labelsLimited: Schema.optionalKey(Schema.Literal(true)),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.
