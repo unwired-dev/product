@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 enum RegistrationError: Error {
@@ -51,6 +50,7 @@ extension RegistrationStore {
     if let error = error as? RegistrationError { return error.code }
     if (error as? PrivateInboxError) == .locked { return "locked" }
     if let error = error as? ImapFailure { return error.code }
+    if let error = error as? SmtpFailure { return error.code }
     return transientMailboxFailure(error) ? "offline" : "unavailable"
   }
 }
@@ -124,57 +124,6 @@ struct GmailRegistrationReceipt: Codable {
   var mailProvider: MailProvider { provider ?? .gmail }
   // The provider account, unique across providers; Product Sync names the descriptor by it.
   var account: String { mailProvider.rawValue + ":" + subject }
-}
-
-// One authorized mailbox on this device. Each keeps its own credential, verification and cache;
-// its provider account identifies it, so adding the same mailbox again repairs it.
-struct MailboxConnection: Codable {
-  // A Gmail refresh credential, or an IMAP connection's password.
-  var credential: Data
-  var receipt: GmailRegistrationReceipt
-  // Present for a Standards-Based Mailbox Connection; its receipt's subject names this account.
-  var imap: ImapAccount? = nil
-  // Gmail refused this mailbox's grant; nothing reaches it until it is authorized again.
-  var authorizationNeeded: Bool?
-  // The synchronized descriptor's epoch this authorization belongs to. A new epoch means the
-  // connection was removed and added again, so an authorization from before that is purged.
-  var epoch: String?
-  // This device has read its descriptor back at `epoch`.
-  var published: Bool?
-  // What this device had last read of the synchronized descriptor when it authorized the
-  // connection: `observed` with `observedEpoch`, nil when there was no descriptor (empty for one
-  // without an epoch). Only a later live descriptor at that known epoch proves no removal since;
-  // absence supplies no incarnation to adopt after relaunch.
-  var observed: Bool?
-  var observedEpoch: String?
-  // The opaque relay route of this connection's Gmail watch, and when Gmail ends that watch, in
-  // milliseconds since 1970.
-  var pushRoute: String?
-  var pushExpiration: Double?
-  var pushVerified: Bool?
-
-  // The opaque identifier JavaScript names this connection by.
-  var id: String { Self.id(receipt) }
-  // A Gmail connection keeps the identifier of connections from before other providers.
-  static func id(_ receipt: GmailRegistrationReceipt) -> String {
-    id(subject: receipt.mailProvider == .gmail ? receipt.subject : receipt.account)
-  }
-  static func id(subject: String) -> String {
-    SHA256.hash(data: Data(("dev.unwired.mailbox-connection\n" + subject).utf8)).prefix(16)
-      .map { String(format: "%02x", $0) }.joined()
-  }
-}
-
-// A removed connection's descriptor still to be marked removed in Product Sync.
-struct MailboxRemoval: Codable {
-  let subject: String
-  let address: String
-  let epoch: String?
-  var provider: MailProvider? = nil
-
-  var receipt: GmailRegistrationReceipt {
-    GmailRegistrationReceipt(subject: subject, address: address, provider: provider)
-  }
 }
 
 struct ProductRegistrationReceipt: Codable {
@@ -383,6 +332,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // Absent where the host has no Microsoft client configured.
   let microsoft: (any MicrosoftMailProvider)?
   let imap: any ImapProvider
+  let smtp: any SmtpProvider
   // Receives the device's previous receipt, whose Product Account a reconnect must reach.
   let connect:
     (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
@@ -419,6 +369,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
     microsoft: (any MicrosoftMailProvider)? = nil, imap: any ImapProvider = SwiftMailImap(),
+    smtp: any SmtpProvider = SwiftMailSmtp(),
     productSync: ProductSyncBackend? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
     transport: BackendTransport? = nil, mailCache: PrivateInboxStore? = nil,
@@ -433,6 +384,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     self.apple = apple
     self.microsoft = microsoft
     self.imap = imap
+    self.smtp = smtp
     self.productSync = productSync
     self.deviceRevoked = deviceRevoked
     self.transport = transport
@@ -477,6 +429,12 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
         // The reviewed endpoint, shown again when its password is entered again; never the password.
         if let imap = connection.imap {
           entry["imap"] = ["host": imap.host, "port": imap.port, "username": imap.username]
+        }
+        if let smtp = connection.smtp {
+          entry["smtp"] = [
+            "host": smtp.host, "port": smtp.port, "security": smtp.startTLS ? "starttls" : "tls",
+            "username": smtp.username,
+          ]
         }
         return entry
       },
@@ -760,7 +718,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
 
   // Adds a verified mailbox as a connection, or repairs the existing one for its account.
   func addConnection(
-    credential: Data, receipt: GmailRegistrationReceipt, imap: ImapAccount? = nil
+    credential: Data, receipt: GmailRegistrationReceipt, imap: ImapAccount? = nil,
+    smtp: SmtpAccount? = nil, smtpCredential: Data? = nil
   ) throws {
     var next = try saved()
     // Mailbox authorization follows admission; a Pending Device holds no mailbox.
@@ -780,8 +739,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     if next.connection(id) == nil {
       next.connections += [
         MailboxConnection(
-          credential: credential, receipt: receipt, imap: imap,
-          epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
+          credential: credential, receipt: receipt, imap: imap, smtp: smtp,
+          smtpCredential: smtpCredential, epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
           observedEpoch: observedEpoch)
       ]
     } else {
@@ -789,6 +748,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
         $0.credential = credential
         $0.receipt = receipt
         $0.authorizationNeeded = nil
+        // Entering an IMAP password again also sets up or renews its sending.
+        if imap != nil {
+          $0.smtp = smtp
+          $0.smtpCredential = smtpCredential
+        }
       }
     }
     // Keep any unanswered removal until its old epoch is fenced in Product Sync.
@@ -821,7 +785,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     guard
       [
         "cancelled", "declined", "gmail-unavailable", "microsoft-unavailable", "interrupted",
-        "unavailable", "imap-refused", "imap-offline", "imap-insecure",
+        "unavailable", "imap-refused", "imap-offline", "imap-insecure", "smtp-refused",
+        "smtp-insecure",
       ].contains(reason)
     else { throw RegistrationError.unavailable }
     var saved = try saved()

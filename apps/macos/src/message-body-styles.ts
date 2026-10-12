@@ -1,39 +1,41 @@
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { StyleSheet } from 'react-native';
 
+import { textStyles } from './theme.ts';
+
 export const styles = StyleSheet.create({
-  body: { gap: spacing.medium, marginTop: spacing.large },
-  paragraph: { fontSize: 17, lineHeight: 28 },
-  secondary: { fontSize: 14, lineHeight: 21 },
+  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
+  body: { gap: spacing.l, marginTop: spacing.xl },
+  paragraph: { ...textStyles.reading.body },
+  secondary: { ...textStyles.body },
   confirm: {
-    gap: spacing.small,
-    padding: spacing.medium,
-    borderRadius: 8,
+    gap: spacing.s,
+    padding: spacing.l,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.large },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   attachments: {
-    gap: spacing.small,
-    paddingTop: spacing.medium,
+    gap: spacing.s,
+    paddingTop: spacing.l,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   attachment: { gap: 2 },
-  attachmentName: { fontSize: 15, fontWeight: '600' },
+  attachmentName: { ...textStyles.bodyEmphasized },
   link: { textDecorationLine: 'underline' },
   linkControl: {
     borderWidth: 2,
-    borderRadius: 4,
+    borderRadius: radius.control,
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.small,
+    paddingHorizontal: spacing.s,
   },
-  notice: { gap: spacing.small },
   rich: { width: '100%', backgroundColor: '#FFFFFF' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
   bar: {
-    paddingHorizontal: spacing.large,
-    paddingVertical: spacing.medium,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.l,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

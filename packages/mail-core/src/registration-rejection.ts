@@ -26,9 +26,11 @@ const CodeSchema = Schema.Literals([
   'profile-changed',
   // A Mail Profile still owns a Mailbox Connection.
   'profile-in-use',
-  // An IMAP server refused the login, or offered no verified TLS.
+  // An IMAP or SMTP server refused the login, or offered no verified TLS.
   'imap-refused',
   'imap-insecure',
+  'smtp-refused',
+  'smtp-insecure',
 ]);
 export type Code = typeof CodeSchema.Type;
 

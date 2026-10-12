@@ -857,10 +857,12 @@ export type OutgoingSend = Readonly<{
   threadId?: string;
 }>;
 
-// What became of a message handed to Gmail: sent, never delivered and safe to try again
-// ('queued'), refused for good ('failed'), or possibly delivered without a confirmed answer.
+// What became of a message handed to its provider: sent, accepted by SMTP with its Sent copy still
+// to file ('accepted'), never delivered and safe to try again ('queued'), refused for good
+// ('failed'), or possibly delivered without a confirmed answer.
 export type SendOutcome =
   | Readonly<{ kind: 'sent'; message?: string }>
+  | Readonly<{ kind: 'accepted' }>
   | Readonly<{ kind: 'queued' | 'failed'; problem: DeliveryProblem }>
   | Readonly<{ kind: 'unknown' }>;
 
@@ -868,11 +870,14 @@ const decodeSent = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ id: GmailId })),
 );
 
-// Native code rejects with 'delivery-unknown' once the request may have reached Gmail; every other
-// rejection happened before it left this device.
+// Native code rejects with 'delivery-unknown' once the request may have reached the provider; every
+// other rejection happened before the provider could accept it.
 const rejectionOutcomes = new Map<string, SendOutcome>([
   ['delivery-unknown', { kind: 'unknown' }],
   ['gmail-unavailable', { kind: 'failed', problem: 'authorization' }],
+  // An SMTP server refused the password, or refused the message for good.
+  ['smtp-refused', { kind: 'failed', problem: 'authorization' }],
+  ['smtp-rejected', { kind: 'failed', problem: 'refused' }],
   ['mailbox-revoked', { kind: 'failed', problem: 'mailbox' }],
   // A mailbox generation refreshed meanwhile, as on returning to the app: nothing left the device,
   // so it waits. A connection that is really gone fails on the next pass, before any handoff.
@@ -881,7 +886,7 @@ const rejectionOutcomes = new Map<string, SendOutcome>([
   ['too-large', { kind: 'failed', problem: 'too-large' }],
   ['locked', { kind: 'queued', problem: 'locked' }],
 ]);
-const sendRejection = (cause: unknown): SendOutcome =>
+export const sendRejection = (cause: unknown): SendOutcome =>
   rejectionOutcomes.get(rejectionCode(cause) ?? '') ?? {
     kind: 'queued',
     problem: 'offline',

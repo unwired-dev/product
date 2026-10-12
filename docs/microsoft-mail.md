@@ -104,9 +104,9 @@ Online search covers every folder of each Microsoft mailbox beside Gmail's.
 Microsoft orders its results by sent time and returns up to 1,000 matches; the
 Inbox lists all returned results newest first.
 
-Sending stays Gmail-only until
-[#636](https://github.com/unwired-dev/product/issues/636): the composer offers only
-Gmail mailboxes as senders.
+Microsoft mail cannot send until
+[#636](https://github.com/unwired-dev/product/issues/636): the composer offers Gmail
+mailboxes and [IMAP connections with SMTP](imap-mailboxes.md#sending) as senders.
 
 ## Credentials
 

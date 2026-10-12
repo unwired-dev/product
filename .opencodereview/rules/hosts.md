@@ -489,6 +489,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
+  in single-line placeholders. Keep "same as incoming if blank" in visible,
+  wrapping text beside each field, including after entry, and retain the field's
+  accessible name. Otherwise narrow layouts truncate the default and entered
+  values hide it. Check both hosts; native captures remain deferred when unavailable.
+
 - Freshness or lifecycle changes in `src/freshness.ts`, host startup, or
   `InboxProvider` checked only against background execution. Verify each affected
   host against `docs/product/privacy-and-sync.md` and ADR 0013 within the issue's

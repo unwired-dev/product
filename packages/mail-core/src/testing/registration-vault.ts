@@ -352,7 +352,7 @@ export function createSyntheticVault(
   const addConnection = (
     record: SavedRecord,
     connection: Pick<Connection, 'provider' | 'subject' | 'address'> &
-      Partial<Pick<Connection, 'imap'>>,
+      Partial<Pick<Connection, 'imap' | 'smtp'>>,
   ) => {
     const { vault } = device.productSync;
     const sync = backend.productSync;
@@ -385,6 +385,16 @@ export function createSyntheticVault(
       imap.refusedUsernames.includes(username)
     ) {
       throw Object.assign(new Error('Synthetic'), { code: 'imap-refused' });
+    }
+  };
+  // A login at its SMTP server, verified on its own after the IMAP login.
+  const loginSmtp = (username: string, password: string) => {
+    imap.smtp.logins.push(username);
+    if (imap.smtp.outcome !== undefined) {
+      throw Object.assign(new Error('Synthetic'), { code: imap.smtp.outcome });
+    }
+    if (password !== (imap.smtp.password ?? imap.password)) {
+      throw Object.assign(new Error('Synthetic'), { code: 'smtp-refused' });
     }
   };
 
@@ -445,6 +455,9 @@ export function createSyntheticVault(
                       username: connection.imap.username,
                     },
                   }),
+              ...(connection.smtp === undefined
+                ? {}
+                : { smtp: connection.smtp }),
               authorizationNeeded: connection.authorizationNeeded === true,
               access: accessOf(id),
             };
@@ -657,6 +670,13 @@ export function createSyntheticVault(
           throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
         }
         loginImap(setup.username, setup.password);
+        loginSmtp(setup.smtp.username, setup.smtp.password ?? setup.password);
+        const smtp = {
+          host: setup.smtp.host.toLowerCase(),
+          port: setup.smtp.port,
+          security: setup.smtp.security,
+          username: setup.smtp.username,
+        };
         const host = setup.host.toLowerCase();
         const subject = `${host}:${setup.port}:${setup.username}`;
         const id = connectionId('imap', subject, setup.address);
@@ -676,9 +696,11 @@ export function createSyntheticVault(
             subject,
             address: setup.address,
             imap: endpoint,
+            smtp,
           });
         } else {
           existing.imap = endpoint;
+          existing.smtp = smtp;
           existing.address = setup.address;
           delete existing.authorizationNeeded;
         }

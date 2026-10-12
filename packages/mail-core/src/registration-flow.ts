@@ -94,6 +94,8 @@ const refusals: ReadonlySet<Code> = new Set([
 const imapSetupReasons: Partial<Record<Code, SetupReason>> = {
   'imap-refused': 'imap-refused',
   'imap-insecure': 'imap-insecure',
+  'smtp-refused': 'smtp-refused',
+  'smtp-insecure': 'smtp-insecure',
 };
 
 const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
@@ -120,6 +122,7 @@ const mailboxList = (value: RegistrationRecord) => {
         ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
         id: mailbox.id,
         ...(mailbox.imap === undefined ? {} : { imap: mailbox.imap }),
+        ...(mailbox.smtp === undefined ? {} : { smtp: mailbox.smtp }),
         state: mailboxState(mailbox),
         ...(profile === undefined ? {} : { profile }),
       };

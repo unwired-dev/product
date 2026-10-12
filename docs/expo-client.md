@@ -9,9 +9,9 @@ messages with [native encrypted read-state persistence](private-inbox-storage.md
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
 Product Sign-In, each followed by a choice of Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an [IMAP mailbox](imap-mailboxes.md).
 Production mailboxes use [Gmail synchronization](gmail-inbox.md), the
-[Microsoft Inbox](microsoft-mail.md) or receive-only
-[IMAP synchronization](imap-mailboxes.md#synchronization); sending is a
-later slice outside Gmail. The existing Convex backend
+[Microsoft Inbox](microsoft-mail.md) or
+[IMAP synchronization](imap-mailboxes.md#synchronization); Gmail and IMAP connections
+send, and Microsoft sending is a later slice. The existing Convex backend
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
@@ -102,7 +102,8 @@ through Turborepo.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
 after changing native dependencies or app configuration. Keep native changes in
-config plugins. The bundle ID is `dev.unwired.mail`, the version comes from
+config plugins. The design plugin compiles `native/design`, the SF Symbol and
+Liquid Glass views the Mac host shares. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in
 `native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
 [`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):

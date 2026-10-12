@@ -7,6 +7,7 @@
     "scripts/oxlint-effect-policy.ts",
     // The hosted native integration runner launches this protocol fixture.
     "native/private-inbox/integration/imap-server.mjs",
+    "native/private-inbox/integration/smtp-server.mjs",
     // Metro selects these modules at build time, outside the static import graph.
     "scripts/mock-mail-build.cjs",
     "packages/mail-core/src/testing/open-read-relaunch.ts",

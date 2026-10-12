@@ -224,17 +224,9 @@ extension RegistrationStore {
   // Gmail's largest message through its messages.send upload.
   static let gmailMessageLimit = 35 * 1024 * 1024
 
-  // The one Gmail send: a message TypeScript composed as ASCII text, with each named Draft Asset's
-  // verified bytes inserted here as base64 lines, so an asset's bytes never cross the bridge. Any
-  // failure once the request starts may follow Gmail accepting the message: deliveryUnknown.
-  func gmailSend(
-    segments: [Any], threadId: String?, connection: String, address: String, generation: String
-  ) async throws -> [String: Any] {
-    let owner = try mailboxAccount(connection).productAccountId
-    guard
-      threadId?.range(of: "^[0-9A-Za-z]{1,100}$", options: .regularExpression) != nil
-        || threadId == nil
-    else { throw RegistrationError.unavailable }
+  // A message TypeScript composed as ASCII text, with each named Draft Asset's verified bytes
+  // inserted here as base64 lines, so an asset's bytes never cross the bridge.
+  func outgoingMessage(segments: [Any], owner: String) async throws -> Data {
     var message = Data()
     for segment in segments {
       let segment = segment as? [String: Any]
@@ -262,6 +254,20 @@ extension RegistrationStore {
       }
       guard message.count <= Self.gmailMessageLimit else { throw PrivateInboxError.tooLarge }
     }
+    return message
+  }
+
+  // The one Gmail send. Any failure once the request starts may follow Gmail accepting the
+  // message: deliveryUnknown.
+  func gmailSend(
+    segments: [Any], threadId: String?, connection: String, address: String, generation: String
+  ) async throws -> [String: Any] {
+    let owner = try mailboxAccount(connection).productAccountId
+    guard
+      threadId?.range(of: "^[0-9A-Za-z]{1,100}$", options: .regularExpression) != nil
+        || threadId == nil
+    else { throw RegistrationError.unavailable }
+    let message = try await outgoingMessage(segments: segments, owner: owner)
     // Gmail's multipart upload: the thread to join, then the message.
     let boundary = "unwired-upload-" + UUID().uuidString
     var body = Data(

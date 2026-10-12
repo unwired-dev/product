@@ -671,11 +671,19 @@ final class UnwiredRegistration: NSObject {
     perform("connectImap", resolve, reject: reject) {
       guard let address = setup["address"] as? String, let host = setup["host"] as? String,
         let port = (setup["port"] as? Double).flatMap({ Int(exactly: $0) }),
-        let username = setup["username"] as? String, let password = setup["password"] as? String
+        let username = setup["username"] as? String, let password = setup["password"] as? String,
+        let smtp = setup["smtp"] as? [String: Any], let smtpHost = smtp["host"] as? String,
+        let smtpPort = (smtp["port"] as? Double).flatMap({ Int(exactly: $0) }),
+        let security = smtp["security"] as? String, ["tls", "starttls"].contains(security),
+        let smtpUsername = smtp["username"] as? String,
+        smtp["password"] == nil || smtp["password"] is String
       else { throw RegistrationError.unavailable }
       return try await $0.connectImap(
         address: address, account: ImapAccount(host: host, port: port, username: username),
-        password: password)
+        password: password,
+        smtp: SmtpAccount(
+          host: smtpHost, port: smtpPort, startTLS: security == "starttls", username: smtpUsername),
+        smtpPassword: smtp["password"] as? String)
     }
   }
   @objc(verifyImap:resolver:rejecter:)
@@ -917,6 +925,8 @@ extension UnwiredRegistration {
       reject("key-rotation-required", "Private sync moved to newer keys.", nil)
     case let error as ImapFailure:
       reject(error.code, "The mail server could not be read.", nil)
+    case let error as SmtpFailure:
+      reject(error.code, "The outgoing mail server did not take the message.", nil)
     default:
       logger.error("\(name, privacy: .public) failed: unavailable")
       reject("unavailable", "Gmail could not be reached.", nil)
@@ -1145,6 +1155,59 @@ extension UnwiredRegistration {
       return try await $0.gmailSend(
         segments: segments, threadId: message["threadId"] as? String, connection: connection,
         address: address, generation: generation)
+    }
+  }
+
+  // `message` carries `segments` as for gmailSend, and its envelope `recipients`. Not cancellable:
+  // once started, its outcome may only be unknown.
+  @objc(imapSend:mailbox:resolver:rejecter:)
+  func imapSend(
+    _ message: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapSend", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let segments = message["segments"] as? [Any],
+        let recipients = message["recipients"] as? [String]
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapSend(
+        segments: segments, recipients: recipients, connection: connection, address: address,
+        generation: generation)
+    }
+  }
+
+  // `request` names the Sent `folder`, the message's MIME `boundary` and, to file it, `segments`.
+  @objc(imapFileSent:request:resolver:rejecter:)
+  func imapFileSent(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapFileSent", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let boundary = request["boundary"] as? String,
+        let segments = request["segments"] as? [Any]
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapFileSent(
+        segments: segments, folder: folder, boundary: boundary, connection: connection,
+        address: address, generation: generation)
+    }
+  }
+
+  @objc(imapFindSent:request:resolver:rejecter:)
+  func imapFindSent(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    ungatedMailbox("imapFindSent", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let boundary = request["boundary"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapFindSent(
+        folder: folder, boundary: boundary, connection: connection, address: address,
+        generation: generation)
     }
   }
 

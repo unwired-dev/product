@@ -5,37 +5,37 @@ import type {
 } from '@private-email/mail-core/drafts';
 
 import { draftSummary } from '@private-email/mail-core/drafts';
-import { spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { use, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './composer.tsx';
 import { useLocalization } from './localization.ts';
 import { useOutbox } from './mailbox.tsx';
-import { usePalette } from './theme.ts';
+import { AccountContext } from './registration-gate.tsx';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   section: {
-    fontSize: 13,
-    fontWeight: '600',
-    paddingHorizontal: spacing.large,
-    paddingTop: spacing.small,
+    ...textStyles.bodyEmphasized,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.s,
   },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.small,
-    marginHorizontal: spacing.small,
+    gap: spacing.s,
+    marginHorizontal: spacing.s,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: radius.row,
     borderCurve: 'continuous',
   },
   grow: { flex: 1, gap: 4 },
-  subject: { fontSize: 15, fontWeight: '500' },
-  detail: { fontSize: 13 },
+  subject: { ...textStyles.body },
+  detail: { ...textStyles.body },
   recovery: { flexBasis: '100%', gap: 4 },
-  actions: { flexDirection: 'row', gap: spacing.small },
+  actions: { flexDirection: 'row', gap: spacing.s },
 });
 
 // Why a message waits or was refused, as the person reads it.
@@ -49,27 +49,68 @@ const problems = {
   assets: 'outbox.failed.assets',
   'too-large': 'outbox.failed.too-large',
   refused: 'outbox.failed.refused',
+  'sent-folder': 'outbox.failed.sent-folder',
 } as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// The same reasons for a message sent through an IMAP connection's mail server, where the copy
+// above names Gmail.
+const serverProblems = {
+  ...problems,
+  offline: 'outbox.queued.offline_imap',
+  authorization: 'outbox.failed.authorization_imap',
+  'too-large': 'outbox.failed.too-large_imap',
+  refused: 'outbox.failed.refused_imap',
+} as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// Why an accepted message's Sent copy still waits.
+const filing: Readonly<
+  Partial<
+    Record<
+      DeliveryProblem,
+      `outbox.filing.${'offline' | 'locked' | 'authorization' | 'sent-folder'}`
+    >
+  >
+> = {
+  offline: 'outbox.filing.offline',
+  locked: 'outbox.filing.locked',
+  authorization: 'outbox.filing.authorization',
+  'sent-folder': 'outbox.filing.sent-folder',
+};
 
 // Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
-// refused and why, or handed to Gmail without a confirmed outcome.
-const statusOf = (t: Translate, { state, problem }: OutboxEntry) => {
+// sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
+// outcome.
+const statusOf = (
+  t: Translate,
+  { state, problem }: OutboxEntry,
+  imap: boolean,
+) => {
+  if (state === 'filing') {
+    return t(
+      (problem === undefined ? undefined : filing[problem]) ??
+        'outbox.state.filing',
+    );
+  }
   if ((state === 'queued' || state === 'failed') && problem !== undefined) {
-    return t(problems[problem]);
+    return t((imap ? serverProblems : problems)[problem]);
   }
   if (state === 'failed') {
-    return t('outbox.failed.refused');
+    return t(imap ? 'outbox.failed.refused_imap' : 'outbox.failed.refused');
+  }
+  if (state === 'unknown') {
+    return t(imap ? 'outbox.state.unknown_imap' : 'outbox.state.unknown');
   }
   return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
 };
 
-// The way out of an unknown outcome: ask Gmail again, or, after a warning that Gmail may already
-// have sent it, return the message to the Drafts to send again deliberately.
+// The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
+// provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
   id,
+  imap,
   onEdit,
 }: {
   readonly id: string;
+  // Sent through an IMAP connection's mail server rather than Gmail.
+  readonly imap: boolean;
   readonly onEdit: () => void;
 }) {
   const outbox = useOutbox();
@@ -80,7 +121,7 @@ function UnknownRecovery({
   >('idle');
   const notice =
     step === 'unconfirmed' || step === 'confirming'
-      ? t(`outbox.unknown.${step}`)
+      ? t(imap ? `outbox.unknown.${step}_imap` : `outbox.unknown.${step}`)
       : undefined;
   return (
     <View style={styles.recovery}>
@@ -89,7 +130,7 @@ function UnknownRecovery({
           accessible
           accessibilityLabel={notice}
           accessibilityLiveRegion="polite">
-          <Text style={[styles.detail, { color: colors.secondary }]}>
+          <Text style={[styles.detail, { color: colors.textSecondary }]}>
             {notice}
           </Text>
         </View>
@@ -151,7 +192,11 @@ export function OutboxRow({
   const colors = usePalette();
   const { t } = useLocalization();
   const { subject, recipients } = draftSummary(t, entry.draft);
-  const status = statusOf(t, entry);
+  const imap =
+    use(AccountContext)?.mailboxes.find(
+      ({ id }) => id === entry.draft.connection,
+    )?.provider === 'imap';
+  const status = statusOf(t, entry, imap);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
@@ -162,7 +207,7 @@ export function OutboxRow({
     })();
   };
   return (
-    <View style={[styles.row, { backgroundColor: colors.sidebar }]}>
+    <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
       <View
         accessible
         accessibilityLabel={t('outbox.rowLabel', {
@@ -173,21 +218,23 @@ export function OutboxRow({
         style={styles.grow}>
         <Text
           numberOfLines={1}
-          style={[styles.subject, { color: colors.foreground }]}>
+          style={[styles.subject, { color: colors.textPrimary }]}>
           {subject}
         </Text>
         <Text
           numberOfLines={1}
-          style={[styles.detail, { color: colors.secondary }]}>
+          style={[styles.detail, { color: colors.textSecondary }]}>
           {recipients}
         </Text>
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.detail, { color: colors.secondary }]}>
+          style={[styles.detail, { color: colors.textSecondary }]}>
           {status}
         </Text>
       </View>
-      {entry.state === 'sending' || entry.state === 'unknown' ? null : (
+      {entry.state === 'sending' ||
+      entry.state === 'filing' ||
+      entry.state === 'unknown' ? null : (
         <Action
           label={t(`outbox.${returning}`)}
           onPress={edit}
@@ -196,6 +243,7 @@ export function OutboxRow({
       {entry.state === 'unknown' ? (
         <UnknownRecovery
           id={entry.id}
+          imap={imap}
           onEdit={edit}
         />
       ) : null}
@@ -211,7 +259,7 @@ export function OutboxHeading() {
       accessible
       accessibilityLabel={t('outbox.heading')}
       accessibilityRole="header">
-      <Text style={[styles.section, { color: colors.secondary }]}>
+      <Text style={[styles.section, { color: colors.textSecondary }]}>
         {t('outbox.heading')}
       </Text>
     </View>

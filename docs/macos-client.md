@@ -8,9 +8,9 @@ with AppKit windows and React Native macOS views. It reads the same synthetic
 mailbox as Expo through `@private-email/mail-core`, with
 [native encrypted read-state persistence](private-inbox-storage.md). Production
 registration now creates a Convex Product Account. Production mailboxes use [Gmail synchronization](gmail-inbox.md), the
-[Microsoft Inbox](microsoft-mail.md) or receive-only
+[Microsoft Inbox](microsoft-mail.md) or
 [IMAP synchronization](imap-mailboxes.md#synchronization) through the native adapter;
-sending is a later slice outside Gmail.
+Gmail and IMAP connections send, and Microsoft sending is a later slice.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
 registration; the first mailbox is chosen separately: Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an IMAP login. Either sign-in can later be [linked](linked-sign-in.md)
@@ -37,6 +37,8 @@ reader, and its Podfile declares only the `GoogleSignIn` pod. Private Inbox link
 reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
+The generated project also compiles `native/design`, the first-party SF Symbol and
+Liquid Glass views shared with the iPhone/iPad host.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window owns its selected message. Opening another starts with no selection.

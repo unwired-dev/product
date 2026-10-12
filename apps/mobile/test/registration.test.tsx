@@ -137,106 +137,166 @@ const noEnrollment = {
 };
 
 describe('product registration', () => {
-  it('re-enters an IMAP password from its Inbox refusal without relaunching', async () => {
-    expect.hasAssertions();
-    const imap = createSyntheticImap();
-    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
-    imap.addFolder('Archive');
-    imap.deliver('Archive', { subject: 'Private archived message' });
-    const session = createMockRegistrationSession('registration-success');
-    const connection = 'imap-connection';
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        {
-          id: connection,
-          address: 'alex@example.invalid',
-          state: 'connected',
-          provider: 'imap',
-          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
+  it.each([
+    {
+      host: 'imap.example.invalid',
+      saved: {},
+      smtpPassword: '',
+      sendingPassword: {},
+      canConnect: false,
+    },
+    {
+      host: 'imap.fastmail.com',
+      saved: {
+        smtp: {
+          host: 'smtp.example.invalid',
+          port: 465,
+          security: 'tls',
+          username: 'alex',
         },
-      ]),
-      privateSync: 'ready',
-    } as const;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(connected),
-      connectImap: () => {
-        imap.server.failure = undefined;
-        return Promise.resolve(connected);
       },
-    });
-    const connections = createMailboxes(
-      syntheticConnections({}, { [connection]: imap.native }),
-      store,
-    );
-    const mailboxes = {
-      ...connections,
-      getSnapshot: connections.getConnections,
-    };
-    await render(
-      <RegistrationGate
-        store={store}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <Inbox
-            onSelect={() => undefined}
-            selected={undefined}
-          />
-        </InboxProvider>
-      </RegistrationGate>,
-    );
-    await expect(
-      screen.findByText('Saved IMAP message'),
-    ).resolves.toBeVisible();
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
-    });
-    await expect(
-      screen.findByText('Private archived message'),
-    ).resolves.toBeVisible();
-    imap.server.failure = 'locked';
-    await act(async () => {
-      await mailboxes.load();
-    });
-    expect(screen.queryByText('Private archived message')).toBeNull();
-    imap.server.failure = undefined;
-    await act(async () => {
-      await mailboxes.load();
-    });
-    await expect(
-      screen.findByText('Private archived message'),
-    ).resolves.toBeVisible();
-    imap.server.failure = 'gmail-unavailable';
-    await act(async () => {
-      await mailboxes.load();
-    });
-    const repair = 'Enter the password for alex@example.invalid again';
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: repair }));
-    });
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: repair }));
-    });
-    await fireEvent.changeText(
-      screen.getByLabelText('Password'),
-      'replacement-password',
-    );
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
-    });
-    expect({
-      failure: store.getSnapshot().imapFailure,
-      password: screen.queryByLabelText('Password'),
-      state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
-    }).toStrictEqual({
-      failure: undefined,
-      password: null,
-      state: 'connected',
-    });
-  });
+      smtpPassword: 'separate-smtp-password',
+      sendingPassword: { password: 'separate-smtp-password' },
+      canConnect: true,
+    },
+  ])(
+    'repairs $host from its Inbox refusal, retaining separate SMTP setup',
+    async ({
+      host,
+      saved,
+      smtpPassword,
+      sendingPassword,
+      canConnect: expectedConnect,
+    }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+      imap.addFolder('Archive');
+      imap.deliver('Archive', { subject: 'Private archived message' });
+      const session = createMockRegistrationSession('registration-success');
+      const connection = 'imap-connection';
+      const connected = {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: JSON.stringify([
+          {
+            id: connection,
+            address: 'alex@example.invalid',
+            state: 'connected',
+            provider: 'imap',
+            imap: { host, port: 993, username: 'alex' },
+            ...saved,
+          },
+        ]),
+        privateSync: 'ready',
+      } as const;
+      const setups: unknown[] = [];
+      const store = createRegistration({
+        ...session.native,
+        restore: () => Promise.resolve(connected),
+        connectImap: (setup) => {
+          setups.push(setup);
+          imap.server.failure = undefined;
+          return Promise.resolve(connected);
+        },
+      });
+      const connections = createMailboxes(
+        syntheticConnections({}, { [connection]: imap.native }),
+        store,
+      );
+      const mailboxes = {
+        ...connections,
+        getSnapshot: connections.getConnections,
+      };
+      await render(
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Inbox
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>,
+      );
+      await expect(
+        screen.findByText('Saved IMAP message'),
+      ).resolves.toBeVisible();
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      });
+      await expect(
+        screen.findByText('Private archived message'),
+      ).resolves.toBeVisible();
+      imap.server.failure = 'locked';
+      await act(async () => {
+        await mailboxes.load();
+      });
+      expect(screen.queryByText('Private archived message')).toBeNull();
+      imap.server.failure = undefined;
+      await act(async () => {
+        await mailboxes.load();
+      });
+      await expect(
+        screen.findByText('Private archived message'),
+      ).resolves.toBeVisible();
+      imap.server.failure = 'gmail-unavailable';
+      await act(async () => {
+        await mailboxes.load();
+      });
+      const repair = 'Enter the password for alex@example.invalid again';
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: repair }));
+      });
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: repair }));
+      });
+      await fireEvent.changeText(
+        screen.getByLabelText('Password'),
+        'replacement-password',
+      );
+      // A manual server saved before SMTP sets up sending as its password is entered again.
+      const canConnect =
+        screen.queryByRole('button', { name: 'Connect' }) !== null;
+      await fireEvent.changeText(
+        screen.getByLabelText('SMTP server'),
+        'smtp.example.invalid',
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('SMTP password, same as incoming if blank'),
+        smtpPassword,
+      );
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
+      });
+      expect({
+        canConnect,
+        setups,
+        failure: store.getSnapshot().imapFailure,
+        password: screen.queryByLabelText('Password'),
+        state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
+      }).toStrictEqual({
+        canConnect: expectedConnect,
+        setups: [
+          expect.objectContaining({
+            password: 'replacement-password',
+            smtp: {
+              host: 'smtp.example.invalid',
+              port: 465,
+              security: 'tls',
+              username: 'alex',
+              ...sendingPassword,
+            },
+          }),
+        ],
+        failure: undefined,
+        password: null,
+        state: 'connected',
+      });
+    },
+  );
 
   it('labels only INBOX as the Inbox and keeps preset guidance when repairing an iCloud password', async () => {
     expect.hasAssertions();
