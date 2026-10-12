@@ -137,6 +137,18 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     request: Parameters<NativeImapMailbox['imapIdle']>[1],
   ) => Promise<unknown>;
+  readonly imapSend: (
+    message: Parameters<NativeImapMailbox['imapSend']>[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
+  readonly imapFileSent: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapFileSent']>[1],
+  ) => Promise<unknown>;
+  readonly imapFindSent: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapFindSent']>[1],
+  ) => Promise<unknown>;
 }
 
 // One connection's view of the native module: every call names that connection, and only the
@@ -226,6 +238,11 @@ const boundImap = (
     imapSearch: (mailbox, request) =>
       native.imapSearch(scope(mailbox), request),
     imapIdle: (mailbox, request) => native.imapIdle(scope(mailbox), request),
+    imapSend: (message, mailbox) => native.imapSend(message, scope(mailbox)),
+    imapFileSent: (mailbox, request) =>
+      native.imapFileSent(scope(mailbox), request),
+    imapFindSent: (mailbox, request) =>
+      native.imapFindSent(scope(mailbox), request),
     openMailbox: cache.openMailbox,
     commitMailbox: cache.commitMailbox,
     openMessageBody: cache.openMessageBody,

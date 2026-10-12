@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as Vitest from '@effect/vitest';
 import * as Predicate from 'effect/Predicate';
 
+import { imapFields, imapSetup } from '../src/imap-setup.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
@@ -12,6 +13,13 @@ import {
   createSyntheticDevice,
   createSyntheticVault,
 } from '../src/testing/registration-vault.ts';
+
+const smtp = {
+  host: 'smtp.mail.me.com',
+  port: 587,
+  security: 'starttls',
+  username: 'alex@icloud.example.invalid',
+} as const;
 
 describe('decoding IMAP connections and repairing iCloud Mail', () => {
   const projectedImap = {
@@ -67,6 +75,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
       port: 993,
       username: 'alex',
       password: device.imap.password,
+      smtp,
     });
     expect(mailboxesOf(store.getSnapshot().snapshot)).toStrictEqual([
       expect.objectContaining({
@@ -88,6 +97,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
       port: 993,
       username: 'sam',
       password: device.imap.password,
+      smtp,
     });
     expect(device.imap.logins).toBe(logins + 1);
   });
@@ -117,6 +127,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
         port: 993,
         username,
         password: device.imap.password,
+        smtp,
       });
       expect(store.getSnapshot()).toMatchObject({
         snapshot: { kind: 'mailbox-needed', reason: code },
@@ -141,6 +152,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
       port: 993,
       username: 'alex@icloud.example.invalid',
       password: device.imap.password,
+      smtp,
     };
     await store.connectImap(icloud);
     await store.connectImap({ ...icloud, username: 'alex' });
@@ -195,4 +207,137 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     expect(store.getSnapshot().snapshot).not.toHaveProperty('imapConnected');
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('verifies SMTP on its own and adds nothing until it accepts', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const store = createRegistration(
+      createRegistrationFlow(createSyntheticVault(device).vault),
+    );
+    await store.register('google');
+    const setup = {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: device.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 587,
+        security: 'starttls',
+        username: 'alex-smtp',
+      },
+    } as const;
+    device.imap.smtp.outcome = 'smtp-insecure';
+    await store.connectImap(setup);
+    expect(store.getSnapshot().snapshot).toMatchObject({
+      kind: 'mailbox-needed',
+      reason: 'smtp-insecure',
+    });
+    // The SMTP server takes another password than IMAP.
+    device.imap.smtp.outcome = undefined;
+    device.imap.smtp.password = 'smtp-password';
+    await store.connectImap(setup);
+    expect({
+      snapshot: store.getSnapshot().snapshot,
+      connections: device.device.record?.connections,
+    }).toMatchObject({ snapshot: { reason: 'smtp-refused' }, connections: [] });
+    await store.connectImap({
+      ...setup,
+      smtp: { ...setup.smtp, password: 'smtp-password' },
+    });
+    expect({
+      logins: device.imap.smtp.logins,
+      mailboxes: mailboxesOf(store.getSnapshot().snapshot),
+    }).toStrictEqual({
+      logins: ['alex-smtp', 'alex-smtp', 'alex-smtp'],
+      mailboxes: [
+        expect.objectContaining({
+          provider: 'imap',
+          smtp: {
+            host: 'smtp.example.invalid',
+            port: 587,
+            security: 'starttls',
+            username: 'alex-smtp',
+          },
+        }),
+      ],
+    });
+    // Beside a connected mailbox, a refusal changes nothing and is reported in the form.
+    await store.connectImap({ ...setup, username: 'sam' });
+    expect({
+      failure: store.getSnapshot().imapFailure,
+      mailboxes: mailboxesOf(store.getSnapshot().snapshot).length,
+    }).toStrictEqual({ failure: 'smtp-refused', mailboxes: 1 });
+  });
+
+  it('builds reviewed SMTP endpoints from each provider form', () => {
+    expect.hasAssertions();
+    const typed = {
+      ...imapFields(),
+      address: 'alex@example.invalid',
+      password: 'app-password',
+      host: 'imap.example.invalid',
+      smtpHost: 'SMTP.example.invalid',
+    };
+    expect([
+      imapSetup('icloud', typed)?.smtp,
+      imapSetup('fastmail', typed)?.smtp,
+      imapSetup('other', typed)?.smtp,
+      imapSetup('other', { ...typed, smtpPort: '587' })?.smtp,
+      imapSetup('other', {
+        ...typed,
+        smtpPort: '2525',
+        smtpSecurity: 'tls',
+        smtpUsername: 'alex-smtp',
+        smtpPassword: 'smtp-password',
+      })?.smtp,
+      imapSetup('other', { ...typed, smtpHost: '' }),
+    ]).toStrictEqual([
+      {
+        host: 'smtp.mail.me.com',
+        port: 587,
+        security: 'starttls',
+        username: 'alex@example.invalid',
+      },
+      {
+        host: 'smtp.fastmail.com',
+        port: 465,
+        security: 'tls',
+        username: 'alex@example.invalid',
+      },
+      {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex@example.invalid',
+      },
+      {
+        host: 'smtp.example.invalid',
+        port: 587,
+        security: 'starttls',
+        username: 'alex@example.invalid',
+      },
+      {
+        host: 'smtp.example.invalid',
+        port: 2525,
+        security: 'tls',
+        username: 'alex-smtp',
+        password: 'smtp-password',
+      },
+      undefined,
+    ]);
+    // Entering the password of a preset connection saved before SMTP fills in its SMTP endpoint.
+    expect(
+      imapFields({
+        address: 'alex@icloud.example.invalid',
+        imap: { host: 'imap.mail.me.com', port: 993, username: 'alex' },
+      }),
+    ).toMatchObject({
+      smtpHost: 'smtp.mail.me.com',
+      smtpPort: '587',
+      smtpSecurity: 'starttls',
+      smtpUsername: 'alex@icloud.example.invalid',
+    });
+  });
 });

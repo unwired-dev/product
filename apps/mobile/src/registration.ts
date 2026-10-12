@@ -169,6 +169,9 @@ export const gmailMailboxes = createMailboxes(
     imapModify: (mailbox, change) => native().imapModify(mailbox, change),
     imapSearch: (mailbox, request) => native().imapSearch(mailbox, request),
     imapIdle: (mailbox, request) => native().imapIdle(mailbox, request),
+    imapSend: (message, mailbox) => native().imapSend(message, mailbox),
+    imapFileSent: (mailbox, request) => native().imapFileSent(mailbox, request),
+    imapFindSent: (mailbox, request) => native().imapFindSent(mailbox, request),
     commitMailbox: (mailbox, expectedRevision, document) =>
       native().commitMailbox(mailbox, expectedRevision, document),
     openMessageBody: (mailbox, id) => native().openMessageBody(mailbox, id),

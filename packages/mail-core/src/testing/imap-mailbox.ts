@@ -53,6 +53,18 @@ export const syntheticRaw = (subject: string, body: string) =>
     body,
   ].join('\r\n');
 
+// Text segments as sent, with each asset named in place of its bytes.
+const rawOf = (
+  segments: Parameters<NativeImapMailbox['imapSend']>[0]['segments'],
+) =>
+  segments
+    .map((segment) =>
+      'text' in segment ? segment.text : `[asset ${segment.asset.id}]`,
+    )
+    .join('');
+const subjectOf = (raw: string) =>
+  /^Subject: (?<subject>.*)$/mu.exec(raw)?.groups?.subject ?? '';
+
 export function createSyntheticImap({
   address = 'alex@example.invalid',
 }: Readonly<{ address?: string }> = {}) {
@@ -81,6 +93,16 @@ export function createSyntheticImap({
     loseReply: false,
     // Changes the server applied, in order.
     changes: [] as string[],
+  };
+  // The connection's SMTP server: what it accepted, and the code its next submission rejects
+  // with, such as `smtp-refused`, `smtp-rejected`, `offline` or `delivery-unknown`. `lost`
+  // accepts the next submission and loses its reply, as a dropped connection would; `stopped`
+  // accepts it and never answers, as when the app stops meanwhile.
+  const smtp = {
+    accepted: [] as Array<{ raw: string; recipients: readonly string[] }>,
+    failure: undefined as string | undefined,
+    lost: false,
+    stopped: false,
   };
   // IDLE waits in progress; `notify` ends them as a change would.
   const idles: Array<(changed: boolean) => void> = [];
@@ -182,6 +204,72 @@ export function createSyntheticImap({
   };
 
   const native: NativeImapMailbox = {
+    imapSend: (message) => {
+      const { failure } = smtp;
+      smtp.failure = undefined;
+      if (failure !== undefined) {
+        return rejection(failure);
+      }
+      const raw = rawOf(message.segments);
+      const head = raw.slice(0, raw.indexOf('\r\n\r\n'));
+      // Native code leaves the Bcc field, and its folded lines, out of the submitted copy.
+      const submitted =
+        head.replaceAll(/^Bcc:.*\r\n(?:[ \t].*\r\n)*/gmu, '') +
+        raw.slice(head.length);
+      smtp.accepted.push({ raw: submitted, recipients: message.recipients });
+      if (smtp.lost) {
+        smtp.lost = false;
+        return rejection('delivery-unknown');
+      }
+      if (smtp.stopped) {
+        // oxlint-disable-next-line promise/avoid-new -- A submission that never answers.
+        return new Promise<never>(() => {
+          // Never settles.
+        });
+      }
+      return Promise.resolve({ accepted: true });
+    },
+    imapFileSent: (_mailbox, request) => {
+      server.reads.push(`file ${request.folder}`);
+      const failed = reach();
+      if (failed !== undefined) {
+        return failed;
+      }
+      const sent = folders.get(request.folder);
+      if (sent === undefined) {
+        return rejection('imap-missing');
+      }
+      if (sent.messages.some(({ raw }) => raw.includes(request.boundary))) {
+        return Promise.resolve({});
+      }
+      const raw = rawOf(request.segments);
+      sent.messages.push({
+        uid: sent.uidNext,
+        flags: [String.raw`\Seen`],
+        received: Date.UTC(2026, 9, 1, 9, sent.uidNext),
+        sender: 'Alex',
+        address,
+        subject: subjectOf(raw),
+        raw,
+      });
+      sent.uidNext += 1;
+      server.changes.push(`append ${request.folder}`);
+      return answer({});
+    },
+    imapFindSent: (_mailbox, request) => {
+      server.reads.push(`find ${request.folder}`);
+      const failed = reach();
+      if (failed !== undefined) {
+        return failed;
+      }
+      return Promise.resolve({
+        count:
+          folders
+            .get(request.folder)
+            ?.messages.filter(({ raw }) => raw.includes(request.boundary))
+            .length ?? 0,
+      });
+    },
     imapFolders: () => {
       server.reads.push('folders');
       return (
@@ -380,6 +468,7 @@ export function createSyntheticImap({
   return {
     native,
     server,
+    smtp,
     cache,
     bodies,
     // Ends every IDLE wait, as a change to the watched folder or the wait's bound would.

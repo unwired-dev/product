@@ -288,11 +288,13 @@ export function addRecipients(
 
 // Sending identity ------------------------------------------------------------------------------
 
-// The Draft's sending connection on this device: usable, waiting for Gmail authorization, or
-// removed or renamed. Only a usable connection can be chosen as the sender.
+// The Draft's sending connection on this device: usable, waiting for Gmail authorization, an IMAP
+// connection waiting for its password or for sending to be set up, or removed or renamed. Only a
+// usable connection can be chosen as the sender.
 export type SendingState =
   | 'available'
   | 'authorization'
+  | 'password'
   | 'removed'
   | 'renamed';
 
@@ -303,6 +305,12 @@ export const sendingStateOf = (
   const connection = mailboxes.find(({ id }) => id === draft.connection);
   if (connection === undefined) {
     return 'removed';
+  }
+  if (
+    connection.provider === 'imap' &&
+    (connection.state === 'authorization' || connection.smtp === undefined)
+  ) {
+    return 'password';
   }
   if (connection.state === 'authorization') {
     return 'authorization';
@@ -336,9 +344,9 @@ export const profileOf = (
   mailboxes: ReadonlyArray<Pick<MailboxConnection, 'id' | 'profile'>>,
 ) => mailboxes.find(({ id }) => id === connection)?.profile ?? defaultProfile;
 
-// The connections a Draft in `profile` may send from: that Mail Profile's connections whose Gmail
-// access is usable on this device. A Draft never sends from another Profile's connection, and
-// Microsoft mail cannot send yet, so only Gmail connections send.
+// The connections a Draft in `profile` may send from: that Mail Profile's connections whose access
+// is usable on this device. A Draft never sends from another Profile's connection, and Microsoft
+// mail cannot send yet, so Gmail connections and IMAP connections with verified SMTP send.
 export const sendingMailboxes = (
   mailboxes: readonly MailboxConnection[],
   profile: string,
@@ -347,7 +355,8 @@ export const sendingMailboxes = (
     (mailbox) =>
       mailbox.profile === profile &&
       mailbox.state !== 'authorization' &&
-      mailbox.provider === 'gmail',
+      (mailbox.provider === 'gmail' ||
+        (mailbox.provider === 'imap' && mailbox.smtp !== undefined)),
   );
 
 // Files and images ------------------------------------------------------------------------------
@@ -819,13 +828,14 @@ const encodeDocument = (
     ...(sent.length === 0 ? {} : { sent }),
   }).pipe(Effect.mapError(malformed));
 
-// A message handed to Gmail returns to the Drafts only once its outcome is unknown, as the person
-// chooses after a warning.
+// A message handed to its provider returns to the Drafts only once its outcome is unknown, as the
+// person chooses after a warning; one SMTP accepted never returns.
 const restorable = (
   entry: OutboxEntry | undefined,
 ): entry is OutboxEntry & {
   state: 'waiting' | 'queued' | 'failed' | 'unknown';
-} => entry !== undefined && entry.state !== 'sending';
+} =>
+  entry !== undefined && entry.state !== 'sending' && entry.state !== 'filing';
 
 // The confirmed sends kept to tell a repeated outcome from a new one.
 const sentLimit = 20;

@@ -102,8 +102,10 @@ stores, logs or sends them, and passes entered text straight to the native
 operation that uses it. The key ring, keys derived from the Recovery Key,
 enrollment key pairs and the database key never cross.
 
-An entered IMAP password is a separate provider-credential exception. It crosses
-only as transient form text passed directly to the native IMAP operation.
+An entered IMAP or SMTP password is a separate provider-credential exception.
+Issue #631 extends the existing native SwiftMail adapter to credentialed SMTP
+submission and IMAP Sent filing while TypeScript retains Outbox policy. Each
+password crosses only as transient form text passed directly to its native operation.
 TypeScript never persists, logs or sends it elsewhere; native code keeps the
 stored password and never returns it to TypeScript.
 

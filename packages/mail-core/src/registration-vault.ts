@@ -10,7 +10,11 @@ import type {
 } from './registration-replies.ts';
 import type { MailGrantProvider, SignInProvider } from './registration.ts';
 
-import { ImapEndpointSchema, endpointMatchesProvider } from './imap-setup.ts';
+import {
+  ImapEndpointSchema,
+  SmtpEndpointSchema,
+  endpointMatchesProvider,
+} from './imap-setup.ts';
 import { MailProviderSchema } from './registration.ts';
 
 const Provider = Schema.Literals(['google', 'apple']);
@@ -22,10 +26,12 @@ const SetupReasonSchema = Schema.Literals([
   'interrupted',
   'unavailable',
   // An IMAP server refused the user name and password, could not be reached, or offered no
-  // verified TLS.
+  // verified TLS; or its SMTP server refused them or offered no verified TLS.
   'imap-refused',
   'imap-offline',
   'imap-insecure',
+  'smtp-refused',
+  'smtp-insecure',
 ]);
 export type SetupReason = typeof SetupReasonSchema.Type;
 
@@ -120,6 +126,7 @@ export const RegistrationRecordSchema = Schema.Struct({
       address: Schema.NonEmptyString,
       // An IMAP connection's reviewed endpoint; its password never leaves native storage.
       imap: Schema.optionalKey(ImapEndpointSchema),
+      smtp: Schema.optionalKey(SmtpEndpointSchema),
       epoch: Schema.optionalKey(Schema.NonEmptyString),
       authorizationNeeded: Schema.Boolean,
       access: Schema.Literals(['verified', 'cached', 'unverified']),

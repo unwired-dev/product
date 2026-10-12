@@ -346,7 +346,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   const { t } = useLocalization();
   if (
     state.kind !== 'ready' ||
-    !('receiveOnly' in state) ||
+    !('imap' in state) ||
     state.status === 'current'
   ) {
     return null;
@@ -768,11 +768,7 @@ export function Inbox({
     if (state.kind !== 'ready') {
       return [];
     }
-    if (
-      'openFolder' in inbox &&
-      'receiveOnly' in state &&
-      'folder' in message
-    ) {
+    if ('openFolder' in inbox && 'imap' in state && 'folder' in message) {
       return imapQuickActions(t, message, state).map(
         ({ name, label, action }) => ({
           name,

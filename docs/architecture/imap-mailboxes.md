@@ -89,7 +89,7 @@ never dispatches repair reads.
 ## Organizing, search and freshness
 
 [#630](https://github.com/unwired-dev/product/issues/630) adds organization without
-changing credential custody or the reduced receive-only reader. Special-use role
+changing credential custody or the reduced reader. Special-use role
 actions require exactly one selectable destination; ordinary Move to remains an
 explicit folder choice. A pending role action is refused when a refreshed listing
 changes its meaning or makes it ambiguous.
@@ -119,6 +119,40 @@ foreground ownership stops future waits outside active state. Search and bounded
 IDLE release the global registration gate during network waits, retaining native
 credential and generation checks before and after the operation.
 
+## SMTP submission and Sent filing (#631)
+
+`SwiftMailSmtp` uses the pinned SwiftMail engine with mandatory implicit TLS or
+STARTTLS, full certificate verification and a TLS 1.2 minimum. Registration
+verifies IMAP and SMTP independently before saving either endpoint's grant.
+Optional separate SMTP credentials stay in the same device-local Keychain record;
+projections carry only the endpoints. Repair retains the connection identity and
+renews its generation. Older records without SMTP remain receive only until repair.
+
+The #631 decision panel chose to require one unique selectable server-declared
+Sent folder, 3–0; allow a separate SMTP password for manual servers, 2–1; expose
+SSL/TLS versus STARTTLS with port-based defaults until explicitly chosen, 2–1;
+and upgrade existing receive-only connections only after password re-entry and
+SMTP verification, 3–0. These outcomes preserve the originating-device Outbox
+and required atomic Convex admission in ADR 0062 across providers.
+
+The native adapter assembles the frozen MIME segments with verified asset bytes,
+uses the connection address as the SMTP envelope sender, and includes To, Cc and
+Bcc envelope recipients. It removes the Bcc header and continuations only from
+the submitted copy. The Sent copy keeps Bcc and the generated Message-ID.
+SwiftMail's submission-phase retry disposition distinguishes definite refusal
+from possible acceptance; unsafe-to-retry errors remain delivery unknown.
+
+SMTP acceptance advances the durable Outbox to `filing` before APPEND. Only
+filing retries thereafter. Native Sent filing checks current Trusted Device
+revocation proof and connection generation, searches the selected folder's
+Content-Type for the frozen MIME boundary, and appends with Seen only when no
+copy is found. A lost APPEND reply retries the lookup without SMTP resubmission.
+Unknown SMTP outcomes use the same boundary lookup, confirming only exactly one
+copy and never inferring non-delivery from absence. Native lookup uses IMAP HEADER
+substring matching; live preservation and server-created Sent copies still need
+provider qualification. Access-changing lookup/filing failures close or refresh
+the owning shared mailbox presentation, with late replies fenced by its lifetime.
+
 ## Evidence and release limits
 
 The implementation handoff recorded Swift package build/tests, plaintext refusal,
@@ -138,8 +172,8 @@ Native Mock Mail Sessions still reject IMAP connection attempts.
 
 Real iCloud/Fastmail reads require accounts and remain release work in #632. Native
 Mac controlled-TLS reads, complete native IMAP setup/open/relaunch journeys and
-power-user parity remain explicitly unqualified. Receive-only behavior until #631
-and the reduced reader are settled scope, not defects to reverse in this review.
+power-user parity remain explicitly unqualified. Connections saved before #631
+remain receive only until SMTP is verified; the reduced reader remains in scope.
 
 The #630 controlled TLS suite also exercises read/unread STORE, MOVE/COPYUID,
 two-phase UIDPLUS fallback, replay with an absent source, destination-generation
@@ -158,3 +192,12 @@ A direct build of the generated workspace then lacked React and GoogleSignIn mod
 dependencies. This is unavailable final-tree Mac host evidence; earlier host builds
 do not qualify the changed bridge. Native package and hosted iOS adapter evidence
 remain separate from that requirement.
+
+The #631 handoff records a hosted iOS suite with 53 tests, including real
+SwiftMail implicit-TLS/STARTTLS submission and refused/uncertain outcomes, plus
+Sent header search and idempotent APPEND. It also records a successful Testing
+Mac host build compiling the SMTP adapter and bridge, superseding #630's
+unavailable Mac compile evidence for this tree. Shared sending journeys use
+controlled native bridge fixtures rather than wire servers. Real iCloud/Fastmail
+SMTP and Sent filing, native Mac controlled TLS and full native sending journeys
+on iPhone, iPad and Mac remain required release evidence in #632 and #855.

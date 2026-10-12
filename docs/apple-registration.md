@@ -15,8 +15,8 @@ Cancelling or failing mailbox setup retains the Product Account and offers retry
 or another provider. An Inbox requires a verified connection to the selected
 provider and completed setup; it does not require Gmail. Keep pending setup
 resumable across relaunch. Gmail, Microsoft mail and IMAP mailboxes (iCloud Mail,
-Fastmail and manual IMAP) have current entry paths; IMAP mailboxes stay receive only,
-so SMTP sending remains launch work. The evidence below does not claim live-provider
+Fastmail and manual IMAP) have current entry paths; IMAP mailboxes also send through
+SMTP. The evidence below does not claim live-provider
 qualification.
 
 ## Current Gmail implementation

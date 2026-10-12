@@ -150,11 +150,7 @@ function ImapMessageActions({
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
-  if (
-    state.kind !== 'ready' ||
-    !('receiveOnly' in state) ||
-    message === undefined
-  ) {
+  if (state.kind !== 'ready' || !('imap' in state) || message === undefined) {
     return null;
   }
   const act = (action: ImapAction) => {
@@ -357,8 +353,7 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const provider = useProviderName();
-  const imap =
-    state.kind === 'ready' && 'receiveOnly' in state ? state : undefined;
+  const imap = state.kind === 'ready' && 'imap' in state ? state : undefined;
   const notice = imap?.notice;
   useEffect(() => {
     if (notice !== undefined && !announced.has(notice)) {

@@ -137,7 +137,8 @@ function Mailboxes({
                 { provider },
               )}
             </Label>
-            {imapMailbox ? (
+            {/* Saved before SMTP: entering the password again sets up sending. */}
+            {imapMailbox && mailbox.smtp === undefined ? (
               <Label style={[styles.text, { color: colors.textSecondary }]}>
                 {t('mailboxes.receiveOnly')}
               </Label>

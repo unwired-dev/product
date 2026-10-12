@@ -6,7 +6,7 @@ import Testing
 
 // A controlled IMAP server: logins and folder reads answer as configured, and every request names
 // the account and password it presented.
-private final class ControlledImap: ImapProvider, @unchecked Sendable {
+final class ControlledImap: ImapProvider, @unchecked Sendable {
   private let lock = NSLock()
   private var calls: [(String, String)] = []
   var failure: ImapFailure?
@@ -68,6 +68,56 @@ private final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("idle \(folder) \(seconds)", password)
     return true
   }
+  // Sent copies filed by boundary, as the server would hold them.
+  private var filed: [String: Data] = [:]
+  func copy(_ boundary: String) -> Data? { lock.withLock { filed[boundary] } }
+  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
+    async throws -> Int
+  {
+    try record("find \(folder) \(boundary)", password)
+    return lock.withLock { filed[boundary] == nil ? 0 : 1 }
+  }
+  func fileSent(
+    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
+  ) async throws {
+    try record("file \(folder) \(boundary)", password)
+    lock.withLock { filed[boundary] = filed[boundary] ?? message }
+  }
+}
+
+// A controlled SMTP server: logins and submissions answer as configured, and each names the
+// endpoint and password it presented.
+final class ControlledSmtp: SmtpProvider, @unchecked Sendable {
+  struct Submission: Equatable {
+    let account: SmtpAccount
+    let password: String
+    let from: String
+    let to: [String]
+    let message: Data
+  }
+  private let lock = NSLock()
+  private var verified: [(SmtpAccount, String)] = []
+  private var submitted: [Submission] = []
+  var failure: (any Error)?
+
+  func logins() -> [(SmtpAccount, String)] { lock.withLock { verified } }
+  func submissions() -> [Submission] { lock.withLock { submitted } }
+
+  func verify(_ account: SmtpAccount, password: String) async throws {
+    try lock.withLock {
+      verified.append((account, password))
+      if let failure { throw failure }
+    }
+  }
+  func send(
+    _ account: SmtpAccount, password: String, from: String, to: [String], message: Data
+  ) async throws {
+    try lock.withLock {
+      if let failure { throw failure }
+      submitted.append(
+        Submission(account: account, password: password, from: from, to: to, message: message))
+    }
+  }
 }
 
 extension PrivateInboxTests {
@@ -84,9 +134,11 @@ extension PrivateInboxTests {
     }
     let google = SyntheticGoogleRegistrationProvider()
     let imap = ControlledImap()
+    let smtp = try SmtpAccount(
+      host: "smtp.example.invalid", port: 465, startTLS: false, username: "alex")
     let store = RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: google, imap: imap,
+      provider: google, imap: imap, smtp: ControlledSmtp(),
       mailCache: PrivateInboxStore(directory: directory, service: service),
       connect: { identity, _, _ in
         ProductRegistrationReceipt(
@@ -110,12 +162,14 @@ extension PrivateInboxTests {
     imap.failure = .authentication
     await #expect(throws: ImapFailure.authentication) {
       _ = try await store.connectImap(
-        address: "alex@example.invalid", account: account, password: "app-password")
+        address: "alex@example.invalid", account: account, password: "app-password", smtp: smtp,
+        smtpPassword: nil)
     }
     #expect(try store.saved().connections.isEmpty)
     imap.failure = nil
     let reply = try await store.connectImap(
-      address: "alex@example.invalid", account: account, password: "app-password")
+      address: "alex@example.invalid", account: account, password: "app-password", smtp: smtp,
+      smtpPassword: nil)
     let id = try #require(reply["connection"] as? String)
     #expect(id == MailboxConnection.id(subject: "imap:imap.example.invalid:993:alex"))
     let projection = try #require(try store.registration())
@@ -251,7 +305,8 @@ extension PrivateInboxTests {
 
     // Adding the same account again repairs the connection with the new password.
     _ = try await store.connectImap(
-      address: "alex@example.invalid", account: account, password: "new-password")
+      address: "alex@example.invalid", account: account, password: "new-password", smtp: smtp,
+      smtpPassword: nil)
     #expect(try store.saved().connections.count == 1)
     #expect(try store.saved().connection(id)?.credential == Data("new-password".utf8))
     #expect(try store.saved().connection(id)?.receipt.account == "imap:imap.example.invalid:993:alex")
