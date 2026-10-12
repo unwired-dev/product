@@ -3364,11 +3364,15 @@ describe('replying to and forwarding from the reader', () => {
     const gmail = createSyntheticGmail({ messages: 0 });
     const message = gmail.deliver({ content: { text: 'Reply later.' } });
     const base = createDrafts(storage.native, registration);
-    const response = Promise.withResolvers<undefined>();
+    let rejectResponse: (reason: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the response until the reopened palette is ready.
+    const response = new Promise<undefined>((_resolve, reject) => {
+      rejectResponse = reject;
+    });
     await render(
       <CommandPalette>
         <ReaderApp
-          drafts={{ ...base, create: () => response.promise }}
+          drafts={{ ...base, create: () => response }}
           gmail={gmail}
           message={message}
           registration={registration}
@@ -3385,7 +3389,7 @@ describe('replying to and forwarding from the reader', () => {
       nativeEvent: { key: 'open' },
     });
     await act(async () => {
-      response.reject(new Error('late host failure'));
+      rejectResponse(new Error('late host failure'));
     });
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
