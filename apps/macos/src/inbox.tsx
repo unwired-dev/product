@@ -735,10 +735,12 @@ export function Inbox({
       ? undefined
       : 'openFolder' in selectedMailbox.inbox
         ? selectedMailbox.inbox.message(selected.id)
-        : selectedMailbox.state.messages.find(({ id }) => id === selected.id) ??
+        : (selectedMailbox.state.messages.find(
+            ({ id }) => id === selected.id,
+          ) ??
           ('found' in selectedMailbox.state
             ? selectedMailbox.state.found?.find(({ id }) => id === selected.id)
-            : undefined);
+            : undefined));
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const subtitle = subtitleOf(t, shown, { several, gmail });

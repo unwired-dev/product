@@ -57,12 +57,14 @@ describe('a window command palette', () => {
     expect.hasAssertions();
     const palette = createCommandPalette('Unavailable');
     const owner = {};
-    palette.register(owner, [{
-      id: 'compose',
-      label: 'Compose',
-      group: 'app',
-      onRun: () => false,
-    }]);
+    palette.register(owner, [
+      {
+        id: 'compose',
+        label: 'Compose',
+        group: 'app',
+        onRun: () => false,
+      },
+    ]);
     const presentations: ReturnType<typeof palette.getSnapshot>[] = [];
     const unsubscribe = palette.subscribe(() => {
       presentations.push(palette.getSnapshot());
@@ -74,7 +76,9 @@ describe('a window command palette', () => {
     palette.open();
     palette.remove(owner);
     unsubscribe();
-    expect(presentations.map(({ open, presentation }) => ({ open, presentation }))).toStrictEqual([
+    expect(
+      presentations.map(({ open, presentation }) => ({ open, presentation })),
+    ).toStrictEqual([
       { open: true, presentation: 'open' },
       { open: false, presentation: 'dismissed' },
       { open: true, presentation: 'open' },

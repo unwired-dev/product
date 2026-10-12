@@ -128,11 +128,7 @@ export function rowActions({
   if (state.kind !== 'ready') {
     return [];
   }
-  if (
-    'openFolder' in inbox &&
-    'receiveOnly' in state &&
-    'folder' in message
-  ) {
+  if ('openFolder' in inbox && 'receiveOnly' in state && 'folder' in message) {
     return imapQuickActions(t, message, state).map(
       ({ name, label, action }) => ({
         name,

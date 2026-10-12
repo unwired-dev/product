@@ -280,13 +280,16 @@ export function CommandPalette({
     nativeCommands?.markHintSeen?.();
     store.open();
   }, [store]);
-  const close = useCallback((presentation: 'dismissed' | 'retired' = 'retired') => {
-    session.current += 1;
-    if (presentation === 'retired') {
-      previous.current = null;
-    }
-    store.close(presentation);
-  }, [store]);
+  const close = useCallback(
+    (presentation: 'dismissed' | 'retired' = 'retired') => {
+      session.current += 1;
+      if (presentation === 'retired') {
+        previous.current = null;
+      }
+      store.close(presentation);
+    },
+    [store],
+  );
   const context = useMemo(() => ({ store, open, close }), [store, open, close]);
   const dismiss = () => {
     if (!store.getSnapshot().open) {
