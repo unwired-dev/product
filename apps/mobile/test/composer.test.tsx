@@ -43,6 +43,9 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
+// Allow cold component rendering even when a focused run skips the first test.
+jest.setTimeout(10_000);
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -268,60 +271,53 @@ const deletionKey = async (
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
-  // The first component render takes over six seconds on a cold CI worker.
-  it(
-    'creates a unified Inbox Draft only from the window’s Profile',
-    async () => {
-      expect.hasAssertions();
-      const initial = connected([
-        'alex@example.invalid',
-        'other@example.invalid',
-      ]);
-      const registration = account({
-        ...initial,
-        mailboxes: JSON.stringify([
-          { id: alex, address: 'alex@example.invalid', state: 'connected' },
-          {
-            id: other,
-            address: 'other@example.invalid',
-            state: 'connected',
-            profile: 'work',
-          },
-        ]),
-      });
-      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const drafts = createDrafts(storage.native, registration);
-      const view = (profile: string) => (
-        <App
-          drafts={drafts}
-          registration={registration}
-          profile={profile}
-        />
-      );
-      const app = await render(view('work'));
-      await press('New Message');
-      await expect(
-        screen.findByRole('button', {
-          name: 'Send from other@example.invalid',
-        }),
-      ).resolves.toHaveProp('accessibilityState', {
-        selected: true,
-        disabled: false,
-      });
-      expect(
-        screen.queryByRole('button', {
-          name: 'Send from alex@example.invalid',
-        }),
-      ).toBeNull();
-      expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
-      await press('Close');
-      await app.rerender(view('unknown'));
-      expect(
-        screen.getByRole('button', { name: 'New Message' }),
-      ).toBeDisabled();
-    },
-    10_000,
-  );
+  it('creates a unified Inbox Draft only from the window’s Profile', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const view = (profile: string) => (
+      <App
+        drafts={drafts}
+        registration={registration}
+        profile={profile}
+      />
+    );
+    const app = await render(view('work'));
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', {
+        name: 'Send from other@example.invalid',
+      }),
+    ).resolves.toHaveProp('accessibilityState', {
+      selected: true,
+      disabled: false,
+    });
+    expect(
+      screen.queryByRole('button', {
+        name: 'Send from alex@example.invalid',
+      }),
+    ).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
+    await press('Close');
+    await app.rerender(view('unknown'));
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+  });
 
   it('closes an empty composer without deleting content saved by another editor', async () => {
     expect.hasAssertions();
