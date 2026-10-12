@@ -120,7 +120,7 @@ catalogs:
     '@testing-library/react-native': '14.0.1'
     '@types/jest': '29.5.14'
     '@types/react': '19.2.18'
-    'babel-preset-expo': '57.0.13'
+    'babel-preset-expo': '57.0.15'
     'expo': '57.0.28'
     'expo-background-task': '57.0.21'
     'expo-build-properties': '57.0.22'
