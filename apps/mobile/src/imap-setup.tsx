@@ -16,28 +16,28 @@ import {
   imapSetup,
   smtpSecurityOf,
 } from '@private-email/mail-core/imap-setup';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const providers = ['icloud', 'fastmail', 'other'] as const;
 const securities = ['tls', 'starttls'] as const;
 
 const choiceStyles = StyleSheet.create({
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.small },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   choice: {
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.medium,
+    paddingHorizontal: spacing.l,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  label: { fontSize: 15 },
+  label: { ...textStyles.subheadline },
 });
 
 // The form's text fields; SMTP security is chosen separately.
@@ -140,10 +140,10 @@ function ImapForm({
         setFields((current) => ({ ...current, [name]: value }));
       }}
       placeholder={label}
-      placeholderTextColor={colors.secondary}
+      placeholderTextColor={colors.textSecondary}
       style={[
         styles.input,
-        { borderColor: colors.separator, color: colors.foreground },
+        { borderColor: colors.separator, color: colors.textPrimary },
       ]}
       value={fields[name]}
       {...options}
@@ -161,10 +161,10 @@ function ImapForm({
     <View style={styles.device}>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t(`imap.providers.${guidance}`)}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.description')}
       </Text>
       {repair === undefined
@@ -235,19 +235,19 @@ function FormNotes({
   return (
     <>
       {provider === 'other' ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {t('imap.appPassword', {
             provider: t(`imap.providers.${provider}`),
           })}
         </Text>
       )}
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {review === undefined
           ? t('imap.incomplete')
           : t('imap.review', { host: review.host, port: String(review.port) })}
       </Text>
       {review === undefined ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {t(`imap.sendingReview.${review.smtp.security}`, {
             host: review.smtp.host,
             port: String(review.smtp.port),
@@ -257,7 +257,7 @@ function FormNotes({
       {failure === undefined ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t(`imap.failure.${failure}`)}
         </Text>
       )}
@@ -309,7 +309,7 @@ function ManualSending({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.text, { color: colors.secondary }]}>
+        style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.outgoing')}
       </Text>
       {field('smtpHost', t('imap.smtpHost'), { keyboardType: 'url' })}
@@ -330,7 +330,7 @@ function ManualSending({
               choiceStyles.choice,
               {
                 borderColor:
-                  choice === security ? colors.accent : colors.separator,
+                  choice === security ? colors.accentInk : colors.separator,
               },
             ]}>
             <Text
@@ -338,7 +338,7 @@ function ManualSending({
                 choiceStyles.label,
                 {
                   color:
-                    choice === security ? colors.accent : colors.foreground,
+                    choice === security ? colors.accentInk : colors.textPrimary,
                   fontWeight: choice === security ? '700' : '400',
                 },
               ]}>
@@ -347,7 +347,7 @@ function ManualSending({
           </Pressable>
         ))}
       </View>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.smtpUsername')}
       </Text>
       {field('smtpUsername', t('imap.smtpUsername'), {
@@ -355,7 +355,7 @@ function ManualSending({
         placeholder: t('imap.username'),
         textContentType: 'username',
       })}
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.smtpPassword')}
       </Text>
       {field('smtpPassword', t('imap.smtpPassword'), {

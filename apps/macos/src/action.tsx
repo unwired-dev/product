@@ -1,9 +1,10 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  label: { fontSize: 14, lineHeight: 21 },
+  target: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
+  label: { ...textStyles.body },
 });
 
 // A text button in the reader.
@@ -22,8 +23,9 @@ export function Action({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       focusable
-      onPress={onPress}>
-      <Text style={[styles.label, { color: colors.accent }]}>{label}</Text>
+      onPress={onPress}
+      style={styles.target}>
+      <Text style={[styles.label, { color: colors.accentInk }]}>{label}</Text>
     </Pressable>
   );
 }

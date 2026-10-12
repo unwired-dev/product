@@ -152,13 +152,13 @@ export function MailAssistanceSettings({
     <>
       <Text
         accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
+        style={[styles.heading, { color: colors.textPrimary }]}>
         {t('mailAssistance.title')}
       </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      <Text style={[styles.text, { color: colors.textSecondary }]}>
         {t('mailAssistance.description')}
       </Text>
-      <Text style={[styles.text, { color: colors.foreground }]}>
+      <Text style={[styles.text, { color: colors.textPrimary }]}>
         {t(enabled ? 'mailAssistance.on' : 'mailAssistance.off')}
       </Text>
       {button(
@@ -166,7 +166,7 @@ export function MailAssistanceSettings({
         () => store.setEnabled(account, defaultProfile, !enabled),
       )}
       {saveState === 'idle' ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {t(
             saveState === 'saving'
               ? 'mailAssistance.saving'
@@ -216,7 +216,7 @@ function AssistanceAvailability({
   return (
     <>
       {state.kind === 'idle' ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
           {state.kind === 'unavailable'
             ? t(
                 state.reason === 'model-not-ready'

@@ -78,7 +78,7 @@ export function ImapMessageBody({
       <View style={styles.body}>
         <Text
           accessibilityRole="alert"
-          style={[styles.paragraph, { color: colors.secondary }]}>
+          style={[styles.paragraph, { color: colors.textSecondary }]}>
           {t(`messageBody.${body.reason}`)}
         </Text>
         {body.reason === 'imap-missing' ? null : (
@@ -98,19 +98,21 @@ export function ImapMessageBody({
     inbox.messageBody(id, reader) === body;
   return (
     <View style={styles.body}>
-      <MessageSummary
-        source={inbox}
-        id={id}
-        subject={subject}
-        body={body.presentation.readable}
-      />
-      <MessageTranslation
-        source={inbox}
-        id={id}
-        body={body.presentation.readable}
-      />
+      <View style={styles.assistance}>
+        <MessageSummary
+          source={inbox}
+          id={id}
+          subject={subject}
+          body={body.presentation.readable}
+        />
+        <MessageTranslation
+          source={inbox}
+          id={id}
+          body={body.presentation.readable}
+        />
+      </View>
       {(body.presentation.rich?.remote.images.length ?? 0) > 0 ? (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('messageBody.imap-remote')}
         </Text>
       ) : null}
@@ -130,7 +132,7 @@ export function ImapMessageBody({
         }}
       />
       {body.attachments === 0 ? null : (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('messageBody.imap-attachments', { count: body.attachments })}
         </Text>
       )}

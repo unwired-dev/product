@@ -65,7 +65,7 @@ import {
   undo,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -108,7 +108,7 @@ import {
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 import { DraftTranslation, TranslationContext } from './translation.tsx';
 
 // Fabric includes the post-edit selection; RN's Flow declaration has it, but its TS type omits it.
@@ -122,41 +122,41 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    padding: spacing.large,
-    gap: spacing.medium,
+    padding: spacing.xl,
+    gap: spacing.l,
   },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.small,
+    gap: spacing.s,
   },
   grow: { flex: 1 },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
-  actionText: { fontSize: 16 },
-  status: { fontSize: 13 },
-  label: { fontSize: 13, fontWeight: '600' },
+  actionText: { ...textStyles.body },
+  status: { ...textStyles.footnote },
+  label: { ...textStyles.footnote, fontWeight: '600' },
   field: {
     gap: 6,
-    paddingBottom: spacing.small,
+    paddingBottom: spacing.s,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  input: { fontSize: 17, minHeight: 44, paddingVertical: 8 },
+  input: { ...textStyles.body, minHeight: 44, paddingVertical: 8 },
   tokens: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   token: {
     minHeight: 32,
     justifyContent: 'center',
     paddingHorizontal: 10,
-    borderRadius: 16,
+    borderRadius: radius.chip,
   },
-  notice: { fontSize: 14 },
-  quoted: { fontSize: 15, lineHeight: 22, paddingVertical: 8 },
+  notice: { ...textStyles.subheadline },
+  quoted: { ...textStyles.reading.body, paddingVertical: 8 },
   choice: {
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 2,
-    borderRadius: 8,
+    borderRadius: radius.control,
     borderCurve: 'continuous',
   },
   format: {
@@ -164,36 +164,36 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
-  body: { fontSize: 17, lineHeight: 26, minHeight: 240, paddingVertical: 8 },
+  body: { ...textStyles.reading.body, minHeight: 240, paddingVertical: 8 },
   section: {
-    fontSize: 13,
+    ...textStyles.footnote,
     fontWeight: '600',
-    paddingHorizontal: spacing.large,
-    paddingTop: spacing.small,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.s,
   },
   row: {
-    marginHorizontal: spacing.small,
+    marginHorizontal: spacing.s,
     padding: 14,
     gap: 4,
     borderWidth: 2,
-    borderRadius: 12,
+    borderRadius: radius.row,
     borderCurve: 'continuous',
   },
-  rowTitle: { flexDirection: 'row', gap: spacing.small, alignItems: 'center' },
-  badge: { fontSize: 12, fontWeight: '700' },
-  rowSubject: { flex: 1, fontSize: 15, fontWeight: '500' },
-  rowDetail: { fontSize: 13 },
-  footer: { fontSize: 13, paddingHorizontal: spacing.large },
+  rowTitle: { flexDirection: 'row', gap: spacing.s, alignItems: 'center' },
+  badge: { ...textStyles.footnote, fontWeight: '600' },
+  rowSubject: { ...textStyles.subheadline, flex: 1 },
+  rowDetail: { ...textStyles.footnote },
+  footer: { ...textStyles.footnote, paddingHorizontal: spacing.xl },
   asset: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.small,
+    gap: spacing.s,
     paddingVertical: 4,
   },
-  thumbnail: { width: 64, height: 64, borderRadius: 6 },
+  thumbnail: { width: 64, height: 64, borderRadius: radius.control },
 });
 
 const kindStyles: Record<BlockKind, TextStyle> = {
@@ -282,9 +282,9 @@ export function Action({
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
-  let color = destructive ? colors.destructive : colors.accent;
+  let color = destructive ? colors.statusDestructive : colors.accentInk;
   if (disabled) {
-    color = colors.secondary;
+    color = colors.textSecondary;
   }
   return (
     <Pressable
@@ -319,6 +319,8 @@ function DraftRowView({
   readonly onOpen: (id: string) => Promise<void>;
 }) {
   const colors = usePalette();
+  const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
+  const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const { t } = useLocalization();
   // The sending mailbox stays visible whatever the body holds.
   const preview = previewOf(draft.body);
@@ -339,36 +341,40 @@ function DraftRowView({
       style={[
         styles.row,
         {
-          backgroundColor: selected ? colors.selected : colors.sidebar,
+          backgroundColor: selected ? colors.accentFill : colors.surfaceContent,
           borderColor: 'transparent',
         },
       ]}>
       <View style={styles.rowTitle}>
-        <Text style={[styles.badge, { color: colors.accent }]}>
+        <Text
+          style={[
+            styles.badge,
+            { color: selected ? colors.accentOnFill : colors.accentInk },
+          ]}>
           {draft.conflict === true
             ? t('drafts.conflictBadge')
             : t('drafts.badge')}
         </Text>
         <Text
           numberOfLines={1}
-          style={[styles.rowSubject, { color: colors.foreground }]}>
+          style={[styles.rowSubject, { color: primaryColor }]}>
           {subject}
         </Text>
       </View>
       <Text
         numberOfLines={1}
-        style={[styles.rowDetail, { color: colors.secondary }]}>
+        style={[styles.rowDetail, { color: secondaryColor }]}>
         {recipients}
       </Text>
       <Text
         numberOfLines={1}
-        style={[styles.rowDetail, { color: colors.secondary }]}>
+        style={[styles.rowDetail, { color: secondaryColor }]}>
         {t('drafts.from', { from })}
       </Text>
       {preview === '' ? null : (
         <Text
           numberOfLines={1}
-          style={[styles.rowDetail, { color: colors.secondary }]}>
+          style={[styles.rowDetail, { color: secondaryColor }]}>
           {preview}
         </Text>
       )}
@@ -441,7 +447,7 @@ export function DraftList({
   };
   return (
     <View>
-      <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+      <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
         <Action
           disabled={
             state.kind !== 'ready' || sender === undefined || creatingShown
@@ -455,10 +461,10 @@ export function DraftList({
         />
       </View>
       {state.kind === 'locked' || state.kind === 'failed' ? (
-        <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+        <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, styles.grow, { color: colors.foreground }]}>
+            style={[styles.notice, styles.grow, { color: colors.textPrimary }]}>
             {state.kind === 'locked'
               ? t('drafts.listLocked')
               : t('drafts.listFailed')}
@@ -475,10 +481,10 @@ export function DraftList({
       (state.save === 'failed' || state.save === 'locked') ? (
         // Shown wherever the person returns to the Inbox, including the iPhone system Back that
         // leaves a composer without its own notice.
-        <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+        <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, styles.grow, { color: colors.foreground }]}>
+            style={[styles.notice, styles.grow, { color: colors.textPrimary }]}>
             {t(`drafts.unsaved.${state.save}`)}
           </Text>
           <Action
@@ -499,7 +505,7 @@ export function DraftHeading() {
   return (
     <Text
       accessibilityRole="header"
-      style={[styles.section, { color: colors.secondary }]}>
+      style={[styles.section, { color: colors.textSecondary }]}>
       {t('drafts.heading')}
     </Text>
   );
@@ -527,7 +533,7 @@ function SendingMailbox({
   const from = clip(draft.from);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.secondary }]}>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
         {t('drafts.fromLabel')}
       </Text>
       <View style={styles.bar}>
@@ -541,7 +547,7 @@ function SendingMailbox({
               { from },
             )}
             style={[styles.choice, { borderColor: colors.separator }]}>
-            <Text style={{ color: colors.secondary }}>{from}</Text>
+            <Text style={{ color: colors.textSecondary }}>{from}</Text>
           </View>
         )}
         {senders.map((mailbox) => {
@@ -566,11 +572,13 @@ function SendingMailbox({
               style={[
                 styles.choice,
                 {
-                  backgroundColor: selected ? colors.selected : colors.sidebar,
-                  borderColor: selected ? colors.accent : 'transparent',
+                  backgroundColor: selected
+                    ? colors.accentSelectionSubtle
+                    : colors.surfaceSidebar,
+                  borderColor: selected ? colors.accentInk : 'transparent',
                 },
               ]}>
-              <Text style={{ color: colors.foreground }}>{address}</Text>
+              <Text style={{ color: colors.textPrimary }}>{address}</Text>
             </Pressable>
           );
         })}
@@ -578,7 +586,7 @@ function SendingMailbox({
       {state === 'available' ? null : (
         <Text
           accessibilityRole="alert"
-          style={[styles.notice, { color: colors.foreground }]}>
+          style={[styles.notice, { color: colors.textPrimary }]}>
           {t(`drafts.sending.${state}`)}
         </Text>
       )}
@@ -625,7 +633,9 @@ function Recipients({
   };
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.secondary }]}>{name}</Text>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
+        {name}
+      </Text>
       <View style={styles.tokens}>
         {draft[field].map((recipient) => (
           <Pressable
@@ -651,8 +661,11 @@ function Recipients({
                 field,
               );
             }}
-            style={[styles.token, { backgroundColor: colors.selected }]}>
-            <Text style={{ color: colors.foreground }}>
+            style={[
+              styles.token,
+              { backgroundColor: colors.accentSelectionSubtle },
+            ]}>
+            <Text style={{ color: colors.textPrimary }}>
               {`${recipient.name ?? recipient.address} ×`}
             </Text>
           </Pressable>
@@ -690,16 +703,16 @@ function Recipients({
           add(entryOf(getDraft(), field), true);
         }}
         placeholder={t('drafts.recipientPlaceholder')}
-        placeholderTextColor={colors.secondary}
+        placeholderTextColor={colors.textSecondary}
         returnKeyType="next"
-        style={[styles.input, { color: colors.foreground }]}
+        style={[styles.input, { color: colors.textPrimary }]}
         textContentType="emailAddress"
         value={entryOf(draft, field)}
       />
       {notice === undefined ? null : (
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.notice, { color: colors.foreground }]}>
+          style={[styles.notice, { color: colors.textPrimary }]}>
           {t(`drafts.recipient.${notice}`)}
         </Text>
       )}
@@ -860,8 +873,8 @@ function AssetRow({
           status,
         })}
         style={styles.grow}>
-        <Text style={{ color: colors.foreground }}>{asset.name}</Text>
-        <Text style={[styles.status, { color: colors.secondary }]}>
+        <Text style={{ color: colors.textPrimary }}>{asset.name}</Text>
+        <Text style={[styles.status, { color: colors.textSecondary }]}>
           {status}
         </Text>
       </View>
@@ -946,14 +959,14 @@ function DraftAssets({
       {unsendableAssets(draft).length > 0 ? (
         <Text
           accessibilityRole="alert"
-          style={[styles.notice, { color: colors.foreground }]}>
+          style={[styles.notice, { color: colors.textPrimary }]}>
           {t('drafts.assets.unsendable')}
         </Text>
       ) : null}
       {attachments.length > 0 ? (
         <Text
           accessibilityRole="header"
-          style={[styles.label, { color: colors.secondary }]}>
+          style={[styles.label, { color: colors.textSecondary }]}>
           {t('drafts.assets.attachments')}
         </Text>
       ) : null}
@@ -961,7 +974,7 @@ function DraftAssets({
       {images.length > 0 ? (
         <Text
           accessibilityRole="header"
-          style={[styles.label, { color: colors.secondary }]}>
+          style={[styles.label, { color: colors.textSecondary }]}>
           {t('drafts.assets.inlineImages')}
         </Text>
       ) : null}
@@ -983,7 +996,7 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
         onPress={() => {
           setShown((current) => !current);
         }}>
-        <Text style={[styles.notice, { color: colors.accent }]}>
+        <Text style={[styles.notice, { color: colors.accentInk }]}>
           {shown
             ? t('drafts.response.hideQuoted')
             : t('drafts.response.showQuoted')}
@@ -992,7 +1005,7 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
       {shown ? (
         <Text
           selectable
-          style={[styles.quoted, { color: colors.secondary }]}>
+          style={[styles.quoted, { color: colors.textSecondary }]}>
           {displayOf(quoted).text.replaceAll(imageCharacter, '')}
         </Text>
       ) : null}
@@ -1022,7 +1035,7 @@ function SendRefusalNotice({
   return refused === undefined ? null : (
     <Text
       accessibilityRole="alert"
-      style={[styles.notice, { color: colors.foreground }]}>
+      style={[styles.notice, { color: colors.textPrimary }]}>
       {t(
         refused === 'too-large' && imap
           ? 'drafts.sendRefused.too-large_imap'
@@ -1639,7 +1652,7 @@ function Editor({
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.background }]}>
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <ScrollView
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.content}
@@ -1660,7 +1673,7 @@ function Editor({
             style={[
               styles.grow,
               styles.actionText,
-              { color: colors.foreground, fontWeight: '600' },
+              { color: colors.textPrimary, fontWeight: '600' },
             ]}>
             {title}
           </Text>
@@ -1698,7 +1711,7 @@ function Editor({
         </View>
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.status, { color: colors.secondary }]}>
+          style={[styles.status, { color: colors.textSecondary }]}>
           {t('drafts.status', { status: t(`drafts.save.${save}`) })}
         </Text>
         {closing === 'blocked' || closing === 'discard-blocked' ? (
@@ -1708,7 +1721,7 @@ function Editor({
               style={[
                 styles.notice,
                 styles.grow,
-                { color: colors.foreground },
+                { color: colors.textPrimary },
               ]}>
               {closing === 'discard-blocked'
                 ? t('drafts.discardBlocked')
@@ -1725,7 +1738,7 @@ function Editor({
         {closing === 'recipients' ? (
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
+            style={[styles.notice, { color: colors.textPrimary }]}>
             {t('drafts.invalidRecipients')}
           </Text>
         ) : null}
@@ -1740,7 +1753,7 @@ function Editor({
               style={[
                 styles.notice,
                 styles.grow,
-                { color: colors.foreground },
+                { color: colors.textPrimary },
               ]}>
               {t('drafts.discardConfirm')}
             </Text>
@@ -1836,8 +1849,8 @@ function Editor({
               subjectSelection.current = next;
             }}
             placeholder={t('drafts.subject')}
-            placeholderTextColor={colors.secondary}
-            style={[styles.input, { color: colors.foreground }]}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { color: colors.textPrimary }]}
             value={draft.subject}
           />
         </View>
@@ -1862,11 +1875,13 @@ function Editor({
                 styles.format,
                 {
                   backgroundColor: active.includes(mark)
-                    ? colors.selected
+                    ? colors.accentSelectionSubtle
                     : 'transparent',
                 },
               ]}>
-              <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
+              <Text style={[{ color: colors.textPrimary }, style]}>
+                {label}
+              </Text>
             </Pressable>
           ))}
           {blockControls.map(([value, label, name]) => (
@@ -1886,10 +1901,12 @@ function Editor({
                 styles.format,
                 {
                   backgroundColor:
-                    kind === value ? colors.selected : 'transparent',
+                    kind === value
+                      ? colors.accentSelectionSubtle
+                      : 'transparent',
                 },
               ]}>
-              <Text style={{ color: colors.foreground }}>{label}</Text>
+              <Text style={{ color: colors.textPrimary }}>{label}</Text>
             </Pressable>
           ))}
           {translation === undefined ? null : (
@@ -2016,10 +2033,10 @@ function Editor({
             setSelection(next);
           }}
           placeholder={t('drafts.bodyPlaceholder')}
-          placeholderTextColor={colors.secondary}
+          placeholderTextColor={colors.textSecondary}
           scrollEnabled={false}
           selection={placed}
-          style={[styles.body, { color: colors.foreground }]}
+          style={[styles.body, { color: colors.textPrimary }]}
           textAlignVertical="top">
           {display.lines.map((line, index) => (
             <Text
@@ -2027,7 +2044,7 @@ function Editor({
               key={index}
               style={[
                 kindStyles[line.kind],
-                line.kind === 'quote' ? { color: colors.secondary } : null,
+                line.kind === 'quote' ? { color: colors.textSecondary } : null,
               ]}>
               {line.marker}
               {line.spans.map((span, at) => (
@@ -2102,7 +2119,7 @@ export function Composer({
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.background }]}>
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
         {waiting ? (
           <ActivityIndicator accessibilityLabel={t('drafts.loading')} />
@@ -2110,7 +2127,7 @@ export function Composer({
           <>
             <Text
               accessibilityRole="header"
-              style={[styles.actionText, { color: colors.foreground }]}>
+              style={[styles.actionText, { color: colors.textPrimary }]}>
               {state.kind === 'locked'
                 ? t('drafts.listLocked')
                 : t('drafts.unavailable')}

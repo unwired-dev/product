@@ -183,8 +183,9 @@ components:
 This document records the agreed native design target, including planned screens
 such as Catch Up. It does not describe shipped coverage or change release scope;
 the feature guides and launch specification own those requirements. Layout
-dimensions describe the Figma reference mockups. Adopting this palette in app
-theme code is a separate follow-up.
+dimensions describe the Figma reference mockups. Both clients read the color,
+type, spacing and radius tokens from `packages/mail-core/src/theme.ts`, and
+render SF Symbols and Liquid Glass through the shared views in `native/design`.
 
 The visual reference for screens and components is the Figma file
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T).
