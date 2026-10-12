@@ -48,7 +48,10 @@ describe('imap body-cache pruning', () => {
       release();
       expect(imap.bodies.has(archived.id)).toBe(true);
       imap.removeFolder('Archive');
-      vi.spyOn(imap.native, 'imapFolders').mockResolvedValue({ folders });
+      vi.spyOn(imap.native, 'imapFolders').mockResolvedValue({
+        folders,
+        ...imap.server.capabilities,
+      });
       await inbox.load();
       expect(inbox.message(archived.id)).toBeUndefined();
       expect(imap.bodies.has(archived.id)).toBe(false);

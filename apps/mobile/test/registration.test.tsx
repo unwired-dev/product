@@ -407,6 +407,152 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('organizes IMAP mail from the reader with Undo and Move to, and searches its folders at the server', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves read state, archive with Undo, Move to and search. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const invoice = imap.deliver('INBOX', { subject: 'Quarterly invoice' });
+    const lunch = imap.deliver('INBOX', { subject: 'Team lunch' });
+    imap.addFolder('Archived Mail', ['archive']);
+    imap.addFolder('Projects');
+    imap.deliver('Projects', { subject: 'Filed invoice' });
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'imap-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    function Organizing() {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onClose={() => {
+              setSelected(undefined);
+            }}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={() => {
+              setSelected(undefined);
+            }}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <Organizing />
+      </RegistrationGate>,
+    );
+    const press = async (name: string | RegExp) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+
+    // Reading never marks a message read; the reader's action does, at the server.
+    await press(/Quarterly invoice/u);
+    await expect(
+      screen.findByRole('header', { name: 'Quarterly invoice' }),
+    ).resolves.toBeVisible();
+    await press('Mark as read');
+    await waitFor(() => {
+      expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
+    });
+
+    // Archive moves it to the folder the server declares, closes the reader and offers Undo.
+    await press('Archive');
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('header', { name: 'Quarterly invoice' }),
+      ).toBeNull();
+    });
+    expect(imap.server.changes.at(-1)).toBe(
+      `move INBOX ${invoice} Archived Mail`,
+    );
+    await expect(
+      screen.findByText('Archived: “Quarterly invoice”.'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /Quarterly invoice/u }),
+    ).toBeNull();
+    await press('Undo');
+    await expect(
+      screen.findByRole('button', { name: /Quarterly invoice/u }),
+    ).resolves.toBeVisible();
+    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+
+    // Move to lists the mailbox's other folders.
+    await press(/Team lunch/u);
+    await press('Folders');
+    imap.server.loseReply = true;
+    await press('Move to Projects');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`move INBOX ${lunch} Projects`);
+    });
+    expect(screen.queryByRole('header', { name: 'Team lunch' })).toBeNull();
+
+    await expect(
+      screen.findByText(
+        'The mail server has not confirmed where “Team lunch” moved. Check its folders, then discard this change to continue. It will not be sent again.',
+      ),
+    ).resolves.toBeVisible();
+    await press('Discard change');
+    expect(
+      imap.server.changes.filter(
+        (change) => change === `move INBOX ${lunch} Projects`,
+      ),
+    ).toHaveLength(1);
+
+    // The server searches the Inbox and the other folders when asked.
+    await act(async () => {
+      await fireEvent.changeText(
+        await screen.findByLabelText('Search senders and subjects'),
+        'invoice',
+      );
+    });
+    await press('Search mail servers for “invoice”');
+    await expect(
+      screen.findByRole('header', { name: 'From mail servers' }),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole('button', { name: /Filed invoice/u }),
+      ).toHaveLength(1);
+    });
+    expect(imap.server.reads).toContain('search INBOX,Archived Mail,Projects');
+  });
+  /* oxlint-enable vitest/max-expects */
+
   it('opens saved Gmail mail offline and verifies registration before retrying', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
@@ -1030,7 +1176,7 @@ describe('product registration', () => {
     await search('studio');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
-        'Unread. Maya Chen. Studio review. In alex@example.invalid. Downloads from Gmail when opened',
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Downloads from the mail server when opened',
       ]);
     });
     await act(async () => {
@@ -1062,7 +1208,7 @@ describe('product registration', () => {
     await search('CAFE oliver');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
-        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from Gmail when opened',
+        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from the mail server when opened',
       ]);
     });
     await search('nothing like this');
@@ -1110,7 +1256,7 @@ describe('product registration', () => {
     // A result opens through the reader; once its body is saved, the result says so.
     await search('cafe');
     await press(
-      'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from Gmail when opened',
+      'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from the mail server when opened',
     );
     expect(opened).toStrictEqual([{ mailbox: alex, id: cafe }]);
     await screen.findByRole('header', { name: 'Café on Saturday' });
@@ -1256,9 +1402,9 @@ describe('product registration', () => {
     expect(
       gmail.alex.requests.filter(({ query }) => query.has('q')),
     ).toStrictEqual([]);
-    await press('Search Gmail for “studio”');
+    await press('Search mail servers for “studio”');
     await expect(
-      screen.findByRole('header', { name: 'From Gmail' }),
+      screen.findByRole('header', { name: 'From mail servers' }),
     ).resolves.toBeVisible();
     await waitFor(() => {
       expect(rows().slice(1)).toStrictEqual([
@@ -1271,7 +1417,7 @@ describe('product registration', () => {
 
     // Changing to one mailbox and back discards the online answer even with the same query.
     await press('alex@example.invalid');
-    await press('Search Gmail for “studio”');
+    await press('Search mail servers for “studio”');
     await waitFor(() => {
       expect(rows()).toHaveLength(3);
     });
@@ -1280,10 +1426,12 @@ describe('product registration', () => {
     ).toHaveLength(0);
     await press('All inboxes');
     await expect(
-      screen.findByRole('button', { name: 'Search Gmail for “studio”' }),
+      screen.findByRole('button', { name: 'Search mail servers for “studio”' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
-    await press('Search Gmail for “studio”');
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
+    await press('Search mail servers for “studio”');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });
@@ -1317,21 +1465,23 @@ describe('product registration', () => {
     // leaves the other's results and every saved result.
     await search('maya');
     await expect(
-      screen.findByRole('button', { name: 'Search Gmail for “maya”' }),
+      screen.findByRole('button', { name: 'Search mail servers for “maya”' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
     gmail.other.fail({ code: 'unavailable' });
-    await press('Search Gmail for “maya”');
+    await press('Search mail servers for “maya”');
     await expect(
       screen.findByText(
-        'other@example.invalid: Gmail could not be reached. Mail saved on this device is still shown.',
+        'other@example.invalid: The mail server could not be reached. Mail saved on this device is still shown.',
       ),
     ).resolves.toBeVisible();
     await waitFor(() => {
       expect(rows()).toHaveLength(3);
     });
     // Asking again searches every mailbox afresh.
-    await press('Search Gmail again');
+    await press('Search mail servers again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });
@@ -1345,9 +1495,9 @@ describe('product registration', () => {
     });
     const stale = holding;
     await search('archive');
-    await press('Search Gmail for “archive”');
+    await press('Search mail servers for “archive”');
     await expect(
-      screen.findByLabelText('Searching Gmail'),
+      screen.findByLabelText('Searching mail servers'),
     ).resolves.toBeVisible();
     await search('plans');
     await act(async () => {
@@ -1355,22 +1505,28 @@ describe('product registration', () => {
       await stale;
     });
     await expect(
-      screen.findByRole('button', { name: 'Search Gmail for “plans”' }),
+      screen.findByRole('button', { name: 'Search mail servers for “plans”' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
     // Returning to the old query must not revive its completed, stale request.
     await search('archive');
     await expect(
-      screen.findByRole('button', { name: 'Search Gmail for “archive”' }),
+      screen.findByRole('button', {
+        name: 'Search mail servers for “archive”',
+      }),
     ).resolves.toBeVisible();
-    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
     await search('plans');
     // Only the saved result remains.
     expect(rows()).toStrictEqual([
-      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from Gmail when opened',
+      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from the mail server when opened',
     ]);
     await press(
-      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from Gmail when opened',
+      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from the mail server when opened',
     );
     await waitFor(() => {
       expect(gmail.alex.savedFiles.size).toBe(0);

@@ -55,7 +55,8 @@ export const scheduleGmailFreshness = async () => {
 };
 
 // While the app stays active, a five-minute fallback poll keeps an open Inbox fresh between
-// activations. It stops when the app leaves the foreground, where background tasks take over.
+// activations, and IMAP servers that advertise IDLE report new mail as it arrives. Both stop when
+// the app leaves the foreground, where background tasks take over.
 export const pollGmailWhileActive = () => {
   if (previewInbox) {
     return () => undefined;
@@ -64,7 +65,14 @@ export const pollGmailWhileActive = () => {
   let stop: (() => void) | undefined = undefined;
   const follow = (state: string) => {
     if (state === 'active') {
-      stop ??= freshness.keepAlive(5);
+      if (stop === undefined) {
+        const poll = freshness.keepAlive(5);
+        const idle = gmailMailboxes.watch();
+        stop = () => {
+          poll();
+          idle();
+        };
+      }
     } else {
       stop?.();
       stop = undefined;

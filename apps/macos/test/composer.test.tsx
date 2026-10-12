@@ -870,16 +870,16 @@ describe('composing Drafts', () => {
     expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
     await search('Synthetic message 0');
     const resultName =
-      'Unread. Maya Chen. Synthetic message 0. Downloads from Gmail when opened';
+      'Unread. Maya Chen. Synthetic message 0. Downloads from the mail server when opened';
     await expect(
       screen.findByRole('button', { name: resultName }),
     ).resolves.toHaveProp('accessibilityState', { selected: false });
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    await press('Search Gmail for “Synthetic message 0”');
+    await press('Search mail servers for “Synthetic message 0”');
     await expect(
-      screen.findByRole('header', { name: 'From Gmail' }),
+      screen.findByRole('header', { name: 'From mail servers' }),
     ).resolves.toBeOnTheScreen();
     const onlineName = 'Unread. Maya Chen. Synthetic message 0';
     await expect(
@@ -943,7 +943,7 @@ describe('composing Drafts', () => {
     );
     await search('');
     expect(
-      screen.queryByRole('header', { name: 'From Gmail' }),
+      screen.queryByRole('header', { name: 'From mail servers' }),
     ).not.toBeOnTheScreen();
     await expect(
       screen.findByRole('button', {

@@ -1,7 +1,6 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
 import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
-import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
@@ -11,6 +10,7 @@ import {
   quickActions,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
+import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import {
   inboxMessages,
   profileMailboxes,
@@ -85,15 +85,17 @@ interface InboxProps {
   readonly composing?: string | undefined;
 }
 
+// A row's organizing action at its provider.
+type RowAction = Readonly<{ name: string; label: string; run: () => void }>;
+const noActions: readonly RowAction[] = [];
+
 function MessageRow({
   message,
   mailbox,
   status,
   selected,
   onSelect,
-  onOrganize,
-  provider = 'gmail',
-  unavailableActions,
+  actions = noActions,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
@@ -102,25 +104,16 @@ function MessageRow({
   readonly status: string | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
-  // Present when the message can be organized at its provider.
-  readonly onOrganize?:
-    | ((message: GmailMessage, action: GmailAction) => void)
-    | undefined;
-  // The provider of the mailbox that shows the message, whose actions it offers.
-  readonly provider?: MailProvider | undefined;
-  readonly unavailableActions?: ReadonlyArray<GmailAction['kind']> | undefined;
+  // The organizing actions its provider offers, as accessibility actions.
+  readonly actions?: readonly RowAction[] | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat();
   const [focused, setFocused] = useState(false);
-  const organizing =
-    onOrganize !== undefined && 'threadId' in message
-      ? quickActions(t, message, { provider, unavailableActions })
-      : [];
   return (
     <Pressable
-      accessibilityActions={organizing.map(({ name, label }) => ({
+      accessibilityActions={actions.map(({ name, label }) => ({
         name,
         label,
       }))}
@@ -142,12 +135,7 @@ function MessageRow({
       accessibilityState={{ selected }}
       focusable
       onAccessibilityAction={({ nativeEvent }) => {
-        const chosen = organizing.find(
-          ({ name }) => name === nativeEvent.actionName,
-        );
-        if (chosen !== undefined && 'threadId' in message) {
-          onOrganize?.(message, chosen.action);
-        }
+        actions.find(({ name }) => name === nativeEvent.actionName)?.run();
       }}
       onBlur={() => {
         setFocused(false);
@@ -577,6 +565,17 @@ function OnlineHeading({
           )}
         </Text>
       ))}
+      {found?.limited.map((mailbox) => (
+        <Text
+          key={`limited\n${mailbox.id}`}
+          style={[styles.footer, { color: colors.secondary }]}>
+          {about(
+            t,
+            several ? mailbox.address : undefined,
+            t('search.foldersLimited'),
+          )}
+        </Text>
+      ))}
     </View>
   );
 }
@@ -728,19 +727,60 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const subtitle = subtitleOf(t, shown, { several, gmail });
-  const organize =
-    (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
+  // A listed message's actions at its provider; one that takes the open message away closes it.
+  const rowActions = (
+    mailbox: InboxMailbox,
+    message: Message | GmailMessage | ImapMessage,
+  ): readonly RowAction[] => {
+    const { state, inbox } = mailbox;
+    const leaving = (away: boolean) => {
       if (
+        away &&
         selected?.mailbox === mailbox.id &&
-        message.id === selected.id &&
-        restoreAfter(action) !== undefined
+        message.id === selected.id
       ) {
         onClose?.();
       }
-      if ('organize' in mailbox.inbox) {
-        void mailbox.inbox.organize(message, action);
-      }
     };
+    if (state.kind !== 'ready') {
+      return [];
+    }
+    if (
+      'openFolder' in inbox &&
+      'receiveOnly' in state &&
+      'folder' in message
+    ) {
+      return imapQuickActions(t, message, state).map(
+        ({ name, label, action }) => ({
+          name,
+          label,
+          run: () => {
+            leaving(action.kind !== 'read' && action.kind !== 'unread');
+            void inbox.organize(message, action);
+          },
+        }),
+      );
+    }
+    if (
+      'resolvePending' in inbox &&
+      'organize' in state &&
+      state.organize &&
+      'threadId' in message
+    ) {
+      return quickActions(t, message, {
+        provider: mailbox.provider ?? 'gmail',
+        unavailableActions: state.unavailableActions,
+      }).map(({ name, label, action }) => ({
+        name,
+        label,
+        run: () => {
+          leaving(restoreAfter(action) !== undefined);
+          void inbox.organize(message, action);
+        },
+      }));
+    }
+    return [];
+  };
   const empty =
     results === undefined && gmail && syncing ? (
       <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
@@ -915,19 +955,9 @@ export function Inbox({
               <MessageRow
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
-                provider={item.mailbox.provider}
-                unavailableActions={
-                  item.mailbox.state.kind === 'ready' &&
-                  'unavailableActions' in item.mailbox.state
-                    ? item.mailbox.state.unavailableActions
-                    : undefined
-                }
-                onOrganize={
-                  section.key === 'saved' &&
-                  item.mailbox.state.kind === 'ready' &&
-                  'organize' in item.mailbox.state &&
-                  item.mailbox.state.organize
-                    ? organize(item.mailbox)
+                actions={
+                  section.key === 'saved'
+                    ? rowActions(item.mailbox, item.message)
                     : undefined
                 }
                 onSelect={() => {

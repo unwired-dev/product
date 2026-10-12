@@ -57,7 +57,7 @@ for attempt in 1 2; do
     -resultBundlePath "$UNWIRED_STORAGE_PROBE/result-$attempt.xcresult" -parallel-testing-enabled NO \
     -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
     > "$log" 2>&1 || result=$?
-  if (( result == 0 )) && grep -Eq 'Test run with 50 tests .* passed' "$log"; then
+  if (( result == 0 )) && grep -Eq 'Test run with 51 tests .* passed' "$log"; then
     if [[ -n "$imap_server" ]]; then
       kill -TERM "$imap_server"
       wait "$imap_server"

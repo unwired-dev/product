@@ -83,7 +83,7 @@ reaches it.
   as it leaves the Inbox.
 - **Results.** Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
-  opens without Gmail, or **Downloads from Gmail when opened**. Messages that recent-body
+  opens without the server, or **Downloads from the mail server when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change, when a result is opened or the reader closes, and whenever this device saves or
   prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
@@ -96,14 +96,16 @@ reaches it.
 
 [#609](https://github.com/unwired-dev/product/issues/609) adds Gmail's own full-text
 search below the saved results. Typing never asks Gmail; once there is a query,
-**Search Gmail for “…”** sends it to Gmail unchanged, with Gmail's search semantics
+**Search mail servers for “…”** sends it to Gmail unchanged, with Gmail's search semantics
 and operators, for each Gmail mailbox in the [chosen view](#gmail-mailboxes): one
 mailbox, or every mailbox under **All inboxes**. The API search excludes spam and trash, including the bodies and mail that left the Inbox.
 
-- **Results.** They appear under **From Gmail**, after the saved results, which stay
+- **Results.** They appear under **From mail servers**, after the saved results, which stay
   as they were. Each mailbox returns 20 results per page, newest first across
-  mailboxes, and **More from Gmail** asks every mailbox with another page for it.
-  When nothing matches, the section says **Gmail found no mail matching “…”**.
+  mailboxes, and **More from mail servers** asks every mailbox with another page for it.
+  When nothing matches, the section says **Mail servers found no mail matching “…”**.
+  The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
+  mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
   access. A result outside the cached Inbox keeps its metadata and body in memory
   while that mailbox's Inbox is open, without writing them to the encrypted cache.
@@ -112,8 +114,8 @@ mailbox, or every mailbox under **All inboxes**. The API search excludes spam an
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved
   results stay: no connection, a refused grant, which also offers **Allow Gmail
-  access** as a reader would, or another failure. **Search Gmail again** asks every
-  mailbox afresh; a failed next page keeps its place, so **More from Gmail** retries it.
+  access** as a reader would, or another failure. **Search mail servers again** asks every
+  mailbox afresh; a failed next page keeps its place, so **More from mail servers** retries it.
 - **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
   was asked of. Changing the query or view, a removed or changed mailbox, or another
   Product Account leaves it unshown until Gmail is asked again, and a reply for an

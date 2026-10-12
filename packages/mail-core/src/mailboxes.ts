@@ -14,6 +14,8 @@ import type {
 import type {
   ImapInbox,
   ImapInboxState,
+  ImapMessage,
+  ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
 import type {
@@ -123,6 +125,18 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     message: Parameters<NativeImapMailbox['imapMessage']>[1],
   ) => Promise<unknown>;
+  readonly imapModify: (
+    mailbox: Scope,
+    change: Parameters<NativeImapMailbox['imapModify']>[1],
+  ) => Promise<unknown>;
+  readonly imapSearch: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapSearch']>[1],
+  ) => Promise<unknown>;
+  readonly imapIdle: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapIdle']>[1],
+  ) => Promise<unknown>;
 }
 
 // One connection's view of the native module: every call names that connection, and only the
@@ -208,6 +222,10 @@ const boundImap = (
       native.imapSynchronize(scope(mailbox), request),
     imapMessage: (mailbox, message) =>
       native.imapMessage(scope(mailbox), message),
+    imapModify: (mailbox, change) => native.imapModify(scope(mailbox), change),
+    imapSearch: (mailbox, request) =>
+      native.imapSearch(scope(mailbox), request),
+    imapIdle: (mailbox, request) => native.imapIdle(scope(mailbox), request),
     openMailbox: cache.openMailbox,
     commitMailbox: cache.commitMailbox,
     openMessageBody: cache.openMessageBody,
@@ -296,6 +314,9 @@ export function createMailboxes(
   let order: readonly OpenMailbox[] = [];
   let connections: ReadonlyArray<Mailbox | ImapMailbox> = [];
   let snapshot: readonly Mailbox[] = [];
+  // While watched, each IMAP Inbox waits with IDLE; stopping a watch ends its future waits.
+  let watched = false;
+  const watches = new Map<string, () => void>();
   // Set once the host loads, so a connection added later synchronizes as soon as it appears.
   let started = false;
   const listeners = new Set<() => void>();
@@ -359,6 +380,8 @@ export function createMailboxes(
     for (const [id, entry] of inboxes) {
       if (!open.some((mailbox) => mailbox.owner === entry.owner)) {
         inboxes.delete(id);
+        watches.get(id)?.();
+        watches.delete(id);
         entry.unsubscribe();
         entry.inbox.forget();
         changed = true;
@@ -398,6 +421,9 @@ export function createMailboxes(
       });
       if (started && mailboxLoading === 'automatic') {
         void opened.inbox.load();
+      }
+      if (watched && opened.provider === 'imap') {
+        watches.set(id, opened.inbox.watch());
       }
     }
     return added.length > 0;
@@ -470,6 +496,23 @@ export function createMailboxes(
     load: async () => {
       started = true;
       await Promise.all([...inboxes.values()].map(({ inbox }) => inbox.load()));
+    },
+    // Waits with IDLE on each IMAP connection's Inbox, including connections added later, until
+    // the returned function stops every wait.
+    watch: () => {
+      watched = true;
+      for (const [id, entry] of inboxes) {
+        if (entry.provider === 'imap' && !watches.has(id)) {
+          watches.set(id, entry.inbox.watch());
+        }
+      }
+      return () => {
+        watched = false;
+        for (const stop of watches.values()) {
+          stop();
+        }
+        watches.clear();
+      };
     },
   };
 }
@@ -687,33 +730,45 @@ export async function savedMessageBodies(results: readonly BodyResult[]) {
   return new Map(answers.flat());
 }
 
+// One page of a provider's search: Gmail's, Microsoft Graph's, or an IMAP server's, which has no
+// further pages and may leave folders out.
+type SearchPage = GmailSearchPage | ImapSearchPage;
+
 // A mailbox whose store may search its provider online; preview stores have no online search.
 type Searchable = Readonly<{
   id: string;
   address?: string | undefined;
   inbox: Readonly<{
     searchGmail?:
-      | ((
-          query: string,
-          pageToken?: string,
-        ) => Promise<GmailSearchPage | undefined>)
+      | ((query: string, pageToken?: string) => Promise<SearchPage | undefined>)
       | undefined;
   }>;
 }>;
 
+// A page's continuation, which only Gmail and Microsoft Graph give.
+const nextPage = (page: SearchPage | undefined) =>
+  page?.kind === 'found' && 'next' in page ? page.next : undefined;
+// Whether an IMAP search left some folders out.
+const leftOut = (page: SearchPage | undefined) =>
+  page?.kind === 'found' && 'limited' in page && page.limited;
+
 export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   query: string;
   // Every page so far across the searched mailboxes, newest first.
-  results: ReadonlyArray<Readonly<{ mailbox: M; message: GmailMessage }>>;
+  results: ReadonlyArray<
+    Readonly<{ mailbox: M; message: GmailMessage | ImapMessage }>
+  >;
   // The next page of each mailbox that has one, by mailbox ID.
   next: ReadonlyMap<string, string>;
-  // Mailboxes Gmail could not search for the latest page; their earlier results stay.
+  // Mailboxes the provider could not search for the latest page; their earlier results stay.
   failures: ReadonlyArray<
     Readonly<{
       mailbox: M;
-      reason: Extract<GmailSearchPage, { kind: 'unavailable' }>['reason'];
+      reason: Extract<SearchPage, { kind: 'unavailable' }>['reason'];
     }>
   >;
+  // IMAP mailboxes whose search left some folders out.
+  limited: readonly M[];
 }>;
 
 // Searches every given mailbox that has online search at its provider at once. With `previous`, asks each mailbox that has
@@ -745,14 +800,19 @@ export async function searchGmail<M extends Searchable>(
   const results = [...(previous?.results ?? [])];
   const seen = new Set(results.map(resultKey));
   const failures: Array<OnlineSearch<M>['failures'][number]> = [];
+  const limited = [
+    ...(previous?.limited ?? []),
+    ...pages.flatMap(([mailbox, page]) => (leftOut(page) ? [mailbox] : [])),
+  ];
   for (const [mailbox, page] of pages) {
     if (page?.kind === 'unavailable') {
       failures.push({ mailbox, reason: page.reason });
     } else {
       next.delete(mailbox.id);
     }
-    if (page?.kind === 'found' && page.next !== undefined) {
-      next.set(mailbox.id, page.next);
+    const following = nextPage(page);
+    if (following !== undefined) {
+      next.set(mailbox.id, following);
     }
     const messages = page?.kind === 'found' ? page.messages : [];
     for (const message of messages) {
@@ -769,6 +829,7 @@ export async function searchGmail<M extends Searchable>(
     results: newestFirst(mailboxes, results),
     next,
     failures,
+    limited,
   };
 }
 

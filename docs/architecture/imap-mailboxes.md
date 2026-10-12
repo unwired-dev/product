@@ -28,7 +28,8 @@ existing URL pins and restores app product and Frameworks references idempotentl
 ## Ownership and transport
 
 `SwiftMailImap` opens one authenticated session for each operation, performs
-`EXAMINE`, uses `BODY.PEEK` and closes success and failure paths. TLS starts before
+`EXAMINE` for reads and `SELECT` for explicit mutations, uses `BODY.PEEK` and
+closes success and failure paths. TLS starts before
 authentication, uses full certificate verification and requires TLS 1.2 or newer.
 No plaintext/STARTTLS fallback or production trust override exists. The parser
 rejects body literals over 40 MB before buffering payload, and bounds response
@@ -85,6 +86,39 @@ change, whatever its status, to reopen its native generation. A newly opened or
 owner-replaced Inbox follows its normal initial load. Snapshot identity alone
 never dispatches repair reads.
 
+## Organizing, search and freshness
+
+[#630](https://github.com/unwired-dev/product/issues/630) adds organization without
+changing credential custody or the reduced receive-only reader. Special-use role
+actions require exactly one selectable destination; ordinary Move to remains an
+explicit folder choice. A pending role action is refused when a refreshed listing
+changes its meaning or makes it ambiguous.
+
+The encrypted IMAP document retains an ordered pending queue. Dispatch of a move
+is committed before its native call. A move whose outcome is unknown and has no
+destination mapping blocks later actions until explicit discard; source absence
+alone cannot prove the destination. Read-flag mutations remain idempotent.
+
+Without MOVE, native transport returns a verified COPYUID after COPY alone.
+TypeScript commits that continuation before requesting source deletion. The next
+native request checks the destination generation and copied UID, then the source
+generation, and sends STORE Deleted and targeted UID EXPUNGE. Replays of this
+continuation never COPY again. An unavailable or invalid COPYUID prevents source
+deletion and automatic replay. MOVE partial-completion failures remain uncertain.
+Settled actions update cached and still-shown folder snapshots together.
+
+The existing #630 panel chose all selectable folders except Trash/Junk for online
+search over only the viewed folder, by three votes to zero. Inbox comes first,
+then special-use folders and the remaining folders; the request caps at 50 folders
+and returns the newest 50 matches per folder with truncation disclosure.
+
+Each watched connection uses IDLE only when advertised. Its failed waits reconnect
+with a five-second-to-five-minute backoff, alongside the active-app five-minute
+poll and foreground catch-up. The Mac application owns its watchers; mobile
+foreground ownership stops future waits outside active state. Search and bounded
+IDLE release the global registration gate during network waits, retaining native
+credential and generation checks before and after the operation.
+
 ## Evidence and release limits
 
 The implementation handoff recorded Swift package build/tests, plaintext refusal,
@@ -106,3 +140,21 @@ Real iCloud/Fastmail reads require accounts and remain release work in #632. Nat
 Mac controlled-TLS reads, complete native IMAP setup/open/relaunch journeys and
 power-user parity remain explicitly unqualified. Receive-only behavior until #631
 and the reduced reader are settled scope, not defects to reverse in this review.
+
+The #630 controlled TLS suite also exercises read/unread STORE, MOVE/COPYUID,
+two-phase UIDPLUS fallback, replay with an absent source, destination-generation
+and copied-message refusal, unmapped and interrupted COPY without source deletion,
+tagged move refusal, lost MOVE reply, cross-folder search, bounded IDLE and a
+compressed ESEARCH range spanning four billion UIDs without expanding that range. Its
+wire fixture is controlled protocol evidence, not live-provider or full host
+interaction qualification. Shared regressions cover durable continuation recovery,
+unknown outcomes and external deletion, ambiguous/changed roles, settled folder
+views and IDLE recovery. Host component journeys cover visible uncertain-move
+discard without replay.
+
+The #630 reviewer could not complete a fresh Mac host build: both scripted attempts
+failed during CocoaPods generation with `ArgumentError: pathname contains null byte`.
+A direct build of the generated workspace then lacked React and GoogleSignIn module
+dependencies. This is unavailable final-tree Mac host evidence; earlier host builds
+do not qualify the changed bridge. Native package and hosted iOS adapter evidence
+remain separate from that requirement.
