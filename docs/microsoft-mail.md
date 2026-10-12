@@ -2,7 +2,9 @@
 
 [#634](https://github.com/unwired-dev/product/issues/634) connects a personal
 Outlook.com or work/school Microsoft 365 mailbox as a **Mailbox Connection** and
-reads its Inbox through Microsoft Graph on iPhone, iPad and Mac. It is mailbox
+reads its Inbox through Microsoft Graph on iPhone, iPad and Mac.
+[#635](https://github.com/unwired-dev/product/issues/635) organizes and searches
+its mail through Graph. It is mailbox
 authorization only: Microsoft never becomes a Product Sign-In, and a Google or
 Apple Product Account adds Microsoft mail without any Gmail grant. Microsoft
 Product Sign-In and linking remain [#633](https://github.com/unwired-dev/product/issues/633).
@@ -17,13 +19,14 @@ configured for this build, **Connect Microsoft mail**.
 A Google sign-in only suggests its own account to Gmail; it is never a Microsoft hint.
 
 **Connect Microsoft mail** opens Microsoft's sign-in page in the system web
-authentication session and asks for `offline_access User.Read Mail.Read`. The
-connection is shown only after Graph reads the account and its Inbox:
+authentication session and asks for `offline_access User.Read Mail.ReadWrite`, so
+it can read and organize mail. The connection is shown only after Graph reads the
+account and its Inbox:
 
 | Outcome                                                           | What the person sees                                               |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------ |
 | Cancelled sign-in                                                 | **Mailbox authorization was cancelled**; the Product Account stays |
-| Consent refused, or a grant without `Mail.Read`                   | **Mail access was not granted**                                    |
+| Consent refused, or a grant without mail access                   | **Mail access was not granted**                                    |
 | Tenant restriction, admin consent required, or no Outlook mailbox | **Microsoft mail is unavailable for this account**                 |
 | Network or Microsoft service failure                              | **Mailbox authorization was interrupted**; retry resumes           |
 
@@ -34,7 +37,13 @@ That action also requires Microsoft mail to be configured for this build.
 A connection whose grant Microsoft refuses later shows **Microsoft needs your
 permission again** and **Allow Microsoft access for** its address. Authorizing it
 again suggests that account and must name the same Microsoft account; another
-account is added separately. Removal works as for [Gmail mailboxes](gmail-inbox.md#gmail-mailboxes)
+account is added separately.
+
+A connection authorized before organizing was available keeps its read-only grant
+and keeps synchronizing. Its first change that Microsoft refuses for lack of
+permission stays saved on this device, and the Inbox shows **Microsoft needs your
+permission again**. Allowing access again asks for organizing, and the saved
+change is sent. Removal works as for [Gmail mailboxes](gmail-inbox.md#gmail-mailboxes)
 and leaves the mail in Microsoft.
 
 ## Reading the Inbox
@@ -65,11 +74,39 @@ An explicit open over a budget reports the body as failed, including when an
 attachment's MIME type or Content-ID exceeds its limit. Metadata is never truncated.
 If Graph also refuses the grant, the Inbox asks for authorization again instead.
 
-Not yet available for Microsoft mail: organizing actions and online search
-([#635](https://github.com/unwired-dev/product/issues/635)) and sending
-([#636](https://github.com/unwired-dev/product/issues/636)). Saved-mail search
-covers Microsoft messages; online search skips Microsoft mailboxes, and the
-composer offers only Gmail mailboxes as senders.
+## Organizing and searching
+
+Microsoft mail offers the organizing actions Outlook has, in the reader and as
+Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Move to
+Trash** (Deleted Items), **Report spam** (Junk Email), and **Move to** one of the
+mailbox's own folders under **Folders**, nested ones included. Each folder shows its
+path, such as **Inbox / Projects**, so folders with equal names stay apart. A mailbox
+lists up to 250 folders, stopping at each folder's first provider page, and says
+when some folders were left out. **Undo** moves a message back to
+the Inbox. A Microsoft message lives in one folder, so Gmail's labels and star are
+not offered for it. Archive, Trash and Spam actions are offered only after their
+folder roles are known and present in the mailbox.
+
+Each change shows at once, is saved on this device and is sent to Microsoft in
+order, exactly as for [Gmail](gmail-inbox.md):
+
+- a change waits until the current Trusted Device can be verified, even when
+  saved mail remains readable;
+- a change Microsoft could not receive, or that it throttles or answers with a
+  server error, waits and is sent again, including after relaunch;
+- a change whose reply was lost is checked against where Microsoft has the message
+  before it is sent again, so it is applied once;
+- a message deleted in Outlook, or a folder removed there, refuses the change, and
+  the Inbox shows the message as Microsoft has it;
+- each change goes only to the connection that showed the message.
+
+Online search covers every folder of each Microsoft mailbox beside Gmail's.
+Microsoft orders its results by sent time and returns up to 1,000 matches; the
+Inbox lists all returned results newest first.
+
+Sending stays Gmail-only until
+[#636](https://github.com/unwired-dev/product/issues/636): the composer offers only
+Gmail mailboxes as senders.
 
 ## Credentials
 
@@ -87,7 +124,7 @@ Register a public-client application in Microsoft Entra ID that accepts personal
 Microsoft accounts and work or school accounts. Add the iOS/macOS redirect URI
 `msauth.dev.unwired.mail://auth`, which both hosts share through the
 `dev.unwired.mail` bundle ID, and the delegated Microsoft Graph permissions
-`User.Read` and `Mail.Read`. Set the application ID when generating each host:
+`User.Read` and `Mail.ReadWrite`. Set the application ID when generating each host:
 
 ```sh
 UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
@@ -105,8 +142,13 @@ first list and delta round, later changes after relaunch, partial and repeated d
 bounded delta continuation work with saved progress for retry,
 refilling a full cache, an HTML body with an inline image, an attachment download
 by its decoded size, hidden/unreferenced images, optional image and attachment-metadata failures with
-retry after relaunch, a refused grant, and a unified Inbox where only Gmail searches
-online and sends. Registration-flow tests connect Microsoft mail as a Google or Apple
+retry after relaunch, a refused grant, and a unified Inbox that searches both
+providers online and sends only from Gmail. Organizing tests check Graph's read-state
+and move requests, nested folder listing by path and its limit, Undo, an outage across relaunch, a lost reply,
+throttling and server errors, a concurrent Outlook move, incomplete placement
+replies, a deleted message or folder, missing folder roles, a read-only grant,
+actions Microsoft lacks, search across folders and pages, and that changes reach only
+the connection that showed the message. Registration-flow tests connect Microsoft mail as a Google or Apple
 account's first mailbox without asking Google for mail, and cover cancellation, refused
 consent, a missing mail scope, an unavailable mailbox and reauthorization. Both
 hosts' rendered tests connect Microsoft mail first and show its Inbox.
@@ -115,6 +157,8 @@ The hosted native suite stores a Microsoft connection beside Gmail, publishes it
 own Product Sync descriptor, exercises the real token exchange, refresh and Graph
 verification adapter with controlled HTTP responses, refuses Graph URLs outside the person's own mail and
 Gmail requests with a Microsoft credential, and marks only its descriptor removed.
+It also checks the read-state and move requests native code writes, refuses
+malformed changes, and keeps a read-only grant reading on refresh.
 The `registration-apple` native journey connects the synthetic Microsoft mailbox
 first, then adds Gmail.
 

@@ -96,6 +96,8 @@ function MessageRow({
   selected,
   onSelect,
   onOrganize,
+  provider = 'gmail',
+  unavailableActions,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
@@ -104,10 +106,13 @@ function MessageRow({
   readonly status: string | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
-  // Present when the message can be organized in Gmail.
+  // Present when the message can be organized at its provider.
   readonly onOrganize?:
     | ((message: GmailMessage, action: GmailAction) => void)
     | undefined;
+  // The provider of the mailbox that shows the message, whose actions it offers.
+  readonly provider?: MailProvider | undefined;
+  readonly unavailableActions?: ReadonlyArray<GmailAction['kind']> | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -115,7 +120,7 @@ function MessageRow({
   const [focused, setFocused] = useState(false);
   const organizing =
     onOrganize !== undefined && 'threadId' in message
-      ? quickActions(t, message)
+      ? quickActions(t, message, { provider, unavailableActions })
       : [];
   return (
     <Pressable
@@ -909,6 +914,13 @@ export function Inbox({
               <MessageRow
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
+                provider={item.mailbox.provider}
+                unavailableActions={
+                  item.mailbox.state.kind === 'ready' &&
+                  'unavailableActions' in item.mailbox.state
+                    ? item.mailbox.state.unavailableActions
+                    : undefined
+                }
                 onOrganize={
                   section.key === 'saved' &&
                   item.mailbox.state.kind === 'ready' &&

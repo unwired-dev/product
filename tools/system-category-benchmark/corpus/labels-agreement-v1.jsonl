@@ -1,0 +1,150 @@
+{"id": "spamassassin:hard_ham/00244.6b536755550a406301a4dbd482341125", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<22375766.1075840965004.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/00030.cc523265aefc37ee6ce3015d8ff6aa24", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32288905.1075860884673.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<15247015.1075845011335.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<678049.1075860474519.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<17047431.1075862104731.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<14104383.1075840444309.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30754680.1075843049062.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01104.703f48a4a1fa8c0e7053fba23997ee81", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00046.026e41e68016ebba835a855d4e2af80f", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/01115.fef7974c55c9c611ef851e2293f7c725", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/01357.102c99f3c387520d97c19c884c886355", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<29237033.1075858922319.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00006.3409dec8ca4fcf2d6e0582554473b5c9", "labels": [], "exclude": true, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<9965315.1075844702412.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<24264481.1075861442626.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00174.ea47d0c060fa8ce10dfb448db1f27be8", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00007.d24e99a602ee7fb442714c0d448cd08e", "labels": [], "exclude": true, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<14730469.1075853840942.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<1788279.1075862016889.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<13517681.1075851973070.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6089408.1075843049625.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00126.4b3874844ccb78cd7ca2cd03876124b0", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<15466354.1075860212242.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32968357.1075846745288.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<2210375.1075853199060.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<10694746.1075851549091.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01358.856ab1787169df5216c2c426392cbfbd", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<306429.1075859896800.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<21998577.1075860851567.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<13939846.1075842361965.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6091853.1075861254559.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<21385198.1075840316126.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<26696262.1075842967312.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<22404264.1075861772033.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01730.3d930e2d4968f325cc6a773df09e8969", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00275.4602fde18bf961c7bdff1a65e4e0fcbe", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/00673.aea009bf14e6a5ca613e7ae735506890", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00082.a405e76faf9463d464229306b1e0c93f", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00223.14b06feeb8b03fed4e272140b8ed95f0", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<3376750.1075845007493.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<12270613.1075855621968.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<4935116.1075862285728.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00068.9fad29898f9de2de79401e3112c4f4f6", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00218.c8c8534c14d8e1b43c43a7565a16f28a", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32178820.1075860658456.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<8288801.1075863225350.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00116.28d07fa9ce0ad698cf6d7ccf1cb7e605", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<17051053.1075853120806.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00461.94c0b7cab722e5ac253b285e50b047e1", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00066.a1470588fa7acf8f1ceb4b58f067682f", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<20846193.1075845619373.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/01109.02564d3915a1cb4514acca1baa0e694f", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<27893932.1075858765140.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6437020.1075862553351.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/00802.5b2b41e76c466cbf4eea8076fd8669ac", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00029.844ef4d2066aab3fdf93692142d5911f", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<21343869.1075845718261.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<13327842.1075840353186.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<7066086.1075852843363.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<28308775.1075858086231.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<33066541.1075858289366.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<7950598.1075855787788.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00167.728c686d0128f4d677a5658d865e6159", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<22698258.1075853973244.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<409578.1075854207006.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<15781138.1075845646463.JavaMail.evans@thyme>", "labels": ["Orders"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00833.cc61a5d9b6ac040ef4ce65d1ee5ec069", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<29408494.1075860897234.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<27683068.1075860792716.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32421620.1075841453509.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<20971471.1075844702332.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01433.4392b7c4884f0f218e74a0b86cc5b8c3", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30311837.1075840503717.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<4675403.1075859457480.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00224.0b10471bd4bcd9b5aad01f0431f72d9f", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<9818397.1075861747147.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<4236772.1075861633953.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<23861523.1075855050900.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00395.01a60f5f85141b74be6aa6e347feb5d9", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00120.4614aadda75cb2e069a6c22cabc5aea0", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/00821.ecfe5e599c9cdec3a6fa0f5d87674f69", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00203.f60fed4761dba24a8e626e8280d53191", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30475146.1075847361841.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/02457.b9ce53f6744f6deb11a365882297639d", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32827821.1075855127346.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00150.6757acfba013e1e9b138e2530101c9b8", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00136.5a3b167888ad2dddf950359e492b953c", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<28687331.1075842797296.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<9669081.1075861752384.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<31394358.1075842016070.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00320.9933c126186ef60960c78df427a2d8d6", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00102.10533c2a8486368eea6acd0d07549f3b", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<4174248.1075845676834.JavaMail.evans@thyme>", "labels": ["Orders"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<7846612.1075840859863.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00054.7e71da5e65cb85d5c483c3de59a5d63b", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<15345027.1075846931010.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<26869988.1075852237097.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<25378186.1075841346684.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<7182453.1075846162997.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00050.22f61c80e6b78b95140773a3ef3848eb", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01480.1d6e92e72f85630b288a712075387058", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<19547195.1075853931043.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<19315300.1075840022563.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30031998.1075846947594.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<5142444.1075855458819.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<11872056.1075844340517.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/01195.e7834b72cb6abc842f6d61f8cb08e346", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00817.6dd747cab2629ac615233a528525bb8f", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<1230507.1075854915373.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<8934662.1075845673379.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/01301.70c542928cad28bf273cc9d71d5f5d13", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<21380500.1075842440577.JavaMail.evans@thyme>", "labels": ["Orders"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00160.0f0cc01d1f3ec5eff12ca6ee90ea9841", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6276232.1075846120233.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<9869308.1075844757583.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham_2/00518.75a6106951badcc0b22c46612fd3b960", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30468042.1075855009030.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00175.9836fe00dafac45b3ad3f454ac7e8ee3", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<24706655.1075854357953.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<25027973.1075860204850.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<9359740.1075852925490.JavaMail.evans@thyme>", "labels": ["Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00092.dea3df11dafb2cdd838b42fc3b9ead09", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<30541028.1075843031574.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<14271871.1075843480743.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<10499116.1075857476870.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00119.4cb9c1c20358b4c2a6df2cdc5670fe62", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6079202.1075852650810.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions", "Invites"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<19818344.1075861109441.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00041.aee0699a14f472a43d9a9d178aa21d70", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6240541.1075853674375.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:hard_ham/00106.8325a1afdd64c2945889fc4b0e80d363", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<23953101.1075855367916.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00043.d2673a72d215cbdd747dc98cde41fbd2", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6680390.1075843025524.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<27898170.1075846048217.JavaMail.evans@thyme>", "labels": ["Orders"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<25574041.1075857600822.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<6109543.1075862106849.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<18014622.1075859953810.JavaMail.evans@thyme>", "labels": ["Orders"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<2245173.1075840626210.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<2831725.1075854579442.JavaMail.evans@thyme>", "labels": ["Newsletters & Promotions"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<8939411.1075842591724.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<26795384.1075862262757.JavaMail.evans@thyme>", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/00892.9dc7dadb7e1258d9d1256673f2ae741c", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<19746850.1075853844603.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "spamassassin:easy_ham/01208.dd294e4904940446bb82b45b37981bce", "labels": [], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<29884416.1075849825741.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<32011310.1075855111312.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}
+{"id": "enron:<22160938.1075858424620.JavaMail.evans@thyme>", "labels": ["People"], "exclude": false, "annotator": "gpt-6.1-sol agent, rubric v1, not human-verified"}

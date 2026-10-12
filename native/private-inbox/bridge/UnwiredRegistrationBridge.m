@@ -61,6 +61,7 @@ RCT_EXTERN_METHOD(gmailRequest:(NSString *)path query:(NSArray *)query mailbox:(
 RCT_EXTERN_METHOD(graphRequest:(NSString *)url mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(cancelGmailRequest:(NSString *)request)
 RCT_EXTERN_METHOD(gmailModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(graphModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapFolders:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapSynchronize:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

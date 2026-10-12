@@ -56,8 +56,9 @@ label, each with a synthetic HTML or plain-text body for the reader, applying la
 changes for the rest of the launch. Journeys that confirm setup with a connected
 mailbox open that synchronized Inbox, open a message, star, archive and undo,
 relaunch from its encrypted cache and return to the account page. A synthetic
-Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph reads with
-one Inbox message; `registration-apple` connects it before adding Gmail.
+Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph requests
+with one message, its folders and search, applying read-state changes and moves
+for the rest of the launch; `registration-apple` connects it before adding Gmail.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
 accounts present a Recovery Key and relaunches keep their keys. Like Convex, it

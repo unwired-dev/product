@@ -20,7 +20,12 @@ import {
 
 import { Commands } from './command-palette.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailbox, useInbox, useInboxActions } from './mailbox.tsx';
+import {
+  useInbox,
+  useInboxActions,
+  useMailbox,
+  useProviderName,
+} from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -99,6 +104,8 @@ export function MessageActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const [labeling, setLabeling] = useState(false);
+  const provider = mailbox?.provider ?? 'gmail';
+  const providerName = useProviderName();
   if (state.kind !== 'ready' || !('sync' in state) || !('organize' in store)) {
     return null;
   }
@@ -109,7 +116,7 @@ export function MessageActions({
   if (!state.organize) {
     return (
       <Text style={[styles.secondary, { color: colors.secondary }]}>
-        {t('gmailActions.savedOnly')}
+        {t('gmailActions.savedOnly', { provider: providerName })}
       </Text>
     );
   }
@@ -120,6 +127,12 @@ export function MessageActions({
     }
   };
   const applied = new Set(message.labels);
+  const actions = quickActions(t, message, { provider }).map((action) => ({
+    ...action,
+    disabled: state.unavailableActions?.includes(action.name)
+      ? t('commandPalette.unsupported')
+      : undefined,
+  }));
   const keywords = {
     archive: t('commandPalette.archiveKeywords'),
     read: t('commandPalette.readKeywords'),
@@ -129,14 +142,17 @@ export function MessageActions({
     trash: '',
     spam: '',
   };
+  // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
+  const folders = provider !== 'gmail';
   return (
     <>
       <Commands
         commands={[
-          ...quickActions(t, message).map(({ name, label, action }) => ({
+          ...actions.map(({ name, label, action, disabled }) => ({
             id: name,
             label,
             keywords: keywords[name],
+            disabled,
             group: 'selection' as const,
             target: `${mailbox?.id}/${id}`,
             onRun: () => {
@@ -151,7 +167,7 @@ export function MessageActions({
             target: `${mailbox?.id}/${id}`,
             disabled:
               state.labels.length === 0
-                ? t('gmailActions.noLabels')
+                ? t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')
                 : undefined,
             choices: state.labels.map((label) => ({
               id: label.id,
@@ -166,18 +182,26 @@ export function MessageActions({
         ]}
       />
       <View style={styles.bar}>
-        {quickActions(t, message).map(({ name, label, action }) => (
-          <ActionButton
-            key={name}
-            label={label}
-            onPress={() => {
-              act(action);
-            }}
-          />
-        ))}
+        {actions
+          .filter(({ disabled }) => disabled === undefined)
+          .map(({ name, label, action }) => (
+            <ActionButton
+              key={name}
+              label={label}
+              onPress={() => {
+                act(action);
+              }}
+            />
+          ))}
         <ActionButton
           label={
-            labeling ? t('gmailActions.hideLabels') : t('gmailActions.labels')
+            folders
+              ? t(
+                  labeling
+                    ? 'gmailActions.hideFolders'
+                    : 'gmailActions.folders',
+                )
+              : t(labeling ? 'gmailActions.hideLabels' : 'gmailActions.labels')
           }
           onPress={() => {
             setLabeling(!labeling);
@@ -188,26 +212,33 @@ export function MessageActions({
         <View style={styles.panel}>
           {state.labels.length === 0 ? (
             <Text style={[styles.secondary, { color: colors.secondary }]}>
-              {t('gmailActions.noLabels')}
+              {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
+            </Text>
+          ) : null}
+          {state.labelsLimited === true ? (
+            <Text style={[styles.secondary, { color: colors.secondary }]}>
+              {t('gmailActions.foldersLimited', { count: state.labels.length })}
             </Text>
           ) : null}
           {state.labels.map((label) => (
             <View
               key={label.id}
               style={styles.labelRow}>
-              <View style={styles.labelName}>
-                <ActionButton
-                  checked={applied.has(label.id)}
-                  label={label.name}
-                  onPress={() => {
-                    act(
-                      applied.has(label.id)
-                        ? gmailAction.unlabel(label.id)
-                        : gmailAction.label(label.id),
-                    );
-                  }}
-                />
-              </View>
+              {folders ? null : (
+                <View style={styles.labelName}>
+                  <ActionButton
+                    checked={applied.has(label.id)}
+                    label={label.name}
+                    onPress={() => {
+                      act(
+                        applied.has(label.id)
+                          ? gmailAction.unlabel(label.id)
+                          : gmailAction.label(label.id),
+                      );
+                    }}
+                  />
+                </View>
+              )}
               <ActionButton
                 label={t('gmailActions.moveTo', { label: label.name })}
                 onPress={() => {
@@ -230,6 +261,7 @@ export function OrganizeStatus() {
   const store = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const provider = useProviderName();
   const notice =
     state.kind === 'ready' && 'notice' in state ? state.notice : undefined;
   // VoiceOver announces the outcome once, however many windows show it; the action that caused it
@@ -237,9 +269,11 @@ export function OrganizeStatus() {
   useEffect(() => {
     if (notice !== undefined && !announced.has(notice)) {
       announced.add(notice);
-      AccessibilityInfo.announceForAccessibility(gmailActionCopy(t, notice));
+      AccessibilityInfo.announceForAccessibility(
+        gmailActionCopy(t, notice, provider),
+      );
     }
-  }, [notice, t]);
+  }, [notice, provider, t]);
   if (state.kind !== 'ready' || !('sync' in state) || !('organize' in store)) {
     return null;
   }
@@ -257,7 +291,7 @@ export function OrganizeStatus() {
         <Text
           accessibilityRole={notice.kind === 'done' ? 'text' : 'alert'}
           style={[styles.secondary, { color: colors.foreground }]}>
-          {gmailActionCopy(t, notice)}
+          {gmailActionCopy(t, notice, provider)}
         </Text>
       )}
       {notice?.kind === 'done' && undo !== undefined ? (
@@ -282,7 +316,11 @@ export function OrganizeStatus() {
           <Text
             accessibilityRole="alert"
             style={[styles.secondary, { color: colors.secondary }]}>
-            {gmailActionCopy(t, { ...state.blockedAction, kind: 'blocked' })}
+            {gmailActionCopy(
+              t,
+              { ...state.blockedAction, kind: 'blocked' },
+              provider,
+            )}
           </Text>
           <View style={styles.bar}>
             <ActionButton
@@ -302,7 +340,7 @@ export function OrganizeStatus() {
       )}
       {waiting ? (
         <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {t('gmailActions.pending', { count: state.pending })}
+          {t('gmailActions.pending', { count: state.pending, provider })}
         </Text>
       ) : null}
     </View>

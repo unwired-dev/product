@@ -273,6 +273,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   Preserve ordinary unavailability for reads and label modifications and the
   fixed `rejectMailbox` codes. Otherwise offline sends lose their queued retry
   and Edit path, or an ambiguous send is submitted twice.
+- `RegistrationStore.graphCall` or another credentialed provider mutation using
+  only process verification or the permissive `prepareMailbox` cache preflight.
+  As `RegistrationStore.gmail` does, require a current credential-only
+  `deviceRevoked` proof before provider renewal, reject an unavailable or absent
+  proof, purge positive revocation, and recheck ownership after suspension.
+  Otherwise queued writes can reach the provider while device trust is unknown
+  or after remote revocation. Cache reads retain their separate offline policy.
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation. `UnwiredRegistration.syncDrafts` must likewise preserve both revoked and deleted account rejections through `rejectMailbox`; registration restore retains the deletion notice. Mapping deletion to ordinary unavailability leaves shared Draft state open after native account purge.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await

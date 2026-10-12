@@ -90,8 +90,13 @@ const metadataSync = (status: number) =>
 const unavailableImage = (url: string) =>
   url.includes('/attachments/') ? { status: 503, body: '{}' } : undefined;
 
+// Message reads in order; the folders organizing lists with each synchronization are left out.
+const messageReads = (graph: ReturnType<typeof createSyntheticGraph>) =>
+  graph.requests.filter(
+    (url) => !/\/mailfolders(?:\/[^/]+)?$/u.test(url.pathname.toLowerCase()),
+  );
 const reads = (graph: ReturnType<typeof createSyntheticGraph>) =>
-  graph.requests.map((url) => {
+  messageReads(graph).map((url) => {
     if (url.pathname.toLowerCase().endsWith('/mailfolders/inbox/messages')) {
       return 'list';
     }
@@ -256,11 +261,17 @@ describe('reading Microsoft mail through Graph', () => {
       preview: 'Bring your notes',
       receivedAt: expect.stringMatching(/^2026-09-01T\d\d:\d\d:00\.000Z$/u),
       unread: true,
+      labels: ['INBOX', 'UNREAD'],
     });
-    // Microsoft mail offers no organizing actions until Graph organizing is supported.
+    // Microsoft mail offers Graph's actions, without Gmail's star.
     expect(
-      synced.messages.flatMap((message) => quickActions(english, message)),
-    ).toStrictEqual([]);
+      synced.messages
+        .slice(0, 1)
+        .flatMap((message) =>
+          quickActions(english, message, { provider: 'microsoft-graph' }),
+        )
+        .map(({ name }) => name),
+    ).toStrictEqual(['read', 'archive', 'trash', 'spam']);
     // The Inbox shows after one list; the delta round walks every page, then the Inbox is
     // listed again so nothing changed during the round is missed, and the round's link finds
     // nothing newer.
@@ -316,7 +327,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect(graph.commits.at(-1)).toContain('r1');
     await relaunched.load();
     expect(reads(graph)).toStrictEqual(['changes', 'changes']);
-    expect(graph.requests.at(-1)?.searchParams.get('$deltatoken')).toMatch(
+    expect(messageReads(graph).at(-1)?.searchParams.get('$deltatoken')).toMatch(
       /r1$/u,
     );
     expect(graph.commits).toHaveLength(commits + 2);
@@ -688,11 +699,17 @@ describe('reading Microsoft mail through Graph', () => {
     {
       graphProfile: defaultProfile,
       subjects: ['From Outlook', 'From Gmail'],
+      // Online search covers each profile's own mailboxes, Microsoft ones included.
+      found: { default: ['microsoft-graph', 'gmail'], work: [] },
     },
-    { graphProfile: 'work', subjects: ['From Gmail'] },
+    {
+      graphProfile: 'work',
+      subjects: ['From Gmail'],
+      found: { default: ['gmail'], work: ['microsoft-graph'] },
+    },
   ])(
-    'reads Microsoft mail in $graphProfile while only Gmail searches online and sends',
-    async ({ graphProfile, subjects }) => {
+    'reads and searches Microsoft mail in $graphProfile while only Gmail sends',
+    async ({ graphProfile, subjects, found }) => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
       const graph = createSyntheticGraph();
@@ -766,24 +783,28 @@ describe('reading Microsoft mail through Graph', () => {
         }).map(({ message }) => message.subject),
       ).toStrictEqual(['From Outlook']);
       expect(inboxMessages(shown, { profile: 'unknown' })).toStrictEqual([]);
-      const workSearch = createGmailSearch(shown, 'From', { profile: 'work' });
-      expect(workSearch.available).toBe(false);
-      await workSearch.search();
-      expect(workSearch.getSnapshot().found?.results).toStrictEqual([]);
-
-      const search = createGmailSearch(shown, 'From', {
-        profile: defaultProfile,
+      const providers = async (profile: string) => {
+        const search = createGmailSearch(shown, 'From', { profile });
+        await search.search();
+        const result = search.getSnapshot().found;
+        return {
+          available: search.available,
+          failures: result?.failures,
+          found: result?.results.map(({ mailbox }) => mailbox.provider),
+        };
+      };
+      await expect(providers('work')).resolves.toStrictEqual({
+        available: found.work.length > 0,
+        failures: [],
+        found: found.work,
       });
-      await search.search();
-      expect(search.getSnapshot().found?.failures).toStrictEqual([]);
-      expect(
-        search
-          .getSnapshot()
-          .found?.results.map(({ mailbox }) => mailbox.provider),
-      ).toStrictEqual(['gmail']);
-      expect(reads(graph).filter((kind) => kind === 'message')).toStrictEqual(
-        [],
-      );
+      await expect(providers(defaultProfile)).resolves.toStrictEqual({
+        available: true,
+        failures: [],
+        found: found.default,
+      });
+      // Graph searches every folder, once, for the quoted query.
+      expect(graph.searches).toStrictEqual(['"From"']);
 
       expect(
         sendingMailboxes(

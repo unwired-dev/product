@@ -639,6 +639,7 @@ export function createSyntheticGmail({
     },
     // A Gmail connection reaches no Microsoft mail.
     graphRequest: () => rejection('unavailable'),
+    graphModify: () => rejection('unavailable'),
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||

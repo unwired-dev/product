@@ -1,6 +1,9 @@
 import * as Schema from 'effect/Schema';
 
-import { GraphId } from './microsoft-graph.ts';
+// Graph's message, attachment and folder IDs also admit Gmail's alphanumeric IDs.
+export const GraphId = Schema.String.check(
+  Schema.isPattern(/^[\w=-]{1,512}$/u),
+);
 
 export const GmailMessageSchema = Schema.Struct({
   // A Gmail or Microsoft Graph message ID, unique within its mailbox.
@@ -12,8 +15,7 @@ export const GmailMessageSchema = Schema.Struct({
   preview: Schema.String,
   receivedAt: Schema.String,
   unread: Schema.Boolean,
-  // Gmail's label IDs; absent in caches written before organizing, which are listed again, and
-  // for Microsoft mail, which offers no organizing actions yet.
+  // Provider placement and read-state labels; absent in older caches, which are listed again.
   labels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type GmailMessage = typeof GmailMessageSchema.Type;

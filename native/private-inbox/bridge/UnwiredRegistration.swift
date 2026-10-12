@@ -1069,6 +1069,25 @@ extension UnwiredRegistration {
     }
   }
 
+  // `change` names a Microsoft message and exactly one of `read` or `folder`.
+  @objc(graphModify:mailbox:resolver:rejecter:)
+  func graphModify(
+    _ change: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphModify", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let message = change["message"] as? String,
+        change["read"] == nil || change["read"] is Bool,
+        change["folder"] == nil || change["folder"] is String
+      else { throw RegistrationError.unavailable }
+      return try await $0.graphModify(
+        message: message, read: change["read"] as? Bool, folder: change["folder"] as? String,
+        connection: connection, address: address, generation: generation)
+    }
+  }
+
   // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`, and an optional
   // `threadId`. Not cancellable: once started, its outcome may only be unknown.
   @objc(gmailSend:mailbox:resolver:rejecter:)

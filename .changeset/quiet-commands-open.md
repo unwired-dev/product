@@ -12,3 +12,5 @@ Explain unavailable Compose actions without implying that waiting will unblock t
 Keep failed Reply, Reply All, and Forward commands open with visible feedback in the palette, while cancelled responses stay quiet and reader buttons retain their existing error alert.
 
 Keep palette entry and the phone hint inside supported screens, and keep Reply All searchable with an unavailable reason when no message is open.
+
+Respect provider-specific organizing actions and folder availability in the palette. Keep supported Microsoft actions visible with an unavailable reason when their destination folder is missing.

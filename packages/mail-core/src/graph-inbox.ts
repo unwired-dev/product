@@ -3,20 +3,29 @@ import type * as Schema from 'effect/Schema';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Order from 'effect/Order';
 
+import type { GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
   MailboxDocument,
   MailboxScope,
+  PendingAction,
 } from './mailbox-document.ts';
 import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
-import type { GraphAttachmentInfo } from './microsoft-graph.ts';
+import type { FolderRoles, GraphAttachmentInfo } from './microsoft-graph.ts';
 
-import { cacheLimit, merge, newestFirst } from './mailbox-document.ts';
+import {
+  cacheLimit,
+  merge,
+  newestFirst,
+  sameMailbox,
+} from './mailbox-document.ts';
 import {
   GmailNotFound,
   providerRead,
+  providerWrite,
   rejectedGrant,
   SyncFailure,
 } from './mailbox-read.ts';
@@ -24,20 +33,34 @@ import {
   decodeGraphAttachments,
   decodeGraphDelta,
   decodeGraphFile,
+  decodeGraphFolder,
+  decodeGraphFolders,
   decodeGraphFull,
   decodeGraphInbox,
   decodeGraphListed,
+  decodeGraphPlacement,
+  decodeGraphSearch,
   deltaIds,
   fileAttachments,
   fileData,
   graphAttachment,
   graphAttachments,
+  graphChange,
+  graphChildFolders,
+  graphFolders,
   graphInbox,
   graphInboxDelta,
   graphInboxMessage,
+  graphLabels,
   graphMessage,
   graphPayload,
+  graphPlacement,
+  graphSearch,
+  graphUnavailableActions,
+  graphWellKnownFolder,
+  isGraphSearchLink,
   listedMessage,
+  wellKnownFolders,
 } from './microsoft-graph.ts';
 
 export type ProviderPayload = GmailPart &
@@ -64,6 +87,10 @@ const pageLink = ({
 };
 
 type DeltaItems = Parameters<typeof deltaIds>[0];
+type PendingChange = Pick<PendingAction, 'action' | 'message'>;
+
+// The most folders Move to lists for one mailbox.
+const folderLimit = 250;
 
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
@@ -326,6 +353,17 @@ export function createGraphReader(native: NativeGraphMailbox) {
     if (document !== undefined && quiet.has(document)) {
       return Effect.succeedNone;
     }
+    // Caches saved before organizing keep no labels; listing again adds them, and the round
+    // continues from its saved link.
+    if (
+      document !== undefined &&
+      isGraphCheckpoint(document.checkpoint) &&
+      document.messages.some(({ labels }) => labels === undefined)
+    ) {
+      return listGraph(scope, document, document.checkpoint).pipe(
+        Effect.asSome,
+      );
+    }
     if (step >= 200) {
       return Effect.fail(
         new SyncFailure({
@@ -338,5 +376,148 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return advanceRound(scope, document);
   };
 
-  return { advance, partData, fullMessage } as const;
+  // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
+  // as Archive, simply lacks it.
+  let known: Readonly<{ scope: MailboxScope; roles: FolderRoles }> | undefined =
+    undefined;
+  const folderRoles = Effect.fnUntraced(function* (scope: MailboxScope) {
+    if (known !== undefined && sameMailbox(known.scope, scope)) {
+      return known.roles;
+    }
+    const found = yield* Effect.forEach(
+      wellKnownFolders,
+      (name) =>
+        graphGet(scope)(graphWellKnownFolder(name), decodeGraphFolder).pipe(
+          Effect.map(({ id }) => [[id, name] as const]),
+          Effect.catchTag('GmailNotFound', () => Effect.succeed([])),
+        ),
+      { concurrency: 4 },
+    );
+    const roles: FolderRoles = new Map(found.flat());
+    known = { scope, roles };
+    return roles;
+  });
+  const placed = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    message: Effect.Success<ReturnType<typeof decodeGraphPlacement>>,
+  ) {
+    if (message.id !== id) {
+      return yield* new SyncFailure({
+        kind: 'retry',
+        cause: 'message mismatch',
+        diagnostic: 'another message',
+      });
+    }
+    const roles = yield* folderRoles(scope);
+    return graphLabels(message.parentFolderId, message.isRead, roles);
+  });
+
+  // Move to's folders: every folder apart from the well-known ones, nested ones included, each
+  // named by its path so equal names stay apart. Listing stops at `folderLimit` folders or a
+  // folder's first page; `limited` says whether any were left out.
+  const labels = Effect.fnUntraced(function* (scope: MailboxScope) {
+    const roles = yield* folderRoles(scope);
+    const listed: GmailLabel[] = [];
+    let limited = false;
+    // Breadth first, so a limit leaves out the deepest folders.
+    const queue = [{ url: graphFolders, path: '' }];
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      if (listed.length >= folderLimit) {
+        limited = true;
+        break;
+      }
+      const page = yield* graphGet(scope)(next.url, decodeGraphFolders);
+      limited ||= page['@odata.nextLink'] !== undefined;
+      for (const { id, displayName, childFolderCount = 0 } of page.value) {
+        const name =
+          next.path === '' ? displayName : `${next.path} / ${displayName}`;
+        if (!roles.has(id)) {
+          listed.push({ id, name });
+        }
+        if (childFolderCount > 0) {
+          queue.push({ url: graphChildFolders(id), path: name });
+        }
+      }
+    }
+    return {
+      labels: Arr.sort(
+        listed.slice(0, folderLimit),
+        Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+      ),
+      limited: limited || listed.length > folderLimit,
+    };
+  });
+
+  // A message's labels as Graph has it now, or none once Graph no longer has it.
+  const readLabels = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    message: Readonly<{ id: string }>,
+  ) {
+    const found = yield* graphGet(scope)(
+      graphPlacement(message.id),
+      decodeGraphPlacement,
+    ).pipe(Effect.catchTag('GmailNotFound', () => Effect.void));
+    return found === undefined
+      ? Option.none<readonly string[]>()
+      : Option.some(yield* placed(scope, message.id, found));
+  });
+
+  // Graph's labels after one change, or none when Graph refuses it for good: the message or folder
+  // no longer exists, or the action has no Graph change. A change sets a state rather than
+  // toggling one, so a request whose reply was lost is safely sent again.
+  const modify = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { action, message }: PendingChange,
+  ) {
+    const change = graphChange(action);
+    const changed =
+      change === undefined
+        ? Option.none()
+        : yield* providerWrite(
+            () => native.graphModify({ message: message.id, ...change }, scope),
+            (status) => status === 200 || status === 201,
+            decodeGraphPlacement,
+          );
+    return Option.isNone(changed)
+      ? Option.none<readonly string[]>()
+      : Option.some(yield* placed(scope, message.id, changed.value));
+  });
+
+  // One page of Graph's search of every folder. Each result is labeled with where it is now.
+  const search = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { query, pageToken }: Readonly<{ query: string; pageToken?: string }>,
+    limit: number,
+  ) {
+    // A page token this Inbox never issued is refused before it reaches native code.
+    if (pageToken !== undefined && !isGraphSearchLink(pageToken)) {
+      return yield* new GmailNotFound();
+    }
+    const page = yield* graphGet(scope)(
+      pageToken ?? graphSearch(query, limit),
+      decodeGraphSearch,
+    );
+    const roles = yield* folderRoles(scope);
+    return {
+      messages: page.value.map((message) =>
+        listedMessage(
+          message,
+          graphLabels(message.parentFolderId, message.isRead, roles),
+        ),
+      ),
+      next: page['@odata.nextLink'],
+    };
+  });
+
+  return {
+    advance,
+    partData,
+    fullMessage,
+    labels,
+    readLabels,
+    modify,
+    search,
+    unavailableActions: () => graphUnavailableActions(known?.roles),
+  } as const;
 }

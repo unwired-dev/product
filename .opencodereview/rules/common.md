@@ -26,6 +26,15 @@ Record the audit verdict; `pnpm fallow` reports health findings without enforcin
 that new-only gate and cannot establish a pass. Leave individual tool-decided
 complexity/duplication findings to Fallow, while reviewing suppressions under R0.
 
+For saved benchmark aggregation such as `tools/system-category-benchmark/report.py`
+`runs()`, verify each result's frozen corpus and compatible experiment identity
+against the current inputs, preprocessing, training settings and dependencies.
+Recording configuration fields without checking compatibility is insufficient;
+partial reruns must not silently combine stale and current results. Preserve
+intentional model, input-budget and seed variants. Before backfilling provenance,
+verify the old artifacts' corpus and experiment from recorded execution evidence
+and history rather than asserting that every existing result is current.
+
 Independently reproduce or substantiate each finding against source and applicable decisions. Fix confirmed issues in the authorized checkout, preserving unrelated work; update affected tests and operational/architecture documentation. Rerun appropriate checks, refresh coverage and resolved rules after edits, and rereview the corrected artifact until no in-scope issue remains. Reviewer fixes stay within this review; later implementer edits require a new pinned review. Report sources consulted, applicable conditional sections and their dispositions, coverage, validated findings/fixes, changed files, checks/results, unavailable tooling and unresolved decision blockers. Separate OCR selection/rule-resolution evidence from host reasoning and actual integration/native/CI evidence; an unavailable check is deferred or blocked, never passing. Do not disclose architecture source or rule bodies in the implementer handback. Review completion and required CI are independent.
 
 #### R4 — Identity, authorization and recovery (conditional)

@@ -173,13 +173,20 @@
     }
   }
 
-  // A synthetic Microsoft mailbox read through Graph: one Inbox message, a delta round that
-  // finds no later changes, and its text body.
+  // A synthetic Microsoft mailbox read and organized through Graph: one message, in the Inbox
+  // until a write moves it, a delta round that reports each later change, its text body, the
+  // mailbox's folders and search.
   @MainActor final class MockMicrosoftMailProvider: MicrosoftMailProvider {
     static let message = "AAMkAGI2-synthetic-outlook="
+    static let projects = "AQMkAGI2-synthetic-projects="
     private let identity = MicrosoftMailIdentity(
       credential: Data("synthetic-microsoft".utf8), accessToken: "synthetic-graph-access",
-      scopes: ["Mail.Read", "User.Read", "offline_access"])
+      scopes: ["Mail.ReadWrite", "User.Read", "offline_access"])
+    // The message's well-known folder name or folder ID, its read state, and how many writes
+    // changed it; a delta link names the count it was issued at.
+    private var folder = "inbox"
+    private var isRead = false
+    private var changes = 0
 
     func signIn(hint: String?) async throws -> MicrosoftMailIdentity { identity }
     func refresh(_ credential: Data) async throws -> MicrosoftMailIdentity { identity }
@@ -188,31 +195,72 @@
         subject: "synthetic-microsoft-account", address: "casey@example.invalid",
         provider: .microsoftGraph)
     }
-    func graph(_ identity: MicrosoftMailIdentity, url: URL) async throws -> (Int, Data) {
+    private func folderID(_ name: String) -> String {
+      name == Self.projects ? name : "AQMkAGI2-synthetic-\(name)="
+    }
+    func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
+      async throws -> (Int, Data)
+    {
       let delta = "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta"
       let listed: [String: Any] = [
         "id": Self.message, "conversationId": "synthetic-outlook-conversation",
         "receivedDateTime": "2025-10-01T09:00:00Z", "subject": "Quarterly planning",
-        "bodyPreview": "Agenda for Thursday.", "isRead": false,
+        "bodyPreview": "Agenda for Thursday.", "isRead": isRead,
         "from": ["emailAddress": ["name": "Jordan Lee", "address": "jordan@example.invalid"]],
       ]
-      let body: [String: Any]
-      if url.path.hasSuffix("/attachments") {
-        body = ["value": []]
+      let placement: [String: Any] = [
+        "id": Self.message, "parentFolderId": folderID(folder), "isRead": isRead,
+      ]
+      let inbox = folder == "inbox"
+      let query = url.query ?? ""
+      var status = 200
+      let reply: [String: Any]
+      if let body {
+        let change = try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]
+        if let read = change["isRead"] as? Bool { isRead = read }
+        if let destination = change["destinationId"] as? String { folder = destination }
+        changes += 1
+        status = method == "POST" ? 201 : 200
+        reply = ["id": Self.message, "parentFolderId": folderID(folder), "isRead": isRead]
+      } else if url.path.hasSuffix("/attachments") {
+        reply = ["value": []]
+      } else if url.path.hasSuffix("/delta") {
+        let since = Int(query.components(separatedBy: "deltatoken=").last ?? "") ?? -1
+        let changed = since < 0 || since < changes
+        let item: [String: Any] =
+          inbox ? listed : ["id": Self.message, "@removed": ["reason": "changed"]]
+        reply = [
+          "value": changed && (inbox || since >= 0) ? [item] : [],
+          "@odata.deltaLink": delta + "?$deltatoken=\(changes)",
+        ]
+      } else if url.path.lowercased().hasPrefix("/v1.0/me/mailfolders/")
+        && !url.path.contains("/messages")
+      {
+        reply = ["id": folderID(url.lastPathComponent)]
+      } else if url.path.lowercased() == "/v1.0/me/mailfolders" {
+        reply = [
+          "value": ["inbox", "archive", "deleteditems", "junkemail", "drafts", "sentitems",
+            "outbox"].map { ["id": folderID($0), "displayName": $0] }
+            + [["id": Self.projects, "displayName": "Projects"]]
+        ]
+      } else if url.path == "/v1.0/me/messages" {
+        reply = ["value": [listed.merging(["parentFolderId": folderID(folder)]) { $1 }]]
+      } else if url.path.hasPrefix("/v1.0/me/messages/"), query.contains("parentFolderId") {
+        reply = placement
       } else if url.path.hasPrefix("/v1.0/me/messages/") {
-        body = [
+        reply = [
           "id": Self.message, "hasAttachments": false,
           "body": ["contentType": "text", "content": "Agenda for Thursday.\n\nJordan"],
           "from": listed["from"] ?? [:],
           "toRecipients": [["emailAddress": ["address": "casey@example.invalid"]]],
         ]
-      } else if url.path.hasSuffix("/delta") {
-        let first = url.query?.contains("deltatoken") != true
-        body = ["value": first ? [listed] : [], "@odata.deltaLink": delta + "?$deltatoken=1"]
+      } else if url.path.lowercased().hasPrefix("/v1.0/me/mailfolders/inbox/messages/") {
+        guard inbox else { return (404, Data(#"{"error":{"code":"ErrorItemNotFound"}}"#.utf8)) }
+        reply = listed
       } else {
-        body = ["value": [listed]]
+        reply = ["value": inbox ? [listed] : []]
       }
-      return (200, try JSONSerialization.data(withJSONObject: body))
+      return (status, try JSONSerialization.data(withJSONObject: reply))
     }
   }
 

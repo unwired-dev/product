@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 
-// A Microsoft authorization for reading mail through Graph. The account it names is known only
-// once Graph verifies it.
+// A Microsoft authorization for reading and organizing mail through Graph. The account it names is
+// known only once Graph verifies it.
 struct MicrosoftMailIdentity {
   // The archived tokens, which only this device's Keychain record keeps.
   let credential: Data
@@ -17,8 +17,10 @@ struct MicrosoftMailIdentity {
   func refresh(_ credential: Data) async throws -> MicrosoftMailIdentity
   // The account and its mail through Graph; no Outlook mailbox or a refusal is gmailUnavailable.
   func verify(_ identity: MicrosoftMailIdentity) async throws -> GmailRegistrationReceipt
-  // One Graph read; HTTP failures are returned, not thrown.
-  func graph(_ identity: MicrosoftMailIdentity, url: URL) async throws -> (Int, Data)
+  // One Graph request: a read, or with `body` a write by `method`. HTTP failures are returned, not
+  // thrown.
+  func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
+    async throws -> (Int, Data)
 }
 
 // The tokens a Microsoft Mailbox Connection keeps as its credential.
@@ -40,8 +42,14 @@ struct MicrosoftTokens: Codable {
 // The Microsoft identity platform's authorization code flow with PKCE for a public client, and
 // Graph's account and mailbox checks. Presenting the web session is the host's.
 @MainActor final class GraphMailProvider: MicrosoftMailProvider {
-  // Reading mail only; organizing and sending ask for more when they are offered.
-  static let scopes = "offline_access User.Read Mail.Read"
+  // Reading and organizing mail; sending asks for more when it is offered.
+  static let scopes = "offline_access User.Read Mail.ReadWrite"
+  // A connection authorized before organizing keeps reading with its grant: a refresh may ask only
+  // for scopes already granted, and authorizing again asks for organizing.
+  static func refreshScopes(_ granted: [String]) -> String {
+    granted.contains { $0.lowercased().hasSuffix("mail.readwrite") }
+      ? scopes : "offline_access User.Read Mail.Read"
+  }
   static let authority = URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0")!
   static let graph = "https://graph.microsoft.com/v1.0"
 
@@ -100,7 +108,7 @@ struct MicrosoftTokens: Codable {
     return try await exchange(
       [
         "client_id": clientID, "grant_type": "refresh_token",
-        "refresh_token": tokens.refreshToken, "scope": Self.scopes,
+        "refresh_token": tokens.refreshToken, "scope": Self.refreshScopes(tokens.scopes),
       ], previous: tokens
     ).identity
   }
@@ -124,9 +132,12 @@ struct MicrosoftTokens: Codable {
       subject: account.id, address: address, provider: .microsoftGraph)
   }
 
-  func graph(_ identity: MicrosoftMailIdentity, url: URL) async throws -> (Int, Data) {
+  func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
+    async throws -> (Int, Data)
+  {
+    // Immutable IDs keep a message's ID when it moves, so a moved message is still recognized.
     try await GmailTransport.send(
-      token: identity.accessToken, url: url, body: nil, session: session,
+      token: identity.accessToken, url: url, body: body, session: session, method: method,
       headers: ["Prefer": #"IdType="ImmutableId", odata.maxpagesize=50"#])
   }
 
@@ -136,7 +147,7 @@ struct MicrosoftTokens: Codable {
     guard let url = URL(string: value) else { throw RegistrationError.unavailable }
     let (status, data): (Int, Data)
     do {
-      (status, data) = try await graph(identity, url: url)
+      (status, data) = try await graph(identity, url: url, method: "GET", body: nil)
     } catch {
       throw Self.transportFailure(error)
     }

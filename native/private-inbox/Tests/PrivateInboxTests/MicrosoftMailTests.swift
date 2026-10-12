@@ -58,6 +58,8 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
   var hints: [String?] = []
   var refreshes = 0
   var graphRequests: [URL] = []
+  // Writes as Graph receives them: method, URL and JSON body.
+  var graphWrites: [(method: String, url: String, body: [String: Any])] = []
 
   private func identity() -> MicrosoftMailIdentity {
     MicrosoftMailIdentity(
@@ -77,9 +79,17 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
     guard mailboxAvailable else { throw RegistrationError.gmailUnavailable }
     return GmailRegistrationReceipt(subject: subject, address: address, provider: .microsoftGraph)
   }
-  func graph(_ identity: MicrosoftMailIdentity, url: URL) async throws -> (Int, Data) {
-    graphRequests.append(url)
-    return (200, Data(#"{"value":[]}"#.utf8))
+  func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
+    async throws -> (Int, Data)
+  {
+    guard let body else {
+      graphRequests.append(url)
+      return (200, Data(#"{"value":[]}"#.utf8))
+    }
+    graphWrites.append(
+      (method, url.absoluteString,
+       try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]))
+    return (200, Data(#"{"id":"AAMk-id=","parentFolderId":"AQMk-archive=","isRead":true}"#.utf8))
   }
 }
 
@@ -102,7 +112,19 @@ extension PrivateInboxTests {
     let microsoft = SyntheticMicrosoftMailProvider()
     microsoft.subject = "synthetic-product-subject"
     let backend = SyntheticProductSyncBackend()
-    let store = backend.store(keys: keys, google: google, microsoft: microsoft)
+    var proofUnavailable = false
+    var revoked = false
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, microsoft: microsoft, productSync: backend.backend,
+      deviceRevoked: { _ in
+        if proofUnavailable { throw RegistrationError.unavailable }
+        return revoked
+      },
+      transport: { try backend.transport($0) },
+      connect: { identity, device, _ in
+        try backend.connect("account-" + identity.subject, device: device)
+      })
     _ = try await store.signIn()
     _ = try await store.authorizeGmail()
     let googlePrompts = google.hints
@@ -154,6 +176,47 @@ extension PrivateInboxTests {
       }
     }
     #expect(microsoft.graphRequests.count == 1)
+
+    // Cache preflight permits offline reads, but neither Graph mutation may use an old proof.
+    proofUnavailable = true
+    try await store.prepareMailbox(id)
+    let beforeProofFailure = microsoft.refreshes
+    for (read, folder) in [(true, nil), (nil, "archive")] as [(Bool?, String?)] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.graphModify(
+          message: "AAMk-id=", read: read, folder: folder, connection: id,
+          address: "casey@example.invalid", generation: generation)
+      }
+    }
+    #expect(microsoft.refreshes == beforeProofFailure)
+    #expect(microsoft.graphWrites.isEmpty)
+    proofUnavailable = false
+
+    // Organizing writes one message's read state or moves it, in a request native code builds.
+    _ = try await store.graphModify(
+      message: "AAMk-id=", read: true, folder: nil, connection: id,
+      address: "casey@example.invalid", generation: generation)
+    _ = try await store.graphModify(
+      message: "AAMk-id=", read: nil, folder: "archive", connection: id,
+      address: "casey@example.invalid", generation: generation)
+    #expect(microsoft.graphWrites.map { "\($0.method) \($0.url)" } == [
+      "PATCH https://graph.microsoft.com/v1.0/me/messages/AAMk-id=",
+      "POST https://graph.microsoft.com/v1.0/me/messages/AAMk-id=/move",
+    ])
+    #expect(microsoft.graphWrites.map { $0.body as NSDictionary } == [
+      ["isRead": true], ["destinationId": "archive"],
+    ])
+    for (message, read, folder) in [
+      ("a/../send", true, nil), ("AAMk-id=", nil, nil), ("AAMk-id=", true, "archive"),
+      ("AAMk-id=", nil, "../sendMail"),
+    ] as [(String, Bool?, String?)] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.graphModify(
+          message: message, read: read, folder: folder, connection: id,
+          address: "casey@example.invalid", generation: generation)
+      }
+    }
+    #expect(microsoft.graphWrites.count == 2)
     google.gmailRequests = []
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.gmail(
@@ -191,6 +254,25 @@ extension PrivateInboxTests {
     #expect(removals.map { $0["provider"] as? String } == ["microsoft-graph"])
     #expect(removals.map { $0["id"] as? String } == [id])
     #expect(try store.load()?.connections.map(\.receipt.mailProvider) == [.gmail])
+
+    // Reconnecting explicitly restores access; revocation before a write purges that access.
+    _ = try await store.signInMailbox(nil, suggest: false, provider: .microsoftGraph)
+    _ = try await store.verifyMailbox()
+    try await store.retryMailboxCleanup()
+    try store.storeMailbox()
+    try await store.synchronizeRegistration()
+    let renewed = store.mailboxGeneration(id).uuidString
+    let beforeRevocation = microsoft.refreshes
+    revoked = true
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.graphModify(
+        message: "AAMk-id=", read: nil, folder: "archive", connection: id,
+        address: "casey@example.invalid", generation: renewed)
+    }
+    #expect(microsoft.refreshes == beforeRevocation)
+    #expect(microsoft.graphWrites.count == 2)
+    #expect(try keys.read("registration") == nil)
+    #expect(try keys.read("product-sync." + account) == nil)
   }
 
   // The authorization callback names the outcome: a code for this request, a declined consent,
@@ -240,6 +322,9 @@ extension PrivateInboxTests {
     let expired = MicrosoftTokens(
       accessToken: "synthetic-expired", refreshToken: "synthetic-old-refresh",
       expiresAt: .distantPast, scopes: ["Mail.Read"])
+    // A connection granted only reading keeps reading on refresh; organizing asks again.
+    #expect(GraphMailProvider.refreshScopes(["Mail.Read", "User.Read"]) == "offline_access User.Read Mail.Read")
+    #expect(GraphMailProvider.refreshScopes(["https://graph.microsoft.com/Mail.ReadWrite"]) == GraphMailProvider.scopes)
     let refreshed = try await provider.refresh(JSONEncoder().encode(expired))
     #expect(try JSONDecoder().decode(MicrosoftTokens.self, from: refreshed.credential).refreshToken == "synthetic-refresh")
     let requests = ControlledMicrosoftHTTP.probe.requests()
@@ -248,7 +333,18 @@ extension PrivateInboxTests {
     #expect(tokenRequests.allSatisfy { $0.httpMethod == "POST" })
     #expect(tokenRequests.allSatisfy { $0.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded" })
     #expect(tokenRequests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
-    let graph = requests.filter { $0.url?.host == "graph.microsoft.com" }
+    // A write is sent with its own method, JSON body and immutable IDs.
+    let written = try await provider.graph(
+      identity, url: #require(URL(string: GraphMailProvider.graph + "/me/messages/AAMk-id=")),
+      method: "PATCH", body: Data(#"{"isRead":true}"#.utf8))
+    #expect(written.0 == 200)
+    let write = try #require(ControlledMicrosoftHTTP.probe.requests().last)
+    #expect(write.httpMethod == "PATCH")
+    #expect(write.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    #expect(write.value(forHTTPHeaderField: "Prefer")?.contains("ImmutableId") == true)
+    let graph = ControlledMicrosoftHTTP.probe.requests().filter {
+      $0.url?.host == "graph.microsoft.com" && $0.httpMethod == "GET"
+    }
     #expect(graph.map { $0.url!.path } == ["/v1.0/me", "/v1.0/me/mailFolders/inbox"])
     #expect(graph.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access" })
     #expect(graph.allSatisfy { $0.value(forHTTPHeaderField: "Prefer")?.contains("ImmutableId") == true })
@@ -271,6 +367,11 @@ extension PrivateInboxTests {
       "/v1.0/me/mailfolders('AQMk-id=')/messages?$skip=50",
       "/v1.0/me/mailFolders/inbox/messages/AAMk-id=?$select=id",
       "/v1.0/me/messages/AAMk-id=/attachments?$skip=50",
+      "/v1.0/me/mailFolders?$select=id,displayName&$top=100",
+      "/v1.0/me/mailFolders/deleteditems?$select=id",
+      "/v1.0/me/mailFolders/AQMk-id=/childFolders?$select=id,displayName&$top=100",
+      "/v1.0/me/messages/AAMk-id=?$select=id,parentFolderId,isRead",
+      "/v1.0/me/messages?$search=%22plan%22&$top=20",
     ] {
       #expect(try RegistrationStore.graphURL("https://graph.microsoft.com" + path).host == "graph.microsoft.com")
     }
