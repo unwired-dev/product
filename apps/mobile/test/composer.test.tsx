@@ -43,6 +43,9 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
+// Allow cold component rendering even when a focused run skips the first test.
+jest.setTimeout(10_000);
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -298,13 +301,17 @@ describe('composing Drafts', () => {
     const app = await render(view('work'));
     await press('New Message');
     await expect(
-      screen.findByRole('button', { name: 'Send from other@example.invalid' }),
+      screen.findByRole('button', {
+        name: 'Send from other@example.invalid',
+      }),
     ).resolves.toHaveProp('accessibilityState', {
       selected: true,
       disabled: false,
     });
     expect(
-      screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
+      screen.queryByRole('button', {
+        name: 'Send from alex@example.invalid',
+      }),
     ).toBeNull();
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
     await press('Close');
