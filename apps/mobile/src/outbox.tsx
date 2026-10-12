@@ -3,6 +3,7 @@ import type {
   DeliveryProblem,
   OutboxEntry,
 } from '@private-email/mail-core/drafts';
+import type { MailProvider } from '@private-email/mail-core/registration';
 
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
@@ -52,15 +53,34 @@ const problems = {
   refused: 'outbox.failed.refused',
   'sent-folder': 'outbox.failed.sent-folder',
 } as const satisfies Readonly<Record<DeliveryProblem, string>>;
-// The same reasons for a message sent through an IMAP connection's mail server, where the copy
-// above names Gmail.
-const serverProblems = {
-  ...problems,
-  offline: 'outbox.queued.offline_imap',
-  authorization: 'outbox.failed.authorization_imap',
-  'too-large': 'outbox.failed.too-large_imap',
-  refused: 'outbox.failed.refused_imap',
-} as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// The same reasons in each provider's words: the copy above names Gmail, and an IMAP connection's
+// mail server or Microsoft send other messages.
+const providerProblems = {
+  gmail: problems,
+  imap: {
+    ...problems,
+    offline: 'outbox.queued.offline_imap',
+    authorization: 'outbox.failed.authorization_imap',
+    'too-large': 'outbox.failed.too-large_imap',
+    refused: 'outbox.failed.refused_imap',
+  },
+  'microsoft-graph': {
+    ...problems,
+    offline: 'outbox.queued.offline_microsoft',
+    'rate-limited': 'outbox.queued.rate-limited_microsoft',
+    authorization: 'outbox.failed.authorization_microsoft',
+    'too-large': 'outbox.failed.too-large_microsoft',
+    refused: 'outbox.failed.refused_microsoft',
+  },
+} as const satisfies Readonly<
+  Record<MailProvider, Readonly<Record<DeliveryProblem, string>>>
+>;
+// The unknown-outcome copy's own words for each provider.
+const unknownCopy = {
+  gmail: '',
+  imap: '_imap',
+  'microsoft-graph': '_microsoft',
+} as const satisfies Readonly<Record<MailProvider, string>>;
 // Why an accepted message's Sent copy still waits.
 const filing: Readonly<
   Partial<
@@ -82,7 +102,7 @@ const filing: Readonly<
 const statusOf = (
   t: Translate,
   { state, problem }: OutboxEntry,
-  imap: boolean,
+  provider: MailProvider,
 ) => {
   if (state === 'filing') {
     return t(
@@ -91,13 +111,13 @@ const statusOf = (
     );
   }
   if ((state === 'queued' || state === 'failed') && problem !== undefined) {
-    return t((imap ? serverProblems : problems)[problem]);
+    return t(providerProblems[provider][problem]);
   }
   if (state === 'failed') {
-    return t(imap ? 'outbox.failed.refused_imap' : 'outbox.failed.refused');
+    return t(providerProblems[provider].refused);
   }
   if (state === 'unknown') {
-    return t(imap ? 'outbox.state.unknown_imap' : 'outbox.state.unknown');
+    return t(`outbox.state.unknown${unknownCopy[provider]}`);
   }
   return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
 };
@@ -106,12 +126,12 @@ const statusOf = (
 // provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
   id,
-  imap,
+  provider,
   onEdit,
 }: {
   readonly id: string;
-  // Sent through an IMAP connection's mail server rather than Gmail.
-  readonly imap: boolean;
+  // The provider the message was handed to.
+  readonly provider: MailProvider;
   readonly onEdit: () => void;
 }) {
   const outbox = useOutbox();
@@ -122,7 +142,7 @@ function UnknownRecovery({
   >('idle');
   const notice =
     step === 'unconfirmed' || step === 'confirming'
-      ? t(imap ? `outbox.unknown.${step}_imap` : `outbox.unknown.${step}`)
+      ? t(`outbox.unknown.${step}${unknownCopy[provider]}`)
       : undefined;
   return (
     <View style={styles.recovery}>
@@ -190,11 +210,11 @@ export function OutboxRow({
   const colors = usePalette();
   const { t } = useLocalization();
   const { subject, recipients } = draftSummary(t, entry.draft);
-  const imap =
+  const provider =
     use(AccountContext)?.mailboxes.find(
       ({ id }) => id === entry.draft.connection,
-    )?.provider === 'imap';
-  const status = statusOf(t, entry, imap);
+    )?.provider ?? 'gmail';
+  const status = statusOf(t, entry, provider);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
@@ -241,7 +261,7 @@ export function OutboxRow({
       {entry.state === 'unknown' ? (
         <UnknownRecovery
           id={entry.id}
-          imap={imap}
+          provider={provider}
           onEdit={edit}
         />
       ) : null}

@@ -56,6 +56,11 @@ export const graphChildFolders = (id: string) =>
 export const graphSearch = (query: string, limit: number) =>
   `${graphRoot}/me/messages?$search=${encodeURIComponent(`"${query.replaceAll(/["\\]/gu, String.raw`\$&`)}"`)}&$select=${listed},parentFolderId&$top=${limit}`;
 
+// Sent Items' copies of a message this device sent, by the Message-ID it wrote; a quote inside the
+// identifier is doubled, as OData requires.
+export const graphSentCopies = (messageId: string) =>
+  `${graphRoot}/me/mailFolders/sentitems/messages?$filter=${encodeURIComponent(`internetMessageId eq '<${messageId.replaceAll("'", "''")}>'`)}&$select=id&$top=2`;
+
 // Folders whose role the Inbox knows, and those Move to never offers.
 export const wellKnownFolders = [
   'inbox',
@@ -257,6 +262,12 @@ export const decodeGraphFolders = json(
       }),
     ),
     // A further page; Move to lists only the first.
+    '@odata.nextLink': Schema.optionalKey(Schema.String),
+  }),
+);
+export const decodeGraphCopies = json(
+  Schema.Struct({
+    value: Schema.Array(Schema.Struct({ id: GraphId })),
     '@odata.nextLink': Schema.optionalKey(Schema.String),
   }),
 );

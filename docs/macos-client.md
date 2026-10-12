@@ -10,7 +10,7 @@ mailbox as Expo through `@private-email/mail-core`, with
 registration now creates a Convex Product Account. Production mailboxes use [Gmail synchronization](gmail-inbox.md), the
 [Microsoft Inbox](microsoft-mail.md) or
 [IMAP synchronization](imap-mailboxes.md#synchronization) through the native adapter;
-Gmail and IMAP connections send, and Microsoft sending is a later slice.
+Gmail, Microsoft and IMAP connections send.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
 registration; the first mailbox is chosen separately: Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an IMAP login. Either sign-in can later be [linked](linked-sign-in.md)

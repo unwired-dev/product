@@ -7,8 +7,11 @@ composer on iPhone, iPad and Mac. A sent Draft leaves the Drafts list for the
 **Outbox**, waits out the **Undo Send Window**, and is handed to Gmail from this
 device. [#631](https://github.com/unwired-dev/product/issues/631) sends from IMAP
 connections through their SMTP server with the same rules, then files a copy in their
-Sent folder, as [IMAP sending](imap-mailboxes.md#sending) describes; the rules below
-name Gmail where IMAP wording differs only by provider. A handoff whose outcome is uncertain is never resubmitted; only a definite
+Sent folder, as [IMAP sending](imap-mailboxes.md#sending) describes.
+[#636](https://github.com/unwired-dev/product/issues/636) sends from Microsoft
+connections through Graph with the same rules, as
+[Microsoft sending](microsoft-mail.md#sending) describes. The rules below name Gmail
+where IMAP and Microsoft wording differs only by provider. A handoff whose outcome is uncertain is never resubmitted; only a definite
 refusal, such as a rate limit, is tried again.
 [#616](https://github.com/unwired-dev/product/issues/616) recovers interrupted sends
 after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sending
@@ -27,7 +30,7 @@ with the app in the background or with Mac windows closed is
   - sends from a mailbox that cannot send, or whose address changed since the Draft
     chose it;
   - has a file that is still importing, failed, or does not verify on this device;
-  - is over Gmail's 35 MB message limit;
+  - is over its provider's message limit: 35 MB for Gmail, 3 MB for Microsoft;
   - was changed in another window meanwhile;
   - cannot be saved.
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,
@@ -162,6 +165,8 @@ cover:
 
 `imap-send.test.ts` runs the same Outbox through SMTP and Sent filing, as
 [IMAP mailboxes](imap-mailboxes.md#validate) lists.
+`microsoft-send.test.ts` runs it through Graph and Sent Items, as
+[Microsoft mail](microsoft-mail.md#deterministic-evidence) lists.
 
 `outgoing-message.test.ts` checks header folding, encoding and injection, the
 exact message size, and the HTML and plain-text block structure.

@@ -1190,6 +1190,24 @@ extension UnwiredRegistration {
     }
   }
 
+  // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`. Not
+  // cancellable: once started, its outcome may only be unknown.
+  @objc(graphSend:mailbox:resolver:rejecter:)
+  func graphSend(
+    _ message: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphSend", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let segments = message["segments"] as? [Any] else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.graphSend(
+        segments: segments, connection: connection, address: address, generation: generation)
+    }
+  }
+
   @objc(imapFolders:resolver:rejecter:)
   func imapFolders(
     _ scope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,

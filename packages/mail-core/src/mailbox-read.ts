@@ -3,6 +3,7 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { GraphChange } from './microsoft-graph.ts';
+import type { MessageSegment } from './outgoing-message.ts';
 
 import {
   decodeDiagnostic,
@@ -26,6 +27,14 @@ export interface NativeGraphMailbox {
   // values cross. Resolves `{ status, body }`, the body Graph's view of the message afterwards.
   readonly graphModify: (
     change: Readonly<{ message: string } & GraphChange>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Sends one message through Graph's sendMail as MIME, inserting each asset segment's verified
+  // bytes. Resolves `{ status, body }` once Graph answers. Rejects with 'delivery-unknown' when the
+  // request may have reached Graph without an answer; any other rejection means it never left
+  // this device.
+  readonly graphSend: (
+    message: Readonly<{ segments: readonly MessageSegment[] }>,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
 }

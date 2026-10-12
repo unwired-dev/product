@@ -288,9 +288,9 @@ export function addRecipients(
 
 // Sending identity ------------------------------------------------------------------------------
 
-// The Draft's sending connection on this device: usable, waiting for Gmail authorization, an IMAP
-// connection waiting for its password or for sending to be set up, or removed or renamed. Only a
-// usable connection can be chosen as the sender.
+// The Draft's sending connection on this device: usable, waiting for Gmail or Microsoft
+// authorization, an IMAP connection waiting for its password or for sending to be set up, or
+// removed or renamed. Only a usable connection can be chosen as the sender.
 export type SendingState =
   | 'available'
   | 'authorization'
@@ -345,8 +345,8 @@ export const profileOf = (
 ) => mailboxes.find(({ id }) => id === connection)?.profile ?? defaultProfile;
 
 // The connections a Draft in `profile` may send from: that Mail Profile's connections whose access
-// is usable on this device. A Draft never sends from another Profile's connection, and Microsoft
-// mail cannot send yet, so Gmail connections and IMAP connections with verified SMTP send.
+// is usable on this device. A Draft never sends from another Profile's connection; Gmail and
+// Microsoft connections send, and IMAP connections with verified SMTP.
 export const sendingMailboxes = (
   mailboxes: readonly MailboxConnection[],
   profile: string,
@@ -355,8 +355,7 @@ export const sendingMailboxes = (
     (mailbox) =>
       mailbox.profile === profile &&
       mailbox.state !== 'authorization' &&
-      (mailbox.provider === 'gmail' ||
-        (mailbox.provider === 'imap' && mailbox.smtp !== undefined)),
+      (mailbox.provider !== 'imap' || mailbox.smtp !== undefined),
   );
 
 // Files and images ------------------------------------------------------------------------------
