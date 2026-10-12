@@ -171,7 +171,7 @@ export function OrganizingCommands({
   owner,
   id,
   message,
-  commands = [],
+  commands,
 }: {
   readonly owner: object;
   readonly id: string;
@@ -244,7 +244,7 @@ export function OrganizingCommands({
         ] as const
       ).map(
         ([kind, label]) =>
-          commands.find((command) => command.id === kind) ?? {
+          commands?.find((command) => command.id === kind) ?? {
             id: kind,
             label,
             keywords: keywords[kind] ?? '',

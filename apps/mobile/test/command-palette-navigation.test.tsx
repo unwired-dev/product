@@ -190,5 +190,4 @@ describe('command palette pending navigation', () => {
       }
     },
   );
-  /* oxlint-enable vitest/max-expects */
 });

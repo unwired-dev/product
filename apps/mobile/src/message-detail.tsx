@@ -493,6 +493,15 @@ function ResponseActions({
     }
     return completed;
   };
+  const press = async (kind: ResponseKind) => {
+    try {
+      await start(kind);
+    } catch {
+      if (mounted.current) {
+        setFailed(true);
+      }
+    }
+  };
   const actions = [
     ['reply', t('message.reply')],
     ['replyAll', t('message.replyAll')],
@@ -515,11 +524,7 @@ function ResponseActions({
             accessibilityState={{ disabled: pending !== undefined }}
             disabled={pending !== undefined}
             onPress={() => {
-              void start(kind).catch(() => {
-                if (mounted.current) {
-                  setFailed(true);
-                }
-              });
+              void press(kind);
             }}>
             <Text style={[styles.secondary, { color: colors.accent }]}>
               {label}
