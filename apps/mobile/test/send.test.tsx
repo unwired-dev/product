@@ -72,12 +72,19 @@ function device() {
   return { gmail, drafts, mailboxes, outbox, storage };
 }
 
-function App({ sender }: { readonly sender: ReturnType<typeof device> }) {
+// `listed` is the account's Mailbox Connections, as after one is removed.
+function App({
+  sender,
+  listed = mailboxesOf(snapshot),
+}: {
+  readonly sender: ReturnType<typeof device>;
+  readonly listed?: ReturnType<typeof mailboxesOf>;
+}) {
   const [composing, setComposing] = useState<string>();
   return (
     <AccountContext
       value={{
-        mailboxes: mailboxesOf(snapshot),
+        mailboxes: listed,
         openAccount: () => undefined,
         authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
@@ -630,6 +637,47 @@ describe('sending a Draft', () => {
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unknown');
       await later(sender, 60_000);
       expect(sender.gmail.sends).toHaveLength(1);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('names no provider for an unknown message whose mailbox is no longer listed', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      const { rerender } = await render(<App sender={sender} />);
+      sender.gmail.failSend({ status: 503, body: '{}' });
+      await compose('Unknown');
+      await press('Send');
+      await later(sender, 10_000);
+      // The mailbox is removed: nothing tells the person to look in Gmail.
+      await rerender(
+        <App
+          listed={[]}
+          sender={sender}
+        />,
+      );
+      expect(
+        screen.getByLabelText(
+          'Unknown. To sam@example.invalid. Delivery unknown. Check the Sent folder of the mailbox it was sent from before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      await press('Check Again');
+      await expect(
+        screen.findByText(
+          'This message could not be confirmed. Check the Sent folder of the mailbox it was sent from.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      await press('Edit');
+      expect(
+        screen.getByText(
+          'This message may already have been sent. Edit it only if it is not in the Sent folder of the mailbox it was sent from.',
+        ),
+      ).toBeOnTheScreen();
     } finally {
       sender.outbox.dispose();
     }

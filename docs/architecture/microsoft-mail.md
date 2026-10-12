@@ -7,7 +7,8 @@ reader for the replacement hosts, without reusing the prototype mail engine.
 [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md) establishes
 Microsoft mail at launch; #634 covers own-mailbox authorization and reading,
 and [#635](https://github.com/unwired-dev/product/issues/635) adds organizing and
-online search. Microsoft Product Sign-In and sending have separate issues.
+online search. [#636](https://github.com/unwired-dev/product/issues/636) adds
+originating-device Outbox sending. Microsoft Product Sign-In remains separate.
 
 ## Adapter evaluation
 
@@ -37,8 +38,9 @@ and `ASWebAuthenticationSession`. Random state binds both success and error
 callbacks; scheme, host, path and unique state/code are validated before accepting
 an answer. The common authority admits personal and work/school accounts. Actual
 granted mail access, `/me` identity and own Inbox availability are checked before
-connection publication. New consent requests `offline_access User.Read Mail.ReadWrite`;
-an existing `Mail.Read` connection can keep reading. Refresh requests the connection's
+connection publication. New consent requests `offline_access User.Read Mail.ReadWrite Mail.Send`;
+an existing `Mail.Read` or `Mail.ReadWrite` connection keeps its granted capabilities.
+Refresh requests the connection's
 granted scopes rather than requiring an unconsented write scope. A write denied for
 missing permission retains its durable action and requests reauthorization, which
 must match the saved Graph subject.
@@ -154,6 +156,36 @@ Graph orders these matches by sent time and caps them at 1,000; the unified view
 orders returned messages by received time. Search results remain in memory and
 are not organizable in this slice, as for Gmail. No backend-readable index is added.
 
+## Sending and uncertain outcomes
+
+The shared Outbox freezes the MIME segments and a client Message-ID at admission,
+retaining the selected own-mailbox address, reply headers and verified assets.
+The default ten-second Undo Send window and content-free Convex claim precede
+durable handoff, as [the Outbox companion](outbox.md) describes.
+
+Native `graphSend` reuses the asset assembly boundary and POSTs base64 MIME with
+`Content-Type: text/plain` to `/me/sendMail`. This purpose-specific write is not
+admitted by the read URL allowlist. The existing `graphCall` checks the current
+Trusted Device proof, connection, address and generation before dispatch; tokens
+and asset bytes remain native. A failure proving the request never left the device
+is retryable. Other transport failures after dispatch are `deliveryUnknown`, and
+a received provider answer survives a concurrent generation change.
+
+Graph's empty 202 answer records acceptance immediately, independently of later
+Sent Items visibility. Definite refusals retain the existing queued or failed
+outcome rules; 401/403 also publish the owner-fenced reauthorization notice without
+changing the connection or Delivery Owner. Server errors and unreadable replies
+remain unknown and never authorize another submission.
+
+Unknown recovery filters own Sent Items by the frozen Message-ID. Only a unique,
+complete result confirms acceptance; missing, ambiguous or unavailable evidence
+retains unknown. Live preservation of the Message-ID remains unqualified.
+
+The #636 decision panel chose one MIME request with a 3,000,000-byte message cap
+to fit the 4 MB request after base64 encoding, 3–0. Larger-message draft/upload
+sessions are [#917](https://github.com/unwired-dev/product/issues/917), blocked by
+#636. The panel also chose stacking this slice on SMTP #915, 3–0.
+
 ## Evidence
 
 Shared store journeys cover realistic continuation pages, partial/repeated delta
@@ -165,3 +197,11 @@ real local storage and a controlled HTTP boundary through `GraphMailProvider`;
 packaged Microsoft-first registration uses synthetic providers. Neither proves
 live personal/tenant OAuth, real Graph shapes, physical lock enforcement or Mac
 native compatibility. Those remain explicit release qualification prerequisites.
+
+Sending journeys parse the frozen reply, inline image, attachment and Bcc with an
+independent MIME parser, exercise safe refusals and retain unknown across relaunch
+until Sent Items supplies evidence. Hosted native tests cover device-proof gating,
+MIME size/segment rejection, text/plain transport and interrupted handoff. These
+controlled boundaries do not establish real Graph delivery, Outlook threading or
+Bcc handling, Message-ID preservation, or packaged iPhone/iPad/Mac send journeys;
+#637 and #855 retain those release checks.

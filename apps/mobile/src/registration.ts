@@ -164,6 +164,7 @@ export const gmailMailboxes = createMailboxes(
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
     graphModify: (change, mailbox) => native().graphModify(change, mailbox),
     gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
+    graphSend: (message, mailbox) => native().graphSend(message, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
     imapFolders: (mailbox) => native().imapFolders(mailbox),
     imapSynchronize: (mailbox, request) =>

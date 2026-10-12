@@ -7,8 +7,11 @@ composer on iPhone, iPad and Mac. A sent Draft leaves the Drafts list for the
 **Outbox**, waits out the **Undo Send Window**, and is handed to Gmail from this
 device. [#631](https://github.com/unwired-dev/product/issues/631) sends from IMAP
 connections through their SMTP server with the same rules, then files a copy in their
-Sent folder, as [IMAP sending](imap-mailboxes.md#sending) describes; the rules below
-name Gmail where IMAP wording differs only by provider. A handoff whose outcome is uncertain is never resubmitted; only a definite
+Sent folder, as [IMAP sending](imap-mailboxes.md#sending) describes.
+[#636](https://github.com/unwired-dev/product/issues/636) sends from Microsoft
+connections through Graph with the same rules, as
+[Microsoft sending](microsoft-mail.md#sending) describes. The rules below name Gmail
+where IMAP and Microsoft wording differs only by provider. A handoff whose outcome is uncertain is never resubmitted; only a definite
 refusal, such as a rate limit, is tried again.
 [#616](https://github.com/unwired-dev/product/issues/616) recovers interrupted sends
 after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sending
@@ -27,7 +30,7 @@ with the app in the background or with Mac windows closed is
   - sends from a mailbox that cannot send, or whose address changed since the Draft
     chose it;
   - has a file that is still importing, failed, or does not verify on this device;
-  - is over Gmail's 35 MB message limit;
+  - is over its provider's message limit: 35 MB for Gmail, 3 MB for Microsoft;
   - was changed in another window meanwhile;
   - cannot be saved.
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,
@@ -76,6 +79,8 @@ with the app in the background or with Mac windows closed is
   If the check finds locked storage, the Inbox hides its mail; device removal
   closes it, and refused Gmail access asks for authorization again, including
   after an offline retry. The delivery outcome remains unknown.
+- A message whose mailbox is no longer connected, as after its removal, names no
+  provider: it asks to check the Sent folder of the mailbox it was sent from.
 - **Edit** on an unknown message first warns that Gmail may already have sent it,
   and asks to check Sent in Gmail. **Edit Anyway** returns it to the Drafts; sending
   it again is the person's deliberate choice.
@@ -162,6 +167,8 @@ cover:
 
 `imap-send.test.ts` runs the same Outbox through SMTP and Sent filing, as
 [IMAP mailboxes](imap-mailboxes.md#validate) lists.
+`microsoft-send.test.ts` runs it through Graph and Sent Items, as
+[Microsoft mail](microsoft-mail.md#deterministic-evidence) lists.
 
 `outgoing-message.test.ts` checks header folding, encoding and injection, the
 exact message size, and the HTML and plain-text block structure.
@@ -173,7 +180,8 @@ deletion test removes claims.
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
 **Undo** and send again. They also show a refused Send, a Gmail refusal with
 **Edit**, a lost answer confirmed from Gmail's Sent mailbox, and an unknown outcome
-with **Check Again** and the warning before **Edit Anyway**. These are rendered component tests.
+with **Check Again** and the warning before **Edit Anyway**, and an unknown message whose
+mailbox is no longer listed in provider-neutral words. These are rendered component tests.
 The composer journeys also retain the original sender after a mailbox rename and
 choose its current address explicitly before reopening the Draft.
 

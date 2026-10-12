@@ -10,8 +10,8 @@ production builds now offer [Apple](apple-registration.md) and [Google](google-r
 Product Sign-In, each followed by a choice of Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an [IMAP mailbox](imap-mailboxes.md).
 Production mailboxes use [Gmail synchronization](gmail-inbox.md), the
 [Microsoft Inbox](microsoft-mail.md) or
-[IMAP synchronization](imap-mailboxes.md#synchronization); Gmail and IMAP connections
-send, and Microsoft sending is a later slice. The existing Convex backend
+[IMAP synchronization](imap-mailboxes.md#synchronization); Gmail, Microsoft and IMAP
+connections send. The existing Convex backend
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)

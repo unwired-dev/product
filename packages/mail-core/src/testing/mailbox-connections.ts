@@ -52,6 +52,8 @@ export function syntheticConnections(
       of(mailbox.connection)?.graphModify(change, mailbox) ?? missing(),
     gmailSend: (message, mailbox) =>
       of(mailbox.connection)?.gmailSend(message, mailbox) ?? missing(),
+    graphSend: (message, mailbox) =>
+      of(mailbox.connection)?.graphSend(message, mailbox) ?? missing(),
     openMailbox: (connection) =>
       (server(connection) ?? of(connection))?.openMailbox() ?? missing(),
     commitMailbox: (mailbox, revision, document) =>

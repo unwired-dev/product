@@ -106,6 +106,27 @@ const notFound = () => Promise.resolve({ status: 404, body: '{}' });
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error('Synthetic failure'), { code }));
 
+// A sent message as native code assembles it: its text, with each Draft Asset's verified bytes as
+// base64 lines; undefined when an asset's bytes no longer verify.
+export const assembled = (
+  segments: OutgoingSend['segments'],
+  assets: ((id: string, digest: string) => Uint8Array | undefined) | undefined,
+) => {
+  let raw = '';
+  for (const segment of segments) {
+    if ('text' in segment) {
+      raw += segment.text;
+    } else {
+      const bytes = assets?.(segment.asset.id, segment.asset.digest);
+      if (bytes === undefined) {
+        return undefined;
+      }
+      raw += base64Lines(bytes);
+    }
+  }
+  return raw;
+};
+
 // An inline image part, or a readable part Gmail served separately.
 const imageAttachment = (content: SyntheticContent, attachmentId: string) => {
   const image = content.images?.[Number(attachmentId.slice('image-'.length))];
@@ -579,23 +600,6 @@ export function createSyntheticGmail({
       ? rejection(failure.code)
       : Promise.resolve({ status: failure.status, body: failure.body ?? '{}' });
   };
-  // The message as native code assembles it from verified Draft Asset bytes; undefined when a
-  // file's bytes are missing.
-  const assemble = (segments: OutgoingSend['segments']) => {
-    let raw = '';
-    for (const segment of segments) {
-      if ('text' in segment) {
-        raw += segment.text;
-      } else {
-        const bytes = assets?.(segment.asset.id, segment.asset.digest);
-        if (bytes === undefined) {
-          return undefined;
-        }
-        raw += base64Lines(bytes);
-      }
-    }
-    return raw;
-  };
   // Gmail keeps an accepted message in Sent and in history.
   const accept = (raw: string, threadId: string | undefined) => {
     nextId += 1;
@@ -640,6 +644,7 @@ export function createSyntheticGmail({
     // A Gmail connection reaches no Microsoft mail.
     graphRequest: () => rejection('unavailable'),
     graphModify: () => rejection('unavailable'),
+    graphSend: () => rejection('unavailable'),
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||
@@ -664,7 +669,7 @@ export function createSyntheticGmail({
       if (!current(owner)) {
         return rejection('mailbox-invalidated');
       }
-      const raw = assemble(segments);
+      const raw = assembled(segments, assets);
       if (raw === undefined) {
         return rejection('attachment-missing');
       }

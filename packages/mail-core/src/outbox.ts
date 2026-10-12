@@ -7,7 +7,7 @@ import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts } from './drafts.ts';
 import type { SendOutcome } from './gmail-inbox.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
-import type { Registration } from './registration.ts';
+import type { MailProvider, Registration } from './registration.ts';
 
 import {
   rejectionCode,
@@ -20,6 +20,8 @@ import { imapRoleFolder } from './imap-actions.ts';
 import {
   boundaryOf,
   gmailMessageLimit,
+  graphMessageLimit,
+  messageIdOf,
   outgoingMessage,
   sendableAddress,
 } from './outgoing-message.ts';
@@ -46,8 +48,8 @@ const retryDelay = 30_000;
 
 // Why Send left a Draft in the composer: no recipients, unfinished recipient text, a sender that
 // cannot send or whose mail server has no Sent folder for its copy, files not complete and verified
-// on this device, a message over Gmail's limit, another editor's change to the Draft, or storage
-// refusing the write.
+// on this device, a message over its provider's limit, another editor's change to the Draft, or
+// storage refusing the write.
 export type SendRefusal =
   | 'recipients'
   | 'entries'
@@ -66,14 +68,14 @@ const ownerOf = (registration: Pick<Registration, 'getSnapshot'>) => {
     : undefined;
 };
 
-// An SMTP message names its own Message-ID, which its Sent copy keeps for replies to thread with;
-// Gmail assigns one itself.
-const messageOf = (draft: Draft, smtp: boolean) => {
+// An SMTP or Microsoft message names its own Message-ID, which its Sent copy keeps for replies to
+// thread with and Microsoft's Sent Items are searched by; Gmail assigns one itself.
+const messageOf = (draft: Draft, named: boolean) => {
   const boundary = Math.random().toString(36).slice(2, 14);
   const { segments, size } = outgoingMessage(draft, {
     date: Date.now(),
     boundary,
-    ...(smtp
+    ...(named
       ? {
           messageId: `${Date.now().toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
         }
@@ -86,6 +88,10 @@ const messageOf = (draft: Draft, smtp: boolean) => {
     ...(thread === undefined ? {} : { threadId: thread }),
   };
 };
+
+// The largest message a provider takes; SMTP has no known limit, so it is held to Gmail's.
+const limitOf = (provider: MailProvider | undefined) =>
+  provider === 'microsoft-graph' ? graphMessageLimit : gmailMessageLimit;
 
 const withState = (
   entry: OutboxEntry,
@@ -114,9 +120,9 @@ const step =
 
 // Sends Drafts admitted to the Outbox on this device, their Delivery Owner. After the Undo Send
 // Window, a message is claimed through Convex so no other Trusted Device can send the same Draft,
-// marked as handed to its provider in storage, and only then sent once, through Gmail or SMTP. A
-// message that reached neither Convex nor the provider is tried again later; one handed off without
-// a confirmed answer is never sent again automatically. The Sent mailbox is checked for it when it
+// marked as handed to its provider in storage, and only then sent once, through Gmail, Microsoft
+// Graph or SMTP. A message that reached neither Convex nor the provider is tried again later; one
+// handed off without a confirmed answer is never sent again automatically. The Sent mailbox is checked for it when it
 // becomes unknown, when this Outbox starts, when the app becomes active and when the person asks.
 // A message SMTP accepted is recorded first, then its copy is filed in the Sent folder, which alone
 // is tried again until it is there.
@@ -172,10 +178,10 @@ export function createOutbox({
       ? 'sent-folder'
       : undefined;
   };
-  const smtpSender = (draft: Draft) =>
+  const providerOf = (draft: Draft) =>
     mailboxesOf(registration.getSnapshot().snapshot).find(
       ({ id }) => id === draft.connection,
-    )?.provider === 'imap';
+    )?.provider;
   // Both scheduling and processing use the same deadline, including a refused storage step.
   const dueAt = (entry: OutboxEntry) => {
     if (entry.state === 'waiting') {
@@ -384,19 +390,25 @@ export function createOutbox({
     );
   };
 
-  // Records an unknown message as sent only when Gmail's Sent mailbox holds exactly one copy.
+  // Records an unknown message as sent only when its Sent mailbox holds exactly one copy.
   const reconcile = async (id: string) => {
     const entry = entryOf(id);
     if (entry?.state !== 'unknown' || ownerOf(registration) === undefined) {
       return;
     }
     const boundary = boundaryOf(entry.message.segments);
-    const inbox = connectionOf(entry.draft.connection)?.inbox;
-    if (boundary === undefined || inbox === undefined) {
+    const mailbox = connectionOf(entry.draft.connection);
+    if (boundary === undefined || mailbox === undefined) {
       return;
     }
     queuedChecks.add(id);
-    const outcome = await inbox.findSent(boundary);
+    const outcome =
+      mailbox.provider === 'imap'
+        ? await mailbox.inbox.findSent(boundary)
+        : await mailbox.inbox.findSent(
+            boundary,
+            messageIdOf(entry.message.segments),
+          );
     if (outcome === undefined) {
       // The mailbox closed or changed meanwhile; it is checked again once it is ready.
       queuedChecks.delete(id);
@@ -675,8 +687,9 @@ export function createOutbox({
       if (late !== undefined) {
         return late;
       }
-      const message = messageOf(draft, smtpSender(draft));
-      if (message.size > gmailMessageLimit) {
+      const provider = providerOf(draft);
+      const message = messageOf(draft, provider !== 'gmail');
+      if (message.size > limitOf(provider)) {
         return 'too-large';
       }
       const sendAt = Date.now() + undoSendWindow;

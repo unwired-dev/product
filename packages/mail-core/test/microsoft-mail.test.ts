@@ -708,7 +708,7 @@ describe('reading Microsoft mail through Graph', () => {
       found: { default: ['gmail'], work: ['microsoft-graph'] },
     },
   ])(
-    'reads and searches Microsoft mail in $graphProfile while only Gmail sends',
+    'reads, searches and sends Microsoft mail in $graphProfile beside Gmail',
     async ({ graphProfile, subjects, found }) => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
@@ -811,10 +811,7 @@ describe('reading Microsoft mail through Graph', () => {
           mailboxesOf(registration.getSnapshot().snapshot),
           defaultProfile,
         ).map(({ address }) => address),
-      ).toStrictEqual(['other@example.invalid']);
-      await expect(
-        shown[0]?.inbox.send({ segments: [{ text: 'Hello' }] }),
-      ).resolves.toStrictEqual({ kind: 'failed', problem: 'mailbox' });
+      ).toStrictEqual(['casey@example.invalid', 'other@example.invalid']);
     },
   );
 });
