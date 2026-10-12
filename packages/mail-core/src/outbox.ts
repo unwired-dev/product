@@ -157,12 +157,19 @@ export function createOutbox({
     drafts.getOutbox().find((each) => each.id === id);
   const connectionOf = (id: string): Mailbox | ImapMailbox | undefined =>
     mailboxes.getConnections().find((mailbox) => mailbox.id === id);
-  // The Sent folder an IMAP connection's server declares: its name, null when its listing has
-  // none, or undefined for another provider or while the listing is not ready.
-  const sentFolderOf = (draft: Draft) => {
+  // An IMAP message waits for its folder listing and requires one server-declared Sent folder.
+  const sentFolderCheck = (
+    draft: Draft,
+  ): 'wait' | 'sent-folder' | undefined => {
     const mailbox = connectionOf(draft.connection);
-    return mailbox?.provider === 'imap' && mailbox.state.kind === 'ready'
-      ? (imapRoleFolder(mailbox.state.folders, 'sent') ?? null)
+    if (mailbox?.provider !== 'imap') {
+      return undefined;
+    }
+    if (mailbox.state.kind !== 'ready') {
+      return 'wait';
+    }
+    return imapRoleFolder(mailbox.state.folders, 'sent') === undefined
+      ? 'sent-folder'
       : undefined;
   };
   const smtpSender = (draft: Draft) =>
@@ -214,20 +221,8 @@ export function createOutbox({
 
   // Whether a queued message may be handed off now: a problem that refuses it for good, 'wait'
   // while an IMAP connection's listing has not named the Sent folder for its copy, or undefined.
-  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined => {
-    const problem = senderProblem(draft);
-    if (problem !== undefined) {
-      return problem;
-    }
-    const folder = sentFolderOf(draft);
-    if (folder === null) {
-      return 'sent-folder';
-    }
-    return folder === undefined &&
-      connectionOf(draft.connection)?.provider === 'imap'
-      ? 'wait'
-      : undefined;
-  };
+  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined =>
+    senderProblem(draft) ?? sentFolderCheck(draft);
 
   const record = (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'accepted') {
@@ -440,7 +435,7 @@ export function createOutbox({
     if (senderProblem(draft) !== undefined) {
       return 'sender';
     }
-    if (sentFolderOf(draft) === null) {
+    if (sentFolderCheck(draft) === 'sent-folder') {
       return 'sent-folder';
     }
     return unsendableAssets(draft).length > 0 ? 'assets' : undefined;
