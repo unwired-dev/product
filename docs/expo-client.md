@@ -67,9 +67,11 @@ and rejected import forms and the [boundary rules](agents/effect.md#enforcement)
 
 ### Compatibility pins
 
-Dependencies were refreshed on 2026-10-05. Native packages follow Expo 57's exact
+Expo compatibility patches were refreshed on 2026-10-12. Native packages follow Expo 57's exact
 compatibility map, rather than independently upgrading the renderer or native
-peers. Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
+peers. Keep the mobile Babel preset within the selected Expo package's declared
+dependency range; [`catalogs.mobile`](../pnpm-workspace.yaml) holds both pins.
+Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
 native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
