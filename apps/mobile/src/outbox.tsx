@@ -40,6 +40,9 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.small },
 });
 
+// The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
+type CopyProvider = MailProvider | 'unlisted';
+
 // Why a message waits or was refused, as the person reads it.
 const problems = {
   offline: 'outbox.queued.offline',
@@ -54,7 +57,8 @@ const problems = {
   'sent-folder': 'outbox.failed.sent-folder',
 } as const satisfies Readonly<Record<DeliveryProblem, string>>;
 // The same reasons in each provider's words: the copy above names Gmail, and an IMAP connection's
-// mail server or Microsoft send other messages.
+// mail server or Microsoft send other messages. A message whose connection is no longer listed,
+// as after its removal, names no provider.
 const providerProblems = {
   gmail: problems,
   imap: {
@@ -72,15 +76,24 @@ const providerProblems = {
     'too-large': 'outbox.failed.too-large_microsoft',
     refused: 'outbox.failed.refused_microsoft',
   },
+  unlisted: {
+    ...problems,
+    offline: 'outbox.queued.offline_unlisted',
+    'rate-limited': 'outbox.queued.rate-limited_unlisted',
+    authorization: 'outbox.failed.authorization_unlisted',
+    'too-large': 'outbox.failed.too-large_unlisted',
+    refused: 'outbox.failed.refused_unlisted',
+  },
 } as const satisfies Readonly<
-  Record<MailProvider, Readonly<Record<DeliveryProblem, string>>>
+  Record<CopyProvider, Readonly<Record<DeliveryProblem, string>>>
 >;
 // The unknown-outcome copy's own words for each provider.
 const unknownCopy = {
   gmail: '',
   imap: '_imap',
   'microsoft-graph': '_microsoft',
-} as const satisfies Readonly<Record<MailProvider, string>>;
+  unlisted: '_unlisted',
+} as const satisfies Readonly<Record<CopyProvider, string>>;
 // Why an accepted message's Sent copy still waits.
 const filing: Readonly<
   Partial<
@@ -102,7 +115,7 @@ const filing: Readonly<
 const statusOf = (
   t: Translate,
   { state, problem }: OutboxEntry,
-  provider: MailProvider,
+  provider: CopyProvider,
 ) => {
   if (state === 'filing') {
     return t(
@@ -131,7 +144,7 @@ function UnknownRecovery({
 }: {
   readonly id: string;
   // The provider the message was handed to.
-  readonly provider: MailProvider;
+  readonly provider: CopyProvider;
   readonly onEdit: () => void;
 }) {
   const outbox = useOutbox();
@@ -213,7 +226,7 @@ export function OutboxRow({
   const provider =
     use(AccountContext)?.mailboxes.find(
       ({ id }) => id === entry.draft.connection,
-    )?.provider ?? 'gmail';
+    )?.provider ?? 'unlisted';
   const status = statusOf(t, entry, provider);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {

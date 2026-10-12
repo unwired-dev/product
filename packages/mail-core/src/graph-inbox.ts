@@ -6,7 +6,6 @@ import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 
 import type { GmailLabel } from './gmail-actions.ts';
-import type { SendOutcome } from './gmail-inbox.ts';
 import type {
   GmailMessage,
   MailboxDocument,
@@ -528,8 +527,8 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return copy !== undefined &&
       others.length === 0 &&
       copies['@odata.nextLink'] === undefined
-      ? ({ kind: 'sent', message: copy.id } satisfies SendOutcome)
-      : ({ kind: 'unknown' } satisfies SendOutcome);
+      ? { kind: 'sent' as const, message: copy.id }
+      : { kind: 'unknown' as const };
   });
 
   return {

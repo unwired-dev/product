@@ -79,6 +79,8 @@ with the app in the background or with Mac windows closed is
   If the check finds locked storage, the Inbox hides its mail; device removal
   closes it, and refused Gmail access asks for authorization again, including
   after an offline retry. The delivery outcome remains unknown.
+- A message whose mailbox is no longer connected, as after its removal, names no
+  provider: it asks to check the Sent folder of the mailbox it was sent from.
 - **Edit** on an unknown message first warns that Gmail may already have sent it,
   and asks to check Sent in Gmail. **Edit Anyway** returns it to the Drafts; sending
   it again is the person's deliberate choice.
@@ -178,7 +180,8 @@ deletion test removes claims.
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
 **Undo** and send again. They also show a refused Send, a Gmail refusal with
 **Edit**, a lost answer confirmed from Gmail's Sent mailbox, and an unknown outcome
-with **Check Again** and the warning before **Edit Anyway**. These are rendered component tests.
+with **Check Again** and the warning before **Edit Anyway**, and an unknown message whose
+mailbox is no longer listed in provider-neutral words. These are rendered component tests.
 The composer journeys also retain the original sender after a mailbox rename and
 choose its current address explicitly before reopening the Draft.
 

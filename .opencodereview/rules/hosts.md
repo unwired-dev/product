@@ -15,6 +15,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presence. Inspect Microsoft-only and mixed-provider views as well as Gmail;
   use the selected connection's provider or neutral aggregate wording, or the
   interface labels Microsoft mail as Gmail despite independent authorization.
+- `outbox.tsx.OutboxRow`, `statusOf` or `UnknownRecovery` defaulting provider copy
+  to Gmail or another specific provider when the entry's Mailbox Connection is
+  absent. Trace row status, Check Again feedback and the Edit warning after
+  connection removal on both hosts; use retained provider evidence or neutral
+  wording. Otherwise an unknown delivery directs the person to the wrong Sent
+  folder and increases the risk of a duplicate resend.
 - IMAP password repair in `RegistrationGate` available only when saved registration
   says authorization, while a current Inbox read can refuse a saved connected
   credential. Trace the Inbox notice through account settings without relaunch;
