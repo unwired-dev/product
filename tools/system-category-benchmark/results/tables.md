@@ -23,7 +23,7 @@ those labels, not verified real-world accuracy.
 
 ## Annotator agreement
 
-150 randomly chosen real-public messages were labelled again by gpt-6.1-sol agent, rubric v1, not human-verified. On the 147 both kept, the label sets agree exactly for 0.90; 1 messages differ on exclusion.
+150 randomly chosen real-public messages were labelled again by gpt-6.1-sol agent, rubric v1, not human-verified. On the 147 both kept, the label sets agree exactly for 0.90; the exclusion decision differs for 1 of 150.
 
 | Category | Primary positives | Second positives | Both | Cohen's kappa |
 | --- | ---: | ---: | ---: | ---: |

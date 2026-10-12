@@ -188,7 +188,7 @@ def agreement_table() -> list[str]:
         (
             f"{len(second)} randomly chosen real-public messages were labelled again by "
             f"{next(iter(second.values()))['annotator']}. On the {len(both)} both kept, the label sets "
-            f"agree exactly for {exact:.2f}; {excluded} messages differ on exclusion."
+            f"agree exactly for {exact:.2f}; the exclusion decision differs for {excluded} of {len(second)}."
         ),
         "",
         "| Category | Primary positives | Second positives | Both | Cohen's kappa |",
