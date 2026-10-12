@@ -95,6 +95,8 @@ and bulk actions; they do not describe the current integration.
 - Back returns from the picker to the command list.
 - Palette commands use the same confirmations, Undo, and error behavior as the
   corresponding buttons or menus.
+- A failed command keeps the palette open with visible error feedback. A
+  cancelled or superseded action stays quiet and does not count as success.
 
 ## Closing and reopening
 

@@ -36,6 +36,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-detail.tsx.ResponseActions` or another command owner swallowing a
+  rejected action into the same false result used for cancellation. Trace failures
+  through both the reader button and the open palette: failures must reach visible
+  feedback in the active presentation, while cancellation and retired reader or
+  palette sessions stay quiet. Otherwise the palette hides the reader's alert and
+  re-enables the failed command without explaining what happened.
+
 - `composer.tsx.DraftList` or another command owner mapping every disabled state
   to a busy reason. Reserve waiting copy for active work; locked or failed Draft
   storage and absent eligible senders need an unavailable reason. Trace localized

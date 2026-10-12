@@ -428,11 +428,13 @@ function ResponseActions({
         onCompose(draft);
         completed = true;
       }
-    } catch {
-      // The reader stays usable when an unexpected host operation rejects, and says so.
+    } catch (error) {
+      starting.current = false;
       if (mounted.current) {
-        setFailed(true);
+        setPending(undefined);
+        throw error;
       }
+      return false;
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
     starting.current = false;
@@ -462,7 +464,11 @@ function ResponseActions({
             accessibilityState={{ disabled: pending !== undefined }}
             disabled={pending !== undefined}
             onPress={() => {
-              void start(kind);
+              void start(kind).catch(() => {
+                if (mounted.current) {
+                  setFailed(true);
+                }
+              });
             }}>
             <Text style={[styles.secondary, { color: colors.accent }]}>
               {label}

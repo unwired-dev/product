@@ -31,6 +31,7 @@ import { AppState, View } from 'react-native';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
+import { CommandPalette } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -3143,6 +3144,115 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it.each([
+    ['Reply', 'Re: Plans'],
+    ['Reply All', 'Re: Plans'],
+    ['Forward', 'Fwd: Plans'],
+  ])(
+    'shows %s failures in the reader and palette, then retries',
+    async (label, subject) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        subject: 'Plans',
+        content: { text: 'Shall we meet on Friday?' },
+      });
+      const base = createDrafts(storage.native, registration);
+      // Fault injection for the host's defensive catch; the real stores still own loading and retry.
+      let create: typeof base.create = () =>
+        Promise.reject(new Error('host failure'));
+      const drafts = {
+        ...base,
+        create: (...args: Parameters<typeof base.create>) => create(...args),
+      };
+      await render(
+        <CommandPalette>
+          <ReaderApp
+            drafts={drafts}
+            gmail={gmail}
+            message={message}
+            registration={registration}
+          />
+        </CommandPalette>,
+      );
+      await press(label);
+      await expect(
+        screen.findByText(
+          'A reply or forward could not be started. Try again.',
+        ),
+      ).resolves.toBeVisible();
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
+      await press(label);
+      await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
+        'The command could not finish. Try again.',
+      );
+      expect(screen.getByLabelText('Command Palette')).toBeVisible();
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+
+      // An intentionally refused response resolves without a Draft, rather than rejecting.
+      create = () => Promise.resolve(undefined);
+      await press(label);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByLabelText('Command Palette')).toBeVisible();
+
+      create = base.create;
+      await press(label);
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        subject,
+      );
+      expect(screen.queryByLabelText('Command Palette')).toBeNull();
+      expect(draftsOf(base.getSnapshot())).toHaveLength(1);
+    },
+  );
+
+  it('does not show a response failure in a palette reopened after cancellation', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({ content: { text: 'Reply later.' } });
+    const base = createDrafts(storage.native, registration);
+    const response = Promise.withResolvers<undefined>();
+    await render(
+      <CommandPalette>
+        <ReaderApp
+          drafts={{ ...base, create: () => response.promise }}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />
+      </CommandPalette>,
+    );
+    await screen.findByRole('button', { name: 'Reply' });
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await press('Reply');
+    await press('Cancel commands');
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await act(async () => {
+      response.reject(new Error('late host failure'));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByLabelText('Command Palette')).toBeVisible();
+    expect(draftsOf(base.getSnapshot())).toHaveLength(0);
+  });
+
   it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

@@ -425,6 +425,12 @@ export function DraftList({
     scope === undefined ? windowProfile : profileOf(scope, account.mailboxes),
   );
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
+  let composeDisabled: string | undefined;
+  if (creatingShown) {
+    composeDisabled = t('commandPalette.busy');
+  } else if (state.kind !== 'ready' || sender === undefined) {
+    composeDisabled = t('commandPalette.unavailable');
+  }
   // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
     if (creating.current) {
@@ -451,11 +457,7 @@ export function DraftList({
             label: t('drafts.newMessage'),
             keywords: t('commandPalette.composeKeywords'),
             group: 'app',
-            disabled: creatingShown
-              ? t('commandPalette.busy')
-              : state.kind !== 'ready' || sender === undefined
-                ? t('commandPalette.unavailable')
-                : undefined,
+            disabled: composeDisabled,
             onRun: async () => {
               if (sender === undefined) {
                 return false;
