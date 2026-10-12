@@ -347,12 +347,20 @@ function ManualSending({
           </Pressable>
         ))}
       </View>
+      <Text style={[styles.text, { color: colors.secondary }]}>
+        {t('imap.smtpUsername')}
+      </Text>
       {field('smtpUsername', t('imap.smtpUsername'), {
         autoComplete: 'username',
+        placeholder: t('imap.username'),
         textContentType: 'username',
       })}
+      <Text style={[styles.text, { color: colors.secondary }]}>
+        {t('imap.smtpPassword')}
+      </Text>
       {field('smtpPassword', t('imap.smtpPassword'), {
         autoComplete: 'password',
+        placeholder: t('imap.password'),
         secureTextEntry: true,
         textContentType: 'password',
       })}

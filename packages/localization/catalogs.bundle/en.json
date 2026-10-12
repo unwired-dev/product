@@ -611,7 +611,7 @@
       "entries": "Correct or remove the invalid address before sending.",
       "addresses": "An address in this message uses characters this app cannot send yet. Use a plain email address.",
       "sender": "This mailbox cannot send now. Choose another mailbox to send from.",
-      "sent-folder": "This mailbox's mail server has no Sent folder to keep a copy, so it cannot send. Choose another mailbox to send from.",
+      "sent-folder": "Unwired Mail cannot identify one Sent folder for this mailbox's copy, so it cannot send. Choose another mailbox to send from.",
       "assets": "Some files are not ready to send. Remove them, or wait until they are added.",
       "too-large": "This message is too large for Gmail. Remove some files and try again.",
       "too-large_imap": "This message is too large to send. Remove some files and try again.",
@@ -724,7 +724,7 @@
       "offline": "Sent. Its copy is saved to Sent when the mail server can be reached.",
       "locked": "Sent. Its copy is saved to Sent once private storage is unlocked.",
       "authorization": "Sent. Enter this mailbox's password again in Settings to save its copy to Sent.",
-      "sent-folder": "Sent. Its copy is saved once the mail server offers a Sent folder."
+      "sent-folder": "Sent. Waiting for one Sent folder to be identified before saving its copy."
     },
     "unknown": {
       "check": "Check Again",
@@ -752,7 +752,7 @@
       "too-large_imap": "Not sent. It is too large for the mail server.",
       "refused": "Not sent. Gmail refused this message.",
       "refused_imap": "Not sent. The mail server refused this message.",
-      "sent-folder": "Not sent. The mail server has no Sent folder to keep its copy."
+      "sent-folder": "Not sent. Unwired Mail cannot identify one Sent folder for this mailbox's copy."
     }
   },
   "imap": {
