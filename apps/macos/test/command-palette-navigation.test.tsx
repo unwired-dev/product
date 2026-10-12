@@ -30,7 +30,11 @@ import { AccountContext } from '../src/registration-gate.tsx';
 describe('command palette pending navigation', () => {
   it.each([
     { destination: 'inbox', labels: ['Go to Inbox'], expected: 'inbox' },
-    { destination: 'settings', labels: ['Settings'], expected: 'settings' },
+    {
+      destination: 'settings',
+      labels: ['Open Settings'],
+      expected: 'settings',
+    },
     {
       destination: 'mailbox',
       labels: ['Inbox', 'alex@example.invalid'],

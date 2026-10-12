@@ -1434,7 +1434,7 @@ describe('composing Drafts', () => {
       ]) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
-        expect(command).toHaveTextContent('Select a message');
+        expect(command).toHaveTextContent(/Select a message/u);
       }
       await press(destination);
       expect(screen.getByLabelText('Command Palette')).toBeVisible();

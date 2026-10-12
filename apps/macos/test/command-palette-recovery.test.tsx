@@ -125,7 +125,7 @@ describe('command palette mailbox recovery', () => {
         for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
           const command = screen.getByRole('button', { name });
           expect(command).toBeDisabled();
-          expect(command).toHaveTextContent('Loading message');
+          expect(command).toHaveTextContent(/Loading message/u);
         }
         for (const [code, reason] of [
           [
@@ -145,7 +145,7 @@ describe('command palette mailbox recovery', () => {
           for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
             const command = screen.getByRole('button', { name });
             expect(command).toBeDisabled();
-            expect(command).toHaveTextContent(reason);
+            expect(command).toHaveTextContent(`${name}${reason}`);
           }
         }
         openMailbox = readyOpenMailbox;
@@ -173,7 +173,7 @@ describe('command palette mailbox recovery', () => {
         ]) {
           const command = screen.getByRole('button', { name });
           expect(command).toBeDisabled();
-          expect(command).toHaveTextContent('Loading message');
+          expect(command).toHaveTextContent(/Loading message/u);
         }
         await act(inbox.load);
         await waitFor(() => {
@@ -198,7 +198,7 @@ describe('command palette mailbox recovery', () => {
         expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
         expect(
           screen.getByRole('button', { name: 'Mark as unread' }),
-        ).toHaveTextContent('This message is already unread.');
+        ).toHaveTextContent(/This message is already unread\./u);
         await fireEvent.press(
           screen.getByRole('button', { name: 'Mark as read' }),
         );
@@ -209,12 +209,12 @@ describe('command palette mailbox recovery', () => {
           ).toBeEnabled();
           expect(
             screen.getByRole('button', { name: 'Mark as read' }),
-          ).toHaveTextContent('This message is already read.');
+          ).toHaveTextContent(/This message is already read\./u);
         });
         for (const starAction of starActions) {
           expect(
             screen.getByRole('button', { name: 'Remove star' }),
-          ).toHaveTextContent('This message has no star.');
+          ).toHaveTextContent(/This message has no star\./u);
           await fireEvent.press(
             screen.getByRole('button', { name: starAction }),
           );
@@ -225,7 +225,7 @@ describe('command palette mailbox recovery', () => {
             ).toBeEnabled();
             expect(
               screen.getByRole('button', { name: 'Star' }),
-            ).toHaveTextContent('This message already has a star.');
+            ).toHaveTextContent(/This message already has a star\./u);
           });
         }
         await fireEvent.press(
@@ -253,8 +253,10 @@ describe('command palette mailbox recovery', () => {
         ]) {
           const command = screen.getByRole('button', { name });
           expect(command).toBeDisabled();
-          expect(command).toHaveTextContent('Try again to reconnect.');
-          expect(command).not.toHaveTextContent('Unavailable for this mailbox');
+          expect(command).toHaveTextContent(/Try again to reconnect\./u);
+          expect(command).not.toHaveTextContent(
+            /Unavailable for this mailbox/u,
+          );
         }
         openMailbox = readyOpenMailbox;
         await act(inbox.load);

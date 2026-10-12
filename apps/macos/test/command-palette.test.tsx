@@ -166,7 +166,7 @@ describe('command palette interactions', () => {
       expect(screen.getByRole('button', { name: 'Reply All' })).toBeDisabled();
       expect(
         screen.getByRole('button', { name: 'Reply All' }),
-      ).toHaveTextContent('Select a message');
+      ).toHaveTextContent(/Select a message/u);
       await fireEvent.press(
         screen.getByRole('button', { name: 'Cancel commands' }),
       );
@@ -274,13 +274,13 @@ describe('command palette interactions', () => {
       expect(screen.queryByText('Archived IMAP message')).toBeNull();
       expect(screen.queryByLabelText('Command Palette')).toBeNull();
       await fireEvent.press(screen.getByText('Incoming IMAP message'));
-      const selectedInbox = connections.getSnapshot()[0]?.inbox;
+      const selectedInbox = mailboxes.getSnapshot()[0]?.inbox;
       ok(selectedInbox, 'Expected the selected IMAP mailbox');
       await act(() => selectedInbox.forget());
       await open();
       expect(
         screen.getByRole('button', { name: 'Mark as read' }),
-      ).toHaveTextContent('Loading message');
+      ).toHaveTextContent(/Loading message/u);
       await act(selectedInbox.load);
       await waitFor(() => {
         expect(
@@ -291,11 +291,11 @@ describe('command palette interactions', () => {
       for (const name of ['Reply', 'Reply All', 'Forward']) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
-        expect(command).toHaveTextContent('Unavailable for this mailbox');
+        expect(command).toHaveTextContent(/Unavailable for this mailbox/u);
       }
       expect(
         screen.getByRole('button', { name: 'Mark as unread' }),
-      ).toHaveTextContent('This message is already unread.');
+      ).toHaveTextContent(/This message is already unread\./u);
       await fireEvent.press(
         screen.getByRole('button', { name: 'Mark as read' }),
       );
@@ -307,7 +307,7 @@ describe('command palette interactions', () => {
       });
       expect(
         screen.getByRole('button', { name: 'Mark as read' }),
-      ).toHaveTextContent('This message is already read.');
+      ).toHaveTextContent(/This message is already read\./u);
       expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
       await fireEvent.press(screen.getByRole('button', { name: 'Move…' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
@@ -466,6 +466,7 @@ describe('command palette interactions', () => {
         );
         const previous = input.current;
         ok(previous, 'Previous input did not mount');
+        // React Native's mock shares focus across inputs; track the receiver.
         const focus = jest.spyOn(previous, 'focus');
         const focused = jest
           .spyOn(TextInput.State, 'currentlyFocusedInput')
@@ -500,7 +501,7 @@ describe('command palette interactions', () => {
               nativeEvent: { key: 'escape' },
             },
           );
-          expect(focus).not.toHaveBeenCalled();
+          expect(focus.mock.contexts).not.toContain(previous);
           expect(screen.getByTestId('command-palette-host')).toHaveProp(
             'presentation',
             'retired',
@@ -522,7 +523,7 @@ describe('command palette interactions', () => {
             }
             await completion.catch(() => undefined);
           });
-          expect(focus).not.toHaveBeenCalled();
+          expect(focus.mock.contexts).not.toContain(previous);
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise reopening after the retired command settles.
           if (!reopened) {
             restore = () => Promise.resolve(connected);
@@ -686,7 +687,7 @@ describe('command palette interactions', () => {
       ]) {
         const command = screen.getByRole('button', { name });
         expect(command).toBeDisabled();
-        expect(command).toHaveTextContent('Select a message');
+        expect(command).toHaveTextContent(/Select a message/u);
       }
       await fireEvent.changeText(
         screen.getByLabelText('Command Palette'),
