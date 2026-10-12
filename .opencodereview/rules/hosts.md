@@ -310,8 +310,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `Drafts.create` rejection proves only the defensive catch. Expose standalone
   failures through an accessible labeled parent on Mac, or VoiceOver misses them.
 
-- Mac `message-summary.tsx`, `translation.tsx`, `inbox.tsx.OnlineHeading` or
-  `organize.tsx.ImapOrganizeStatus` rendering standalone title, progress, failure,
+- Mac `message-summary.tsx`, `translation.tsx`, `inbox.tsx.OnlineHeading`,
+  `command-palette.tsx` failure feedback or `organize.tsx.ImapOrganizeStatus`
+  rendering standalone title, progress, failure,
   omission, pending-change or privacy disclosure only in nonselectable `Text`.
   The installed Mac Fabric paragraph is not an accessibility element; use
   selectable text or an accessible labeled wrapper. A generic panel label alone

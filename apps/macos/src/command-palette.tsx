@@ -33,6 +33,7 @@ import {
   requireNativeComponent,
 } from 'react-native';
 
+import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
@@ -592,11 +593,11 @@ export function CommandPalette({
                 </Pressable>
               </View>
               {failure ? (
-                <Text
+                <Label
                   accessibilityRole="alert"
                   style={[styles.hint, { color: colors.statusDestructive }]}>
                   {t('commandPalette.failed')}
-                </Text>
+                </Label>
               ) : null}
               <ScrollView
                 ref={list}

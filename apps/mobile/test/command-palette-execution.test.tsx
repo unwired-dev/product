@@ -57,7 +57,7 @@ describe('command palette execution', () => {
       failure: 'unavailable',
       reason: /Drafts could not be opened/u,
     },
-  ])(
+  ] as const)(
     'explains New Message prerequisites and recovers in $surface after $failure storage',
     async ({ surface, failure, reason }) => {
       expect.hasAssertions();
@@ -86,58 +86,61 @@ describe('command palette execution', () => {
       const pending = new Promise<void>((resolve) => {
         release = resolve;
       });
-      let refused = true;
+      let read: typeof storage.native.openDrafts = async () => {
+        await pending;
+        throw Object.assign(new Error('Draft storage unavailable'), {
+          code: failure,
+        });
+      };
       const drafts = createDrafts(
         {
           ...storage.native,
-          openDrafts: async () => {
-            await pending;
-            if (refused) {
-              throw Object.assign(new Error('Draft storage unavailable'), {
-                code: failure,
-              });
-            }
-            return storage.native.openDrafts();
-          },
+          openDrafts: () => read(),
         },
         registration,
       );
       const mailboxes = createMailboxes(syntheticConnections({}), registration);
       const senders = mailboxesOf(registration.getSnapshot().snapshot);
       const opened = jest.fn();
-      const view = (hasSender: boolean) => (
-        <CommandPalette>
-          <AccountContext
-            value={{
-              mailboxes: hasSender ? senders : [],
-              openAccount: () => undefined,
-              authorizeMailbox: () => Promise.resolve(),
-              refreshInbox: (load) => load(),
-            }}>
-            <InboxProvider
+      const view = (connections: typeof senders) => {
+        const content = {
+          inbox: (
+            <DraftList
+              scope={undefined}
+              onCompose={opened}
+            />
+          ),
+          settings: (
+            <SettingsCompose
+              account="synthetic-product-account"
+              mailboxes={connections}
+              profile="default"
               drafts={drafts}
-              mailboxes={mailboxes}>
-              {surface === 'inbox' ? (
-                <DraftList
-                  scope={undefined}
-                  onCompose={opened}
-                />
-              ) : (
-                <SettingsCompose
-                  account="synthetic-product-account"
-                  mailboxes={hasSender ? senders : []}
-                  profile="default"
-                  drafts={drafts}
-                  onCompose={opened}
-                  onInbox={() => undefined}
-                />
-              )}
-            </InboxProvider>
-          </AccountContext>
-        </CommandPalette>
-      );
+              onCompose={opened}
+              onInbox={() => undefined}
+            />
+          ),
+        };
+        return (
+          <CommandPalette>
+            <AccountContext
+              value={{
+                mailboxes: connections,
+                openAccount: () => undefined,
+                authorizeMailbox: () => Promise.resolve(),
+                refreshInbox: (load) => load(),
+              }}>
+              <InboxProvider
+                drafts={drafts}
+                mailboxes={mailboxes}>
+                {content[surface]}
+              </InboxProvider>
+            </AccountContext>
+          </CommandPalette>
+        );
+      };
       try {
-        const app = await render(view(true));
+        const app = await render(view(senders));
         await waitFor(() => expect(drafts.getSnapshot().kind).toBe('loading'));
         await fireEvent(
           screen.getByTestId('command-palette-host'),
@@ -160,24 +163,24 @@ describe('command palette execution', () => {
         expect(command()).toBeDisabled();
         await fireEvent.press(command());
         expect(opened).not.toHaveBeenCalled();
-        refused = false;
+        read = storage.native.openDrafts;
         await act(() => drafts.load());
         await waitFor(() => expect(command()).not.toBeDisabled());
-        await app.rerender(view(false));
+        await app.rerender(view([]));
         expect(command()).toBeDisabled();
         expect(command()).toHaveTextContent(/No eligible sending mailbox/u);
-        await app.rerender(view(true));
+        await app.rerender(view(senders));
         expect(command()).not.toBeDisabled();
         expect(screen.getByLabelText('Command Palette')).toHaveProp(
           'value',
           'compose',
         );
         await fireEvent.press(command());
-        await waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(opened.mock.calls).toHaveLength(1));
         expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
         expect(screen.queryByLabelText('Command Palette')).toBeNull();
       } finally {
-        refused = false;
+        read = storage.native.openDrafts;
         release();
         await screen.unmount();
         await registration.deviceRemoved();
@@ -303,7 +306,7 @@ describe('command palette execution', () => {
       const command = () => screen.getByRole('button', { name: 'New Message' });
       await open();
       await fireEvent.press(command());
-      await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(commit.mock.calls).toHaveLength(1));
       await fireEvent.press(
         screen.getByRole('button', { name: 'Cancel commands' }),
       );
@@ -318,12 +321,12 @@ describe('command palette execution', () => {
           nativeEvent: { key: 'enter' },
         },
       );
-      expect(commit).toHaveBeenCalledTimes(1);
+      expect(commit.mock.calls).toHaveLength(1);
       expect(opened).not.toHaveBeenCalled();
       await act(async () => {
         storage.release();
       });
-      await waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(opened.mock.calls).toHaveLength(1));
       expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
       expect(screen.getByLabelText('Command Palette')).toBeVisible();
       expect(command()).toBeEnabled();

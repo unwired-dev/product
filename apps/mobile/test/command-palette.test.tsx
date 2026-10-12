@@ -453,13 +453,13 @@ describe('command palette interactions', () => {
   });
 
   it.each([
-    ['success', false],
-    ['failure', false],
-    ['success', true],
-    ['failure', true],
+    ['success', false, 0],
+    ['failure', false, 0],
+    ['success', true, 1],
+    ['failure', true, 1],
   ] as const)(
     'retires a pending command when its Account locks, outcome=%s, reopened=%s',
-    async (outcome, reopened) => {
+    async (outcome, reopened, newExecutions) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
       const connected = {
@@ -569,14 +569,20 @@ describe('command palette interactions', () => {
               await registration.resume();
             });
             await open();
-            expect(
-              screen.getByRole('button', { name: 'Held command' }),
-            ).toBeEnabled();
+          }
+          expect(
+            screen.queryAllByRole('button', {
+              name: 'Held command',
+              disabled: false,
+            }),
+          ).toHaveLength(newExecutions);
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the reopened scenario starts a second held command.
+          if (reopened) {
             await fireEvent.press(
               screen.getByRole('button', { name: 'Held command' }),
             );
-            expect(runCommand).toHaveBeenCalledTimes(2);
           }
+          expect(runCommand.mock.calls).toHaveLength(newExecutions + 1);
           await act(async () => {
             // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
             if (outcome === 'failure') {
@@ -587,15 +593,20 @@ describe('command palette interactions', () => {
             await completion.catch(() => undefined);
           });
           expect(focus.mock.contexts).not.toContain(previous);
-          // oxlint-disable-next-line vitest/no-conditional-in-test -- The retired completion cannot release the newer execution.
+          expect(screen.queryAllByLabelText('Command Palette')).toHaveLength(
+            newExecutions,
+          );
+          expect(
+            screen.queryAllByRole('button', {
+              name: 'Held command',
+              disabled: true,
+            }),
+          ).toHaveLength(newExecutions);
+          expect(
+            screen.queryByText('The command could not finish. Try again.'),
+          ).toBeNull();
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the new execution only in the reopened scenario.
           if (reopened) {
-            expect(screen.getByLabelText('Command Palette')).toBeVisible();
-            expect(
-              screen.getByRole('button', { name: 'Held command' }),
-            ).toBeDisabled();
-            expect(
-              screen.queryByText('The command could not finish. Try again.'),
-            ).toBeNull();
             await act(async () => {
               completeNext(false);
               await nextCompletion;
@@ -927,7 +938,7 @@ describe('command palette interactions', () => {
         await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
         expect(screen.getByRole('button', { name: 'Compose' })).toBeDisabled();
         await fireEvent(host, 'commandKey', { nativeEvent: { key: 'enter' } });
-        expect(runCommand).toHaveBeenCalledTimes(1);
+        expect(runCommand.mock.calls).toHaveLength(1);
         await act(async () => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the held native boundary with the table's outcome.
           if (outcome === 'failure') {
