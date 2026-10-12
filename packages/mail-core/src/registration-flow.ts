@@ -18,6 +18,7 @@ import type {
   SignInProvider,
 } from './registration.ts';
 
+import { imapFallback } from './imap-setup.ts';
 import {
   createMailboxVerification,
   setupReason,
@@ -566,11 +567,21 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     if (refusal !== undefined) {
       return yield* unconfirmed(value, refusal, keepsMailboxes);
     }
+    const fallback = imapFallback(setup);
     return yield* Effect.gen(function* () {
-      yield* native(() => vault.connectImap(setup), MailboxReceipt);
+      const receipt = yield* native(
+        () => vault.connectImap(setup),
+        MailboxReceipt,
+      ).pipe(
+        Effect.catchIf(
+          (error) => error.code === 'imap-refused' && fallback !== undefined,
+          () =>
+            native(() => vault.connectImap(fallback ?? setup), MailboxReceipt),
+        ),
+      );
       yield* step(vault.retryMailboxCleanup);
       yield* synchronize;
-      return yield* current;
+      return { ...(yield* current), imapConnected: receipt.connection };
     }).pipe(
       Effect.catchIf(
         (error) => !endsAccess.has(error.code) && !keepsMailboxes,

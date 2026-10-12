@@ -10,6 +10,7 @@ import type {
 } from './registration-replies.ts';
 import type { MailGrantProvider, SignInProvider } from './registration.ts';
 
+import { ImapEndpointSchema, endpointMatchesProvider } from './imap-setup.ts';
 import { MailProviderSchema } from './registration.ts';
 
 const Provider = Schema.Literals(['google', 'apple']);
@@ -118,17 +119,11 @@ export const RegistrationRecordSchema = Schema.Struct({
       provider: MailProviderSchema,
       address: Schema.NonEmptyString,
       // An IMAP connection's reviewed endpoint; its password never leaves native storage.
-      imap: Schema.optionalKey(
-        Schema.Struct({
-          host: Schema.NonEmptyString,
-          port: Schema.Int,
-          username: Schema.NonEmptyString,
-        }),
-      ),
+      imap: Schema.optionalKey(ImapEndpointSchema),
       epoch: Schema.optionalKey(Schema.NonEmptyString),
       authorizationNeeded: Schema.Boolean,
       access: Schema.Literals(['verified', 'cached', 'unverified']),
-    }),
+    }).check(Schema.makeFilter(endpointMatchesProvider)),
   ),
   removal: Schema.optionalKey(
     Schema.Struct({

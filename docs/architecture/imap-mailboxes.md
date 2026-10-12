@@ -68,8 +68,12 @@ remain filtered at their own boundaries. IMAP authorization notices route to
 password repair, including a refused connection whose saved registration still says
 connected, and never to Gmail consent.
 
-After a successful decoded `connectImap` result, the registration subscription
-publishes the matched connection ID as repair metadata. `createMailboxes` reconciles
+After a successful decoded `connectImap` result, the flow carries its receipt's
+connection ID in action-only `imapConnected` metadata. The store decodes it, checks
+connected membership, removes it from the host snapshot and publishes the ID as
+repair metadata. This identifies the authenticated connection even when iCloud's
+name-part attempt fell back to its full address. Legacy snapshot-only native
+adapters still match the reviewed endpoint. `createMailboxes` reconciles
 owners first, then reloads that connection's Inbox if it was retained across the
 change, whatever its status, to reopen its native generation. A newly opened or
 owner-replaced Inbox follows its normal initial load. Snapshot identity alone

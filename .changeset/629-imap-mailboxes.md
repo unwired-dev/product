@@ -13,6 +13,10 @@ password in this device's Keychain and stays receive only until SMTP is added. A
 refused, unreachable or insecure server keeps the Product Account and resumes setup
 after relaunch; a refused password is entered again on the account page.
 
+iCloud Mail retries a refused name-part login once with the full address. Native
+IMAP projections require a valid endpoint for password repair, and shown rows of
+evicted folders survive Inbox reloads while their connection remains open.
+
 IMAP mail synchronizes by folder, UIDVALIDITY and UID into the encrypted cache,
 resumes from its committed checkpoint, and joins the unified Inbox of its Mail
 Profile; choosing an IMAP mailbox on its own shows its folders. Missing or zero

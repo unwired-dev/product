@@ -525,6 +525,13 @@ export function createImapInbox(
         status: last?.kind === 'ready' ? last.status : 'current',
       });
     }
+    // A folder evicted from the cache keeps the rows a window may still show; access-closing
+    // failures have already cleared every view.
+    for (const [name, view] of previous) {
+      if (view.kind === 'ready' && !folderViews.has(name)) {
+        folderViews.set(name, view);
+      }
+    }
     return cache.availability === undefined;
   });
 

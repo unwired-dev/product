@@ -1,3 +1,5 @@
+import * as Schema from 'effect/Schema';
+
 // A reviewed IMAP endpoint: implicit TLS on `port`, and the address the mailbox receives at.
 export type ImapSetup = Readonly<{
   address: string;
@@ -6,6 +8,17 @@ export type ImapSetup = Readonly<{
   username: string;
   password: string;
 }>;
+
+// A connection's reviewed endpoint as native storage projects it; never its password.
+export const ImapEndpointSchema = Schema.Struct({
+  host: Schema.NonEmptyString,
+  port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 })),
+  username: Schema.NonEmptyString,
+});
+// An IMAP connection carries its endpoint, and no other connection has one.
+export const endpointMatchesProvider = (
+  mailbox: Readonly<{ provider: string; imap?: unknown }>,
+) => (mailbox.provider === 'imap') === (mailbox.imap !== undefined);
 
 // Reviewed IMAP endpoints. Each uses implicit TLS on 993 and an app-specific password; a manual
 // server names its own endpoint, which the person reviews before connecting.
@@ -23,6 +36,13 @@ export const imapProviders = {
   },
 } as const;
 export type ImapProvider = keyof typeof imapProviders | 'other';
+
+// The setup to try once more when the server refuses this one: iCloud Mail accepts the full
+// address where it refuses the name part, as Apple's mail settings direct.
+export const imapFallback = (setup: ImapSetup): ImapSetup | undefined =>
+  setup.host === imapProviders.icloud.host && setup.username !== setup.address
+    ? { ...setup, username: setup.address }
+    : undefined;
 
 export type ImapFields = Readonly<{
   address: string;

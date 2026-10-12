@@ -331,6 +331,11 @@ describe('connecting IMAP mailboxes', () => {
               id: 'imap-connection',
               address: 'alex@example.invalid',
               provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
               state: 'connected',
             },
           ]),
@@ -538,6 +543,11 @@ describe('connecting IMAP mailboxes', () => {
               id: 'imap-connection',
               address: 'alex@example.invalid',
               provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
               state: 'connected',
             },
           ]),
@@ -760,6 +770,39 @@ describe('connecting IMAP mailboxes', () => {
     expect(imap.bodies.has(shown.id)).toBe(false);
     release();
     expect(inbox.messageBody(shown.id)).toBeUndefined();
+  });
+
+  it('keeps a shown evicted folder across an Inbox reload', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    for (const name of names) {
+      await inbox.openFolder(name);
+    }
+    const shown = inbox.folder('Folder 0');
+    expect(firstMessage(shown).subject).toBe('In Folder 0');
+    // A routine Inbox reload reopens the cache, which no longer lists the evicted folder.
+    await inbox.load();
+    expect(inbox.folder('Folder 0')).toBe(shown);
+    // Password repair renews the native generation of this same connection, not its owner.
+    imap.cache.generation = 'generation-2';
+    await inbox.load();
+    expect(inbox.folder('Folder 0')).toBe(shown);
+    // Closing access clears even an evicted view; reopening cannot recover its former rows.
+    const opening = vi
+      .spyOn(imap.native, 'openMailbox')
+      .mockRejectedValue({ code: 'locked' });
+    await inbox.load();
+    expect(inbox.folder('Folder 0')).toStrictEqual({ kind: 'failed' });
+    opening.mockRestore();
+    await inbox.load();
+    expect(inbox.folder('Folder 0')).toStrictEqual({ kind: 'loading' });
   });
 
   it('reports the saved body of a row still shown from an evicted folder', async () => {

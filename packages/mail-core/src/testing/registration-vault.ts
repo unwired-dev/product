@@ -373,12 +373,15 @@ export function createSyntheticVault(
     });
   };
   // A login at the controlled IMAP server, which accepts only its current password.
-  const loginImap = (password: string) => {
+  const loginImap = (username: string, password: string) => {
     imap.logins += 1;
     if (imap.outcome !== undefined) {
       throw Object.assign(new Error('Synthetic'), { code: imap.outcome });
     }
-    if (password !== imap.password) {
+    if (
+      password !== imap.password ||
+      imap.refusedUsernames.includes(username)
+    ) {
       throw Object.assign(new Error('Synthetic'), { code: 'imap-refused' });
     }
   };
@@ -651,7 +654,7 @@ export function createSyntheticVault(
         if (record.product === undefined || record.product.pending === true) {
           throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
         }
-        loginImap(setup.password);
+        loginImap(setup.username, setup.password);
         const host = setup.host.toLowerCase();
         const subject = `${host}:${setup.port}:${setup.username}`;
         const id = connectionId('imap', subject, setup.address);
@@ -692,7 +695,7 @@ export function createSyntheticVault(
         if (connection?.imap === undefined) {
           throw Object.assign(new Error('Synthetic'), { code: 'unavailable' });
         }
-        loginImap(connection.imap.password);
+        loginImap(connection.imap.username, connection.imap.password);
         delete connection.authorizationNeeded;
         verified.add(id);
         cached.delete(id);

@@ -34,6 +34,11 @@ IMAP mailbox**.
 | Fastmail            | `imap.fastmail.com`   | 993     | The full address                   |
 | Another IMAP server | Entered by the person | Entered | Entered, or the address when blank |
 
+iCloud Mail retries once with the full address when the server refuses the name
+part, following [Apple's mail settings](https://support.apple.com/en-us/102525).
+A successful retry saves that user name for later password repair. A refused full
+address, an unreachable server or a TLS failure is not retried this way.
+
 The form shows the endpoint it will contact before **Connect**. iCloud Mail and
 Fastmail require an app-specific password; the form says so. Every connection uses
 **Secure Mail Transport**: TLS from the first byte (implicit TLS), TLS 1.2 or newer, and
@@ -100,6 +105,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   and no evicted folder view still shows are removed, including messages expunged
   or replaced by a new UIDVALIDITY.
   Bodies for rows still shown from an evicted folder remain eligible for retention.
+  Those rows survive an Inbox reload, including password repair for the same
+  connection. Closing access or replacing the connection owner clears them.
   Open readers keep their in-memory body, and their still-retained saved bodies
   are protected against budget eviction as far as they fit. Cleanup skipped for
   temporary unavailability or a competing cache update retries on a later

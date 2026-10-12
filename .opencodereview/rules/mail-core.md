@@ -16,6 +16,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   for a read queued behind the semaphore, until that folder read settles; retain
   access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
   different folder's retry or authentication warning.
+- `imap-inbox.ts.open` rebuilding views only from the bounded metadata cache.
+  Preserve ready views of evicted folders during same-owner reloads, including
+  password-generation renewal, until a folder read replaces them or access closes.
+  Verify lock/owner cleanup still clears them; otherwise a Mac window still showing
+  an evicted folder falls into permanent loading or recovers former-owner rows.
 - `imap-inbox.ts.messageOf` searching only the persisted metadata document while
   ready folder views survive its bounded folder eviction. Keep shown rows
   resolvable until their view is replaced or access closes, without widening
@@ -40,6 +45,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   packaged host when its transform differs from the test runtime.
 
 #### Untrusted boundaries fail closed
+
+- `registration.ts.MailboxesSchema` or
+  `registration-vault.ts.RegistrationRecordSchema` admitting an IMAP connection
+  without its non-secret endpoint, an invalid port, or an endpoint on another
+  provider. Decode both projections against the same endpoint invariant;
+  otherwise password repair can offer a form whose Connect action never enables.
+- `registration-flow.ts.connectImap` omitting iCloud's documented full-address
+  fallback or retrying it beyond one authentication refusal. Preserve the reviewed
+  host, require a differing username, and save the successful endpoint. Exercise
+  refused full-address and transport/TLS failures through the public store;
+  otherwise supported iCloud accounts cannot connect or failures repeat logins.
+  Carry the decoded successful connection receipt into the repair notification
+  rather than matching the attempted username, and strip action metadata before
+  publishing host snapshots; otherwise fallback repair reloads no Inbox or the
+  wrong name-part connection that remained connected.
 
 - `registration-flow.ts.authorizeMailbox` or `connectImap` recording a setup
   failure when retained sign-in confirmation is merely offline and other usable

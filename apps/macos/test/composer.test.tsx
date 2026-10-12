@@ -717,6 +717,11 @@ describe('composing Drafts', () => {
             id: 'imap',
             address: 'imap@example.invalid',
             provider: 'imap',
+            imap: {
+              host: 'imap.example.invalid',
+              port: 993,
+              username: 'imap',
+            },
             state: 'connected',
           },
         ]),

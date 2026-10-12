@@ -12,6 +12,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { ImapEndpointSchema, endpointMatchesProvider } from './imap-setup.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -82,13 +83,7 @@ const MailboxesSchema = Schema.fromJsonString(
       ),
       address: Schema.NonEmptyString,
       // The reviewed IMAP endpoint, shown again when its password is entered again.
-      imap: Schema.optionalKey(
-        Schema.Struct({
-          host: Schema.NonEmptyString,
-          port: Schema.Int,
-          username: Schema.NonEmptyString,
-        }),
-      ),
+      imap: Schema.optionalKey(ImapEndpointSchema),
       state: Schema.Literals(['connected', 'cached', 'authorization']),
       // A removal/recreation changes this owner lifetime; ordinary verification does not.
       epoch: Schema.optionalKey(Schema.NonEmptyString),
@@ -97,7 +92,7 @@ const MailboxesSchema = Schema.fromJsonString(
       profile: Schema.NonEmptyString.pipe(
         Schema.withDecodingDefaultKey(Effect.succeed(defaultProfile)),
       ),
-    }),
+    }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(
       (mailboxes) =>
@@ -114,6 +109,8 @@ export type MailboxConnection = (typeof MailboxesSchema.Type)[number];
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
+  // Action-only receipt metadata, removed before publishing the snapshot to hosts.
+  imapConnected: Schema.optionalKey(Schema.NonEmptyString),
   // An unanswered removal stays resumable instead of reopening account access.
   removalPending: Schema.optionalKey(Schema.Literals(['sign-out', 'deletion'])),
   // The other Sign-In Provider explicitly linked to the same Product Account.
@@ -574,18 +571,24 @@ export function createRegistration(
         let repairedImap: string | undefined = undefined;
         const next = yield* operation.pipe(
           Effect.map((snapshot) => {
+            if (snapshot.kind === 'signed-out') {
+              return settled(snapshot);
+            }
+            const { imapConnected, ...shown } = snapshot;
             if (imapSetup !== undefined) {
               repairedImap = mailboxesOf(snapshot).find(
                 (mailbox) =>
                   mailbox.provider === 'imap' &&
                   mailbox.state === 'connected' &&
                   mailbox.address === imapSetup.address &&
-                  mailbox.imap?.host === imapSetup.host.toLowerCase() &&
-                  mailbox.imap.port === imapSetup.port &&
-                  mailbox.imap.username === imapSetup.username,
+                  (imapConnected === undefined
+                    ? mailbox.imap?.host === imapSetup.host.toLowerCase() &&
+                      mailbox.imap.port === imapSetup.port &&
+                      mailbox.imap.username === imapSetup.username
+                    : mailbox.id === imapConnected),
               )?.id;
             }
-            return settled(snapshot);
+            return settled(shown);
           }),
           Effect.catchTags({
             RegistrationCancelled: () =>
