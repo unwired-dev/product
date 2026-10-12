@@ -289,7 +289,7 @@ extension RegistrationStore {
     _ = try mailboxAccount(id)
     guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
     let (credential, mailbox) = try connectedMailbox(id)
-    // A Microsoft connection's credential never reaches Gmail.
+    // A Microsoft token or an IMAP password never reaches Gmail.
     guard mailbox.mailProvider == .gmail else { throw RegistrationError.unavailable }
     guard mailbox.address == address, generation.uuidString == expectedGeneration else {
       throw PrivateInboxError.mailboxInvalidated

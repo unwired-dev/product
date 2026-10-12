@@ -2,6 +2,9 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { ImapSetup } from './imap-setup.ts';
+import type { RevocationReply } from './product-sync-devices.ts';
+import type { ListedDevices } from './product-sync.ts';
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
   NativeRegistrationVault,
@@ -9,14 +12,15 @@ import type {
   SetupReason,
 } from './registration-vault.ts';
 import type {
-  MailProvider,
+  MailGrantProvider,
   RegistrationPrograms,
   RegistrationSnapshot,
   SignInProvider,
 } from './registration.ts';
 
+import { imapFallback } from './imap-setup.ts';
 import {
-  grantsMail,
+  createMailboxVerification,
   setupReason,
   suggestsSignIn,
   unavailableReason,
@@ -58,16 +62,11 @@ const removalNotices = {
 const ErrorBody = Schema.fromJsonString(Schema.Struct({ code: Schema.String }));
 const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody);
 
-const Settlement = Schema.Struct({
-  keyEpoch: Schema.optionalKey(Schema.Finite),
-  recoveryKeyCurrent: Schema.Boolean,
-  settledEpoch: Schema.Finite,
-});
 // A settled removal reports "removed" only while its Recovery Key belongs to the epoch this device
 // holds after synchronizing, which may adopt a later rotation. Unreadable state reports nothing.
 const settledNotice = (
   value: RegistrationRecord,
-  settlement: typeof Settlement.Type,
+  settlement: NonNullable<RevocationReply['settlement']>,
 ) => {
   const sync =
     value.productSync === 'unreadable' ? undefined : value.productSync;
@@ -81,15 +80,6 @@ const settledNotice = (
     ? ('removed' as const)
     : ('superseded' as const);
 };
-const RevocationReply = Schema.Struct({
-  notice: Schema.optionalKey(
-    Schema.Literals(['renewed', 'unconfirmed', 'superseded']),
-  ),
-  // Product Sync synchronizes before the status is read.
-  synchronize: Schema.optionalKey(Schema.Boolean),
-  // A settled removal; its notice depends on the key epoch this device then holds.
-  settlement: Schema.optionalKey(Settlement),
-});
 const sameIdentity = (value: Readonly<{ matches: boolean }>) =>
   value.matches ? Effect.void : failWith('invalid-identity');
 // Deletion refusals Convex returns before fencing anything.
@@ -99,6 +89,11 @@ const refusals: ReadonlySet<Code> = new Set([
   'apple-authorization-required',
   'pending-device-unavailable',
 ]);
+// Why an IMAP connection could not be added, as the setup reason a relaunch resumes with.
+const imapSetupReasons: Partial<Record<Code, SetupReason>> = {
+  'imap-refused': 'imap-refused',
+  'imap-insecure': 'imap-insecure',
+};
 
 const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
   if (mailbox.authorizationNeeded) {
@@ -118,10 +113,14 @@ const mailboxList = (value: RegistrationRecord) =>
           address: mailbox.address,
           ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
           id: mailbox.id,
+          ...(mailbox.imap === undefined ? {} : { imap: mailbox.imap }),
           state: mailboxState(mailbox),
         })),
       );
-const account = (value: RegistrationRecord) => {
+const account = (
+  value: RegistrationRecord,
+  listed: ListedDevices | undefined,
+) => {
   const { product } = value;
   if (product === undefined) {
     return Effect.fail(rejected('unavailable'));
@@ -136,14 +135,17 @@ const account = (value: RegistrationRecord) => {
       ? {}
       : { contactEmail: value.contactEmail }),
     ...(alternate === undefined ? {} : { alternateSignIn: alternate }),
-    ...privateSyncState(value),
+    ...privateSyncState(value, listed),
     ...(value.mailboxRemovalPending
       ? { privateSyncPending: 'mailbox' as const }
       : {}),
   });
 };
-const pending = Effect.fnUntraced(function* (value: RegistrationRecord) {
-  const fields = yield* account(value);
+const pending = Effect.fnUntraced(function* (
+  value: RegistrationRecord,
+  listed: ListedDevices | undefined,
+) {
+  const fields = yield* account(value, listed);
   // A device the account has not admitted shows only its enrollment gate.
   if (value.product?.pending === true) {
     return { kind: 'device-pending', ...fields } satisfies RegistrationSnapshot;
@@ -168,7 +170,10 @@ const pending = Effect.fnUntraced(function* (value: RegistrationRecord) {
 });
 // Connected while any mailbox verified or saw no failure, saved-Inbox-only while every usable one
 // is open from its cache, and otherwise waiting for a mailbox.
-const status = Effect.fnUntraced(function* (value: RegistrationRecord) {
+const status = Effect.fnUntraced(function* (
+  value: RegistrationRecord,
+  listed: ListedDevices | undefined,
+) {
   const states = value.mailboxes
     .filter((mailbox) => !mailbox.authorizationNeeded)
     .map(mailboxState);
@@ -178,9 +183,9 @@ const status = Effect.fnUntraced(function* (value: RegistrationRecord) {
     states.length === 0 ||
     mailboxes === undefined
   ) {
-    return yield* pending(value);
+    return yield* pending(value, listed);
   }
-  const fields = yield* account(value);
+  const fields = yield* account(value, listed);
   return {
     kind: states.includes('connected') ? 'connected' : 'cached',
     ...fields,
@@ -190,17 +195,23 @@ const status = Effect.fnUntraced(function* (value: RegistrationRecord) {
 
 export function createRegistrationFlow(vault: NativeRegistrationVault) {
   const { native, step, record, saved, convex } = nativeSteps(vault);
-  const { synchronize } = createProductSyncProgram(vault);
+  const productSyncFlow = createProductSyncProgram(vault);
+  const { synchronize, listedFor } = productSyncFlow;
 
-  const current = saved.pipe(Effect.flatMap(status));
+  const current = saved.pipe(
+    Effect.flatMap((value) => status(value, listedFor(value))),
+  );
+  const pendingStatus = (value: RegistrationRecord) =>
+    pending(value, listedFor(value));
   const failure = (reason: SetupReason) =>
     step(() => vault.recordMailboxSetup(reason)).pipe(
       Effect.andThen(saved),
-      Effect.flatMap(pending),
+      Effect.flatMap(pendingStatus),
     );
 
   const purge = (notice: 'revoked' | 'deleted' | 'signed-out') =>
-    step(() => vault.purge(notice)).pipe(
+    productSyncFlow.forgetDevices.pipe(
+      Effect.andThen(step(() => vault.purge(notice))),
       Effect.as<RegistrationSnapshot>(
         notice === 'signed-out'
           ? { kind: 'signed-out' }
@@ -221,6 +232,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       return yield* purge(removalNotices[removal.operation]);
     }
     yield* step(vault.endSession);
+    yield* productSyncFlow.forgetDevices;
     if (product === undefined) {
       return yield* failWith('unavailable');
     }
@@ -244,9 +256,11 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     Effect.flatMap(sameIdentity),
   );
   // A removal step's notice, shown with the status the step leaves.
-  const noticed = (operation: () => Promise<unknown>) =>
+  const noticed = (
+    operation: Effect.Effect<RevocationReply, RegistrationRejected>,
+  ) =>
     Effect.gen(function* () {
-      const reply = yield* native(operation, RevocationReply);
+      const reply = yield* operation;
       if (reply.synchronize === true) {
         yield* synchronize;
       }
@@ -294,15 +308,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     );
 
-  const checkedMailbox = Effect.fnUntraced(function* (
-    provider: MailProvider,
-    scopes: readonly string[],
-  ) {
-    if (!scopes.some((scope) => grantsMail(provider, scope))) {
-      return yield* failWith('declined');
-    }
-    return yield* native(vault.verifyMailbox, MailboxReceipt);
-  });
+  const { checkedMailbox, verify } = createMailboxVerification(vault);
 
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
@@ -310,35 +316,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   const mailboxStatus = Effect.gen(function* () {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
-      return yield* pending(value);
+      return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      yield* native(
-        () => vault.refreshMailbox(mailbox.id),
-        MailboxIdentity,
-      ).pipe(
-        Effect.flatMap(({ scopes }) =>
-          checkedMailbox(mailbox.provider, scopes),
-        ),
-        Effect.andThen(step(() => vault.confirmMailbox(mailbox.id))),
-        // Cached consent is never proof of usable mail access; a refused grant never opens its
-        // saved mail.
-        Effect.catchIf(
-          (error) => !endsAccess.has(error.code),
-          ({ code }) => {
-            // Offline keeps the saved Inbox open unless its provider already refused this grant.
-            const offline = mailbox.authorizationNeeded
-              ? 'unverified'
-              : 'cached';
-            return step(() =>
-              vault.markMailbox(
-                mailbox.id,
-                code === 'offline' ? offline : 'authorization',
-              ),
-            );
-          },
-        ),
-      );
+      yield* verify(mailbox);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
@@ -488,13 +469,36 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
+  // Why the retained Product Sign-In did not verify before a mailbox is set up, or undefined once
+  // it does; one that cannot keeps the Product Account and resumable mailbox setup.
+  const signInRefusal = (value: RegistrationRecord) =>
+    reconfirm(value).pipe(
+      Effect.as(undefined),
+      Effect.catchIf(
+        (error) => !endsAccess.has(error.code),
+        ({ code }) => Effect.succeed(code),
+      ),
+    );
+  // An unconfirmed sign-in records why mailbox setup paused. Offline with other usable mailboxes,
+  // adding another reports the failure and changes nothing, so their Inboxes stay open.
+  const unconfirmed = (
+    value: RegistrationRecord,
+    code: Code,
+    keepsMailboxes: boolean,
+  ) =>
+    code === 'offline' && keepsMailboxes
+      ? failWith('offline')
+      : failure(
+          value.signInProvider === 'apple' ? 'unavailable' : 'interrupted',
+        );
+
   // Authorizes the named connection's provider again, or adds a mailbox of `added` when none is
   // named. Adding a mailbox that is already connected repairs that connection instead of
   // duplicating it. The first Gmail mailbox suggests the Google sign-in unless the person chooses
   // another account.
   const authorizeMailbox = Effect.fnUntraced(function* (
     connection: string | null,
-    added: MailProvider,
+    added: MailGrantProvider,
     chooseAccount: boolean,
   ) {
     const value = yield* saved;
@@ -508,23 +512,19 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       return yield* failWith('unavailable');
     }
     const provider = existing?.provider ?? added;
+    // An IMAP password is entered again in its own setup, never through a provider's sign-in.
+    if (provider === 'imap') {
+      return yield* failWith('unavailable');
+    }
     // A failure leaves other usable mailboxes as they are; the host reports it.
     const keepsMailboxes = value.mailboxes.some(
       ({ id, authorizationNeeded }) =>
         !authorizationNeeded && id !== connection,
     );
     // Confirm the retained Product Sign-In independently of the mailbox selection.
-    const confirmed = yield* reconfirm(value).pipe(
-      Effect.as(true),
-      Effect.catchIf(
-        (error) => !endsAccess.has(error.code),
-        () => Effect.succeed(false),
-      ),
-    );
-    if (!confirmed) {
-      return yield* failure(
-        value.signInProvider === 'apple' ? 'unavailable' : 'interrupted',
-      );
+    const refusal = yield* signInRefusal(value);
+    if (refusal !== undefined) {
+      return yield* unconfirmed(value, refusal, keepsMailboxes);
     }
     const suggest = suggestsSignIn(value, provider, chooseAccount);
     return yield* Effect.gen(function* () {
@@ -550,6 +550,46 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     );
   });
 
+  // Connects an IMAP mailbox after its login verifies, or repairs the connection for the same
+  // account. Choosing IMAP never starts Gmail authorization. A failed first mailbox keeps the
+  // Product Account and records why, so setup resumes after relaunch; with other usable mailboxes
+  // the failure is reported and nothing changes.
+  const connectImap = Effect.fnUntraced(function* (setup: ImapSetup) {
+    const value = yield* saved;
+    // Mailbox setup follows admission; a Pending Device holds no mailbox.
+    if (value.product === undefined || value.product.pending) {
+      return yield* failWith('unavailable');
+    }
+    const keepsMailboxes = value.mailboxes.some(
+      ({ authorizationNeeded }) => !authorizationNeeded,
+    );
+    const refusal = yield* signInRefusal(value);
+    if (refusal !== undefined) {
+      return yield* unconfirmed(value, refusal, keepsMailboxes);
+    }
+    const fallback = imapFallback(setup);
+    return yield* Effect.gen(function* () {
+      const receipt = yield* native(
+        () => vault.connectImap(setup),
+        MailboxReceipt,
+      ).pipe(
+        Effect.catchIf(
+          (error) => error.code === 'imap-refused' && fallback !== undefined,
+          () =>
+            native(() => vault.connectImap(fallback ?? setup), MailboxReceipt),
+        ),
+      );
+      yield* step(vault.retryMailboxCleanup);
+      yield* synchronize;
+      return { ...(yield* current), imapConnected: receipt.connection };
+    }).pipe(
+      Effect.catchIf(
+        (error) => !endsAccess.has(error.code) && !keepsMailboxes,
+        ({ code }) => failure(imapSetupReasons[code] ?? 'imap-offline'),
+      ),
+    );
+  });
+
   const requestedRemoval = Effect.fnUntraced(function* (
     value: RegistrationRecord,
     operation: 'signOut' | 'deletion',
@@ -565,6 +605,16 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
     return undefined;
   });
+
+  // Sign-out adopts the latest key epoch first, which settles an unanswered removal.
+  const adoptBeforeSignOut = (value: RegistrationRecord) =>
+    value.productSync !== undefined &&
+    value.productSync !== 'unreadable' &&
+    value.productSync.vault?.published === true
+      ? step(vault.adoptIdentity).pipe(
+          Effect.andThen(productSyncFlow.adoptRotation),
+        )
+      : Effect.void;
 
   // Convex forgets this Trusted Device and its push routes first; then the device keeps nothing of
   // the Product Account. Cancelled authentication changes nothing; unanswered backend work is
@@ -585,6 +635,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       );
       // A Pending Device holds no published keys or Recovery Key of its own to protect.
       if (value.removal === undefined && !product.pending) {
+        yield* adoptBeforeSignOut(value);
         // Never discard a published or unanswered Recovery Key the person has not backed up.
         const ready = yield* native(vault.prepareSignOut, Schema.Boolean);
         if (!ready) {
@@ -819,6 +870,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       program(authorizeMailbox(null, provider, chooseAccount)),
     authorizeMailbox: (connection) =>
       program(authorizeMailbox(connection, 'gmail', false)),
+    connectImap: (setup) => program(connectImap(setup)),
     // The removal then reaches Product Sync and every Trusted Device.
     removeMailbox: (connection) =>
       program(
@@ -849,49 +901,54 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
               ? reconfirm(value)
               : signIn('apple');
           }
-          const outcome = readable
-            ? yield* native(
-                () => vault.recoverWithRecoveryKey(entry),
-                Schema.Struct({ rejected: Schema.Boolean }),
-              )
-            : { rejected: true };
+          const refused = readable
+            ? yield* productSyncFlow.recover(entry)
+            : true;
           // Unlocked keys then initialize, admit and read back through Product Sync.
-          if (!outcome.rejected) {
+          if (!refused) {
             yield* synchronize;
           }
           const snapshot = yield* current;
-          return outcome.rejected
+          return refused
             ? { ...snapshot, recoveryNotice: 'rejected' as const }
             : snapshot;
         }),
       ),
     approveEnrollment: (requestId, code) =>
-      program(thenStatus(() => vault.approveEnrollment(requestId, code))),
+      program(
+        productSyncFlow
+          .approveEnrollment(requestId, code)
+          .pipe(Effect.andThen(current)),
+      ),
     declineEnrollment: (requestId) =>
-      program(thenStatus(() => vault.declineEnrollment(requestId))),
+      program(
+        productSyncFlow
+          .declineEnrollment(requestId)
+          .pipe(Effect.andThen(current)),
+      ),
     // Prepares the removal of another Trusted Device after a fresh interactive Product Sign-In.
     revokeTrustedDevice: (trustedDeviceId) =>
       program(
         renewSignIn.pipe(
-          Effect.andThen(
-            noticed(() => vault.revokeTrustedDevice(trustedDeviceId)),
-          ),
+          Effect.andThen(noticed(productSyncFlow.revoke(trustedDeviceId))),
         ),
       ),
     // Activation needs a recent sign-in; one that aged while the key was saved is renewed once.
     confirmRevocation: (entry) =>
       program(
-        noticed(() => vault.confirmRevocation(entry)).pipe(
+        noticed(productSyncFlow.confirmRevocation(entry)).pipe(
           Effect.catchIf(
             ({ code }) => code === 'stale-authentication',
             () =>
               renewSignIn.pipe(
-                Effect.andThen(noticed(() => vault.confirmRevocation(entry))),
+                Effect.andThen(
+                  noticed(productSyncFlow.confirmRevocation(entry)),
+                ),
               ),
           ),
         ),
       ),
-    cancelRevocation: () => program(noticed(vault.cancelRevocation)),
+    cancelRevocation: () => program(noticed(productSyncFlow.cancelRevocation)),
     // Checks for an approval of this device, or for another device waiting for one.
     refreshPrivateSync: () =>
       program(
@@ -915,6 +972,25 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
             yield* establish();
           } else {
             yield* synchronize;
+          }
+          return yield* current;
+        }),
+      ),
+    adoptKeyRotation: () =>
+      program(
+        Effect.gen(function* () {
+          const value = yield* saved;
+          const sync = value.productSync;
+          // Only a Trusted Device holding its keys and a session synchronizes Drafts.
+          if (
+            value.session &&
+            sync !== undefined &&
+            sync !== 'unreadable' &&
+            !sync.pending &&
+            sync.deviceKey &&
+            sync.vault?.published === true
+          ) {
+            yield* productSyncFlow.adoptRotation;
           }
           return yield* current;
         }),

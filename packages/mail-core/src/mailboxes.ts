@@ -1,5 +1,7 @@
 import * as Arr from 'effect/Array';
+import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
+import * as Schema from 'effect/Schema';
 
 import type {
   GmailInbox,
@@ -10,13 +12,20 @@ import type {
   RemoteResource,
 } from './gmail-inbox.ts';
 import type {
+  ImapInbox,
+  ImapInboxState,
+  NativeImapMailbox,
+} from './imap-inbox.ts';
+import type {
+  MailGrantProvider,
   MailProvider,
   Registration,
   RegistrationSnapshot,
 } from './registration.ts';
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
-import { canOpenInbox, mailboxesOf } from './registration.ts';
+import { createImapInbox } from './imap-inbox.ts';
+import { canOpenInbox, defaultProfile, mailboxesOf } from './registration.ts';
 
 type Scope = Readonly<{
   connection: string;
@@ -104,15 +113,24 @@ export interface NativeGmailMailboxes {
     resource: RemoteResource,
     admission: Parameters<NativeGmailMailbox['commitRemoteContent']>[2],
   ) => Promise<unknown>;
+  // A Standards-Based Mailbox Connection's server reads.
+  readonly imapFolders: (mailbox: Scope) => Promise<unknown>;
+  readonly imapSynchronize: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapSynchronize']>[1],
+  ) => Promise<unknown>;
+  readonly imapMessage: (
+    mailbox: Scope,
+    message: Parameters<NativeImapMailbox['imapMessage']>[1],
+  ) => Promise<unknown>;
 }
 
 // One connection's view of the native module: every call names that connection, and only the
 // fields native code checks cross the bridge.
-const bound = (
-  native: NativeGmailMailboxes,
-  connection: string,
-): NativeGmailMailbox => {
-  const scope = ({
+// The fields of a mailbox scope native code checks, for one connection.
+const scopeOf =
+  (connection: string) =>
+  ({
     address,
     generation,
   }: Readonly<{ address: string; generation: string }>) => ({
@@ -120,6 +138,12 @@ const bound = (
     address,
     generation,
   });
+
+const bound = (
+  native: NativeGmailMailboxes,
+  connection: string,
+): NativeGmailMailbox => {
+  const scope = scopeOf(connection);
   return {
     gmailRequest: (path, query, mailbox) =>
       native.gmailRequest(path, query, {
@@ -170,20 +194,62 @@ const bound = (
   };
 };
 
+// An IMAP connection's view of the native module, scoped as the Gmail view is.
+const boundImap = (
+  native: NativeGmailMailboxes,
+  connection: string,
+): NativeImapMailbox => {
+  const scope = scopeOf(connection);
+  // The encrypted cache is reached as for Gmail.
+  const cache = bound(native, connection);
+  return {
+    imapFolders: (mailbox) => native.imapFolders(scope(mailbox)),
+    imapSynchronize: (mailbox, request) =>
+      native.imapSynchronize(scope(mailbox), request),
+    imapMessage: (mailbox, message) =>
+      native.imapMessage(scope(mailbox), message),
+    openMailbox: cache.openMailbox,
+    commitMailbox: cache.commitMailbox,
+    openMessageBody: cache.openMessageBody,
+    commitMessageBody: cache.commitMessageBody,
+    listMessageBodies: cache.listMessageBodies,
+    retainMessageBodies: cache.retainMessageBodies,
+  };
+};
+
 export type Mailbox = Readonly<{
   id: string;
-  provider: MailProvider;
+  provider: MailGrantProvider;
   address: string;
+  // The owning Mail Profile.
+  profile: string;
   inbox: GmailInbox;
   state: GmailInboxState;
 }>;
 
-const loading: GmailInboxState = { kind: 'loading' };
+// A Standards-Based Mailbox Connection's Inbox; it receives mail only.
+export type ImapMailbox = Readonly<{
+  id: string;
+  provider: 'imap';
+  address: string;
+  profile: string;
+  inbox: ImapInbox;
+  state: ImapInboxState;
+}>;
+
+const loading = { kind: 'loading' } as const;
+
+// The Inbox shows only its own mailbox's mail, never a previous address's.
+const visible = <S extends Readonly<{ kind: string; address?: string }>>(
+  state: S,
+  address: string,
+) => (state.kind === 'ready' && state.address !== address ? loading : state);
 
 type OpenMailbox = Readonly<{
   id: string;
   provider: MailProvider;
   address: string;
+  profile: string;
   owner: string;
 }>;
 
@@ -194,10 +260,11 @@ const openMailboxes = (
   canOpenInbox(account) && account.kind !== 'signed-out'
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')
-        .map(({ id, provider, address, epoch }) => ({
+        .map(({ id, provider, address, profile, epoch }) => ({
           id,
           provider,
           address,
+          profile,
           owner: [
             account.productAccountId,
             id,
@@ -207,8 +274,16 @@ const openMailboxes = (
         }))
     : [];
 
+// The Inbox open for one connection; an IMAP one is read through its folders.
+type Opened = Readonly<
+  { owner: string; address: string; unsubscribe: () => void } & (
+    | { provider: MailGrantProvider; inbox: GmailInbox }
+    | { provider: 'imap'; inbox: ImapInbox }
+  )
+>;
+
 // One Inbox per Mailbox Connection that can open, in the order the connections were added, read
-// from Gmail or Microsoft Graph. Each keeps its own cache, changes, synchronization and
+// from Gmail, Microsoft Graph or IMAP. Each keeps its own cache, changes, synchronization and
 // authorization; a connection that needs authorization again, is removed, or changes Product
 // Account or address loses its Inbox and the mail it held in memory.
 export function createMailboxes(
@@ -217,46 +292,63 @@ export function createMailboxes(
   { removed }: Readonly<{ removed?: () => void }> = {},
 ) {
   const shared = createBodyLoads();
-  const inboxes = new Map<
-    string,
-    {
-      readonly owner: string;
-      readonly provider: MailProvider;
-      readonly address: string;
-      readonly inbox: GmailInbox;
-      readonly unsubscribe: () => void;
-    }
-  >();
-  let order: readonly string[] = [];
+  const inboxes = new Map<string, Opened>();
+  let order: readonly OpenMailbox[] = [];
+  let connections: ReadonlyArray<Mailbox | ImapMailbox> = [];
   let snapshot: readonly Mailbox[] = [];
   // Set once the host loads, so a connection added later synchronizes as soon as it appears.
   let started = false;
   const listeners = new Set<() => void>();
+  // The connection's listing; its Inbox shows only its own address's mail.
+  const listing = (
+    id: string,
+    profile: string,
+  ): Mailbox | ImapMailbox | undefined => {
+    const entry = inboxes.get(id);
+    if (entry === undefined) {
+      return undefined;
+    }
+    const { provider, address } = entry;
+    return provider === 'imap'
+      ? {
+          id,
+          provider,
+          address,
+          profile,
+          inbox: entry.inbox,
+          state: visible(entry.inbox.getSnapshot(), address),
+        }
+      : {
+          id,
+          provider,
+          address,
+          profile,
+          inbox: entry.inbox,
+          state: visible(entry.inbox.getSnapshot(), address),
+        };
+  };
   const notify = () => {
-    snapshot = order.flatMap((id) => {
-      const entry = inboxes.get(id);
-      if (entry === undefined) {
+    connections = order.flatMap(({ id, profile }) => {
+      const next = listing(id, profile);
+      const previous = connections.find((mailbox) => mailbox.id === id);
+      if (next === undefined) {
         return [];
       }
-      const state = entry.inbox.getSnapshot();
-      // The Inbox shows only its own mailbox's mail, never a previous address's.
-      const shown =
-        state.kind === 'ready' && state.address !== entry.address
-          ? loading
-          : state;
-      const previous = snapshot.find((mailbox) => mailbox.id === id);
-      return previous?.inbox === entry.inbox && previous.state === shown
+      return previous !== undefined &&
+        previous.inbox === next.inbox &&
+        previous.state === next.state &&
+        previous.profile === profile
         ? [previous]
-        : [
-            {
-              id,
-              provider: entry.provider,
-              address: entry.address,
-              inbox: entry.inbox,
-              state: shown,
-            },
-          ];
+        : [next];
     });
+    const gmail = connections.filter(
+      (mailbox): mailbox is Mailbox => mailbox.provider !== 'imap',
+    );
+    snapshot =
+      gmail.length === snapshot.length &&
+      gmail.every((mailbox, index) => mailbox === snapshot[index])
+        ? snapshot
+        : gmail;
     for (const listener of listeners) {
       listener();
     }
@@ -280,39 +372,89 @@ export function createMailboxes(
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
     for (const { id, provider, address, owner } of added) {
-      const inbox = createGmailInbox(bound(native, id), {
-        removed,
-        shared,
-        connection: id,
-        provider,
-      });
+      const opened =
+        provider === 'imap'
+          ? {
+              provider,
+              inbox: createImapInbox(boundImap(native, id), {
+                removed,
+                shared,
+              }),
+            }
+          : {
+              provider,
+              inbox: createGmailInbox(bound(native, id), {
+                removed,
+                shared,
+                connection: id,
+                provider,
+              }),
+            };
       inboxes.set(id, {
+        ...opened,
         owner,
-        provider,
         address,
-        inbox,
-        unsubscribe: inbox.subscribe(notify),
+        unsubscribe: opened.inbox.subscribe(notify),
       });
       if (started && mailboxLoading === 'automatic') {
-        void inbox.load();
+        void opened.inbox.load();
       }
     }
     return added.length > 0;
   };
-  const follow = (mailboxLoading: 'automatic' | 'explicit' = 'automatic') => {
+  // Password repair renews the native generation without changing the connection's listing, so
+  // the Inbox this process already held for it reopens at the new generation and reads again. A
+  // connection first opened by this change loads as any new one does.
+  const reloadRepaired = (
+    connection: string,
+    held: (() => void) | undefined,
+  ) => {
+    const entry = inboxes.get(connection);
+    // The same subscription means this process held the Inbox before the repair.
+    if (
+      started &&
+      held !== undefined &&
+      entry?.provider === 'imap' &&
+      entry.unsubscribe === held
+    ) {
+      void entry.inbox.load();
+    }
+  };
+  // A connection moved to another Profile keeps its Inbox and changes only its owner here.
+  const follow = (
+    mailboxLoading: 'automatic' | 'explicit' = 'automatic',
+    repairedImap?: string,
+  ) => {
+    const held =
+      repairedImap === undefined
+        ? undefined
+        : inboxes.get(repairedImap)?.unsubscribe;
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
-    const next = open.map(({ id }) => id);
-    if (closed || opened || next.join('\n') !== order.join('\n')) {
-      order = next;
+    if (repairedImap !== undefined) {
+      reloadRepaired(repairedImap, held);
+    }
+    if (
+      closed ||
+      opened ||
+      open.length !== order.length ||
+      open.some(
+        ({ id, profile }, index) =>
+          id !== order[index]?.id || profile !== order[index]?.profile,
+      )
+    ) {
+      order = open;
       notify();
     }
   };
   registration.subscribe(follow);
   follow();
   return {
+    // Gmail and Microsoft connections; consumers filter capabilities at their own boundaries.
     getSnapshot: () => snapshot,
+    // Every connection whose Inbox can open, in the order they were added.
+    getConnections: () => connections,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
@@ -334,7 +476,8 @@ export function createMailboxes(
 
 export type Mailboxes = ReturnType<typeof createMailboxes>;
 
-// One Inbox store as the only mailbox, such as the preview fixture, which has no address.
+// One Inbox store as the only mailbox, such as the preview fixture, which has no address and
+// belongs to the Default Profile.
 export function singleMailbox<
   S extends Readonly<{
     getSnapshot: () => Readonly<{ kind: string }>;
@@ -343,14 +486,19 @@ export function singleMailbox<
   }>,
 >(inbox: S, id: string) {
   let shown: ReadonlyArray<
-    Readonly<{ id: string; inbox: S; state: ReturnType<S['getSnapshot']> }>
+    Readonly<{
+      id: string;
+      profile: string;
+      inbox: S;
+      state: ReturnType<S['getSnapshot']>;
+    }>
   > = [];
   return {
     getSnapshot: () => {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The store's own snapshot type.
       const state = inbox.getSnapshot() as ReturnType<S['getSnapshot']>;
       if (shown[0]?.state !== state) {
-        shown = [{ id, inbox, state }];
+        shown = [{ id, profile: defaultProfile, inbox, state }];
       }
       return shown;
     },
@@ -360,7 +508,39 @@ export function singleMailbox<
 }
 
 // Any Inbox listing: a connection's Gmail Inbox, or the preview fixture.
-type Listing = Readonly<{ id: string; state: Readonly<{ kind: string }> }>;
+type Listing = Readonly<{
+  id: string;
+  profile: string;
+  state: Readonly<{ kind: string }>;
+}>;
+
+// A view's Mail Profile, and optionally one of its connections. Every reading view names its
+// Profile, so a connection owned by another Profile, or a Profile owning nothing here, shows
+// nothing.
+export type ViewScope = Readonly<{
+  profile: string;
+  mailbox?: string | undefined;
+}>;
+
+const decodeProfile = Schema.decodeUnknownOption(Schema.NonEmptyString);
+
+// An absent profileId uses Default; malformed or repeated selectors cannot name any decoded connection.
+export const readingProfile = (profileId: unknown): string =>
+  profileId === undefined
+    ? defaultProfile
+    : Option.getOrElse(decodeProfile(profileId), () => '');
+
+// The mailboxes owned by exactly `profile`, in the order the connections were added.
+export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
+  mailboxes: readonly L[],
+  profile: string,
+) => mailboxes.filter((mailbox) => mailbox.profile === profile);
+
+const inScope =
+  ({ profile, mailbox }: ViewScope) =>
+  (listing: Readonly<{ id: string; profile: string }>) =>
+    listing.profile === profile &&
+    (mailbox === undefined || listing.id === mailbox);
 type MessageOf<L extends Listing> = L['state'] extends infer S
   ? S extends Readonly<{ messages: ReadonlyArray<infer M> }>
     ? M
@@ -400,15 +580,15 @@ const newestFirst = <
   );
 };
 
-// The unified Inbox, or one connection's, newest first.
+// A Profile's unified Inbox, or one of its connections', newest first.
 export function inboxMessages<L extends Listing>(
   mailboxes: readonly L[],
-  scope: string | undefined,
+  scope: ViewScope,
 ): ReadonlyArray<MailboxMessage<L>> {
   return newestFirst(
     mailboxes,
     mailboxes
-      .filter(({ id }) => scope === undefined || id === scope)
+      .filter(inScope(scope))
       .flatMap((mailbox) =>
         'messages' in mailbox.state && Array.isArray(mailbox.state.messages)
           ? (mailbox.state.messages as ReadonlyArray<MessageOf<L>>).map(
@@ -594,19 +774,22 @@ export async function searchGmail<M extends Searchable>(
 
 // One view's online search. This composes Promise-returning Inbox actions without another Effect
 // run. Replacing the view's query or scope replaces this store, so an old answer cannot reappear.
+// Only the scope's own ready mailboxes are asked.
 export function createGmailSearch<
   M extends Readonly<{
     id: string;
     address?: string | undefined;
+    profile: string;
     inbox: Readonly<{
       getSnapshot: () => Readonly<{ kind: string }>;
       searchGmail?: Searchable['inbox']['searchGmail'];
     }>;
   }>,
->(shown: readonly M[], query: string, scope: string | undefined) {
+>(shown: readonly M[], query: string, scope: ViewScope) {
   const kinds = shown.map(({ inbox }) => inbox.getSnapshot().kind);
   const mailboxes = shown.filter(
     (mailbox): mailbox is M & Searchable =>
+      inScope(scope)(mailbox) &&
       mailbox.inbox.getSnapshot().kind === 'ready' &&
       mailbox.inbox.searchGmail !== undefined,
   );
@@ -639,13 +822,15 @@ export function createGmailSearch<
         listeners.delete(listener);
       };
     },
-    matches: (next: readonly M[], text: string, view: string | undefined) =>
+    matches: (next: readonly M[], text: string, view: ViewScope) =>
       query === text &&
-      scope === view &&
+      scope.profile === view.profile &&
+      scope.mailbox === view.mailbox &&
       shown.length === next.length &&
       shown.every(
         (mailbox, index) =>
           mailbox.inbox === next[index]?.inbox &&
+          mailbox.profile === next[index]?.profile &&
           kinds[index] === next[index]?.inbox.getSnapshot().kind,
       ),
     available: mailboxes.length > 0 && query !== '',

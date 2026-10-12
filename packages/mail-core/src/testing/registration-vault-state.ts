@@ -18,6 +18,8 @@ export interface Connection {
   provider: MailProvider;
   subject: string;
   address: string;
+  // An IMAP connection keeps its endpoint and password; a Gmail one has none.
+  imap?: { host: string; port: number; username: string; password: string };
   // Renewed with each live.authorization, as native credentials are.
   credential: number;
   authorizationNeeded?: true;
@@ -49,7 +51,15 @@ export interface SyncVault {
   readMailboxes?: string[];
   savedMailboxes?: Record<string, string>;
   descriptorEpochs?: Record<string, string>;
-  revocation?: { device: string; recoveryKey: string; submitted: boolean };
+  // A prepared removal: what its activation carries and the ring its new epoch seals.
+  revocation?: {
+    proposal: string;
+    device: string;
+    recoveryKey: string;
+    submitted: boolean;
+    request: Record<string, unknown>;
+    ring: Ring;
+  };
 }
 export interface Stored {
   payloadIdentifier: string;

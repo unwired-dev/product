@@ -18,6 +18,7 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import {
   createMockRegistrationSession,
   createSyntheticAccount,
@@ -137,6 +138,276 @@ const noEnrollment = {
 };
 
 describe('product registration', () => {
+  it('re-enters an IMAP password from its Inbox refusal without relaunching', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Private archived message' });
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'imap-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+      connectImap: () => {
+        imap.server.failure = undefined;
+        return Promise.resolve(connected);
+      },
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText('Saved IMAP message'),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    await expect(
+      screen.findByText('Private archived message'),
+    ).resolves.toBeVisible();
+    imap.server.failure = 'locked';
+    await act(async () => {
+      await mailboxes.load();
+    });
+    expect(screen.queryByText('Private archived message')).toBeNull();
+    imap.server.failure = undefined;
+    await act(async () => {
+      await mailboxes.load();
+    });
+    await expect(
+      screen.findByText('Private archived message'),
+    ).resolves.toBeVisible();
+    imap.server.failure = 'gmail-unavailable';
+    await act(async () => {
+      await mailboxes.load();
+    });
+    const repair = 'Enter the password for alex@example.invalid again';
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: repair }));
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: repair }));
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Password'),
+      'replacement-password',
+    );
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
+    });
+    expect({
+      failure: store.getSnapshot().imapFailure,
+      password: screen.queryByLabelText('Password'),
+      state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
+    }).toStrictEqual({
+      failure: undefined,
+      password: null,
+      state: 'connected',
+    });
+  });
+
+  it('labels only INBOX as the Inbox and keeps preset guidance when repairing an iCloud password', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap({
+      address: 'alex@icloud.example.invalid',
+    });
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    imap.addFolder('Primary', ['inbox']);
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'icloud-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@icloud.example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: {
+            host: 'imap.mail.me.com',
+            port: 993,
+            username: 'alex@icloud.example.invalid',
+          },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    // A folder with the inbox role keeps its own name beside the reserved INBOX.
+    await expect(
+      screen.findByRole('button', { name: 'Primary' }),
+    ).resolves.toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Inbox' })).toHaveLength(1);
+    await openAccount();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Enter the password for alex@icloud.example.invalid again',
+        }),
+      );
+    });
+    // Repair names the provider and its app-specific password while keeping the saved endpoint.
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    expect(
+      screen.getByText(
+        "iCloud Mail requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
+      ),
+    ).toBeVisible();
+  });
+
+  it('warns when a cached folder cannot be refreshed and falls back to the Inbox once the folder is gone', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved IMAP message' });
+    imap.addFolder('Archive');
+    imap.deliver('Archive', { subject: 'Private archived message' });
+    const session = createMockRegistrationSession('registration-success');
+    const connection = 'imap-connection';
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        {
+          id: connection,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          provider: 'imap',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
+        },
+      ]),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Archive' }),
+      );
+    });
+    await expect(
+      screen.findByText('Private archived message'),
+    ).resolves.toBeVisible();
+    // An unreachable server keeps the cached folder visible and says it could not be refreshed.
+    imap.server.failure = 'offline';
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    expect(screen.getByText('Private archived message')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Folders could not be listed. Try again when the mail server can be reached.',
+    );
+    // A folder the refreshed listing no longer offers is not shown from its stale cache.
+    imap.server.failure = undefined;
+    imap.removeFolder('Archive');
+    await act(async () => {
+      await mailboxes.load();
+    });
+    await expect(
+      screen.findByText('Saved IMAP message'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+    // Recreating that name does not restore a discarded choice or expose the old cached rows.
+    imap.addFolder('Archive');
+    imap.renumber('Archive');
+    imap.deliver('Archive', { subject: 'New archived message' });
+    await act(async () => {
+      await mailboxes.load();
+    });
+    expect(screen.getByText('Saved IMAP message')).toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+    expect(screen.queryByText('New archived message')).toBeNull();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    await expect(
+      screen.findByText('New archived message'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Private archived message')).toBeNull();
+  });
+  /* oxlint-enable vitest/max-expects */
+
   it('opens saved Gmail mail offline and verifies registration before retrying', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
@@ -1201,6 +1472,7 @@ describe('product registration', () => {
       signIn: () => Promise.resolve(connected),
       addMailbox: () => Promise.resolve(connected),
       authorizeMailbox: () => Promise.resolve(connected),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () => Promise.reject(new Error('No key')),
       ...noEnrollment,
@@ -1243,6 +1515,7 @@ describe('product registration', () => {
       signIn: () => Promise.resolve(current),
       addMailbox: () => Promise.resolve(current),
       authorizeMailbox: () => Promise.resolve(current),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () => Promise.reject(new Error('No key')),
       ...noEnrollment,
@@ -1330,6 +1603,7 @@ describe('product registration', () => {
         }),
       addMailbox: () =>
         Promise.reject(new Error('Gmail consent must not restart')),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       authorizeMailbox: () =>
         Promise.reject(new Error('Gmail consent must not restart')),
       link: () => Promise.reject(new Error('Not linking')),
@@ -1634,6 +1908,7 @@ describe('product registration', () => {
       signIn: () => Promise.reject(new Error('Not signing in')),
       addMailbox: () => Promise.reject(new Error('Not authorizing')),
       authorizeMailbox: () => Promise.reject(new Error('Not authorizing')),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       removeMailbox: () => Promise.reject(new Error('Not removing')),
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () =>

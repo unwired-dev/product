@@ -11,6 +11,7 @@ import {
 } from '@private-email/mail-core/assistance-enablement';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import {
+  createContext,
   use,
   useLayoutEffect,
   useMemo,
@@ -23,6 +24,7 @@ import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceContext,
+  MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
 import { AssistanceContext } from './message-summary.tsx';
@@ -47,13 +49,18 @@ export const mailAssistance = createMailAssistanceEnablement({
     native().setMailAssistance(owner, profiles),
 });
 
-// shortcut: every Mailbox Connection belongs to the Default Profile until #647 enables more
-// Profiles; then gate each reader and Draft by its connection's Profile.
-const profile = defaultProfile;
-
 const noSubscription = () => () => undefined;
 
-function useEnabled(account: string | undefined) {
+const MailAssistanceEnginesContext = createContext<
+  | Readonly<{
+      account: string | undefined;
+      assistance: NativeAssistance;
+      translation: NativeTranslation;
+    }>
+  | undefined
+>(undefined);
+
+function useEnabled(account: string | undefined, profile = defaultProfile) {
   const store = use(MailAssistanceContext);
   const enablement = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
@@ -62,9 +69,8 @@ function useEnabled(account: string | undefined) {
   return mailAssistanceEnabled(enablement, account, profile);
 }
 
-// Supplies the on-device model and Translation only while `account` enabled assistance on this
-// device. Turning it off unmounts every assistance panel, which cancels its request and forgets its
-// preview; turning it on starts nothing.
+// Account settings and Drafts use Default consent until #647 supplies their ownership.
+// Readers below apply their own Profile consent to the retained native engines.
 export function MailAssistanceGate({
   account,
   assistance,
@@ -77,12 +83,43 @@ export function MailAssistanceGate({
   readonly children: ReactNode;
 }) {
   const enabled = useEnabled(account);
+  const engines = useMemo(
+    () => ({ account, assistance, translation }),
+    [account, assistance, translation],
+  );
   return (
-    <AssistanceContext value={enabled ? assistance : undefined}>
-      <TranslationContext value={enabled ? translation : undefined}>
-        {children}
-      </TranslationContext>
-    </AssistanceContext>
+    <MailAssistanceEnginesContext value={engines}>
+      <AssistanceContext value={enabled ? assistance : undefined}>
+        <TranslationContext value={enabled ? translation : undefined}>
+          {children}
+        </TranslationContext>
+      </AssistanceContext>
+    </MailAssistanceEnginesContext>
+  );
+}
+
+// Readers use their window's Profile consent independently of Account settings and Drafts.
+export function ReaderMailAssistanceGate({
+  profile,
+  children,
+}: {
+  readonly profile: string;
+  readonly children: ReactNode;
+}) {
+  const engines = use(MailAssistanceEnginesContext);
+  const enabled = useEnabled(engines?.account, profile);
+  // Preview readers without a Product Account keep their supplied synthetic engines.
+  if (engines === undefined) {
+    return children;
+  }
+  return (
+    <MailAssistanceProfileContext value={profile}>
+      <AssistanceContext value={enabled ? engines.assistance : undefined}>
+        <TranslationContext value={enabled ? engines.translation : undefined}>
+          {children}
+        </TranslationContext>
+      </AssistanceContext>
+    </MailAssistanceProfileContext>
   );
 }
 
@@ -126,7 +163,7 @@ export function MailAssistanceSettings({
       </Text>
       {button(
         t(enabled ? 'mailAssistance.turnOff' : 'mailAssistance.turnOn'),
-        () => store.setEnabled(account, profile, !enabled),
+        () => store.setEnabled(account, defaultProfile, !enabled),
       )}
       {saveState === 'idle' ? null : (
         <Text style={[styles.text, { color: colors.secondary }]}>

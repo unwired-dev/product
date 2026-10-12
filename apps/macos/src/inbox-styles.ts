@@ -1,0 +1,63 @@
+import { spacing } from '@private-email/mail-core/theme';
+import { StyleSheet } from 'react-native';
+
+export const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  heading: { flex: 1, padding: spacing.large, paddingBottom: spacing.medium },
+  account: { fontSize: 15, padding: spacing.large },
+  title: { fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
+  subtitle: { fontSize: 14, marginTop: 4 },
+  list: { paddingHorizontal: spacing.small, gap: 4 },
+  row: {
+    minHeight: 116,
+    padding: 14,
+    borderWidth: 2,
+    borderRadius: 12,
+    borderCurve: 'continuous',
+  },
+  rowHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.small,
+  },
+  sender: { flex: 1, fontSize: 16, fontWeight: '600' },
+  date: { fontSize: 12 },
+  subjectLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 5,
+  },
+  subject: { flex: 1, fontSize: 15, fontWeight: '500' },
+  unread: { width: 6, height: 6, borderRadius: 3 },
+  preview: { fontSize: 14, lineHeight: 20, marginTop: 5 },
+  footer: { fontSize: 12, padding: spacing.large },
+  notice: { padding: spacing.large, fontSize: 16 },
+  mailbox: { fontSize: 12, marginTop: 5 },
+  search: {
+    minHeight: 44,
+    marginHorizontal: spacing.large,
+    marginBottom: spacing.medium,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
+  scopes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.small,
+    paddingHorizontal: spacing.large,
+    paddingBottom: spacing.medium,
+  },
+  scope: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
+});

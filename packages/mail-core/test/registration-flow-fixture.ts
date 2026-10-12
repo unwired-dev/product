@@ -21,6 +21,7 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.addMailbox(provider, chooseAccount)),
     authorizeMailbox: (connection) =>
       Effect.runPromise(flow.authorizeMailbox(connection)),
+    connectImap: (setup) => Effect.runPromise(flow.connectImap(setup)),
     removeMailbox: (connection) =>
       Effect.runPromise(flow.removeMailbox(connection)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
@@ -39,6 +40,7 @@ export const createRegistrationFlow = (
     cancelRevocation: () => Effect.runPromise(flow.cancelRevocation()),
     // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
+    adoptKeyRotation: () => Effect.runPromise(flow.adoptKeyRotation()),
     signOut: () => Effect.runPromise(flow.signOut()),
     deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),
   };

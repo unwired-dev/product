@@ -329,6 +329,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       restore: () => Promise.resolve(connected),
       addMailbox: () => Promise.reject(new Error('Not adding')),
       authorizeMailbox,
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),
@@ -546,6 +547,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       restore: () => Promise.resolve(restored.at(-1)),
       addMailbox: () => Promise.resolve(connected),
       authorizeMailbox: () => Promise.resolve(connected),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
       removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),
@@ -590,6 +592,74 @@ describe('mac windows over a connected Gmail mailbox', () => {
     expect(app.queryByText(/stored data has been kept/u)).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
+});
+
+describe('mac windows of different Mail Profiles', () => {
+  it('clears selection and search when a reused window leaves and returns to its Profile', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({
+      subject: 'Garden plan',
+      content: { text: 'Synthetic garden body.' },
+    });
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(<InboxWindow windowId="same" />);
+    await fireEvent.press(
+      await app.findByRole('button', { name: /Garden plan/u }),
+    );
+    await expect(
+      app.findByText('Synthetic garden body.'),
+    ).resolves.toBeVisible();
+    await fireEvent.changeText(
+      await app.findByLabelText('Search senders and subjects'),
+      'personal search',
+    );
+    await app.rerender(
+      <InboxWindow
+        windowId="same"
+        profile="work"
+      />,
+    );
+    expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+    await app.rerender(<InboxWindow windowId="same" />);
+    await expect(
+      app.findByLabelText('Search senders and subjects'),
+    ).resolves.toHaveProp('value', '');
+    await expect(
+      app.findByRole('button', { name: /Garden plan/u }),
+    ).resolves.toBeVisible();
+    expect(app.queryByText('Synthetic garden body.')).toBeNull();
+  });
+
+  it('shows each window only its own Profile’s mail from the shared mailbox list', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({
+      subject: 'Garden plan',
+      content: { text: 'Synthetic body.' },
+    });
+    // A Mailbox Connection listed before Profiles belongs to the Default Profile.
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <View>
+        <InboxWindow windowId="default" />
+        <InboxWindow
+          profile="work"
+          windowId="work"
+        />
+      </View>,
+    );
+    const shown = within(app.getByTestId('inbox-window-default'));
+    const work = within(app.getByTestId('inbox-window-work'));
+    await fireEvent.press(
+      await shown.findByRole('button', { name: /Garden plan/u }),
+    );
+    await expect(shown.findByText('Synthetic body.')).resolves.toBeVisible();
+    // Another Profile's window reuses the same views and stores yet shows none of that mail.
+    expect(work.queryByLabelText('Search senders and subjects')).toBeNull();
+    expect(work.queryByRole('button', { name: /Garden plan/u })).toBeNull();
+    expect(work.queryByText('Synthetic body.')).toBeNull();
+  });
 });
 
 describe('mac windows sharing the mailbox list', () => {

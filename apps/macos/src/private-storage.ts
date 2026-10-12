@@ -1,4 +1,5 @@
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type {
   NativeInboxStorage,
   PersistentInbox,
@@ -16,7 +17,7 @@ import { gmailMailboxes } from './registration.ts';
 
 interface PrivateInboxModule extends TurboModule, NativeInboxStorage {}
 
-export type InboxStore = PersistentInbox | GmailInbox;
+export type InboxStore = PersistentInbox | GmailInbox | ImapInbox;
 type InboxState = ReturnType<InboxStore['getSnapshot']>;
 
 // A mailbox the Inbox shows: a Mailbox Connection, or the preview fixture, which has no address.
@@ -24,6 +25,8 @@ export type InboxMailbox = Readonly<{
   id: string;
   provider?: MailProvider;
   address?: string;
+  // The owning Mail Profile.
+  profile: string;
   inbox: InboxStore;
   state: InboxState;
 }>;
@@ -39,7 +42,7 @@ export interface MailboxList {
   }>;
 }
 
-// Preview builds show the synthetic fixture; others show every connected Gmail mailbox.
+// Preview builds show the synthetic fixture; others show every connected mailbox.
 export const mailboxes: MailboxList = previewInbox
   ? singleMailbox(
       createPersistentInbox(
@@ -57,4 +60,4 @@ export const mailboxes: MailboxList = previewInbox
       ),
       'preview',
     )
-  : gmailMailboxes;
+  : { ...gmailMailboxes, getSnapshot: gmailMailboxes.getConnections };

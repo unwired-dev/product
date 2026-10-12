@@ -306,11 +306,10 @@
     }
     // The other device of the `registration-revocation` account, which this device removes, with
     // a fixed encryption key that only the synthetic iPad would hold.
-    static let iPad = TrustedDevice(
-      id: "synthetic-ipad", name: "iPad", registeredAt: 1_788_220_800_000,
-      encryptionKey: try? Curve25519.KeyAgreement.PrivateKey(
-        rawRepresentation: Data(repeating: 7, count: 32)
-      ).publicKey.rawRepresentation)
+    static let iPadId = "synthetic-ipad"
+    static let iPadKey = try? Curve25519.KeyAgreement.PrivateKey(
+      rawRepresentation: Data(repeating: 7, count: 32)
+    ).publicKey.rawRepresentation
     // The synthetic account's Recovery Key, typed by the `registration-recovery` journey.
     static let recoveryKey = "000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG"
     static let pendingPrefix = "synthetic-pending-"
@@ -416,6 +415,7 @@
       }
     }
 
+    // Native Draft sync's records and delivery claims.
     var backend: ProductSyncBackend {
       ProductSyncBackend(
         list: { [self] _, product, prefix in
@@ -437,134 +437,6 @@
             return stored
           }
         },
-        requestEnrollment: { [self] _, product, publicKey, deviceKey in
-          try update { state in
-            guard product.pending == true, state.recovery[product.productAccountId] != nil else {
-              throw RegistrationError.unavailable
-            }
-            state.requests[product.trustedDeviceId] = Request(
-              account: product.productAccountId, publicKey: publicKey.rawRepresentation,
-              deviceKey: deviceKey.rawRepresentation)
-            state.recovered[product.trustedDeviceId] = nil
-          }
-        },
-        enrollmentStatus: { [self] _, product in
-          try update { state in
-            let id = product.trustedDeviceId
-            try approveIfShown(id, state: &state)
-            guard let request = state.requests[id] else {
-              return EnrollmentStatus(state: .cancelled)
-            }
-            guard let approved = request.approved else { return EnrollmentStatus(state: .pending) }
-            return EnrollmentStatus(state: .approved, approval: (1, approved))
-          }
-        },
-        // Admits a Pending Device that a Trusted Device approved or whose Recovery Key matched.
-        completeEnrollment: { [self] _, product, keyVersion, deviceKey in
-          try update { state in
-            let id = product.trustedDeviceId
-            let epoch = state.epochs[product.productAccountId] ?? 1
-            // Only the encryption key the approval or Recovery Key proof named is admitted.
-            let authorized =
-              state.recovered[id]
-              ?? state.requests[id].flatMap { $0.approved == nil ? nil : $0.deviceKey }
-            guard keyVersion == epoch, product.pending == true, id.hasPrefix(Self.pendingPrefix),
-              authorized == deviceKey.rawRepresentation
-            else { return nil }
-            let deviceIdentifier = String(id.dropFirst(Self.pendingPrefix.count))
-            state.requests[id] = nil
-            state.recovered[id] = nil
-            state.admitted[product.productAccountId, default: []].append(deviceIdentifier)
-            state.deviceKeys["synthetic-device-" + deviceIdentifier] = deviceKey.rawRepresentation
-            return "synthetic-device-" + deviceIdentifier
-          }
-        },
-        // The current Recovery Key binds a key once; a different one is never replaced.
-        bindDeviceKey: { [self] _, product, deviceKey, proof in
-          try update { state in
-            guard
-              SHA256.hash(data: Data(proof.utf8)).map({ String(format: "%02x", $0) }).joined()
-                == state.verifiers[product.productAccountId]
-            else { return false }
-            let bound = state.deviceKeys[product.trustedDeviceId]
-            guard bound == nil || bound == deviceKey.rawRepresentation else {
-              throw RegistrationError.unavailable
-            }
-            state.deviceKeys[product.trustedDeviceId] = deviceKey.rawRepresentation
-            return true
-          }
-        },
-        recoverPending: { [self] _, product, proof, deviceKey in
-          try update { state in
-            let account = product.productAccountId
-            guard product.pending == true, let verifier = state.verifiers[account],
-              SHA256.hash(data: Data(proof.utf8)).map({ String(format: "%02x", $0) }).joined()
-                == verifier,
-              let envelope = state.recovery[account]
-            else { return nil }
-            state.recovered[product.trustedDeviceId] = deviceKey.rawRepresentation
-            return envelope
-          }
-        },
-        // The synthetic devices in this session never wait for this device's approval.
-        pendingEnrollments: { _, _ in [] },
-        approveEnrollment: { _, _, _, _, _ in throw RegistrationError.enrollmentUnavailable },
-        declineEnrollment: { _, _, _ in throw RegistrationError.enrollmentUnavailable },
-        recoveryEnvelope: { [self] _, product in
-          guard let envelope = try state().recovery[product.productAccountId] else {
-            throw RegistrationError.unavailable
-          }
-          return StoredPayload(
-            payloadIdentifier: "product-account-recovery-v1", encryptedPayload: envelope,
-            updatedAt: 1)
-        },
-        keyRotation: { [self] _, product in try state().envelopes[product.trustedDeviceId] },
-        acknowledgeRotation: { _, _, _ in },
-        // This device and, until it is removed, the iPad; other sessions remove nothing.
-        trustedDevices: { [self] _, product in
-          let state = try state()
-          guard removable, !state.removed.contains(Self.iPad.id) else { return [] }
-          return [
-            TrustedDevice(
-              id: product.trustedDeviceId, name: "This device", registeredAt: 1_788_307_200_000,
-              encryptionKey: state.deviceKeys[product.trustedDeviceId]),
-            Self.iPad,
-          ]
-        },
-        // Activates removing the iPad when the proposal still matches the account, once.
-        activateRevocation: { [self] _, product, request in
-          try update { state in
-            let account = product.productAccountId
-            if let epoch = state.proposals[request.proposalId] { return epoch }
-            guard removable, request.trustedDeviceId == Self.iPad.id else {
-              throw RegistrationError.unavailable
-            }
-            if state.removed.contains(Self.iPad.id) { throw RevocationFailure.targetRemoved }
-            let epoch = state.epochs[account] ?? 1
-            guard request.expectedKeyEpoch == epoch,
-              request.envelopes.map(\.trustedDeviceId) == [product.trustedDeviceId],
-              request.envelopes.first?.publicKey == state.deviceKeys[product.trustedDeviceId],
-              request.envelopes.first?.envelope.keyEpoch == epoch + 1
-            else { throw RevocationFailure.conflict }
-            guard request.recovery.keyVersion == epoch + 1,
-              request.recovery.schemaVersion == KeyRingEnvelope.recoverySchemaVersion
-            else { throw RegistrationError.unavailable }
-            state.removed.insert(Self.iPad.id)
-            state.epochs[account] = epoch + 1
-            state.envelopes[product.trustedDeviceId] = request.envelopes.first?.envelope
-            state.recovery[account] = request.recovery
-            state.verifiers[account] = request.recoveryVerifier
-            state.proposals[request.proposalId] = epoch + 1
-            state.recoveryProposal[account] = request.proposalId
-            return epoch + 1
-          }
-        },
-        revocationOutcome: { [self] _, product, proposalId in
-          let state = try state()
-          return state.proposals[proposalId].map {
-            ($0, state.recoveryProposal[product.productAccountId] == proposalId)
-          }
-        },
         get: { [self] _, product, identifier in
           try state().records[product.productAccountId]?[identifier]
         },
@@ -576,6 +448,180 @@
           }
           return true
         })
+    }
+
+    // A new request replaces the earlier key, so an approval sealed to it is never collected.
+    func requestEnrollment(_ product: ProductRegistrationReceipt, _ args: [String: Any]) throws {
+      try update { state in
+        guard product.pending == true, state.recovery[product.productAccountId] != nil,
+          let publicKey = Self.data(args["enrollmentPublicKey"]),
+          let deviceKey = Self.data(args["deviceEncryptionPublicKey"])
+        else { throw RegistrationError.unavailable }
+        state.requests[product.trustedDeviceId] = Request(
+          account: product.productAccountId, publicKey: publicKey, deviceKey: deviceKey)
+        state.recovered[product.trustedDeviceId] = nil
+      }
+    }
+
+    func enrollmentStatus(_ product: ProductRegistrationReceipt) throws -> [String: Any] {
+      try update { state in
+        let id = product.trustedDeviceId
+        try approveIfShown(id, state: &state)
+        guard let request = state.requests[id] else { return ["state": "cancelled"] }
+        guard let approved = request.approved else { return ["state": "pending"] }
+        return [
+          "state": "approved",
+          "approval": [
+            "keyVersion": 1,
+            "encapsulatedKeyBase64": approved.encapsulatedKey.base64EncodedString(),
+            "ciphertextBase64": approved.ciphertext.base64EncodedString(),
+          ],
+        ]
+      }
+    }
+
+    // Admits a Pending Device that a Trusted Device approved or whose Recovery Key matched.
+    func completeEnrollment(_ product: ProductRegistrationReceipt, _ args: [String: Any]) throws
+      -> [String: Any]
+    {
+      try update { state in
+        let id = product.trustedDeviceId
+        let epoch = state.epochs[product.productAccountId] ?? 1
+        // Only the encryption key the approval or Recovery Key proof named is admitted.
+        let authorized =
+          state.recovered[id]
+          ?? state.requests[id].flatMap { $0.approved == nil ? nil : $0.deviceKey }
+        guard args["keyVersion"] as? Int == epoch, product.pending == true,
+          id.hasPrefix(Self.pendingPrefix),
+          authorized == Self.data(args["deviceEncryptionPublicKey"])
+        else { return ["admitted": false] }
+        let deviceIdentifier = String(id.dropFirst(Self.pendingPrefix.count))
+        state.requests[id] = nil
+        state.recovered[id] = nil
+        state.admitted[product.productAccountId, default: []].append(deviceIdentifier)
+        state.deviceKeys["synthetic-device-" + deviceIdentifier] = authorized
+        return ["admitted": true, "trustedDeviceId": "synthetic-device-" + deviceIdentifier]
+      }
+    }
+
+    func provesRecoveryKey(_ proof: Any?, _ account: String, _ state: State) -> Bool {
+      guard let proof = proof as? String else { return false }
+      return SHA256.hash(data: Data(proof.utf8)).map({ String(format: "%02x", $0) }).joined()
+        == state.verifiers[account]
+    }
+
+    // The current Recovery Key binds a key once; a different one is never replaced.
+    func bindDeviceKey(_ product: ProductRegistrationReceipt, _ args: [String: Any]) throws -> Bool
+    {
+      try update { state in
+        guard provesRecoveryKey(args["recoveryProof"], product.productAccountId, state),
+          let deviceKey = Self.data(args["deviceEncryptionPublicKey"])
+        else { return false }
+        let bound = state.deviceKeys[product.trustedDeviceId]
+        guard bound == nil || bound == deviceKey else { throw RegistrationError.unavailable }
+        state.deviceKeys[product.trustedDeviceId] = deviceKey
+        return true
+      }
+    }
+
+    func recoverPending(_ product: ProductRegistrationReceipt, _ args: [String: Any]) throws
+      -> EncryptedPayload?
+    {
+      try update { state in
+        let account = product.productAccountId
+        guard product.pending == true,
+          provesRecoveryKey(args["recoveryProof"], account, state),
+          let deviceKey = Self.data(args["deviceEncryptionPublicKey"]),
+          let envelope = state.recovery[account]
+        else { return nil }
+        state.recovered[product.trustedDeviceId] = deviceKey
+        return envelope
+      }
+    }
+
+    // This device and, until it is removed, the iPad; other sessions remove nothing.
+    func trustedDevices(_ product: ProductRegistrationReceipt) throws -> [[String: Any]] {
+      let state = try state()
+      guard removable, !state.removed.contains(Self.iPadId) else { return [] }
+      func summary(_ id: String, _ name: String, _ registeredAt: Double, _ key: Data?)
+        -> [String: Any]
+      {
+        var device: [String: Any] = [
+          "id": id, "displayName": name, "registeredAt": registeredAt,
+          "lastSeenAt": registeredAt, "platform": "ios",
+        ]
+        if let key { device["deviceEncryptionPublicKey"] = key.base64EncodedString() }
+        return device
+      }
+      return [
+        summary(
+          product.trustedDeviceId, "This device", 1_788_307_200_000,
+          state.deviceKeys[product.trustedDeviceId]),
+        summary(Self.iPadId, "iPad", 1_788_220_800_000, Self.iPadKey),
+      ]
+    }
+
+    // What a removal sends besides this device's credentials.
+    struct Activation: Decodable {
+      struct Envelope: Decodable {
+        let trustedDeviceId: String
+        let deviceEncryptionPublicKey: String
+        let encapsulatedKeyBase64: String
+        let ciphertextBase64: String
+      }
+      let trustedDeviceToRevokeId: String
+      let proposalId: String
+      let expectedKeyEpoch: Int
+      let keyEnvelopes: [Envelope]
+      let recoveryWrappedAccountKey: EncryptedPayload
+      let recoveryVerifier: String
+    }
+
+    // Activates removing the iPad when the proposal still matches the account, once, answering as
+    // the HTTP route does: its new epoch, or a refusal's status and code.
+    func activate(_ product: ProductRegistrationReceipt, _ args: [String: Any]) throws -> (
+      Int, [String: Any]
+    ) {
+      guard
+        let request = try? JSONDecoder().decode(
+          Activation.self, from: JSONSerialization.data(withJSONObject: args))
+      else { return (400, ["code": "KEY_ROTATION_INVALID"]) }
+      return try update { state in
+        let account = product.productAccountId
+        if let epoch = state.proposals[request.proposalId] { return (200, ["keyEpoch": epoch]) }
+        guard removable, request.trustedDeviceToRevokeId == Self.iPadId else {
+          return (404, ["code": "KEY_ROTATION_INVALID"])
+        }
+        if state.removed.contains(Self.iPadId) {
+          return (409, ["code": "TRUSTED_DEVICE_ALREADY_REMOVED"])
+        }
+        let epoch = state.epochs[account] ?? 1
+        guard request.expectedKeyEpoch == epoch,
+          request.keyEnvelopes.map(\.trustedDeviceId) == [product.trustedDeviceId],
+          request.keyEnvelopes.first.flatMap({ Data(base64Encoded: $0.deviceEncryptionPublicKey) })
+            == state.deviceKeys[product.trustedDeviceId],
+          let envelope = request.keyEnvelopes.first,
+          let encapsulatedKey = Data(base64Encoded: envelope.encapsulatedKeyBase64),
+          let ciphertext = Data(base64Encoded: envelope.ciphertextBase64)
+        else { return (409, ["code": "KEY_ROTATION_CONFLICT"]) }
+        guard request.recoveryWrappedAccountKey.keyVersion == epoch + 1,
+          request.recoveryWrappedAccountKey.schemaVersion
+            == KeyRingEnvelope.recoverySchemaVersion
+        else { return (400, ["code": "KEY_ROTATION_INVALID"]) }
+        state.removed.insert(Self.iPadId)
+        state.epochs[account] = epoch + 1
+        state.envelopes[product.trustedDeviceId] = KeyRingEnvelope.Rotation(
+          keyEpoch: epoch + 1, encapsulatedKey: encapsulatedKey, ciphertext: ciphertext)
+        state.recovery[account] = request.recoveryWrappedAccountKey
+        state.verifiers[account] = request.recoveryVerifier
+        state.proposals[request.proposalId] = epoch + 1
+        state.recoveryProposal[account] = request.proposalId
+        return (200, ["keyEpoch": epoch + 1])
+      }
+    }
+
+    static func data(_ value: Any?) -> Data? {
+      (value as? String).flatMap { Data(base64Encoded: $0) }
     }
   }
 
@@ -665,8 +711,66 @@
             state.requests[product.trustedDeviceId] = nil
           }
           return try reply(["registered": false])
+        // Enrollment, recovery, key rotation and removal, which TypeScript sequences.
+        case "productSyncEnrollment:request":
+          try productSync.requestEnrollment(product, request.args)
+          return try reply(["expiresAt": 1_788_400_000_000])
         case "productSyncEnrollment:status":
-          return try reply(["state": "pending"])
+          return try reply(productSync.enrollmentStatus(product))
+        case "productSyncEnrollment:complete":
+          return try reply(productSync.completeEnrollment(product, request.args))
+        case "productSyncEnrollment:recover":
+          let envelope = try productSync.recoverPending(product, request.args)
+          return try reply(
+            envelope.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }
+              ?? NSNull())
+        // The synthetic devices in this session never wait for this device's approval.
+        case "productSyncEnrollment:listPending": return try reply([Any]())
+        case "productSync:bindDeviceEncryptionKey":
+          return try reply(["bound": productSync.bindDeviceKey(product, request.args)])
+        case "productSync:getEncryptedPayloadForTrustedDevice":
+          guard let identity = request.identity,
+            let identifier = request.args["payloadIdentifier"] as? String
+          else { return try refusal("UNAVAILABLE") }
+          if identifier == "product-account-recovery-v1" {
+            guard let envelope = try productSync.state().recovery[product.productAccountId]
+            else { return try reply(NSNull()) }
+            return try reply([
+              "payloadIdentifier": identifier,
+              "encryptedPayload": try JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(envelope)),
+              "updatedAt": 1,
+            ])
+          }
+          let stored = try await productSync.backend.get(identity, product, identifier)
+          return try reply(
+            stored.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }
+              ?? NSNull())
+        case "productAccount:getProductSyncKeyRotation":
+          guard let rotation = try productSync.state().envelopes[product.trustedDeviceId] else {
+            return try reply(NSNull())
+          }
+          return try reply([
+            "keyEpoch": rotation.keyEpoch,
+            "encapsulatedKeyBase64": rotation.encapsulatedKey.base64EncodedString(),
+            "ciphertextBase64": rotation.ciphertext.base64EncodedString(),
+          ])
+        case "productAccount:acknowledgeProductSyncKeyRotation":
+          return try reply(["keyEpoch": request.args["keyEpoch"] ?? 1])
+        case "productAccount:listTrustedDevices":
+          return try reply(productSync.trustedDevices(product))
+        case "productAccount:getKeyRotationProposal":
+          let state = try productSync.state()
+          guard let proposalId = request.args["proposalId"] as? String,
+            let epoch = state.proposals[proposalId]
+          else { return try reply(NSNull()) }
+          return try reply([
+            "keyEpoch": epoch,
+            "recoveryKeyCurrent": state.recoveryProposal[product.productAccountId] == proposalId,
+          ])
+        case "/trusted-devices/revoke":
+          let (status, body) = try productSync.activate(product, request.args)
+          return (status, try JSONSerialization.data(withJSONObject: body))
         // Product Sync's initialization and mailbox descriptors, which TypeScript sequences.
         case "productSync:initialize":
           guard let payload = request.args["encryptedPayload"],

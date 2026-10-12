@@ -25,10 +25,10 @@ Each Gmail account the person authorizes is one **Mailbox Connection** of the
 Product Account, with its own Gmail credential, verification, encrypted cache,
 waiting changes and synchronization. Adding a mailbox never adds a Product Sign-In.
 
-- **Adding.** The account page's **Mailboxes** section lists every connection, Gmail
-  and [Microsoft](microsoft-mail.md), with its state and offers **Add another Gmail
-  mailbox** and, when Microsoft mail is configured for this build, **Add a Microsoft
-  mailbox**. Adding Gmail asks Google for an
+- **Adding.** The account page's **Mailboxes** section lists every connection, Gmail,
+  [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
+  offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
+  mail is configured for this build, **Add a Microsoft mailbox**. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition

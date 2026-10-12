@@ -32,7 +32,8 @@ export const backendCode = (code: string | undefined) =>
     ? backendCodes[code]
     : undefined) ?? 'unavailable';
 
-const Envelope = Schema.fromJsonString(
+// A Convex HTTP API reply; ConvexError data carries a stable code.
+export const Envelope = Schema.fromJsonString(
   Schema.Struct({
     status: Schema.String,
     value: Schema.optionalKey(Schema.Unknown),
@@ -77,6 +78,14 @@ export function nativeSteps(vault: NativeRegistrationVault) {
   const saved = record.pipe(
     Effect.filterOrFail(Predicate.isNotNull, () => rejected('unavailable')),
   );
+  // This device's Product Sync state, which must be readable.
+  const sync = saved.pipe(
+    Effect.flatMap(({ productSync }) =>
+      productSync === undefined || productSync === 'unreadable'
+        ? failWith('unavailable')
+        : Effect.succeed(productSync),
+    ),
+  );
   // A Convex function result; application errors carry a code whatever the HTTP status.
   const convexReply = Effect.fnUntraced(function* (request: BackendCall) {
     const reply = yield* native(() => vault.call(request), BackendReply);
@@ -100,5 +109,5 @@ export function nativeSteps(vault: NativeRegistrationVault) {
       Effect.catch(unreadable),
     );
   });
-  return { native, step, record, saved, convexReply, convex };
+  return { native, step, record, saved, sync, convexReply, convex };
 }

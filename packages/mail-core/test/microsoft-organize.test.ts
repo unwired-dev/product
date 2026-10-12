@@ -3,7 +3,7 @@ import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 import { gmailAction, restoreAfter } from '../src/gmail-actions.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { createGmailSearch, createMailboxes } from '../src/mailboxes.ts';
-import { createRegistration } from '../src/registration.ts';
+import { createRegistration, defaultProfile } from '../src/registration.ts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -420,11 +420,9 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(gmail.modifies).toStrictEqual([
       { id: fromGmail, add: [], remove: ['INBOX'] },
     ]);
-    const search = createGmailSearch(
-      mailboxes.getSnapshot(),
-      'From',
-      undefined,
-    );
+    const search = createGmailSearch(mailboxes.getSnapshot(), 'From', {
+      profile: defaultProfile,
+    });
     await search.search();
     expect(
       search

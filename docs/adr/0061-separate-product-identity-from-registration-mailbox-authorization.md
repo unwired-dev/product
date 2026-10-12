@@ -13,6 +13,21 @@ onboarding paths remain documented behavior, not a requirement that every launch
 user connect Gmail. Identity, device trust and mailbox consent remain separate. See
 [ADR 0069](0069-expand-the-apple-launch-to-power-user-mail.md).
 
+## IMAP setup amendment — 2026-10-11
+
+The #629 decision panel chose provider selection before the first Mailbox
+Connection grant (3–0). Google or Apple Product Sign-In no longer starts Gmail
+consent automatically when no mailbox is saved. The person chooses Gmail,
+Microsoft mail or IMAP after Product Sign-In and device admission. A saved Gmail
+or Microsoft connection needing authorization still resumes its provider's
+consent automatically, starting with the first non-IMAP connection even when an
+IMAP connection precedes it in the saved list. Failure or cancellation retains the
+Product Account and resumable mailbox setup.
+
+This supersedes the automatic first-mailbox Gmail sequencing described below;
+identity and device-local mailbox credential boundaries remain unchanged. See the
+[IMAP implementation companion](../architecture/imap-mailboxes.md).
+
 The first-release replacement accepts Google and Apple for Product Sign-In while
 supporting only Gmail as a Mail Provider. Google registration requests both
 identity and Gmail access as part of onboarding. Apple registration continues

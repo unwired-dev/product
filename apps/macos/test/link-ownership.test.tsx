@@ -1,9 +1,12 @@
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
 import { Clipboard, Linking } from 'react-native';
 
+import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import {
   GmailMessageBody,
   LinkConfirmationProvider,
@@ -43,6 +46,41 @@ const view = (store: ReturnType<typeof createGmailInbox>, id: string) => (
     />
   </LinkConfirmationProvider>
 );
+
+const linkMailbox = (
+  provider: 'gmail' | 'imap',
+  address = 'alex@example.invalid',
+) => {
+  if (provider === 'imap') {
+    const native = createSyntheticImap({ address });
+    return {
+      store: createImapInbox(native.native),
+      deliver: (html: string) =>
+        `7.${native.deliver('INBOX', {
+          subject: 'Synthetic link message',
+          raw: `Content-Type: text/html; charset=utf-8\r\n\r\n${html}`,
+        })}.INBOX`,
+    };
+  }
+  const native = createSyntheticGmail({ address });
+  return {
+    store: createGmailInbox(native.native),
+    deliver: (html: string) => native.deliver({ content: { html } }),
+  };
+};
+
+const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) =>
+  'openFolder' in store ? (
+    <ImapMessageBody
+      inbox={store}
+      id={id}
+    />
+  ) : (
+    <GmailMessageBody
+      inbox={store}
+      id={id}
+    />
+  );
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {
@@ -145,108 +183,101 @@ describe('queued message link privacy', () => {
 
 // A layout probe observes the committed host tree and delivers queued input before passive
 // retainMessage cleanup. Awaiting rerender alone would erase this regression window.
-describe('message link ownership at commit', () => {
-  it.each(['message', 'account'] as const)(
-    'hides the old destination and rejects queued input before passive cleanup after %s changes',
-    async (transition) => {
-      expect.hasAssertions();
-      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-      const copy = jest
-        // oxlint-disable-next-line typescript/no-deprecated -- Exercises the retained native clipboard boundary.
-        .spyOn(Clipboard, 'setString')
-        .mockReturnValue(undefined);
-      const gmail = createSyntheticGmail();
-      const id = gmail.deliver({
-        content: { html: `<a href="${oldHref}">https://bank.invalid</a>` },
-      });
-      const next = gmail.deliver({
-        content: { html: '<p>Another message</p>' },
-      });
-      const store = createGmailInbox(gmail.native);
-      const other = createSyntheticGmail({
-        address: 'another@example.invalid',
-      });
-      const sameId = other.deliver({
-        content: { html: '<p>Another owner</p>' },
-      });
-      const otherStore = createGmailInbox(other.native);
-      await store.load();
-      await otherStore.load();
-      const app = await render(
-        <LinkConfirmationProvider
-          inbox={store}
-          id={id}>
-          <GmailMessageBody
-            inbox={store}
-            id={id}
-          />
-          <CommitProbe inspect={() => undefined} />
-        </LinkConfirmationProvider>,
-      );
-      try {
-        expect(sameId).toBe(id);
-        const queuedPress = pressHandler(
-          await screen.findByRole('link', {
-            name: 'Open link: https://bank.invalid',
-          }),
+describe.each(['gmail', 'imap'] as const)(
+  '%s message link ownership at commit',
+  (provider) => {
+    it.each(['message', 'account'] as const)(
+      'hides the old destination and rejects queued input before passive cleanup after %s changes',
+      async (transition) => {
+        expect.hasAssertions();
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+        const copy = jest
+          // oxlint-disable-next-line typescript/no-deprecated -- Exercises the retained native clipboard boundary.
+          .spyOn(Clipboard, 'setString')
+          .mockReturnValue(undefined);
+        const mailbox = linkMailbox(provider);
+        const id = mailbox.deliver(
+          `<a href="${oldHref}">https://bank.invalid</a>`,
         );
-        const queuedNavigation =
-          screen.getByTestId('message-webview').props
-            .onShouldStartLoadWithRequest;
-        await fireEvent.press(
-          screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
-        );
-        const queuedCopy = pressHandler(
-          screen.getByRole('button', { name: 'Copy link' }),
-        );
-        const queuedProceed = pressHandler(
-          screen.getByRole('button', { name: 'Proceed' }),
-        );
-        const observations: Array<{ href: boolean; retained: boolean }> = [];
-        const replacement = {
-          message: { store, id: next },
-          account: { store: otherStore, id: sameId },
-        }[transition];
-        await app.rerender(
+        const next = mailbox.deliver('<p>Another message</p>');
+        const { store } = mailbox;
+        const other = linkMailbox(provider, 'another@example.invalid');
+        const sameId = other.deliver('<p>Another owner</p>');
+        const otherStore = other.store;
+        await store.load();
+        await otherStore.load();
+        const app = await render(
           <LinkConfirmationProvider
-            inbox={replacement.store}
-            id={replacement.id}>
-            <GmailMessageBody
-              inbox={replacement.store}
-              id={replacement.id}
-            />
-            <CommitProbe
-              inspect={() => {
-                observations.push({
-                  href: JSON.stringify(app.toJSON()).includes(oldHref),
-                  retained: store.messageBody(id)?.kind === 'ready',
-                });
-                queuedPress();
-                queuedNavigation({
-                  url: 'about:blank#unwired-link-0',
-                  navigationType: 'click',
-                });
-                queuedCopy();
-                queuedProceed();
-              }}
-            />
+            inbox={store}
+            id={id}>
+            {reader(store, id)}
+            <CommitProbe inspect={() => undefined} />
           </LinkConfirmationProvider>,
         );
-        expect({
-          observations,
-          copied: copy.mock.calls,
-          opened: open.mock.calls,
-        }).toStrictEqual({
-          observations: [{ href: false, retained: true }],
-          copied: [],
-          opened: [],
-        });
-        expect(screen.queryByText(oldHref)).toBeNull();
-      } finally {
-        await app.unmount();
-        copy.mockRestore();
-        open.mockRestore();
-      }
-    },
-  );
-});
+        try {
+          expect(sameId).toBe(id);
+          const queuedPress = pressHandler(
+            await screen.findByRole('link', {
+              name: 'Open link: https://bank.invalid',
+            }),
+          );
+          const queuedNavigation =
+            screen.getByTestId('message-webview').props
+              .onShouldStartLoadWithRequest;
+          await fireEvent.press(
+            screen.getByRole('link', {
+              name: 'Open link: https://bank.invalid',
+            }),
+          );
+          const queuedCopy = pressHandler(
+            screen.getByRole('button', { name: 'Copy link' }),
+          );
+          const queuedProceed = pressHandler(
+            screen.getByRole('button', { name: 'Proceed' }),
+          );
+          const observations: Array<{ href: boolean; retained: boolean }> = [];
+          const replacement = {
+            message: { store, id: next },
+            account: { store: otherStore, id: sameId },
+          }[transition];
+          await app.rerender(
+            <LinkConfirmationProvider
+              inbox={replacement.store}
+              id={replacement.id}>
+              {reader(replacement.store, replacement.id)}
+              <CommitProbe
+                inspect={() => {
+                  observations.push({
+                    href: JSON.stringify(app.toJSON()).includes(oldHref),
+                    retained: store.messageBody(id)?.kind === 'ready',
+                  });
+                  queuedPress();
+                  queuedNavigation({
+                    url: 'about:blank#unwired-link-0',
+                    navigationType: 'click',
+                  });
+                  queuedCopy();
+                  queuedProceed();
+                }}
+              />
+            </LinkConfirmationProvider>,
+          );
+          expect({
+            observations,
+            copied: copy.mock.calls,
+            opened: open.mock.calls,
+          }).toStrictEqual({
+            observations: [{ href: false, retained: true }],
+            copied: [],
+            opened: [],
+          });
+          expect(screen.queryByText(oldHref)).toBeNull();
+        } finally {
+          await app.unmount();
+          copy.mockRestore();
+          open.mockRestore();
+        }
+      },
+    );
+  },
+);

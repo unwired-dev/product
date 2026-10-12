@@ -4,6 +4,25 @@ status: accepted
 
 # Keep native code to a minimal vault
 
+## IMAP adapter amendment — 2026-10-11
+
+This amends ADR 0067's provider-adapter scope without reversing its decision to
+keep the native layer minimal.
+
+The #629 decision panel selected SwiftMail 1.16.0 behind a native adapter while
+TypeScript owns synchronization policy and the cache (2–1). The adapter owns the
+credentialed IMAP session and verified TLS; passwords remain in native custody.
+An entered password crosses only as transient form text passed directly to that
+operation, like the entered recovery text below. TypeScript never persists, logs
+or sends it elsewhere. This extends the provider-credential boundary below to
+IMAP without moving mailbox synchronization policy into Swift.
+
+The panel also chose a separate reduced IMAP reader for this slice (3–0): sanitized
+body and inline CID images, blocked remote content, counted attachments, and no
+prefetch, responses or organization. Parity remains follow-up work. Qualification
+evidence and limits are recorded in the
+[IMAP implementation companion](../architecture/imap-mailboxes.md).
+
 `native/private-inbox` has grown to about 2,350 lines of Swift. Besides holding
 keys, it runs the registration flow, Convex transport, Product Sync coordination,
 and the synthetic registration scenarios. Contract shapes are duplicated as Swift
@@ -43,7 +62,8 @@ Native code owns:
     Pending Device credential or Trusted Device Credential durably, then returns
     only the non-secret fields.
 
-  No credential or provider proof crosses the bridge in either direction.
+  No credential or provider proof carried by a Convex call crosses the bridge
+  in either direction.
 
 - **Persist-then-return steps**: operations that must store keys durably before
   anything is acknowledged complete that storage before they return.
@@ -70,16 +90,22 @@ The native interface exposes operations named by purpose, such as "create the ke
 ring and return its recovery envelope" or "open this recovery envelope with the
 entered Recovery Key and store the ring". It never exposes raw encrypt, decrypt or
 read-key primitives. Values crossing the bridge are ciphertext, opaque
-identifiers, presentation data or fixed error codes. Keys, credentials and
-foreign error descriptions never cross.
+identifiers, presentation data, fixed error codes or the transient text exceptions
+below. Product Sync key material, database keys, provider tokens, credentials
+carried by Convex calls and foreign error descriptions never cross.
 
-The Recovery Key and the Enrollment Code are the one exception, because a person
-must read and type them. They cross only as text: native code returns them for
+The Recovery Key and the Enrollment Code are recovery-text exceptions, because a
+person must read and type them. They cross only as text: native code returns them for
 display, and receives what the person enters. React Native shows and collects
 them, as it does today. TypeScript holds them only for that screen: it never
 stores, logs or sends them, and passes entered text straight to the native
 operation that uses it. The key ring, keys derived from the Recovery Key,
 enrollment key pairs and the database key never cross.
+
+An entered IMAP password is a separate provider-credential exception. It crosses
+only as transient form text passed directly to the native IMAP operation.
+TypeScript never persists, logs or sends it elsewhere; native code keeps the
+stored password and never returns it to TypeScript.
 
 ## Why
 

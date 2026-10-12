@@ -90,10 +90,19 @@ under their account and record bindings, returning null for unopenable records.
 A key item that cannot be read becomes the `productSync: unreadable` projection;
 registration and Gmail remain usable.
 
-Enrollment, recovery, rotation adoption, revocation and device-list refresh remain
-purpose-named native operations until #758. Native Draft synchronization retains
-its own list/put/get transport; mailbox descriptor coordination uses only the
-TypeScript credentialed-call path.
+`packages/mail-core/src/product-sync-devices.ts` owns enrollment, recovery,
+rotation adoption, revocation and device-list refresh as Effect programs. The
+process-held request and Trusted Device lists live in TypeScript. Native creates
+and stores enrollment keys before returning the public request fields, opens and
+stores authorized rings before admission, and prepares and preserves removal
+material before submission. Native makes recovery-proof and admission calls,
+keeping proofs and credentials on device and saving the admitted receipt before
+returning. TypeScript selects and decodes the other credentialed backend calls,
+including removal activation, and acknowledges rotations after durable adoption.
+Native Draft synchronization retains its own list/put/get transport; a refused
+old-epoch write asks the TypeScript registration flow to adopt before the next
+pass retries. Mailbox descriptor coordination uses only the TypeScript
+credentialed-call path.
 
 `productSync:initialize` stores the first recovery envelope and its purpose-specific Recovery Key verifier and marks the account
 initialized in one mutation. It requires the authenticated Trusted Device proof
@@ -388,14 +397,20 @@ admission. ADR 0070 supersedes the temporary previous-Recovery-Key allowance;
 only the current key provides current recovery access.
 
 Issue #756 moved registration sequencing and the revocation guard to TypeScript;
-#757 moves Product Sync initialization and synchronization. Native removal steps
-return settlement metadata; the shared flow synchronizes before deriving the
-removed/superseded notice against the latest durable epoch. Enrollment, recovery,
-rotation and revocation coordination remain native until #758. Native key custody,
+#757 moved Product Sync initialization and synchronization, and #758 moved
+enrollment, recovery, rotation and revocation coordination. The shared flow reads
+proposal receipts, settles durably adopted removal material through the native
+vault and synchronizes before deriving the removed/superseded notice against the
+latest durable epoch. Native key custody,
 credentialed transport and persist-before-acknowledge guarantees remain in force;
 these migrations do not establish live-provider qualification.
 
 ## Mailbox Connections (#606)
+
+Issue #629 extends descriptors with the IMAP provider while retaining old Gmail
+decoding and keys. IMAP endpoint-derived subjects keep their `imap:` keys; passwords
+remain device-local. The [IMAP companion](imap-mailboxes.md) records this adapter's
+ownership and qualification separately from Gmail.
 
 Each connection's descriptor remains schema 1 and adds optional `epoch` and
 `removed` fields, retaining older readable records. Its HMAC-derived record

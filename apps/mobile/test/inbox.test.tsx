@@ -7,7 +7,10 @@ import {
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  defaultProfile,
+} from '@private-email/mail-core/registration';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -30,7 +33,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
@@ -132,6 +135,35 @@ describe('preview Inbox', () => {
     expect(screen.queryByText('maya@example.com')).toBeNull();
   });
 
+  it('shows a reused reader only in the Profile that owns its mailbox', async () => {
+    expect.hasAssertions();
+    const link = (profileId: unknown) => (
+      <InboxProvider>
+        <ProfileScope profile={profileId}>
+          <MessageDetail
+            id="weekend-walk"
+            mailbox={preview}
+          />
+        </ProfileScope>
+      </InboxProvider>
+    );
+    // The preview mailbox, like every mailbox listed before Profiles, belongs to the Default Profile.
+    const app = await render(link(defaultProfile));
+    await expect(
+      screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    ).resolves.toBeVisible();
+    // The same link targeted at another Profile, or one unknown here, finds nothing.
+    await app.rerender(link('work'));
+    await expect(
+      screen.findByRole('header', { name: 'Message unavailable' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('oliver@example.com')).toBeNull();
+    await app.rerender(link([defaultProfile, 'work']));
+    expect(
+      screen.getByRole('header', { name: 'Message unavailable' }),
+    ).toBeVisible();
+  });
+
   it('commits a read change and recovers it after the view remounts', async () => {
     expect.hasAssertions();
     const app = await render(<InboxJourney />);
@@ -220,6 +252,7 @@ function renderConnected(
       ),
     addMailbox: () => Promise.reject(new Error('Not adding')),
     authorizeMailbox,
+    connectImap: () => Promise.reject(new Error('Not connecting')),
     removeMailbox: () => Promise.reject(new Error('Not removing')),
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),

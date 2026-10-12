@@ -41,17 +41,20 @@ test('incremental Expo generation removes the retired synthetic credential from 
         objectVersion = 54;
         objects = {
           /* Begin PBXProject section */
-          ROOT = { isa = PBXProject; mainGroup = GROUP; targets = (TARGET,); };
+          ROOT = { isa = PBXProject; mainGroup = GROUP; targets = (TARGET /* Test */,); };
           /* End PBXProject section */
           /* Begin PBXGroup section */
           GROUP = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
           /* End PBXGroup section */
           /* Begin PBXNativeTarget section */
-          TARGET = { isa = PBXNativeTarget; buildPhases = (SOURCES /* Sources */,); };
+          TARGET = { isa = PBXNativeTarget; buildPhases = (SOURCES /* Sources */, FRAMEWORKS /* Frameworks */,); };
           /* End PBXNativeTarget section */
           /* Begin PBXSourcesBuildPhase section */
           SOURCES /* Sources */ = { isa = PBXSourcesBuildPhase; files = (); };
           /* End PBXSourcesBuildPhase section */
+          /* Begin PBXFrameworksBuildPhase section */
+          FRAMEWORKS /* Frameworks */ = { isa = PBXFrameworksBuildPhase; files = (); };
+          /* End PBXFrameworksBuildPhase section */
           /* Begin PBXFileReference section */
           /* End PBXFileReference section */
           /* Begin PBXBuildFile section */
@@ -71,6 +74,15 @@ test('incremental Expo generation removes the retired synthetic credential from 
       writeFileSync(path.join(ios, file), '// Previous generated source\n');
     }
     const config = privateInbox({ name: 'Test', slug: 'test' });
+    // An earlier generated project has the same package URL at an obsolete revision,
+    // but no product linked to this app target.
+    project.hash.project.objects.XCRemoteSwiftPackageReference = {
+      OLDMAIL: {
+        isa: 'XCRemoteSwiftPackageReference',
+        repositoryURL: '"https://github.com/Cocoanetics/SwiftMail.git"',
+        requirement: { kind: 'revision', revision: '0'.repeat(40) },
+      },
+    };
     // Run the real Expo mod twice, as an incremental prebuild and a later regeneration do.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await config.mods.ios.xcodeproj({
@@ -84,6 +96,22 @@ test('incremental Expo generation removes the retired synthetic credential from 
     assert.equal(existsSync(path.join(ios, unrelated)), true);
     assert.ok(project.hasFile(unrelated));
     assert.match(project.writeSync(), /PrivateInboxStore\.swift in Sources/u);
+    // Private Inbox's Swift packages are linked once, at the revisions its manifest pins.
+    const written = project.writeSync();
+    assert.equal(written.split('SwiftMail in Frameworks */ = ').length, 2);
+    assert.equal(written.split('Logging in Frameworks */ = ').length, 2);
+    assert.match(
+      written,
+      /revision = 88c45cbd31b347b373f7c87e197be63eb95efbc2;/u,
+    );
+    assert.doesNotMatch(
+      written,
+      /revision = 0000000000000000000000000000000000000000/u,
+    );
+    assert.equal(
+      written.split('https://github.com/Cocoanetics/SwiftMail.git').length,
+      2,
+    );
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

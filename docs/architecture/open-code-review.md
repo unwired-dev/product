@@ -81,6 +81,7 @@ defects of one area:
 | `packages/convex/**`                                             | `convex.md`            | Not merged    |
 | `packages/contracts/**`                                          | `contracts.md`         | Not merged    |
 | `packages/mail-core/**`                                          | `mail-core.md`         | Not merged    |
+| `packages/draft-editor/**`                                       | `draft-editor.md`      | Not merged    |
 | Host TypeScript in `apps/mobile` and `apps/macos`                | `hosts.md`             | Not merged    |
 | `native/**`, `apps/macos/macos/**`                               | `native.md`            | Merged        |
 | `apps/unwired-mail/**`, `tools/swiftmail-provider-qualification` | `swift-prototype.md`   | Merged        |
