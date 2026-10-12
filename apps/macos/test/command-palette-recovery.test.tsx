@@ -170,9 +170,9 @@ describe('command palette mailbox recovery', () => {
         });
         await fireEvent.press(screen.getByRole('button', { name: 'Reply' }));
         expect(opened).toBeDefined();
-        expect(draftsOf(drafts.getSnapshot()).map(({ id }) => id)).toStrictEqual([
-          opened,
-        ]);
+        expect(
+          draftsOf(drafts.getSnapshot()).map(({ id }) => id),
+        ).toStrictEqual([opened]);
         expect(screen.queryByLabelText('Command Palette')).toBeNull();
         await open();
         expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();

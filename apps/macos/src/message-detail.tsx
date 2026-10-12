@@ -653,7 +653,9 @@ function MailboxMessage({
           <Text
             accessibilityRole="alert"
             style={[styles.emptyDescription, { color: colors.foreground }]}>
-            {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
+            {state.kind === 'locked'
+              ? t('storage.locked')
+              : t('storage.failed')}
           </Text>
           <Pressable
             accessibilityRole="button"
