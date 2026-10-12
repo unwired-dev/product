@@ -10,3 +10,5 @@ Add a searchable command palette for supported app actions, with a persistent Ma
 Explain unavailable Compose actions without implying that waiting will unblock them, and prompt for a message selection to match the supported action targets.
 
 Keep failed Reply, Reply All, and Forward commands open with visible feedback in the palette, while cancelled responses stay quiet and reader buttons retain their existing error alert.
+
+Keep palette entry and the phone hint inside supported screens, and keep Reply All searchable with an unavailable reason when no message is open.

@@ -478,12 +478,14 @@ function ResponseActions({
             accessibilityLabel={label}
             accessibilityState={{ disabled: pending !== undefined }}
             disabled={pending !== undefined}
-            onPress={() => {
-              void start(kind).catch(() => {
+            onPress={async () => {
+              try {
+                await start(kind);
+              } catch {
                 if (mounted.current) {
                   setFailed(true);
                 }
-              });
+              }
             }}>
             <Text style={[styles.secondary, { color: colors.accent }]}>
               {label}

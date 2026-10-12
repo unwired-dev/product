@@ -36,6 +36,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `command-palette.tsx` registering disabled fallback commands outside the supported
+  screen lifetime. Trace `RegistrationGate` sign-in, initial setup and locked
+  branches as well as admitted Inbox and Settings. Unsupported screens must not
+  enable native entry, expose a launcher or consume the phone hint; a supported
+  screen with only disabled actions must retain entry. Exercise the real gate,
+  including lock retirement, or a fallback catalog bypasses the entry boundary.
+- A disabled response catalog omitting an implemented response variant such as
+  Reply All. Match canonical command IDs, localized labels and synonyms against
+  `message-detail.tsx.ResponseCommands`, and exercise both Settings search and a
+  live reader with the fallback mounted. A missing row hides a supported action;
+  a mismatched ID duplicates it or prevents live availability from replacing it.
+
 - `message-detail.tsx.ResponseActions` or another command owner swallowing a
   rejected action into the same false result used for cancellation. Trace failures
   through both the reader button and the open palette: failures must reach visible

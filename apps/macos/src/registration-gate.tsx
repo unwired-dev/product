@@ -51,7 +51,11 @@ import {
   View,
 } from 'react-native';
 
-import { Commands, useCommandScope } from './command-palette.tsx';
+import {
+  Commands,
+  UnavailableCommands,
+  useCommandScope,
+} from './command-palette.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
@@ -770,7 +774,10 @@ export function RegistrationGate({
   if (preview) {
     return (
       <AssistanceContext value={assistance}>
-        <TranslationContext value={translation}>{children}</TranslationContext>
+        <TranslationContext value={translation}>
+          <UnavailableCommands />
+          {children}
+        </TranslationContext>
       </AssistanceContext>
     );
   }
@@ -783,7 +790,10 @@ export function RegistrationGate({
             account={assistanceAccount}
             assistance={assistance}
             translation={translation}>
-            <AccountContext value={actions}>{children}</AccountContext>
+            <AccountContext value={actions}>
+              <UnavailableCommands />
+              {children}
+            </AccountContext>
           </MailAssistanceGate>
         </MailAssistanceContext>
       </RemoteContentContext>
@@ -793,6 +803,7 @@ export function RegistrationGate({
     return (
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
+          {inboxAccount === undefined ? null : <UnavailableCommands />}
           <SettingsCompose
             key={`${inboxAccount}/${profile}`}
             account={inboxAccount}

@@ -12,12 +12,22 @@ import {
 } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { use } from 'react';
-import { Pressable, Text } from 'react-native';
+import { NativeModules, Platform, Pressable, Text } from 'react-native';
 
 import { CommandPalette, Commands } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+
+jest.mock('react-native', () => {
+  const native =
+    jest.requireActual<typeof import('react-native')>('react-native');
+  native.NativeModules.UnwiredCommandPalette = {
+    hintSeen: false,
+    markHintSeen: jest.fn(),
+  };
+  return native;
+});
 
 function Harness({
   commands,
@@ -66,6 +76,128 @@ function MailboxCommands() {
 }
 
 describe('command palette interactions', () => {
+  it.each([false, true])(
+    'keeps palette entry and the hint inside supported screens, iPad=%s',
+    async (isPad) => {
+      const device = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(isPad);
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const connected = {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'ready',
+        mailboxes: JSON.stringify([
+          {
+            id: syntheticMailboxes['alex@example.invalid'],
+            address: 'alex@example.invalid',
+            state: 'connected',
+          },
+        ]),
+      } as const;
+      let restore = (): Promise<unknown> =>
+        Promise.resolve({ kind: 'signed-out' });
+      const registration = createRegistration({
+        ...session.native,
+        restore: () => restore(),
+      });
+      try {
+        await render(
+          <CommandPalette>
+            <RegistrationGate
+              store={registration}
+              preview={false}>
+              <SettingsEntry />
+            </RegistrationGate>
+          </CommandPalette>,
+        );
+        await act(async () => {
+          await registration.restoreOnce();
+        });
+        const open = () =>
+          fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+            nativeEvent: { key: 'open' },
+          });
+        const unavailable = async () => {
+          expect(screen.getByTestId('command-palette-host')).toHaveProp(
+            'enabled',
+            false,
+          );
+          expect(
+            screen.queryByRole('button', { name: 'Open Command Palette' }),
+          ).toBeNull();
+          await open();
+          expect(screen.queryByLabelText('Command Palette')).toBeNull();
+          expect(
+            screen.queryByText('Swipe down on the header for commands'),
+          ).toBeNull();
+          expect(
+            NativeModules.UnwiredCommandPalette.markHintSeen,
+          ).not.toHaveBeenCalled();
+        };
+        await unavailable();
+        restore = () =>
+          Promise.resolve({
+            kind: 'mailbox-needed',
+            productAccountId: connected.productAccountId,
+            signInProvider: 'google',
+          });
+        await act(async () => {
+          await registration.resume();
+        });
+        expect(
+          screen.getByRole('header', { name: 'Connect your mail' }),
+        ).toBeVisible();
+        await unavailable();
+        restore = () =>
+          Promise.reject(Object.assign(new Error('Locked'), { code: 'locked' }));
+        await act(async () => {
+          await registration.resume();
+        });
+        expect(
+          screen.getByRole('header', { name: 'Unlock your device' }),
+        ).toBeVisible();
+        await unavailable();
+        restore = () => Promise.resolve(connected);
+        await act(async () => {
+          await registration.resume();
+        });
+        expect(screen.getByRole('button', { name: 'Account' })).toBeVisible();
+        expect(screen.getByTestId('command-palette-host')).toHaveProp(
+          'enabled',
+          true,
+        );
+        expect(
+          screen.queryByRole('button', { name: 'Open Command Palette' }) !==
+            null,
+        ).toBe(isPad);
+        expect(
+          screen.queryByText('Swipe down on the header for commands') !== null,
+        ).toBe(!isPad);
+        expect(
+          NativeModules.UnwiredCommandPalette.markHintSeen,
+        ).toHaveBeenCalledTimes(Number(!isPad));
+        await open();
+        expect(screen.getByRole('button', { name: 'Reply All' })).toBeDisabled();
+        expect(
+          screen.getByRole('button', { name: 'Reply All' }),
+        ).toHaveTextContent('Select a message');
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Cancel commands' }),
+        );
+        await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
+        await open();
+        expect(screen.getByRole('button', { name: 'Go to Inbox' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Reply All' })).toBeDisabled();
+      } finally {
+        await screen.unmount();
+        restore = () => Promise.resolve({ kind: 'signed-out' });
+        await registration.deviceRemoved();
+        device.mockRestore();
+      }
+    },
+  );
+
   it('returns from an IMAP folder to Inbox while opening and cancelling preserve the folder', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
@@ -199,6 +331,10 @@ describe('command palette interactions', () => {
         screen.queryByLabelText('Command Palette'),
         screen.queryByRole('button', { name: 'alex@example.invalid' }),
       ]).toStrictEqual([null, null]);
+      expect(screen.getByTestId('command-palette-host')).toHaveProp(
+        'enabled',
+        false,
+      );
       restore = () => Promise.resolve(connected);
       await act(async () => {
         await registration.resume();
@@ -354,6 +490,7 @@ describe('command palette interactions', () => {
         'answer',
       );
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Reply All' })).toBeDisabled();
       await fireEvent.changeText(
         screen.getByLabelText('Command Palette'),
         'compose',

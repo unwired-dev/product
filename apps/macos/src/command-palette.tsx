@@ -163,6 +163,50 @@ function CommandHeader({
   );
 }
 
+export function UnavailableCommands() {
+  const { t } = useLocalization();
+  const defaults = useMemo<readonly PaletteCommand[]>(
+    () => [
+      ...(
+        [
+          [
+            'archive',
+            t('gmailActions.label.archive'),
+            t('commandPalette.archiveKeywords'),
+          ],
+          ['read', t('message.markRead'), t('commandPalette.readKeywords')],
+          ['unread', t('message.markUnread'), t('commandPalette.readKeywords')],
+          ['move', t('commandPalette.move'), t('commandPalette.moveKeywords')],
+          ['reply', t('message.reply'), t('commandPalette.replyKeywords')],
+          ['replyAll', t('message.replyAll'), t('commandPalette.replyKeywords')],
+          [
+            'forward',
+            t('message.forward'),
+            t('commandPalette.forwardKeywords'),
+          ],
+        ] as const
+      ).map(([id, label, keywords]) => ({
+        id,
+        label,
+        keywords,
+        group: 'selection' as const,
+        disabled: t('commandPalette.select'),
+        onRun: () => false,
+      })),
+      {
+        id: 'compose',
+        label: t('drafts.newMessage'),
+        keywords: t('commandPalette.composeKeywords'),
+        group: 'app',
+        disabled: t('commandPalette.unavailable'),
+        onRun: () => false,
+      },
+    ],
+    [t],
+  );
+  return <Commands commands={defaults} />;
+}
+
 export function CommandPalette({
   children,
   topInset = 0,
@@ -203,7 +247,8 @@ export function CommandPalette({
     }
   }, [hint, state.commands.length]);
   const open = useCallback(() => {
-    if (store.getSnapshot().open) {
+    const current = store.getSnapshot();
+    if (current.open || current.commands.length === 0) {
       return;
     }
     session.current += 1;
@@ -364,44 +409,6 @@ export function CommandPalette({
       }
     }
   };
-  const defaults = useMemo<readonly PaletteCommand[]>(
-    () => [
-      ...(
-        [
-          [
-            'archive',
-            t('gmailActions.label.archive'),
-            t('commandPalette.archiveKeywords'),
-          ],
-          ['read', t('message.markRead'), t('commandPalette.readKeywords')],
-          ['unread', t('message.markUnread'), t('commandPalette.readKeywords')],
-          ['move', t('commandPalette.move'), t('commandPalette.moveKeywords')],
-          ['reply', t('message.reply'), t('commandPalette.replyKeywords')],
-          [
-            'forward',
-            t('message.forward'),
-            t('commandPalette.forwardKeywords'),
-          ],
-        ] as const
-      ).map(([id, label, keywords]) => ({
-        id,
-        label,
-        keywords,
-        group: 'selection' as const,
-        disabled: t('commandPalette.select'),
-        onRun: () => false,
-      })),
-      {
-        id: 'compose',
-        label: t('drafts.newMessage'),
-        keywords: t('commandPalette.composeKeywords'),
-        group: 'app',
-        disabled: t('commandPalette.unavailable'),
-        onRun: () => false,
-      },
-    ],
-    [t],
-  );
   const field = (
     <TextInput
       ref={input}
@@ -432,7 +439,6 @@ export function CommandPalette({
   );
   return (
     <CommandContext value={context}>
-      <Commands commands={defaults} />
       <NativeHost
         testID="command-palette-host"
         style={styles.fill}

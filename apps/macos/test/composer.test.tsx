@@ -31,7 +31,10 @@ import { AppState, View } from 'react-native';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
-import { CommandPalette } from '../src/command-palette.tsx';
+import {
+  CommandPalette,
+  UnavailableCommands,
+} from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -3311,6 +3314,7 @@ describe('replying to and forwarding from the reader', () => {
       };
       await render(
         <CommandPalette>
+          <UnavailableCommands />
           <ReaderApp
             drafts={drafts}
             gmail={gmail}
@@ -3346,7 +3350,7 @@ describe('replying to and forwarding from the reader', () => {
       expect(screen.queryByRole('alert')).toBeNull();
       expect(screen.getByLabelText('Command Palette')).toBeVisible();
 
-      create = base.create;
+      ({ create } = base);
       await press(label);
       await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
         'value',

@@ -20,6 +20,8 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   owning features supply supported actions; see the integration scope below.
 - The palette is available in Inbox, message reading, the composer, and Settings.
   Opening it preserves the current screen, selection, and unfinished Draft.
+- Product Sign-In, initial mailbox setup, and locked storage do not offer palette
+  entry or consume the phone hint.
 
 ## Desktop entry
 
@@ -65,7 +67,8 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   execution, and a disappeared target is never replaced by another message.
 - Commands that cannot currently run remain visible but disabled, with a short
   reason such as Select a message. The palette includes supported app commands
-  and does not advertise unimplemented features.
+  and does not advertise unimplemented features. Reply All remains searchable
+  alongside Reply and Forward when no message is open.
 
 ## Future Thread and bulk targets
 
