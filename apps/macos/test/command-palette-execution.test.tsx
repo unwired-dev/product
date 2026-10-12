@@ -162,7 +162,8 @@ describe('command palette execution', () => {
           'compose',
         );
         await fireEvent.press(command());
-        await waitFor(() => expect(opened.mock.calls).toHaveLength(1));
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        await waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
         expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
         expect(screen.queryByLabelText('Command Palette')).toBeNull();
       } finally {
@@ -292,7 +293,8 @@ describe('command palette execution', () => {
       const command = () => screen.getByRole('button', { name: 'New Message' });
       await open();
       await fireEvent.press(command());
-      await waitFor(() => expect(commit.mock.calls).toHaveLength(1));
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
       await fireEvent.press(
         screen.getByRole('button', { name: 'Cancel commands' }),
       );
@@ -307,12 +309,14 @@ describe('command palette execution', () => {
           nativeEvent: { key: 'enter' },
         },
       );
-      expect(commit.mock.calls).toHaveLength(1);
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      expect(commit).toHaveBeenCalledTimes(1);
       expect(opened).not.toHaveBeenCalled();
       await act(async () => {
         storage.release();
       });
-      await waitFor(() => expect(opened.mock.calls).toHaveLength(1));
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      await waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
       expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
       expect(screen.getByLabelText('Command Palette')).toBeVisible();
       expect(command()).toBeEnabled();

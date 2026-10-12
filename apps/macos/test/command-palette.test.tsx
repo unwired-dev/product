@@ -536,7 +536,7 @@ describe('command palette interactions', () => {
               screen.getByRole('button', { name: 'Held command' }),
             );
           }
-          expect(runCommand.mock.calls).toHaveLength(newExecutions + 1);
+          expect(runCommand).toHaveBeenCalledTimes(newExecutions + 1);
           await act(async () => {
             // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
             if (outcome === 'failure') {
@@ -884,11 +884,11 @@ describe('command palette interactions', () => {
     );
     await fireEvent.press(screen.getByRole('button', { name: 'Compose' }));
     // Mac paragraph text needs an accessible parent with an explicit label.
-    expect(
-      await screen.findByRole('alert', {
+    await expect(
+      screen.findByRole('alert', {
         name: 'The command could not finish. Try again.',
       }),
-    ).toHaveProp(
+    ).resolves.toHaveProp(
       'accessibilityLabel',
       'The command could not finish. Try again.',
     );
@@ -942,7 +942,8 @@ describe('command palette interactions', () => {
         await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
         expect(screen.getByRole('button', { name: 'Compose' })).toBeDisabled();
         await fireEvent(host, 'commandKey', { nativeEvent: { key: 'enter' } });
-        expect(runCommand.mock.calls).toHaveLength(1);
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(runCommand).toHaveBeenCalledTimes(1);
         await act(async () => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the held native boundary with the table's outcome.
           if (outcome === 'failure') {
