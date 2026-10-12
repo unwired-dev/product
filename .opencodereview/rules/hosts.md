@@ -38,8 +38,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 - `inbox-commands.tsx.InboxCommands` classifying every absent live reader command
   as provider-unsupported. Trace selected-mailbox loading, locked and failed
-  storage before the reader mounts, plus the inverse Read/Unread and Star/Remove
-  Star actions on ready messages. State-dependent omissions need their actual
+  storage before the reader mounts, cached `ready` states with `organize: false`,
+  plus the inverse Read/Unread and Star/Remove Star actions on ready messages.
+  Cached organizing waits for provider verification and needs reconnect guidance,
+  not a provider-unsupported reason. State-dependent omissions need their actual
   prerequisite or current-state reason; otherwise recovery guidance falsely
   claims the provider lacks a supported action.
 - `composer.tsx.DraftList.compose` returning `undefined` for a concurrent creation
@@ -78,6 +80,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   palette matches owner, ID and target together; changing only the wrapper can
   remount that owner and strand a recovered command. Exercise the same open
   palette through unavailable, ready and unavailable states without retargeting.
+  Include initial capture while `MailboxMessage` is loading, locked or failed,
+  before `ResponseActions` mounts; keep a target-bound registration with that
+  reader's persistent owner so recovery cannot strand a targetless Inbox fallback.
 
 - `message-detail.tsx.ResponseActions` or another command owner swallowing a
   rejected action into the same false result used for cancellation. Trace failures

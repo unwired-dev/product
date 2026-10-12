@@ -764,7 +764,7 @@ export function Inbox({
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
         <InboxCommands
           hasSelection={selected !== undefined}
-          selectionState={selectedMailbox?.state.kind}
+          selectionMailbox={selectedMailbox}
           selectionMessage={selectionMessage}
           stars={(selected === undefined
             ? shown

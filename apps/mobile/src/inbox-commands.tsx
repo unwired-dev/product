@@ -9,7 +9,7 @@ import { AccountContext } from './registration-gate.tsx';
 
 export function InboxCommands({
   hasSelection,
-  selectionState,
+  selectionMailbox,
   selectionMessage,
   stars,
   mailboxes,
@@ -17,7 +17,7 @@ export function InboxCommands({
   onScope,
 }: {
   readonly hasSelection: boolean;
-  readonly selectionState: InboxMailbox['state']['kind'] | undefined;
+  readonly selectionMailbox: InboxMailbox | undefined;
   readonly selectionMessage:
     | Readonly<{
         unread: boolean;
@@ -32,19 +32,33 @@ export function InboxCommands({
   const { t } = useLocalization();
   const account = use(AccountContext);
   const navigation = useComposerNavigation();
+  const selectionState = selectionMailbox?.state;
   const selectionReason = t(
     !hasSelection
       ? 'commandPalette.select'
-      : selectionState === 'loading'
+      : selectionState?.kind === 'loading'
         ? 'message.loading'
-        : selectionState === 'locked'
+        : selectionState?.kind === 'locked'
           ? 'storage.locked'
-          : selectionState === 'failed'
+          : selectionState?.kind === 'failed'
             ? 'storage.failed'
             : 'commandPalette.unsupported',
   );
+  const savedOnly =
+    hasSelection &&
+    selectionState?.kind === 'ready' &&
+    'organize' in selectionState &&
+    !selectionState.organize;
+  const organizeReason = savedOnly
+    ? t('gmailActions.savedOnly', {
+        provider: t(`mailProviders.${selectionMailbox?.provider ?? 'gmail'}`),
+      })
+    : selectionReason;
   const actionReason = (kind: string) => {
-    if (selectionState !== 'ready' || selectionMessage === undefined) {
+    if (savedOnly) {
+      return organizeReason;
+    }
+    if (selectionState?.kind !== 'ready' || selectionMessage === undefined) {
       return selectionReason;
     }
     if (kind === 'read' && !selectionMessage.unread) {
@@ -137,7 +151,7 @@ export function InboxCommands({
           label: t('commandPalette.move'),
           keywords: t('commandPalette.moveKeywords'),
           group: 'selection',
-          disabled: selectionReason,
+          disabled: organizeReason,
           choices: [],
         },
         {

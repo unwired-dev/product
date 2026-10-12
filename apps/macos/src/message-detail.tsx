@@ -7,6 +7,7 @@ import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -286,10 +287,12 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 // Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
 // response always sends from the reader's own mailbox; one that cannot send offers none.
 function ResponseCommands({
+  owner,
   target,
   disabled,
   onStart,
 }: {
+  readonly owner: object;
   readonly target: string;
   readonly disabled: string | undefined;
   readonly onStart: (kind: ResponseKind) => boolean | Promise<boolean>;
@@ -297,6 +300,7 @@ function ResponseCommands({
   const { t } = useLocalization();
   return (
     <Commands
+      owner={owner}
       commands={(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
         id: kind,
         label: t(`message.${kind}`),
@@ -353,9 +357,11 @@ function ReadCommand({
 }
 
 function ResponseActions({
+  owner,
   message,
   onCompose,
 }: {
+  readonly owner: object;
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
   readonly onCompose: ((id: string) => void) | undefined;
 }) {
@@ -411,6 +417,7 @@ function ResponseActions({
     return (
       <View>
         <ResponseCommands
+          owner={owner}
           target={`${mailbox?.id}/${message.id}`}
           disabled={disabled}
           onStart={() => false}
@@ -473,6 +480,7 @@ function ResponseActions({
   return (
     <View>
       <ResponseCommands
+        owner={owner}
         target={`${mailbox?.id}/${message.id}`}
         disabled={pending !== undefined ? t('commandPalette.busy') : undefined}
         onStart={start}
@@ -586,6 +594,8 @@ function MailboxMessage({
   readonly onClose: (() => void) | undefined;
   readonly onCompose: ((id: string) => void) | undefined;
 }) {
+  // Keep the captured response catalog through temporary reader replacements.
+  const responseOwner = useMemo(() => ({}), []);
   const state = useInbox();
   const actions = useInboxActions();
   const mailbox = useMailbox();
@@ -608,33 +618,54 @@ function MailboxMessage({
           .map((label) => label.name)
       : [];
 
+  const unavailableResponses = (
+    <ResponseCommands
+      owner={responseOwner}
+      target={`${mailbox?.id}/${id}`}
+      disabled={t(
+        state.kind === 'loading'
+          ? 'message.loading'
+          : state.kind === 'locked'
+            ? 'storage.locked'
+            : 'storage.failed',
+      )}
+      onStart={() => false}
+    />
+  );
+
   if (state.kind === 'loading') {
     return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
+      <>
+        {unavailableResponses}
+        <ActivityIndicator
+          accessibilityLabel={t('message.loading')}
+          style={styles.fill}
+        />
+      </>
     );
   }
 
   if (state.kind === 'locked' || state.kind === 'failed') {
     return (
-      <View style={styles.empty}>
-        <Text
-          accessibilityRole="alert"
-          style={[styles.emptyDescription, { color: colors.foreground }]}>
-          {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void actions.load();
-          }}>
-          <Text style={[styles.secondary, { color: colors.accent }]}>
-            {t('common.retry')}
+      <>
+        {unavailableResponses}
+        <View style={styles.empty}>
+          <Text
+            accessibilityRole="alert"
+            style={[styles.emptyDescription, { color: colors.foreground }]}>
+            {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
           </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void actions.load();
+            }}>
+            <Text style={[styles.secondary, { color: colors.accent }]}>
+              {t('common.retry')}
+            </Text>
+          </Pressable>
+        </View>
+      </>
     );
   }
 
@@ -710,6 +741,7 @@ function MailboxMessage({
               )}
             </View>
             <ResponseActions
+              owner={responseOwner}
               key={`${address}:${message.id}`}
               message={message}
               onCompose={onCompose}

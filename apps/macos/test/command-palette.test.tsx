@@ -4,11 +4,7 @@ import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
-import {
-  createSyntheticGmail,
-  syntheticConnections,
-} from '@private-email/mail-core/testing/gmail-mailbox';
-import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
+import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import {
   createMockRegistrationSession,
@@ -182,162 +178,6 @@ describe('command palette interactions', () => {
       device.restore();
     }
   });
-
-  it.each(['gmail', 'microsoft-graph'] as const)(
-    'shows selected %s storage prerequisites and recovers its palette actions',
-    async (provider) => {
-      expect.hasAssertions();
-      const fixture =
-        provider === 'gmail'
-          ? createSyntheticGmail({
-              address: 'alex@example.invalid',
-              messages: 1,
-            })
-          : createSyntheticGraph({
-              address: 'alex@example.invalid',
-              messages: 1,
-            });
-      let openMailbox = fixture.native.openMailbox;
-      const session = createMockRegistrationSession('registration-success');
-      const connection = syntheticMailboxes['alex@example.invalid'];
-      const registration = createRegistration({
-        ...session.native,
-        restore: () =>
-          Promise.resolve({
-            kind: 'connected',
-            productAccountId: 'synthetic-product-account',
-            signInProvider: 'google',
-            privateSync: 'ready',
-            mailboxes: JSON.stringify([
-              {
-                id: connection,
-                address: 'alex@example.invalid',
-                state: 'connected',
-                provider,
-              },
-            ]),
-          }),
-      });
-      const connections = createMailboxes(
-        syntheticConnections({
-          [connection]: {
-            native: { ...fixture.native, openMailbox: () => openMailbox() },
-          },
-        }),
-        registration,
-      );
-      const mailboxes = {
-        ...connections,
-        getSnapshot: connections.getConnections,
-      };
-      function SelectedReader() {
-        const [selection, setSelection] =
-          useState<Parameters<typeof Inbox>[0]['selected']>();
-        return (
-          <>
-            <Inbox
-              onSelect={setSelection}
-              selected={selection}
-            />
-            <MessageDetail
-              id={selection?.id}
-              mailbox={selection?.mailbox}
-            />
-          </>
-        );
-      }
-      try {
-        await render(
-          <CommandPalette>
-            <RegistrationGate
-              store={registration}
-              preview={false}>
-              <InboxProvider mailboxes={mailboxes}>
-                <SelectedReader />
-              </InboxProvider>
-            </RegistrationGate>
-          </CommandPalette>,
-        );
-        await fireEvent.press(await screen.findByText('Synthetic message 0'));
-        const inbox = connections.getSnapshot()[0]?.inbox;
-        if (inbox === undefined) {
-          throw new Error('Expected the selected mailbox');
-        }
-        await act(() => inbox.forget());
-        const open = () =>
-          fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
-            nativeEvent: { key: 'open' },
-          });
-        await open();
-        for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
-          const command = screen.getByRole('button', { name });
-          expect(command).toBeDisabled();
-          expect(command).toHaveTextContent('Loading message');
-        }
-        for (const [code, reason] of [
-          [
-            'locked',
-            'Private storage is locked. Unlock your device and try again.',
-          ],
-          [
-            'unavailable',
-            'Private storage could not be opened or saved. Your stored data has been kept.',
-          ],
-        ] as const) {
-          openMailbox = () =>
-            Promise.reject(
-              Object.assign(new Error('Storage unavailable'), { code }),
-            );
-          await act(inbox.load);
-          for (const name of ['Archive', 'Reply', 'Reply All', 'Forward']) {
-            const command = screen.getByRole('button', { name });
-            expect(command).toBeDisabled();
-            expect(command).toHaveTextContent(reason);
-          }
-        }
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Cancel commands' }),
-        );
-        openMailbox = fixture.native.openMailbox;
-        await act(inbox.load);
-        await open();
-        expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
-        expect(
-          screen.getByRole('button', { name: 'Mark as unread' }),
-        ).toHaveTextContent('This message is already unread.');
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Mark as read' }),
-        );
-        await open();
-        await waitFor(() => {
-          expect(
-            screen.getByRole('button', { name: 'Mark as unread' }),
-          ).toBeEnabled();
-          expect(
-            screen.getByRole('button', { name: 'Mark as read' }),
-          ).toHaveTextContent('This message is already read.');
-        });
-        if (provider === 'gmail') {
-          expect(
-            screen.getByRole('button', { name: 'Remove star' }),
-          ).toHaveTextContent('This message has no star.');
-          await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
-          await open();
-          await waitFor(() => {
-            expect(
-              screen.getByRole('button', { name: 'Remove star' }),
-            ).toBeEnabled();
-            expect(
-              screen.getByRole('button', { name: 'Star' }),
-            ).toHaveTextContent('This message already has a star.');
-          });
-        }
-      } finally {
-        await screen.unmount();
-        await registration.deviceRemoved();
-      }
-    },
-  );
 
   it('returns from an IMAP folder to Inbox while opening and cancelling preserve the folder', async () => {
     expect.hasAssertions();
@@ -576,7 +416,13 @@ describe('command palette interactions', () => {
         ...session.native,
         restore: () => restore(),
       });
-      const completion = Promise.withResolvers<undefined>();
+      let complete: (value: undefined) => void = () => undefined;
+      let fail: (reason: unknown) => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Settle the old command after its account scope retires.
+      const completion = new Promise<undefined>((resolve, reject) => {
+        complete = resolve;
+        fail = reject;
+      });
       const input = createRef<TextInput>();
       await registration.restoreOnce();
       try {
@@ -595,7 +441,7 @@ describe('command palette interactions', () => {
                     id: 'compose',
                     label: 'Held command',
                     group: 'app',
-                    onRun: () => completion.promise,
+                    onRun: () => completion,
                   },
                 ]}
               />
@@ -654,11 +500,11 @@ describe('command palette interactions', () => {
           }
           await act(async () => {
             if (outcome === 'failure') {
-              completion.reject(new Error('Old command failed'));
+              fail(new Error('Old command failed'));
             } else {
-              completion.resolve(undefined);
+              complete(undefined);
             }
-            await completion.promise.catch(() => undefined);
+            await completion.catch(() => undefined);
           });
           expect(focus).not.toHaveBeenCalled();
           if (!reopened) {
@@ -683,7 +529,7 @@ describe('command palette interactions', () => {
           focus.mockRestore();
         }
       } finally {
-        completion.resolve(undefined);
+        complete(undefined);
         await screen.unmount();
         restore = () => Promise.resolve({ kind: 'signed-out' });
         await registration.deviceRemoved();

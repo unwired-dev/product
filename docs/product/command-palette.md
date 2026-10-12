@@ -71,7 +71,9 @@ Canonical vocabulary lives in the [organization glossary](../domain/organization
   alongside Reply and Forward when no message is open.
 - Response commands explain the current prerequisite: message content not ready,
   Draft storage loading, locked or failed, or no eligible sending mailbox. Recovery
-  updates the existing captured command without changing its message target.
+  updates the existing captured response commands without changing their message
+  target, including when the selected reader initially shows loading or a storage
+  failure.
 
 ## Future Thread and bulk targets
 
@@ -106,7 +108,9 @@ and bulk actions; they do not describe the current integration.
 
 Selected-message fallbacks show the selected mailbox's loading, locked or failed
 storage prerequisite when its reader cannot mount action controls. Read and Star
-actions disabled by the message’s current state explain that state. They reserve
+actions disabled by the message’s current state explain that state. A saved-only
+Gmail or Microsoft mailbox explains that organizing waits for provider verification
+and asks the person to reconnect. They reserve
 “Unavailable for this mailbox” for provider capability, rather than a storage failure.
 
 ## Closing and reopening

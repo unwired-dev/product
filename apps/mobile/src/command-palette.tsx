@@ -59,9 +59,13 @@ const CommandContext = createContext<
   Readonly<{ store: Palette; open: () => void; close: () => void }> | undefined
 >(undefined);
 
-export function useCommands(commands: readonly PaletteCommand[]) {
+export function useCommands(
+  commands: readonly PaletteCommand[],
+  commandOwner?: object,
+) {
   const context = use(CommandContext);
-  const owner = useMemo(() => ({}), []);
+  const localOwner = useMemo(() => ({}), []);
+  const owner = commandOwner ?? localOwner;
   useLayoutEffect(() => {
     context?.store.register(owner, commands);
   }, [context, owner, commands]);
@@ -86,10 +90,12 @@ export function useCommandScope(scope: string) {
 
 export function Commands({
   commands,
+  owner,
 }: {
   readonly commands: readonly PaletteCommand[];
+  readonly owner?: object;
 }) {
-  useCommands(commands);
+  useCommands(commands, owner);
   return null;
 }
 
