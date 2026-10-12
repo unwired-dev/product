@@ -99,13 +99,13 @@ extension RegistrationStore {
   }
 
   // Only reads of the signed-in person's own mail reach a Microsoft credential: its folders, their
-  // messages and delta rounds, its messages, their search and attachments. The path is checked
+  // own folders, messages and delta rounds, its messages, their search and attachments. The path is checked
   // decoded, so an encoded separator cannot add a segment.
   static func graphURL(_ value: String) throws -> URL {
     guard let url = URL(string: value), url.scheme == "https", url.host == "graph.microsoft.com",
       url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
       url.path.range(
-        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?)?)?|messages(/[\w=-]+(/attachments(/[\w=-]+)?)?)?)$"#,
+        of: #"^/v1\.0/me/(mail[Ff]olders((/[\w=-]+|\('[\w=-]+'\))(/messages(/delta|/[\w=-]+)?|/childFolders)?)?|messages(/[\w=-]+(/attachments(/[\w=-]+)?)?)?)$"#,
         options: .regularExpression) != nil
     else { throw RegistrationError.unavailable }
     return url

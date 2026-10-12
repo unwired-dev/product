@@ -79,7 +79,9 @@ If Graph also refuses the grant, the Inbox asks for authorization again instead.
 Microsoft mail offers the organizing actions Outlook has, in the reader and as
 Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Move to
 Trash** (Deleted Items), **Report spam** (Junk Email), and **Move to** one of the
-mailbox's own top-level folders under **Folders**. **Undo** moves a message back to
+mailbox's own folders under **Folders**, nested ones included. Each folder shows its
+path, such as **Inbox / Projects**, so folders with equal names stay apart. A mailbox
+with more than 250 folders lists the first 250 and says so. **Undo** moves a message back to
 the Inbox. A Microsoft message lives in one folder, so Gmail's labels and star are
 not offered for it, and a mailbox without an Archive folder refuses Archive.
 
@@ -137,7 +139,7 @@ refilling a full cache, an HTML body with an inline image, an attachment downloa
 by its decoded size, hidden/unreferenced images, optional image and attachment-metadata failures with
 retry after relaunch, a refused grant, and a unified Inbox that searches both
 providers online and sends only from Gmail. Organizing tests check Graph's read-state
-and move requests, folder listing, Undo, an outage across relaunch, a lost reply,
+and move requests, nested folder listing by path and its limit, Undo, an outage across relaunch, a lost reply,
 throttling and server errors, a deleted message or folder, a read-only grant,
 actions Microsoft lacks, search across folders and pages, and that changes reach only
 the connection that showed the message. Registration-flow tests connect Microsoft mail as a Google or Apple

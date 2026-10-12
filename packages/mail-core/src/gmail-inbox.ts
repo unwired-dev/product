@@ -11,6 +11,7 @@ import * as Result from 'effect/Result';
 import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
+import * as Struct from 'effect/Struct';
 
 import type { DeliveryProblem } from './draft-model.ts';
 import type { GmailAction, GmailLabel } from './gmail-actions.ts';
@@ -343,8 +344,10 @@ export type GmailInboxState =
       // Online search results the reader can open, kept in memory only until the Inbox closes.
       readonly found?: readonly GmailMessage[];
       readonly sync: Sync;
-      // The mailbox's own labels, empty until Gmail lists them.
+      // The mailbox's own labels, empty until Gmail lists them, or its folders.
       readonly labels: readonly GmailLabel[];
+      // More folders exist than `labels` lists.
+      readonly labelsLimited?: true;
       // Changes saved on this device that Gmail has not confirmed yet.
       readonly pending: number;
       readonly saving: number;
@@ -599,6 +602,12 @@ const settled = (
     pending: rest,
   };
 };
+
+// The labels or folders a document lists, and whether some were left out.
+const listedLabels = (document: MailboxDocument | undefined) => ({
+  labels: document?.labels ?? [],
+  ...(document?.labelsLimited === true ? { labelsLimited: true as const } : {}),
+});
 
 const attemptCount = (pending: PendingAction) =>
   (pending.attempts?.length ?? 0) - (pending.retryFrom ?? 0);
@@ -1285,7 +1294,7 @@ export function createGmailInbox(
       messages,
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       sync: shownSyncState(),
-      labels: document?.labels ?? [],
+      ...listedLabels(document),
       pending: durable.length,
       saving: queued.length,
       ...presented(durable),
@@ -3358,24 +3367,33 @@ export function createGmailInbox(
     return current;
   });
 
+  // Gmail's user labels, by name; Gmail lists every one.
+  const gmailLabels = (cache: Cache) =>
+    gmail(cache)('labels', [], decodeLabels).pipe(
+      Effect.map((response) => ({
+        labels: Arr.sort(
+          (response.labels ?? [])
+            .filter(({ type }) => type === 'user')
+            .map(({ id, name }) => ({ id, name }))
+            // A label whose ID this client cannot send is left out rather than failing the list.
+            .filter(Schema.is(GmailLabelSchema)),
+          Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+        ),
+        limited: false,
+      })),
+    );
+
   // The mailbox's own labels, listed once per synchronization; resolves the latest cache.
   const refreshLabels = Effect.fnUntraced(function* (
     cache: Cache,
     document: MailboxDocument,
   ) {
-    const labels =
-      graph === undefined
-        ? Arr.sort(
-            ((yield* gmail(cache)('labels', [], decodeLabels)).labels ?? [])
-              .filter(({ type }) => type === 'user')
-              .map(({ id, name }) => ({ id, name }))
-              // A label whose ID this client cannot send is left out rather than failing the list.
-              .filter(Schema.is(GmailLabelSchema)),
-            Order.mapInput(Order.String, (label: GmailLabel) => label.name),
-          )
-        : yield* graph.labels(cache);
+    const { labels, limited } = yield* graph === undefined
+      ? gmailLabels(cache)
+      : graph.labels(cache);
     const previous = document.labels ?? [];
     if (
+      limited === (document.labelsLimited === true) &&
       labels.length === previous.length &&
       labels.every(
         (label, index) =>
@@ -3385,7 +3403,11 @@ export function createGmailInbox(
     ) {
       return { cache, document };
     }
-    const saved = yield* commitOver(cache, document, { ...document, labels });
+    const saved = yield* commitOver(cache, document, {
+      ...Struct.omit(document, ['labelsLimited']),
+      labels,
+      ...(limited ? { labelsLimited: true as const } : {}),
+    });
     return saved;
   });
 

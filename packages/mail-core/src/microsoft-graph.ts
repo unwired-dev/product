@@ -43,8 +43,12 @@ export const graphPlacement = (id: string) =>
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
 
-// The mailbox's top-level folders, which Move to offers apart from the well-known ones.
-export const graphFolders = `${graphRoot}/me/mailFolders?$select=id,displayName&$top=100`;
+// The mailbox's top-level folders and each folder's own, which Move to offers apart from the
+// well-known ones; a page names whether a folder has folders of its own.
+const folderFields = '$select=id,displayName,childFolderCount&$top=100';
+export const graphFolders = `${graphRoot}/me/mailFolders?${folderFields}`;
+export const graphChildFolders = (id: string) =>
+  `${graphRoot}/me/mailFolders/${id}/childFolders?${folderFields}`;
 
 // Graph's own search of every folder, by relevance; a quote inside the query is escaped.
 export const graphSearch = (query: string, limit: number) =>
@@ -240,8 +244,14 @@ export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
 export const decodeGraphFolders = json(
   Schema.Struct({
     value: Schema.Array(
-      Schema.Struct({ id: GraphId, displayName: Schema.String }),
+      Schema.Struct({
+        id: GraphId,
+        displayName: Schema.String,
+        childFolderCount: Schema.optionalKey(Schema.Int),
+      }),
     ),
+    // A further page; Move to lists only the first.
+    '@odata.nextLink': Schema.optionalKey(Schema.String),
   }),
 );
 export const decodeGraphSearch = json(

@@ -550,6 +550,7 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ address: 'alex@example.invalid' });
     const travel = graph.createFolder('Travel');
+    graph.createFolder('Lisbon', travel);
     const gone = graph.deliver({ subject: 'Old notes' });
     const plans = graph.deliver({
       from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -581,6 +582,10 @@ describe('connected Gmail Inbox', () => {
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(screen.queryByRole('checkbox', { name: 'Travel' })).toBeNull();
+    // A nested folder shows its path.
+    expect(
+      screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
+    ).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Move to Travel' }),

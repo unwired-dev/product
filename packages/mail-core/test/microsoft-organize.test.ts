@@ -201,6 +201,39 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(graph.folderOf(target)).toBe('deleteditems');
   });
 
+  it('lists nested folders by their paths and says when some are left out', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    const travel = graph.createFolder('Travel');
+    const lisbon = graph.createFolder('Lisbon', travel);
+    const projects = graph.createFolder('Projects', 'inbox');
+    graph.createFolder('Travel', projects);
+    const inbox = await opened(graph);
+    const [target = ''] = ids(inbox);
+
+    // Equal names stay apart by their paths, including folders inside the Inbox.
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      labels: [
+        { id: projects, name: 'Inbox / Projects' },
+        { name: 'Inbox / Projects / Travel' },
+        { id: travel, name: 'Travel' },
+        { id: lisbon, name: 'Travel / Lisbon' },
+      ],
+    });
+    await inbox.organize(message(inbox, target), gmailAction.move(lisbon));
+    expect(graph.folderOf(target)).toBe(lisbon);
+
+    for (let index = 0; index < 250; index += 1) {
+      graph.createFolder(`Folder ${index}`);
+    }
+    const reopened = await opened(graph);
+    const crowded = ready(reopened.getSnapshot());
+    expect({
+      listed: crowded.labels.length,
+      limited: crowded.labelsLimited,
+    }).toStrictEqual({ listed: 250, limited: true });
+  });
+
   it('offers only the changes Graph can make', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 1 });

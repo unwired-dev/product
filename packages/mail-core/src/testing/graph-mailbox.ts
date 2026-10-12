@@ -100,7 +100,10 @@ export function createSyntheticGraph({
   const modifies: Array<Readonly<{ message: string } & GraphChange>> = [];
   const searches: string[] = [];
   // The mailbox's own folders by ID, and well-known folders this mailbox lacks.
-  const folders = new Map<string, string>();
+  const folders = new Map<
+    string,
+    Readonly<{ name: string; parent?: string }>
+  >();
   const missingFolders = new Set<string>();
   let nextFolder = 0;
 
@@ -313,30 +316,50 @@ export function createSyntheticGraph({
   };
 
   // A well-known folder's ID, or every top-level folder; a removed folder is gone from both.
+  // The folders inside `parent`, a folder's ID, or the top-level ones, each with its count of
+  // folders of its own.
+  const children = (parent: string | undefined) => {
+    const own = (id: string) =>
+      [...folders.values()].filter(
+        (folder) =>
+          folder.parent !== undefined && folderId(folder.parent) === id,
+      ).length;
+    return [
+      ...(parent === undefined
+        ? Object.entries(wellKnown)
+            .filter(([known]) => !missingFolders.has(known))
+            .map(([known, displayName]) => ({
+              id: folderId(known),
+              displayName,
+            }))
+        : []),
+      ...[...folders]
+        .filter(
+          ([, folder]) =>
+            (folder.parent === undefined
+              ? undefined
+              : folderId(folder.parent)) === parent,
+        )
+        .map(([id, folder]) => ({ id, displayName: folder.name })),
+    ].map((folder) => ({ ...folder, childFolderCount: own(folder.id) }));
+  };
+  // A well-known folder's ID, a folder's own folders, or every top-level folder; a removed folder
+  // is gone from each.
   const folderRead = (url: URL) => {
-    const path = /^\/v1\.0\/me\/mailfolders(?:\/(?<name>[^/]+))?$/u.exec(
-      url.pathname.toLowerCase(),
-    );
+    const path =
+      /^\/v1\.0\/me\/mail[Ff]olders(?:\/(?<name>[^/]+)(?<nested>\/childFolders)?)?$/u.exec(
+        url.pathname,
+      );
     if (path === null) {
       return undefined;
     }
-    const name = path.groups?.name;
-    if (name !== undefined) {
-      return name in wellKnown && !missingFolders.has(name)
-        ? respond({ id: folderId(name) })
-        : notFound();
+    const { name, nested } = path.groups ?? {};
+    if (name === undefined || nested !== undefined) {
+      return respond({ value: children(name) });
     }
-    return respond({
-      value: [
-        ...Object.entries(wellKnown)
-          .filter(([known]) => !missingFolders.has(known))
-          .map(([known, displayName]) => ({
-            id: folderId(known),
-            displayName,
-          })),
-        ...[...folders].map(([id, displayName]) => ({ id, displayName })),
-      ],
-    });
+    return name in wellKnown && !missingFolders.has(name)
+      ? respond({ id: folderId(name) })
+      : notFound();
   };
   // One Inbox message, as a delta change is read; one that left the Inbox is not found there.
   const inboxMessage = (url: URL) => {
@@ -520,11 +543,12 @@ export function createSyntheticGraph({
     },
     // Where a message is now: a well-known folder's name or a folder's ID.
     folderOf: (id: string) => messages.get(id)?.folder,
-    // A folder of the mailbox's own; resolves its ID.
-    createFolder: (name: string) => {
+    // A folder of the mailbox's own, inside `parent` when given: a well-known folder's name or a
+    // folder's ID. Resolves its ID.
+    createFolder: (name: string, parent?: string) => {
       nextFolder += 1;
       const id = `AQMkUserFolder-${nextFolder}_${name.length}=`;
-      folders.set(id, name);
+      folders.set(id, parent === undefined ? { name } : { name, parent });
       return id;
     },
     deleteFolder: (id: string) => {

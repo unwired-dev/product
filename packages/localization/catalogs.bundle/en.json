@@ -519,6 +519,7 @@
     "folders": "Folders",
     "hideFolders": "Hide folders",
     "noFolders": "This Microsoft mailbox has no folders of its own yet.",
+    "foldersLimited": "Showing the first {{count}} folders.",
     "moveTo": "Move to {{label}}",
     "undo": "Undo",
     "saving": "Saving the change on this device…",

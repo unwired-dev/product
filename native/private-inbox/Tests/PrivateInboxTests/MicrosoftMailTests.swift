@@ -323,6 +323,7 @@ extension PrivateInboxTests {
       "/v1.0/me/messages/AAMk-id=/attachments?$skip=50",
       "/v1.0/me/mailFolders?$select=id,displayName&$top=100",
       "/v1.0/me/mailFolders/deleteditems?$select=id",
+      "/v1.0/me/mailFolders/AQMk-id=/childFolders?$select=id,displayName&$top=100",
       "/v1.0/me/messages/AAMk-id=?$select=id,parentFolderId,isRead",
       "/v1.0/me/messages?$search=%22plan%22&$top=20",
     ] {

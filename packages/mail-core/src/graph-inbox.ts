@@ -45,6 +45,7 @@ import {
   graphAttachment,
   graphAttachments,
   graphChange,
+  graphChildFolders,
   graphFolders,
   graphInbox,
   graphInboxDelta,
@@ -88,6 +89,9 @@ type PendingChange = Readonly<{
   action: GmailAction;
   message: Readonly<{ id: string }>;
 }>;
+
+// The most folders Move to lists for one mailbox.
+const folderLimit = 250;
 
 const anotherMessage = () =>
   new SyncFailure({
@@ -417,16 +421,40 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return graphLabels(message.parentFolderId, message.isRead, roles);
   });
 
-  // Move to's folders: the mailbox's top-level folders apart from the well-known ones, by name.
+  // Move to's folders: every folder apart from the well-known ones, nested ones included, each
+  // named by its path so equal names stay apart. Listing stops at `folderLimit` folders or a
+  // folder's first page; `limited` says whether any were left out.
   const labels = Effect.fnUntraced(function* (scope: MailboxScope) {
     const roles = yield* folderRoles(scope);
-    const page = yield* graphGet(scope)(graphFolders, decodeGraphFolders);
-    return Arr.sort(
-      page.value
-        .filter(({ id }) => !roles.has(id))
-        .map(({ id, displayName }): GmailLabel => ({ id, name: displayName })),
-      Order.mapInput(Order.String, (label: GmailLabel) => label.name),
-    );
+    const listed: GmailLabel[] = [];
+    let limited = false;
+    // Breadth first, so a limit leaves out the deepest folders.
+    const queue = [{ url: graphFolders, path: '' }];
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      if (listed.length >= folderLimit) {
+        limited = true;
+        break;
+      }
+      const page = yield* graphGet(scope)(next.url, decodeGraphFolders);
+      limited ||= page['@odata.nextLink'] !== undefined;
+      for (const { id, displayName, childFolderCount = 0 } of page.value) {
+        const name =
+          next.path === '' ? displayName : `${next.path} / ${displayName}`;
+        if (!roles.has(id)) {
+          listed.push({ id, name });
+        }
+        if (childFolderCount > 0) {
+          queue.push({ url: graphChildFolders(id), path: name });
+        }
+      }
+    }
+    return {
+      labels: Arr.sort(
+        listed.slice(0, folderLimit),
+        Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+      ),
+      limited: limited || listed.length > folderLimit,
+    };
   });
 
   // A message's labels as Graph has it now, or none once Graph no longer has it.

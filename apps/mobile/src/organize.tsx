@@ -161,6 +161,11 @@ export function MessageActions({
               {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
             </Text>
           ) : null}
+          {state.labelsLimited === true ? (
+            <Text style={[styles.secondary, { color: colors.secondary }]}>
+              {t('gmailActions.foldersLimited', { count: state.labels.length })}
+            </Text>
+          ) : null}
           {state.labels.map((label) => (
             <View
               key={label.id}
