@@ -215,10 +215,12 @@ styles, copy, icons, motion, notifications or accessibility labels.
    Platform differences that the frames show deliberately are not deviations.
 4. Validate each deviation and fix confirmed ones within the task's scope
    directly in the checkout, then recapture. Resolve rules with
-   `ocr delegate rule` for every file the fixes touch. A fix that would change
-   product scope, a state the design does not cover, or a conflict between the
-   design and a product requirement goes to the [decision panel](#decision-panel);
-   list design follow-ups in the report.
+   `ocr delegate rule` for every file the fixes touch. Where a frame differs from
+   a product requirement or feature guide, including the stale mockups DESIGN.md
+   lists, the requirement governs: apply it and record a design follow-up. A fix
+   that would change product scope, a state the design does not cover, or a
+   conflict that documented authority does not resolve goes to the
+   [decision panel](#decision-panel); list design follow-ups in the report.
 5. When a capture target is unavailable, compare the changed code with the frames
    statically and record each missing capture as deferred. Missing Figma access
    leaves the design review blocked.

@@ -117,10 +117,13 @@ user-visible change according to them.
   update only the tokens needed for the task. Do not invent undocumented values
   or icon styles.
 - Follow the frames for layout, copy, states and platform behavior on Mac, iPad
-  and iPhone. When the design conflicts with a product requirement, or a needed
-  state has no frame, send it to the
+  and iPhone. Product requirements and feature guides govern behavior, controls
+  and defaults where a frame differs, including the stale mockups DESIGN.md
+  lists; apply them directly and list the difference in the PR so the design
+  can follow. Send only conflicts that documented authority does not resolve,
+  or needed states without a frame, to the
   [decision panel](docs/agents/implementation-review.md#decision-panel) instead
-  of inventing a pattern, and list the gap in the PR so the design can follow.
+  of inventing a pattern.
 - User-visible changes also pass the
   [design review](docs/agents/implementation-review.md#design-review).
 
