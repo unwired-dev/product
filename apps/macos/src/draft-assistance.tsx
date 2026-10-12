@@ -10,31 +10,32 @@ import {
   canRetryAssistance,
   createDraftAssistance,
 } from '@private-email/mail-core/assistance';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
+import { OnDeviceMarker } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   panel: {
-    gap: spacing.small,
-    padding: spacing.medium,
-    borderRadius: 8,
+    gap: spacing.s,
+    padding: spacing.l,
+    borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
   },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.large,
+    gap: spacing.xl,
   },
-  title: { fontSize: 15, fontWeight: '600' },
-  text: { fontSize: 16, lineHeight: 24 },
-  secondary: { fontSize: 14, lineHeight: 21 },
+  title: { ...textStyles.bodyEmphasized },
+  text: { ...textStyles.reading.body },
+  secondary: { ...textStyles.body },
 });
 
 type Purpose = 'rewrite' | 'reply';
@@ -106,7 +107,7 @@ function Refusal({
     <Text
       selectable
       accessibilityRole="alert"
-      style={[styles.secondary, { color: colors.secondary }]}>
+      style={[styles.secondary, { color: colors.textSecondary }]}>
       {t(
         issue === undefined
           ? 'assistance.failed'
@@ -134,7 +135,7 @@ function Status({
         <ActivityIndicator accessibilityLabel={t('assistance.progress')} />
         <Text
           selectable
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('assistance.generating')}
         </Text>
         <Action
@@ -150,7 +151,7 @@ function Status({
       <Text
         selectable
         accessibilityRole="alert"
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {t(
           `assistance.${state.kind === 'unavailable' ? state.reason : state.kind}`,
         )}
@@ -162,26 +163,22 @@ function Status({
       <Text
         selectable
         accessibilityRole="header"
-        style={[styles.title, { color: colors.foreground }]}>
+        style={[styles.title, { color: colors.textPrimary }]}>
         {t(`assistance.${purpose}Title`)}
       </Text>
       <Text
         selectable
-        style={[styles.text, { color: colors.foreground }]}>
+        style={[styles.text, { color: colors.textPrimary }]}>
         {state.text}
       </Text>
       {state.omitted ? (
         <Text
           selectable
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {t('assistance.omitted')}
         </Text>
       ) : null}
-      <Text
-        selectable
-        style={[styles.secondary, { color: colors.secondary }]}>
-        {t('assistance.disclaimer')}
-      </Text>
+      <OnDeviceMarker label={t('assistance.disclaimer')} />
     </>
   );
 }
@@ -212,7 +209,14 @@ export function DraftAssistance({
   return (
     <View
       accessibilityLabel={t(`assistance.${purpose}Region`)}
-      style={[styles.panel, { borderColor: colors.separator }]}>
+      style={[
+        styles.panel,
+        {
+          borderColor: colors.separator,
+          backgroundColor:
+            state.kind === 'ready' ? colors.onDeviceSurface : colors.fillQuiet,
+        },
+      ]}>
       {input === undefined ? (
         <Refusal
           purpose={purpose}

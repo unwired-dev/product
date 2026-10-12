@@ -37,6 +37,8 @@ reader, and its Podfile declares only the `GoogleSignIn` pod. Private Inbox link
 reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
+The generated project also compiles `native/design`, the first-party SF Symbol and
+Liquid Glass views shared with the iPhone/iPad host.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window owns its selected message. Opening another starts with no selection.

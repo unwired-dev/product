@@ -6,7 +6,7 @@ import type {
 import type { MailProvider } from '@private-email/mail-core/registration';
 
 import { draftSummary } from '@private-email/mail-core/drafts';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -14,30 +14,30 @@ import { Action } from './composer.tsx';
 import { useLocalization } from './localization.ts';
 import { useOutbox } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   section: {
-    fontSize: 13,
+    ...textStyles.footnote,
     fontWeight: '600',
-    paddingHorizontal: spacing.large,
-    paddingTop: spacing.small,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.s,
   },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.small,
-    marginHorizontal: spacing.small,
+    gap: spacing.s,
+    marginHorizontal: spacing.s,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: radius.row,
     borderCurve: 'continuous',
   },
   grow: { flex: 1, gap: 4 },
-  subject: { fontSize: 15, fontWeight: '500' },
-  detail: { fontSize: 13 },
+  subject: { ...textStyles.subheadline },
+  detail: { ...textStyles.footnote },
   recovery: { flexBasis: '100%', gap: 4 },
-  actions: { flexDirection: 'row', gap: spacing.small },
+  actions: { flexDirection: 'row', gap: spacing.s },
 });
 
 // The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
@@ -162,7 +162,7 @@ function UnknownRecovery({
       {notice === undefined ? null : (
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.detail, { color: colors.secondary }]}>
+          style={[styles.detail, { color: colors.textSecondary }]}>
           {notice}
         </Text>
       )}
@@ -238,7 +238,7 @@ export function OutboxRow({
     })();
   };
   return (
-    <View style={[styles.row, { backgroundColor: colors.sidebar }]}>
+    <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
       <View
         accessible
         accessibilityLabel={t('outbox.rowLabel', {
@@ -249,17 +249,17 @@ export function OutboxRow({
         style={styles.grow}>
         <Text
           numberOfLines={1}
-          style={[styles.subject, { color: colors.foreground }]}>
+          style={[styles.subject, { color: colors.textPrimary }]}>
           {subject}
         </Text>
         <Text
           numberOfLines={1}
-          style={[styles.detail, { color: colors.secondary }]}>
+          style={[styles.detail, { color: colors.textSecondary }]}>
           {recipients}
         </Text>
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.detail, { color: colors.secondary }]}>
+          style={[styles.detail, { color: colors.textSecondary }]}>
           {status}
         </Text>
       </View>
@@ -288,7 +288,7 @@ export function OutboxHeading() {
   return (
     <Text
       accessibilityRole="header"
-      style={[styles.section, { color: colors.secondary }]}>
+      style={[styles.section, { color: colors.textSecondary }]}>
       {t('outbox.heading')}
     </Text>
   );

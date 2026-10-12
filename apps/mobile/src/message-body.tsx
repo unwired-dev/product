@@ -46,6 +46,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
+import { Notice } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -113,7 +114,7 @@ function LinkConfirmation({
     <View
       accessibilityLiveRegion="polite"
       style={[styles.confirm, { borderColor: colors.separator }]}>
-      <Text style={[styles.secondary, { color: colors.foreground }]}>
+      <Text style={[styles.secondary, { color: colors.textPrimary }]}>
         {reasons.length === 0
           ? t('messageBody.confirmLink')
           : t('messageBody.cautionLink')}
@@ -121,13 +122,13 @@ function LinkConfirmation({
       {reasons.map((reason) => (
         <Text
           key={reason}
-          style={[styles.secondary, { color: colors.foreground }]}>
+          style={[styles.secondary, { color: colors.textPrimary }]}>
           {t('messageBody.warning', { warning: t(`linkWarnings.${reason}`) })}
         </Text>
       ))}
       <Text
         selectable
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {link.href}
       </Text>
       <View style={styles.actions}>
@@ -193,7 +194,7 @@ export function LinkConfirmationProvider({
               styles.bar,
               {
                 borderTopColor: colors.separator,
-                backgroundColor: colors.background,
+                backgroundColor: colors.surfaceContent,
               },
             ]}>
             <LinkConfirmation
@@ -244,10 +245,11 @@ function MessageLinks({
       style={[
         styles.linkControl,
         {
-          borderColor: focused === index ? colors.accent : colors.background,
+          borderColor:
+            focused === index ? colors.accentInk : colors.surfaceContent,
         },
       ]}>
-      <Text style={[styles.secondary, { color: colors.accent }]}>
+      <Text style={[styles.secondary, { color: colors.accentInk }]}>
         {t('messageBody.linkLabel', {
           link: link.text === '' ? link.href : link.text,
         })}
@@ -268,7 +270,7 @@ function ReadableText({
   const { t } = useLocalization();
   if (readable.paragraphs.length === 0) {
     return (
-      <Text style={[styles.paragraph, { color: colors.secondary }]}>
+      <Text style={[styles.paragraph, { color: colors.textSecondary }]}>
         {t('messageBody.empty')}
       </Text>
     );
@@ -279,7 +281,7 @@ function ReadableText({
     <Fragment key={paragraph}>
       <Text
         selectable
-        style={[styles.paragraph, { color: colors.foreground }]}>
+        style={[styles.paragraph, { color: colors.textPrimary }]}>
         {spans.map(({ text, href }, span) =>
           href === undefined ? (
             text
@@ -292,7 +294,7 @@ function ReadableText({
               onPress={() => {
                 onChoose({ href, text });
               }}
-              style={[styles.link, { color: colors.accent }]}>
+              style={[styles.link, { color: colors.accentInk }]}>
               {text}
             </Text>
           ),
@@ -554,19 +556,18 @@ export function Presentation({
   let notice: ReactNode = null;
   if (offered) {
     notice = (
-      <View style={styles.notice}>
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {t('messageBody.remoteImages')}
-        </Text>
+      <Notice
+        icon="photo"
+        message={t('messageBody.remoteImages')}>
         <Action
           label={t('messageBody.loadImages')}
           onPress={onLoadImages}
         />
-      </View>
+      </Notice>
     );
   } else if (readable.hidesImages) {
     notice = (
-      <Text style={[styles.secondary, { color: colors.secondary }]}>
+      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
         {t('messageBody.images')}
       </Text>
     );
@@ -744,16 +745,16 @@ function AttachmentRow({
     <View style={styles.attachment}>
       <Text
         selectable
-        style={[styles.attachmentName, { color: colors.foreground }]}>
+        style={[styles.attachmentName, { color: colors.textPrimary }]}>
         {name}
       </Text>
-      <Text style={[styles.secondary, { color: colors.secondary }]}>
+      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
         {fileSize(t, sizeFormat, size)}
       </Text>
       {status === undefined ? null : (
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.secondary, { color: colors.secondary }]}>
+          style={[styles.secondary, { color: colors.textSecondary }]}>
           {status}
         </Text>
       )}
@@ -800,7 +801,7 @@ function ReceivedAttachments({
     <View style={[styles.attachments, { borderTopColor: colors.separator }]}>
       <Text
         accessibilityRole="header"
-        style={[styles.secondary, { color: colors.secondary }]}>
+        style={[styles.secondary, { color: colors.textSecondary }]}>
         {t('attachment.count', { count: attachments.length })}
       </Text>
       {attachments.slice(0, shown).map((attachment) => (
@@ -930,7 +931,7 @@ export function GmailMessageBody({
       <View style={styles.body}>
         <Text
           accessibilityRole="alert"
-          style={[styles.paragraph, { color: colors.secondary }]}>
+          style={[styles.paragraph, { color: colors.textSecondary }]}>
           {t(`messageBody.${body.reason}`, { provider })}
         </Text>
         {body.reason === 'missing' ? null : (
@@ -957,17 +958,19 @@ export function GmailMessageBody({
     quotes === 'collapsible' && withoutQuotedHistory !== undefined;
   return (
     <View style={styles.body}>
-      <MessageSummary
-        source={inbox}
-        id={id}
-        subject={subject}
-        body={body.presentation.readable}
-      />
-      <MessageTranslation
-        source={inbox}
-        id={id}
-        body={body.presentation.readable}
-      />
+      <View style={styles.assistance}>
+        <MessageSummary
+          source={inbox}
+          id={id}
+          subject={subject}
+          body={body.presentation.readable}
+        />
+        <MessageTranslation
+          source={inbox}
+          id={id}
+          body={body.presentation.readable}
+        />
+      </View>
       <Presentation
         presentation={
           collapsible && !quotedShown ? withoutQuotedHistory : body.presentation
@@ -1018,7 +1021,7 @@ export function GmailMessageBody({
               setQuotedRevision(next);
             }
           }}>
-          <Text style={[styles.secondary, { color: colors.accent }]}>
+          <Text style={[styles.secondary, { color: colors.accentInk }]}>
             {quotedShown
               ? t('messageBody.hideQuoted')
               : t('messageBody.showQuoted')}

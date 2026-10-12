@@ -20,7 +20,7 @@ import {
   replaceSelection,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -43,7 +43,7 @@ import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { useComposerNavigation, useDrafts, useDraftStore } from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 const styles = StyleSheet.create({
@@ -52,26 +52,26 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    paddingHorizontal: spacing.large,
-    paddingTop: spacing.large,
-    gap: spacing.medium,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    gap: spacing.l,
   },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: spacing.small,
+    gap: spacing.s,
   },
   grow: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '600' },
-  status: { fontSize: 13 },
-  notice: { fontSize: 14 },
+  title: { ...textStyles.headline },
+  status: { ...textStyles.footnote },
+  notice: { ...textStyles.subheadline },
   format: {
     minWidth: 44,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
   body: { flex: 1, backgroundColor: 'transparent' },
 });
@@ -127,12 +127,12 @@ function Toolbar({
           style={[
             styles.format,
             page.marks.includes(mark) && {
-              backgroundColor: colors.selected,
+              backgroundColor: colors.accentSelectionSubtle,
               borderWidth: 2,
-              borderColor: colors.foreground,
+              borderColor: colors.textPrimary,
             },
           ]}>
-          <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
+          <Text style={[{ color: colors.textPrimary }, style]}>{label}</Text>
         </Pressable>
       ))}
       {blockControls.map(([kind, label, name]) => (
@@ -147,12 +147,12 @@ function Toolbar({
           style={[
             styles.format,
             page.kind === kind && {
-              backgroundColor: colors.selected,
+              backgroundColor: colors.accentSelectionSubtle,
               borderWidth: 2,
-              borderColor: colors.foreground,
+              borderColor: colors.textPrimary,
             },
           ]}>
-          <Text style={{ color: colors.foreground }}>{label}</Text>
+          <Text style={{ color: colors.textPrimary }}>{label}</Text>
         </Pressable>
       ))}
       {translation === undefined ? null : (
@@ -352,7 +352,7 @@ function EvaluationEditor({
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.background }]}>
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
         <View style={styles.bar}>
           <Action
@@ -365,16 +365,16 @@ function EvaluationEditor({
           <Text
             accessibilityRole="header"
             numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.foreground }]}>
+            style={[styles.grow, styles.title, { color: colors.textPrimary }]}>
             {t('drafts.evaluation.title')}
           </Text>
         </View>
-        <Text style={[styles.status, { color: colors.secondary }]}>
+        <Text style={[styles.status, { color: colors.textSecondary }]}>
           {t('drafts.from', { from: initial.from })}
         </Text>
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.status, { color: colors.secondary }]}>
+          style={[styles.status, { color: colors.textSecondary }]}>
           {t('drafts.status', { status: t(`drafts.save.${save}`) })}
         </Text>
         {closing === 'blocked' ? (
@@ -384,7 +384,7 @@ function EvaluationEditor({
               style={[
                 styles.notice,
                 styles.grow,
-                { color: colors.foreground },
+                { color: colors.textPrimary },
               ]}>
               {t('drafts.evaluation.saveBlocked')}
             </Text>
@@ -399,7 +399,7 @@ function EvaluationEditor({
         {stopped ? (
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
+            style={[styles.notice, { color: colors.textPrimary }]}>
             {t('drafts.evaluation.stopped')}
           </Text>
         ) : null}
@@ -468,7 +468,7 @@ function EvaluationEditor({
           originWhitelist={['*']}
           setSupportMultipleWindows={false}
           source={source}
-          style={[styles.body, { backgroundColor: colors.background }]}
+          style={[styles.body, { backgroundColor: colors.surfaceContent }]}
         />
       )}
     </SafeAreaView>
@@ -517,11 +517,11 @@ function EvaluationComposer({
     return (
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true, right: true }}
-        style={[styles.fill, { backgroundColor: colors.background }]}>
+        style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
         <View style={styles.content}>
           <Text
             accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
+            style={[styles.notice, { color: colors.textPrimary }]}>
             {t('drafts.evaluation.unsupported')}
           </Text>
           <Action

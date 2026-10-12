@@ -1,22 +1,22 @@
 import { languages } from '@private-email/localization';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { localization, useLocalization } from './localization.ts';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: spacing.large, gap: spacing.small },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.small },
+  container: { paddingHorizontal: spacing.xl, gap: spacing.s },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   option: {
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.small,
+    paddingHorizontal: spacing.s,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: radius.control,
   },
-  text: { fontSize: 14 },
+  text: { ...textStyles.subheadline },
 });
 
 export function LanguageSelector() {
@@ -41,7 +41,7 @@ export function LanguageSelector() {
     <View style={styles.container}>
       <Text
         accessibilityRole="header"
-        style={[styles.text, { color: colors.secondary }]}>
+        style={[styles.text, { color: colors.textSecondary }]}>
         {t('language.title')}
       </Text>
       <View style={styles.options}>
@@ -63,11 +63,11 @@ export function LanguageSelector() {
               {
                 borderColor:
                   settings.preference === code
-                    ? colors.accent
+                    ? colors.accentInk
                     : colors.separator,
               },
             ]}>
-            <Text style={[styles.text, { color: colors.foreground }]}>
+            <Text style={[styles.text, { color: colors.textPrimary }]}>
               {name}
             </Text>
           </Pressable>
@@ -76,7 +76,7 @@ export function LanguageSelector() {
       {failed ? (
         <Text
           accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
+          style={[styles.text, { color: colors.textPrimary }]}>
           {t('language.saveFailed')}
         </Text>
       ) : null}
