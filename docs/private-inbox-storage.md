@@ -128,7 +128,8 @@ registration store already offers these operations:
   cache, Drafts and Outbox stay in place.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
   and, with `profile-in-use`, while the Profile owns a live connection. Unreadable
-  ownership or connection descriptions leave removal unavailable. Removing a Profile
+  ownership or connection descriptions leave removal unavailable, as does a missing
+  description for a connection the Profile owns. Removing a Profile
   still pending on this device also prevents a delayed first publication from
   bringing it back.
 
@@ -140,6 +141,9 @@ A connection with no confirmed owner belongs to the Default Profile; losing a
 previously confirmed assignment alone does not move it there.
 Confirmed reads and writes survive a later publication failure, including across
 relaunch; a failed unrelated edit cannot erase a removal or ownership change.
+A move or removal reports success only after its stored write opens on this device.
+An unreadable write response leaves the outcome unavailable until synchronization
+can authenticate it.
 
 Reading and search name their Profile explicitly
 ([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and

@@ -439,6 +439,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   address updates and subsequent removals cannot extend an old grant to another
   incarnation; otherwise concurrent additions lose valid mail or resurrect
   authorization after removal.
+- `mail-profiles.ts.remove` treating an owned descriptor omitted from
+  `product-sync.ts`'s listing as proof that its connection is no longer live.
+  Keep absent and unreadable descriptors unknown; require an authenticated
+  tombstone or a different incarnation before discounting retained ownership.
+  Exercise omission separately from an unreadable listed record. Otherwise
+  removal can tombstone a Profile that still owns live mail and project it into
+  Default.
+- `mail-profiles.ts.put` or `commit` reporting CAS success from matching
+  ciphertext before the stored winner opens under its authenticated envelope
+  and record identity. Preserve unknown winners as unavailable for online
+  lifecycle actions and pending for publication, and distinguish a readable
+  competing winner. Exercise altered authenticated envelope fields with unchanged
+  ciphertext; otherwise a move or removal reports success without authenticated
+  evidence of the write.
 - `mail-profiles.ts` retaining authenticated listing or CAS results only until
   the entire publication batch succeeds. Persist confirmed records and version
   floors before another publication can fail, including valid records read

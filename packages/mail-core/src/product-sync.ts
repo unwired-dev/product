@@ -457,16 +457,19 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
   const profiles = createMailProfileProgram(vault, {
     list,
     write,
-    liveEpochs: Effect.gen(function* () {
+    descriptorEpochs: Effect.gen(function* () {
       const stored = yield* descriptors;
-      const epochs = new Map<string, string>();
+      const epochs = new Map<string, string | null>();
       for (const [record, { descriptor }] of stored) {
         if (descriptor === undefined) {
           return yield* failWith('unavailable');
         }
-        if (descriptor.removed !== true) {
-          epochs.set(record, descriptor.epoch ?? legacyEpoch);
-        }
+        epochs.set(
+          record,
+          descriptor.removed === true
+            ? null
+            : (descriptor.epoch ?? legacyEpoch),
+        );
       }
       return epochs;
     }),

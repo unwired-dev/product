@@ -494,7 +494,10 @@ a newer unauthenticated row revision. Absent or unreadable ownership retains the
 last confirmed owner. Pending names survive a CAS loss and apply to the winner on
 the next pass; a remote tombstone drops them. Removal publishes a tombstone even
 for a never-confirmed Profile, fencing a delayed first publication. Removal also
-refuses unknown ownership or unreadable descriptors instead of assuming emptiness.
+refuses unknown ownership, unreadable descriptors or an omitted owned descriptor
+instead of assuming emptiness. Online lifecycle writes require an authenticated
+CAS winner matching their ciphertext; an unreadable winner leaves publication
+pending and a move or removal unavailable.
 Concurrent moves into a removed Profile converge to Default. A device that never
 observed a newer version retains the existing backend rollback limitation.
 Each authenticated listing and CAS winner is persisted before later fallible work.

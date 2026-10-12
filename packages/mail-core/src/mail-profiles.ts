@@ -188,7 +188,7 @@ export function createMailProfileProgram<E>(
   {
     list,
     write,
-    liveEpochs,
+    descriptorEpochs,
     freshId,
   }: Readonly<{
     list: (prefix: string) => Effect.Effect<Stored[], E>;
@@ -197,8 +197,8 @@ export function createMailProfileProgram<E>(
       sealed: typeof EncryptedPayload.Type,
       expectedUpdatedAt: number | undefined,
     ) => Effect.Effect<Stored, E>;
-    // Each live mailbox descriptor's epoch, by record.
-    liveEpochs: Effect.Effect<ReadonlyMap<string, string>, E>;
+    // Every mailbox descriptor's epoch by record; null once removed.
+    descriptorEpochs: Effect.Effect<ReadonlyMap<string, string | null>, E>;
     freshId: Effect.Effect<string>;
   }>,
 ) {
@@ -265,15 +265,16 @@ export function createMailProfileProgram<E>(
     if (winner !== undefined && winner !== null && olderRecord(state, winner)) {
       return yield* failWith('unavailable');
     }
-    const next =
-      winner === undefined || winner === null
-        ? state
-        : withRecord(state, winner, stored.updatedAt);
+    const readable = winner !== undefined && winner !== null;
+    const next = readable ? withRecord(state, winner, stored.updatedAt) : state;
     yield* save(state, next);
     return {
+      // Only a stored record that opens here proves which write won.
+      readable,
       committed:
+        readable &&
         stored.encryptedPayload.ciphertextBase64 ===
-        sealed.encryptedPayload.ciphertextBase64,
+          sealed.encryptedPayload.ciphertextBase64,
       state: next,
     };
   });
@@ -289,9 +290,13 @@ export function createMailProfileProgram<E>(
     record: ProfileRecord;
     expectedUpdatedAt: number | undefined;
   }>) {
-    const { committed } = yield* put(state, record, expectedUpdatedAt);
+    const { readable, committed } = yield* put(
+      state,
+      record,
+      expectedUpdatedAt,
+    );
     if (!committed) {
-      return yield* failWith('profile-changed');
+      return yield* failWith(readable ? 'profile-changed' : 'unavailable');
     }
   });
 
@@ -357,13 +362,13 @@ export function createMailProfileProgram<E>(
     if (profile === undefined || isRemoved(profile)) {
       return;
     }
-    const epochs = yield* liveEpochs;
-    if (
-      state.owners.some(
-        (owner) =>
-          owner.profile === id && epochs.get(owner.record) === owner.epoch,
-      )
-    ) {
+    const epochs = yield* descriptorEpochs;
+    const owned = state.owners.filter((owner) => owner.profile === id);
+    // An owned connection whose descriptor Product Sync no longer lists may still be live.
+    if (owned.some((owner) => !epochs.has(owner.record))) {
+      return yield* failWith('unavailable');
+    }
+    if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
       return yield* failWith('profile-in-use');
     }
     yield* commit({

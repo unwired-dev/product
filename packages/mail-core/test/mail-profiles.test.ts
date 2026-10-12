@@ -16,6 +16,10 @@ import { account, setup } from './product-sync-fixture.ts';
 import { createRegistrationFlow } from './registration-flow-fixture.ts';
 
 type BackendCall = Parameters<NativeRegistrationVault['call']>[0];
+const ReplySchema = Schema.Struct({
+  status: Schema.Finite,
+  body: Schema.String,
+});
 
 // A connected account with Product Sync and one Gmail connection.
 const connected = async () => {
@@ -81,6 +85,27 @@ const delayPublication = (vault: NativeRegistrationVault) => {
   };
   return { flow, publish };
 };
+
+// A native request whose Profile writes are answered with this write's ciphertext under a key epoch
+// the account never had, as an altered reply would carry it.
+const alterProfileReplies = (vault: NativeRegistrationVault) =>
+  createRegistrationFlow({
+    ...vault,
+    call: async (request) => {
+      const reply = await vault.call(request);
+      if (
+        request.path !== 'productSync:putEncryptedPayloadIfUnchanged' ||
+        String(request.args.payloadIdentifier).startsWith('mailbox.')
+      ) {
+        return reply;
+      }
+      const altered = Schema.decodeUnknownSync(ReplySchema)(reply);
+      return {
+        ...altered,
+        body: altered.body.replace('"keyVersion":1', '"keyVersion":99'),
+      };
+    },
+  });
 
 // A device that knows the definitions but has never opened the now-unreadable ownership record.
 const unreadableOwnership = ({ device, sync }: ReturnType<typeof setup>) => {
@@ -312,7 +337,7 @@ describe('mail profiles', () => {
   it('refuses removal when it cannot determine whether an owned connection is live', async () => {
     expect.hasAssertions();
     const context = await connected();
-    const { flow, mailboxId, put, descriptor } = context;
+    const { flow, mailboxId, put, descriptor, records, record } = context;
     const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
     await flow.moveMailbox(await mailboxId(), work);
     const before = descriptor();
@@ -320,6 +345,13 @@ describe('mail profiles', () => {
     await expect(flow.removeProfile(work)).rejects.toMatchObject({
       code: 'unavailable',
     });
+    // Nor does a descriptor Product Sync no longer lists at all.
+    const stored = records().get(record());
+    records().delete(record());
+    await expect(flow.removeProfile(work)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    records().set(record(), stored!);
     expect(listed(await flow.restore())).toStrictEqual([
       { id: work, name: 'Work' },
     ]);
@@ -327,6 +359,30 @@ describe('mail profiles', () => {
     unreadableOwnership(context);
     await expect(flow.removeProfile(work)).rejects.toMatchObject({
       code: 'unavailable',
+    });
+  });
+
+  it('reports a move or removal only once the stored winner opens as this write', async () => {
+    expect.hasAssertions();
+    const { flow, vault, mailboxId, sync } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    const home = profileNamed(await flow.createProfile('Home'), 'Home').id;
+    const altered = alterProfileReplies(vault);
+    await expect(altered.moveMailbox(id, work)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    await expect(altered.removeProfile(home)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    // Product Sync did store both writes; a later pass reads them back authenticated.
+    const later = await flow.refreshPrivateSync();
+    expect(owners(later)).toStrictEqual([work]);
+    expect(listed(later)).toStrictEqual([{ id: work, name: 'Work' }]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id: home,
+      version: 2,
     });
   });
 
