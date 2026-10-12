@@ -12,7 +12,10 @@ import type {
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
-import type { MailboxConnection } from '@private-email/mail-core/registration';
+import type {
+  MailboxConnection,
+  MailProvider,
+} from '@private-email/mail-core/registration';
 import type {
   Asset,
   BlockKind,
@@ -556,6 +559,9 @@ function SendingMailbox({
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
+  const microsoft =
+    mailboxes.find(({ id }) => id === draft.connection)?.provider ===
+    'microsoft-graph';
   // Only the Draft's own Mail Profile can send it.
   const senders = sendingMailboxes(
     mailboxes,
@@ -618,7 +624,11 @@ function SendingMailbox({
         <Notice
           alert
           style={[styles.notice, { color: colors.textPrimary }]}>
-          {t(`drafts.sending.${state}`)}
+          {t(
+            state === 'authorization' && microsoft
+              ? 'drafts.sending.authorization_microsoft'
+              : `drafts.sending.${state}`,
+          )}
         </Notice>
       )}
     </View>
@@ -1085,7 +1095,12 @@ export const rewriteLabel = (at: Selection) =>
     : 'assistance.rewriteSelectionLabel';
 
 // Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
-// connection's mail server is not limited by Gmail.
+// connection's mail server or Microsoft is not limited by Gmail.
+const tooLarge = {
+  gmail: 'drafts.sendRefused.too-large',
+  imap: 'drafts.sendRefused.too-large_imap',
+  'microsoft-graph': 'drafts.sendRefused.too-large_microsoft',
+} as const satisfies Readonly<Record<MailProvider, string>>;
 function SendRefusalNotice({
   refused,
   connection,
@@ -1095,16 +1110,16 @@ function SendRefusalNotice({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const imap =
-    use(AccountContext)?.mailboxes.find(({ id }) => id === connection)
-      ?.provider === 'imap';
+  const provider = use(AccountContext)?.mailboxes.find(
+    ({ id }) => id === connection,
+  )?.provider;
   return refused === undefined ? null : (
     <Notice
       alert
       style={[styles.notice, { color: colors.textPrimary }]}>
       {t(
-        refused === 'too-large' && imap
-          ? 'drafts.sendRefused.too-large_imap'
+        refused === 'too-large'
+          ? tooLarge[provider ?? 'gmail']
           : `drafts.sendRefused.${refused}`,
       )}
     </Notice>

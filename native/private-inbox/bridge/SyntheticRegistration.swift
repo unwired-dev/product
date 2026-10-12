@@ -173,15 +173,15 @@
     }
   }
 
-  // A synthetic Microsoft mailbox read and organized through Graph: one message, in the Inbox
-  // until a write moves it, a delta round that reports each later change, its text body, the
-  // mailbox's folders and search.
+  // A synthetic Microsoft mailbox read, organized and sent from through Graph: one message, in the
+  // Inbox until a write moves it, a delta round that reports each later change, its text body, the
+  // mailbox's folders and search. sendMail accepts every message and keeps no Sent Items copy.
   @MainActor final class MockMicrosoftMailProvider: MicrosoftMailProvider {
     static let message = "AAMkAGI2-synthetic-outlook="
     static let projects = "AQMkAGI2-synthetic-projects="
     private let identity = MicrosoftMailIdentity(
       credential: Data("synthetic-microsoft".utf8), accessToken: "synthetic-graph-access",
-      scopes: ["Mail.ReadWrite", "User.Read", "offline_access"])
+      scopes: ["Mail.ReadWrite", "Mail.Send", "User.Read", "offline_access"])
     // The message's well-known folder name or folder ID, its read state, and how many writes
     // changed it; a delta link names the count it was issued at.
     private var folder = "inbox"
@@ -198,9 +198,11 @@
     private func folderID(_ name: String) -> String {
       name == Self.projects ? name : "AQMkAGI2-synthetic-\(name)="
     }
-    func graph(_ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?)
-      async throws -> (Int, Data)
-    {
+    func graph(
+      _ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?,
+      contentType: String
+    ) async throws -> (Int, Data) {
+      if contentType == "text/plain" { return (202, Data()) }
       let delta = "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta"
       let listed: [String: Any] = [
         "id": Self.message, "conversationId": "synthetic-outlook-conversation",
@@ -254,6 +256,8 @@
           "from": listed["from"] ?? [:],
           "toRecipients": [["emailAddress": ["address": "casey@example.invalid"]]],
         ]
+      } else if url.path.lowercased() == "/v1.0/me/mailfolders/sentitems/messages" {
+        reply = ["value": []]
       } else if url.path.lowercased().hasPrefix("/v1.0/me/mailfolders/inbox/messages/") {
         guard inbox else { return (404, Data(#"{"error":{"code":"ErrorItemNotFound"}}"#.utf8)) }
         reply = listed

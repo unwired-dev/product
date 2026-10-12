@@ -31,6 +31,7 @@ import {
 } from './mailbox-read.ts';
 import {
   decodeGraphAttachments,
+  decodeGraphCopies,
   decodeGraphDelta,
   decodeGraphFile,
   decodeGraphFolder,
@@ -56,6 +57,7 @@ import {
   graphPayload,
   graphPlacement,
   graphSearch,
+  graphSentCopies,
   graphUnavailableActions,
   graphWellKnownFolder,
   isGraphSearchLink,
@@ -510,6 +512,25 @@ export function createGraphReader(native: NativeGraphMailbox) {
     };
   });
 
+  // Sent Items' evidence for a message whose handoff had no answer: sent only when exactly one copy
+  // carries its Message-ID. Microsoft files the copy after accepting the message, so a copy that
+  // is not there yet leaves the outcome unknown.
+  const sentCopy = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    messageId: string,
+  ) {
+    const copies = yield* graphGet(scope)(
+      graphSentCopies(messageId),
+      decodeGraphCopies,
+    );
+    const [copy, ...others] = copies.value;
+    return copy !== undefined &&
+      others.length === 0 &&
+      copies['@odata.nextLink'] === undefined
+      ? { kind: 'sent' as const, message: copy.id }
+      : { kind: 'unknown' as const };
+  });
+
   return {
     advance,
     partData,
@@ -518,6 +539,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     readLabels,
     modify,
     search,
+    sentCopy,
     unavailableActions: () => graphUnavailableActions(known?.roles),
   } as const;
 }

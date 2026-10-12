@@ -6,7 +6,7 @@ import * as Order from 'effect/Order';
 import type { NativeGmailMailbox } from '../gmail-inbox.ts';
 import type { GraphChange } from '../microsoft-graph.ts';
 
-import { createSyntheticGmail } from './gmail-mailbox.ts';
+import { assembled, createSyntheticGmail } from './gmail-mailbox.ts';
 
 // A controlled Microsoft Graph mailbox for tests. It answers the Graph requests a Microsoft Inbox
 // makes with Graph's response shapes: the Inbox list, delta rounds with page and delta links,
@@ -34,6 +34,8 @@ interface SyntheticGraphMessage {
   readonly body: Readonly<{ contentType: 'html' | 'text'; content: string }>;
   readonly attachments: readonly SyntheticGraphAttachment[];
   readonly headers: ReadonlyArray<Readonly<{ name: string; value: string }>>;
+  // A sent message's own Message-ID, which Sent Items are searched by.
+  readonly internetMessageId?: string;
 }
 
 type Failure =
@@ -41,6 +43,8 @@ type Failure =
   | { readonly code: string };
 // A change Graph applies but whose reply never arrives.
 type ModifyFailure = Failure | { readonly lost: true };
+// A send Graph accepts but whose reply never arrives.
+type SendFailure = Failure | { readonly lost: true };
 
 const wellKnown: Readonly<Record<string, string>> = {
   inbox: 'Inbox',
@@ -78,11 +82,14 @@ export function createSyntheticGraph({
   address = 'casey@example.invalid',
   messages: count = 0,
   pageSize = 2,
+  assets,
 }: {
   readonly address?: string;
   readonly messages?: number;
   // Items per list and delta page, as Graph's odata.maxpagesize preference allows.
   readonly pageSize?: number;
+  // A Draft Asset's verified bytes as native code reads them; undefined when they no longer verify.
+  readonly assets?: (id: string, digest: string) => Uint8Array | undefined;
 } = {}) {
   const storage = createSyntheticGmail({ address });
   const messages = new Map<string, SyntheticGraphMessage>();
@@ -106,6 +113,11 @@ export function createSyntheticGraph({
   >();
   const missingFolders = new Set<string>();
   let nextFolder = 0;
+  // Messages Graph accepted from sendMail, as assembled, and the IDs of their Sent Items copies.
+  const sends: Array<{ raw: string; id: string }> = [];
+  const sendFailures: SendFailure[] = [];
+  // Accepted messages whose Sent Items copy Microsoft has not filed yet.
+  let filing: SyntheticGraphMessage[] | undefined = undefined;
 
   const deliver = ({
     from = { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -256,7 +268,7 @@ export function createSyntheticGraph({
         toRecipients: [{ emailAddress: { name: 'Casey', address } }],
         ccRecipients: [],
         replyTo: [],
-        internetMessageId: `<${id}@example.invalid>`,
+        internetMessageId: found.internetMessageId ?? `<${id}@example.invalid>`,
         internetMessageHeaders: found.headers,
         // Graph does not count inline attachments.
         hasAttachments: found.attachments.some(
@@ -424,6 +436,53 @@ export function createSyntheticGraph({
     });
   };
 
+  // Sent Items' messages with one Message-ID, as the Outbox looks for a message it sent.
+  const sentCopies = (url: URL) => {
+    const id = /^internetMessageId eq '(?<id>.+)'$/u.exec(
+      url.searchParams.get('$filter') ?? '',
+    )?.groups?.id;
+    return respond({
+      value: [...messages.values()]
+        .filter(
+          (each) =>
+            each.folder === 'sentitems' &&
+            each.internetMessageId !== undefined &&
+            each.internetMessageId === id?.replaceAll("''", "'"),
+        )
+        .map(({ id: copy }) => ({ id: copy })),
+    });
+  };
+  // Graph keeps an accepted message in Sent Items, under the Message-ID the message names.
+  const accept = (raw: string) => {
+    nextId += 1;
+    const id = `AAMkAGI2-${String(nextId).padStart(4, '0')}_s=`;
+    const header = (name: string) =>
+      new RegExp(`^${name}: (?<value>.*)\\r$`, 'mu').exec(raw)?.groups?.value;
+    const messageId = header('Message-ID');
+    const copy: SyntheticGraphMessage = {
+      id,
+      conversationId: `conversation-${nextId}`,
+      receivedDateTime: new Date(Date.UTC(2026, 8, 1) + nextId * 60_000)
+        .toISOString()
+        .replace('.000Z', 'Z'),
+      subject: header('Subject') ?? '',
+      bodyPreview: '',
+      from: { name: '', address },
+      isRead: true,
+      folder: 'sentitems',
+      body: { contentType: 'text', content: '' },
+      attachments: [],
+      headers: [],
+      ...(messageId === undefined ? {} : { internetMessageId: messageId }),
+    };
+    sends.push({ raw, id });
+    if (filing === undefined) {
+      messages.set(id, copy);
+    } else {
+      filing.push(copy);
+    }
+  };
+
   const messageAt = (url: URL) => {
     const groups =
       /^\/v1\.0\/me\/messages\/(?<id>[^/]+)(?:\/(?<list>attachments)(?:\/(?<attachment>[^/]+))?)?$/u.exec(
@@ -448,6 +507,9 @@ export function createSyntheticGraph({
     }
     if (url.pathname.endsWith('/messages/delta')) {
       return delta(url);
+    }
+    if (url.pathname === '/v1.0/me/mailFolders/sentitems/messages') {
+      return sentCopies(url);
     }
     return (
       inboxMessage(url) ??
@@ -493,6 +555,22 @@ export function createSyntheticGraph({
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
+    // Graph's sendMail answers 202 Accepted with no body.
+    graphSend: async (outgoing) => {
+      const raw = assembled(outgoing.segments, assets);
+      if (raw === undefined) {
+        return rejection('attachment-missing');
+      }
+      const failure = sendFailures.shift();
+      if (failure !== undefined && !('lost' in failure)) {
+        return fail(failure);
+      }
+      accept(raw);
+      await Promise.resolve();
+      return failure === undefined
+        ? { status: 202, body: '' }
+        : rejection('delivery-unknown');
+    },
     graphModify: async (request) => {
       modifies.push(request);
       const failure = modifyFailures.shift();
@@ -524,6 +602,21 @@ export function createSyntheticGraph({
     deliver,
     modifies,
     searches,
+    // Messages Graph accepted, in order.
+    sends,
+    failSend: (...next: readonly SendFailure[]) => {
+      sendFailures.push(...next);
+    },
+    // Microsoft files Sent Items copies only once `fileSentCopies` is called, as when it is slow.
+    holdSentCopies: () => {
+      filing ??= [];
+    },
+    fileSentCopies: () => {
+      for (const copy of filing ?? []) {
+        messages.set(copy.id, copy);
+      }
+      filing = undefined;
+    },
     markRead: (id: string) => {
       change(id, (found) => {
         found.isRead = true;

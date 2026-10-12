@@ -142,11 +142,33 @@ extension RegistrationStore {
       address: address, generation: generation)
   }
 
+  // Graph's sendMail takes the whole message base64 encoded in one request of at most 4 MB.
+  static let graphMessageLimit = 3_000_000
+
+  // The one Microsoft send: the message as MIME through Graph's sendMail, which files its copy in
+  // Sent Items. Any failure once the request starts may follow Microsoft accepting the message:
+  // deliveryUnknown.
+  func graphSend(segments: [Any], connection: String, address: String, generation: String)
+    async throws -> [String: Any]
+  {
+    let owner = try mailboxAccount(connection).productAccountId
+    let message = try await outgoingMessage(
+      segments: segments, owner: owner, limit: Self.graphMessageLimit)
+    guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/sendMail") else {
+      throw RegistrationError.unavailable
+    }
+    return try await graphCall(
+      url: url, method: "POST", body: message.base64EncodedData(), contentType: "text/plain",
+      connection: connection, address: address, generation: generation, sending: true)
+  }
+
   // One Graph request for a Microsoft connection, fenced like a Gmail request: work from before a
   // removal or another verification is stale, and a refused grant asks for authorization again.
+  // While `sending`, a failure once the request starts is deliveryUnknown, and Graph's answer is
+  // returned whatever changed meanwhile, as the message may already be sent.
   private func graphCall(
-    url: URL, method: String, body: Data?, connection id: String, address: String,
-    generation expected: String
+    url: URL, method: String, body: Data?, contentType: String = "application/json",
+    connection id: String, address: String, generation expected: String, sending: Bool = false
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
     guard generation.uuidString == expected else { throw PrivateInboxError.mailboxInvalidated }
@@ -192,11 +214,17 @@ extension RegistrationStore {
     let status: Int
     let data: Data
     do {
-      (status, data) = try await microsoft.graph(identity, url: url, method: method, body: body)
+      (status, data) = try await microsoft.graph(
+        identity, url: url, method: method, body: body, contentType: contentType)
+    } catch RegistrationError.unavailable where sending {
+      // It never left this device, so it is safe to try again.
+      throw RegistrationError.unavailable
+    } catch where sending {
+      throw PrivateInboxError.deliveryUnknown
     } catch is GmailRequestInterrupted {
       throw RegistrationError.unavailable
     }
-    guard current() else { throw PrivateInboxError.mailboxInvalidated }
+    guard sending || current() else { throw PrivateInboxError.mailboxInvalidated }
     return ["status": status, "body": String(decoding: data, as: UTF8.self)]
   }
 
@@ -226,7 +254,9 @@ extension RegistrationStore {
 
   // A message TypeScript composed as ASCII text, with each named Draft Asset's verified bytes
   // inserted here as base64 lines, so an asset's bytes never cross the bridge.
-  func outgoingMessage(segments: [Any], owner: String) async throws -> Data {
+  func outgoingMessage(
+    segments: [Any], owner: String, limit: Int = RegistrationStore.gmailMessageLimit
+  ) async throws -> Data {
     var message = Data()
     for segment in segments {
       let segment = segment as? [String: Any]
@@ -252,7 +282,7 @@ extension RegistrationStore {
       } else {
         throw RegistrationError.unavailable
       }
-      guard message.count <= Self.gmailMessageLimit else { throw PrivateInboxError.tooLarge }
+      guard message.count <= limit else { throw PrivateInboxError.tooLarge }
     }
     return message
   }
