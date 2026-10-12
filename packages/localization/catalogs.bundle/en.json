@@ -709,5 +709,31 @@
       "too-large": "Not sent. It is too large for Gmail.",
       "refused": "Not sent. Gmail refused this message."
     }
+  },
+  "commandPalette": {
+    "title": "Command Palette",
+    "placeholder": "Type a command…",
+    "open": "Open Command Palette",
+    "hint": "Swipe down on the header for commands",
+    "unavailable": "This action is no longer available.",
+    "select": "Select a conversation",
+    "unsupported": "Unavailable for this mailbox",
+    "busy": "Please wait",
+    "empty": "No matching commands",
+    "failed": "The command could not finish. Try again.",
+    "back": "Back to commands",
+    "move": "Move…",
+    "settings": "Open Settings",
+    "inbox": "Go to Inbox",
+    "composeKeywords": "compose write email new draft",
+    "settingsKeywords": "account preferences configuration",
+    "inboxKeywords": "home mail navigation",
+    "moveKeywords": "folder label organize",
+    "archiveKeywords": "archive remove inbox",
+    "readKeywords": "read unread seen unseen",
+    "replyKeywords": "reply respond answer",
+    "forwardKeywords": "forward share",
+    "cancel": "Cancel commands",
+    "app": "Unwired Mail"
   }
 }

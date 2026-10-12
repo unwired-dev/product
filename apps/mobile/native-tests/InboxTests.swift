@@ -516,7 +516,24 @@ final class InboxTests: XCTestCase {
     oliver.tap()
     XCTAssertTrue(app.staticTexts["oliver@example.com"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.staticTexts["maya@example.com"].exists)
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      let launcher = app.buttons["Open Command Palette"]
+      XCTAssertTrue(launcher.exists)
+      launcher.tap()
+      XCTAssertTrue(app.textFields["Command Palette"].waitForExistence(timeout: 10))
+      app.buttons["Cancel commands"].tap()
+      app.typeKey("p", modifierFlags: .command)
+    } else {
+      app.typeKey("p", modifierFlags: .command)
+      XCTAssertFalse(app.textFields["Command Palette"].exists)
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.11))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
+    }
+    let commands = app.textFields["Command Palette"]
+    XCTAssertTrue(commands.waitForExistence(timeout: 10))
+    commands.typeText("Mark as read")
     app.buttons["Mark as read"].tap()
+    XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
     let committed = XCTAttachment(screenshot: app.screenshot())
     committed.name = "Committed read state"

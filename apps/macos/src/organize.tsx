@@ -18,8 +18,9 @@ import {
   View,
 } from 'react-native';
 
+import { Commands } from './command-palette.tsx';
 import { useLocalization } from './localization.ts';
-import { useInbox, useInboxActions } from './mailbox.tsx';
+import { useMailbox, useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -93,6 +94,7 @@ export function MessageActions({
   readonly onClose?: (() => void) | undefined;
 }) {
   const state = useInbox();
+  const mailbox = useMailbox();
   const store = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -118,8 +120,51 @@ export function MessageActions({
     }
   };
   const applied = new Set(message.labels);
+  const keywords = {
+    archive: t('commandPalette.archiveKeywords'),
+    read: t('commandPalette.readKeywords'),
+    unread: t('commandPalette.readKeywords'),
+    star: '',
+    unstar: '',
+    trash: '',
+    spam: '',
+  };
   return (
     <>
+      <Commands
+        commands={[
+          ...quickActions(t, message).map(({ name, label, action }) => ({
+            id: name,
+            label,
+            keywords: keywords[name],
+            group: 'selection' as const,
+            target: `${mailbox?.id}/${id}`,
+            onRun: () => {
+              act(action);
+            },
+          })),
+          {
+            id: 'move',
+            label: t('commandPalette.move'),
+            keywords: t('commandPalette.moveKeywords'),
+            group: 'selection',
+            target: `${mailbox?.id}/${id}`,
+            disabled:
+              state.labels.length === 0
+                ? t('gmailActions.noLabels')
+                : undefined,
+            choices: state.labels.map((label) => ({
+              id: label.id,
+              label: label.name,
+              group: 'selection' as const,
+              target: `${mailbox?.id}/${id}`,
+              onRun: () => {
+                act(gmailAction.move(label.id));
+              },
+            })),
+          },
+        ]}
+      />
       <View style={styles.bar}>
         {quickActions(t, message).map(({ name, label, action }) => (
           <ActionButton

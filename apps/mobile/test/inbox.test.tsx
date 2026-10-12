@@ -31,6 +31,7 @@ import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 
+import { CommandPalette } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -272,26 +273,28 @@ function renderConnected(
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
     return (
-      <RegistrationGate
-        store={registration}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <Inbox
-            onClose={() => {
-              setSelected(undefined);
-            }}
-            onSelect={setSelected}
-            selected={selected}
-          />
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={() => {
-              setSelected(undefined);
-            }}
-          />
-        </InboxProvider>
-      </RegistrationGate>
+      <CommandPalette>
+        <RegistrationGate
+          store={registration}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Inbox
+              onClose={() => {
+                setSelected(undefined);
+              }}
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={() => {
+                setSelected(undefined);
+              }}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </CommandPalette>
     );
   }
   const rendered = render(<Connected />);
@@ -858,4 +861,53 @@ describe('connected Gmail Inbox', () => {
     expect(openURL).not.toHaveBeenCalled();
   });
   /* oxlint-enable vitest/max-expects */
+});
+
+describe('palette Gmail integration', () => {
+  it('moves only the selected Gmail message through the palette and preserves the existing Undo flow', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const selected = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Palette trip',
+    });
+    const other = gmail.deliver({ subject: 'Unrelated mail' });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Palette trip',
+      }),
+    );
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Command Palette'),
+      'seen',
+    );
+    expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();
+    expect(
+      screen.queryAllByRole('button', {
+        name: /^(?:Star|Move to Trash|Report spam)$/u,
+      }),
+    ).toStrictEqual([]);
+    await fireEvent.changeText(
+      screen.getByLabelText('Command Palette'),
+      'move',
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Move…' }));
+    expect(gmail.labelsOf(selected)).toContain('INBOX');
+    await fireEvent.press(screen.getByRole('button', { name: 'Travel' }));
+    await waitFor(() => {
+      expect(gmail.labelsOf(selected)).toContain(travel);
+    });
+    expect(gmail.labelsOf(selected)).not.toContain('INBOX');
+    expect(gmail.labelsOf(other)).toContain('INBOX');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      expect(gmail.labelsOf(selected)).toContain('INBOX');
+    });
+  });
 });

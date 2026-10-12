@@ -94,6 +94,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { Commands } from './command-palette.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -435,10 +436,32 @@ export function DraftList({
     setCreatingShown(false);
     if (id !== undefined) {
       onCompose(id);
+      return true;
     }
+    return false;
   };
   return (
     <View>
+      <Commands
+        commands={[
+          {
+            id: 'compose',
+            label: t('drafts.newMessage'),
+            keywords: t('commandPalette.composeKeywords'),
+            group: 'app',
+            disabled:
+              state.kind !== 'ready' || sender === undefined || creatingShown
+                ? t('commandPalette.busy')
+                : undefined,
+            onRun: async () => {
+              if (sender === undefined) {
+                return false;
+              }
+              return compose(sender);
+            },
+          },
+        ]}
+      />
       <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
         <Action
           disabled={

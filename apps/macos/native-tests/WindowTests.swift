@@ -510,7 +510,14 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(address(first, "maya@example.com").exists)
     XCTAssertTrue(oliver.label.hasPrefix("Unread."))
     XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
-    second.buttons["Mark as read"].click()
+    XCTAssertTrue(second.buttons["Open Command Palette"].exists)
+    app.typeKey("p", modifierFlags: .command)
+    let commands = second.textFields["Command Palette"]
+    XCTAssertTrue(commands.waitForExistence(timeout: 10))
+    XCTAssertFalse(first.textFields["Command Palette"].exists)
+    commands.typeText("Mark as read")
+    app.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
+    XCTAssertTrue(commands.waitForNonExistence(timeout: 10))
     XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
     XCTAssertTrue(
       first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))

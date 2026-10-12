@@ -36,6 +36,7 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
+import { InboxCommands } from './inbox-commands.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
@@ -143,6 +144,7 @@ interface InboxProps {
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
+  readonly onInbox?: (() => void) | undefined;
 }
 
 function MessageRow({
@@ -626,6 +628,7 @@ export function Inbox({
   onClose,
   onCompose,
   composing,
+  onInbox,
 }: InboxProps) {
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
@@ -717,6 +720,14 @@ export function Inbox({
         void mailbox.inbox.organize(message, action);
       }
     };
+  const goInbox = async () => {
+    if (!(await leave())) {
+      return false;
+    }
+    setQuery('');
+    onInbox?.();
+    return true;
+  };
   const empty =
     results === undefined && gmail && syncing ? (
       <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
@@ -730,6 +741,12 @@ export function Inbox({
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
+        <InboxCommands
+          hasSelection={selected !== undefined}
+          mailboxes={mailboxes}
+          onInbox={goInbox}
+          onScope={setChosen}
+        />
         <View style={styles.headingRow}>
           <View
             accessible

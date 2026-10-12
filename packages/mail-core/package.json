@@ -31,6 +31,7 @@
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",
     "./composer-navigation": "./src/composer-navigation.ts",
+    "./command-palette": "./src/command-palette.ts",
     "./responses": "./src/responses.ts",
     "./outbox": "./src/outbox.ts",
     "./outgoing-message": "./src/outgoing-message.ts"

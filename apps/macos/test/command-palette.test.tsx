@@ -1,0 +1,415 @@
+import type { PaletteCommand } from '@private-email/mail-core/command-palette';
+
+import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import { createRegistration } from '@private-email/mail-core/registration';
+import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import {
+  createMockRegistrationSession,
+  syntheticMailboxes,
+} from '@private-email/mail-core/testing/registration-session';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { use } from 'react';
+import { Pressable, Text } from 'react-native';
+
+import { CommandPalette, Commands } from '../src/command-palette.tsx';
+import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+
+function Harness({
+  commands,
+}: {
+  readonly commands: readonly PaletteCommand[];
+}) {
+  return (
+    <CommandPalette>
+      <Commands commands={commands} />
+      <Text>Current draft</Text>
+    </CommandPalette>
+  );
+}
+
+function SettingsEntry() {
+  const account = use(AccountContext);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Account"
+      onPress={account?.openAccount}>
+      <Text>Inbox content</Text>
+    </Pressable>
+  );
+}
+
+function MailboxCommands() {
+  const account = use(AccountContext);
+  return (
+    <Commands
+      commands={[
+        {
+          id: 'mailbox',
+          label: 'Mailboxes',
+          group: 'navigation',
+          choices: (account?.mailboxes ?? []).map((mailbox) => ({
+            id: mailbox.id,
+            label: mailbox.address ?? mailbox.id,
+            group: 'navigation' as const,
+            onRun: () => false,
+          })),
+        },
+      ]}
+    />
+  );
+}
+
+describe('command palette interactions', () => {
+  it('retires a captured mailbox picker when its Product Account locks or is removed', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      mailboxes: JSON.stringify([
+        {
+          id: syntheticMailboxes['alex@example.invalid'],
+          address: 'alex@example.invalid',
+          state: 'connected',
+        },
+      ]),
+    } as const;
+    let restore = (): Promise<unknown> => Promise.resolve(connected);
+    const registration = createRegistration({
+      ...session.native,
+      restore: () => restore(),
+    });
+    await registration.restoreOnce();
+    try {
+      await render(
+        <CommandPalette>
+          <RegistrationGate
+            store={registration}
+            preview={false}>
+            <MailboxCommands />
+          </RegistrationGate>
+        </CommandPalette>,
+      );
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Mailboxes' }));
+      expect(
+        screen.getByRole('button', { name: 'alex@example.invalid' }),
+      ).toBeVisible();
+      restore = () =>
+        Promise.reject(Object.assign(new Error('Locked'), { code: 'locked' }));
+      await act(async () => {
+        await registration.resume();
+      });
+      expect([
+        screen.queryByLabelText('Command Palette'),
+        screen.queryByRole('button', { name: 'alex@example.invalid' }),
+      ]).toStrictEqual([null, null]);
+      restore = () => Promise.resolve(connected);
+      await act(async () => {
+        await registration.resume();
+      });
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        {
+          nativeEvent: { key: 'open' },
+        },
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Mailboxes' }));
+      restore = () => Promise.resolve({ kind: 'signed-out' });
+      await act(async () => {
+        await registration.deviceRemoved();
+      });
+      expect([
+        screen.queryByLabelText('Command Palette'),
+        screen.queryByRole('button', { name: 'alex@example.invalid' }),
+      ]).toStrictEqual([null, null]);
+    } finally {
+      restore = () => Promise.resolve({ kind: 'signed-out' });
+      await registration.deviceRemoved();
+    }
+  });
+
+  it('advances every queued arrow event and backs out of the current picker before React commits', async () => {
+    expect.hasAssertions();
+    const executed: string[] = [];
+    await render(
+      <Harness
+        commands={[
+          {
+            id: 'move',
+            label: 'Move',
+            group: 'selection',
+            choices: ['Action A', 'Action B', 'Action C'].map((label) => ({
+              id: label,
+              label,
+              group: 'selection' as const,
+              onRun: () => {
+                executed.push(label);
+              },
+            })),
+          },
+        ]}
+      />,
+    );
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Command Palette'),
+      'Move',
+    );
+    const host = screen.getByTestId('command-palette-host');
+    await fireEvent.press(screen.getByRole('button', { name: 'Move' }));
+    await act(async () => {
+      host.props.onCommandKey({ nativeEvent: { key: 'down' } });
+      host.props.onCommandKey({ nativeEvent: { key: 'down' } });
+      host.props.onCommandKey({ nativeEvent: { key: 'enter' } });
+    });
+    expect(executed).toStrictEqual(['Action C']);
+    await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
+    await fireEvent.changeText(
+      screen.getByLabelText('Command Palette'),
+      'Move',
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Move' }));
+    await act(async () => {
+      host.props.onCommandKey({ nativeEvent: { key: 'escape' } });
+      host.props.onCommandKey({ nativeEvent: { key: 'escape' } });
+    });
+    expect(screen.queryByLabelText('Command Palette')).toBeNull();
+  });
+
+  it('executes the current query when native typing and Enter arrive before React commits', async () => {
+    expect.hasAssertions();
+    const executed: string[] = [];
+    await render(
+      <Harness
+        commands={['Archive', 'Compose'].map((label) => ({
+          id: label.toLowerCase(),
+          label,
+          group: 'selection' as const,
+          onRun: () => {
+            executed.push(label);
+          },
+        }))}
+      />,
+    );
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    const field = screen.getByLabelText('Command Palette');
+    const host = screen.getByTestId('command-palette-host');
+    await act(async () => {
+      field.props.onChangeText('Compose');
+      host.props.onCommandKey({ nativeEvent: { key: 'enter' } });
+    });
+    expect(executed).toStrictEqual(['Compose']);
+  });
+
+  it('keeps unavailable commands visible in Settings and creates a real Draft through Compose', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      mailboxes: JSON.stringify([
+        {
+          id: syntheticMailboxes['alex@example.invalid'],
+          address: 'alex@example.invalid',
+          state: 'connected',
+        },
+      ]),
+    } as const;
+    const registration = createRegistration({
+      ...session.native,
+      restore: async () => connected,
+    });
+    await registration.restoreOnce();
+    const native = createSyntheticDrafts(() => connected.productAccountId);
+    const drafts = createDrafts(native.native, registration);
+    let opened: string | undefined = undefined;
+    try {
+      await drafts.load();
+      const app = await render(
+        <CommandPalette>
+          <RegistrationGate
+            store={registration}
+            drafts={drafts}
+            preview={false}
+            onCompose={(id) => {
+              opened = id;
+            }}>
+            <SettingsEntry />
+          </RegistrationGate>
+        </CommandPalette>,
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Account' }),
+      );
+      await fireEvent(
+        screen.getByTestId('command-palette-host'),
+        'commandKey',
+        { nativeEvent: { key: 'open' } },
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('Command Palette'),
+        'answer',
+      );
+      expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+      await fireEvent.changeText(
+        screen.getByLabelText('Command Palette'),
+        'compose',
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'New Message' }),
+      );
+      expect(opened).toBeDefined();
+      const state = drafts.getSnapshot();
+      expect(draftsOf(state).map(({ id }) => id)).toStrictEqual([opened]);
+      expect(screen.getByText('Inbox content')).toBeVisible();
+      expect(screen.queryByLabelText('Command Palette')).toBeNull();
+      await app.unmount();
+    } finally {
+      await registration.deviceRemoved();
+    }
+  });
+
+  it('opens by a native shortcut, picks a destination, returns with Escape and resets after dismissal', async () => {
+    expect.hasAssertions();
+    let moved = false;
+    const commands: readonly PaletteCommand[] = [
+      {
+        id: 'move',
+        label: 'Move…',
+        keywords: 'folder',
+        group: 'selection',
+        target: 'mail/1',
+        choices: [
+          {
+            id: 'travel',
+            label: 'Travel',
+            group: 'selection',
+            onRun: () => {
+              moved = true;
+            },
+          },
+        ],
+      },
+    ];
+    await render(<Harness commands={commands} />);
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Command Palette'),
+      'fldr',
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Move…' }));
+    expect(Number(moved)).toBe(0);
+    expect(screen.getByRole('button', { name: 'Travel' })).toBeVisible();
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'escape' },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Move…' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Travel' }));
+    expect(moved).toBe(true);
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Cancel commands' }),
+    );
+    expect(screen.getByText('Current draft')).toBeVisible();
+  });
+
+  it('keeps an open palette from applying an action to a changed selection and prevents double execution', async () => {
+    expect.hasAssertions();
+    let executions = 0;
+    let finish: (() => void) | undefined = undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Keep the action pending while duplicate input arrives.
+    const completion = new Promise<undefined>((resolve) => {
+      finish = () => resolve(undefined);
+    });
+    const command = {
+      id: 'archive',
+      label: 'Archive',
+      group: 'selection' as const,
+      target: 'mail/1',
+      onRun: () => {
+        executions += 1;
+        return completion;
+      },
+    };
+    const app = await render(<Harness commands={[command]} />);
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await app.rerender(
+      <Harness commands={[{ ...command, target: 'mail/2' }]} />,
+    );
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    expect(executions).toBe(0);
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Cancel commands' }),
+    );
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'open' },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    await fireEvent(screen.getByTestId('command-palette-host'), 'commandKey', {
+      nativeEvent: { key: 'enter' },
+    });
+    expect(executions).toBe(1);
+    await act(async () => {
+      finish?.();
+    });
+    expect(screen.queryByLabelText('Command Palette')).toBeNull();
+  });
+
+  it('does not dismiss a new palette when a previously dismissed action finishes', async () => {
+    expect.hasAssertions();
+    let finish: (() => void) | undefined = undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Completion must occur after the palette is reopened.
+    const completion = new Promise<undefined>((resolve) => {
+      finish = () => resolve(undefined);
+    });
+    await render(
+      <Harness
+        commands={[
+          {
+            id: 'compose',
+            label: 'Compose',
+            group: 'app',
+            onRun: () => completion,
+          },
+        ]}
+      />,
+    );
+    const host = screen.getByTestId('command-palette-host');
+    await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
+    await fireEvent.press(screen.getByRole('button', { name: 'Compose' }));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Cancel commands' }),
+    );
+    await fireEvent(host, 'commandKey', { nativeEvent: { key: 'open' } });
+    await act(async () => {
+      finish?.();
+    });
+    expect(screen.getByLabelText('Command Palette')).toHaveProp('value', '');
+    expect(screen.getByRole('button', { name: 'Compose' })).toBeEnabled();
+  });
+});

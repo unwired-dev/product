@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
 
+import { Commands } from './command-palette.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -297,6 +298,73 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 
 // Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
 // response always sends from the reader's own mailbox; one that cannot send offers none.
+function ResponseCommands({
+  target,
+  pending,
+  onStart,
+}: {
+  readonly target: string;
+  readonly pending: boolean;
+  readonly onStart: (kind: ResponseKind) => Promise<boolean>;
+}) {
+  const { t } = useLocalization();
+  return (
+    <Commands
+      commands={(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
+        id: kind,
+        label: t(`message.${kind}`),
+        keywords: t(
+          kind === 'forward'
+            ? 'commandPalette.forwardKeywords'
+            : 'commandPalette.replyKeywords',
+        ),
+        group: 'selection',
+        target,
+        disabled: pending ? t('commandPalette.busy') : undefined,
+        onRun: () => onStart(kind),
+      }))}
+    />
+  );
+}
+
+function ReadCommand({
+  target,
+  unread,
+  onChange,
+}: {
+  readonly target: string;
+  readonly unread: boolean;
+  readonly onChange: () => Promise<void>;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  return (
+    <>
+      <Commands
+        commands={[
+          {
+            id: unread ? 'read' : 'unread',
+            label: unread ? t('message.markRead') : t('message.markUnread'),
+            keywords: t('commandPalette.readKeywords'),
+            group: 'selection',
+            target,
+            onRun: onChange,
+          },
+        ]}
+      />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          void onChange();
+        }}>
+        <Text style={[styles.secondary, { color: colors.accent }]}>
+          {unread ? t('message.markRead') : t('message.markUnread')}
+        </Text>
+      </Pressable>
+    </>
+  );
+}
+
 function ResponseActions({
   message,
   onCompose,
@@ -350,11 +418,12 @@ function ResponseActions({
       starting.current ||
       inbox.responseSource(message.id) !== source
     ) {
-      return;
+      return false;
     }
     starting.current = true;
     setPending(kind);
     setFailed(false);
+    let completed = false;
     try {
       const draft = await startResponse(
         { navigation, drafts: store, inbox },
@@ -370,6 +439,11 @@ function ResponseActions({
       );
       if (mounted.current && draft !== undefined) {
         onCompose(draft);
+        completed = true;
+      } else {
+        starting.current = false;
+        setPending(undefined);
+        return false;
       }
     } catch {
       // The reader stays usable when an unexpected host operation rejects, and says so.
@@ -382,6 +456,7 @@ function ResponseActions({
     if (mounted.current) {
       setPending(undefined);
     }
+    return completed;
   };
   const actions = [
     ['reply', t('message.reply')],
@@ -390,6 +465,11 @@ function ResponseActions({
   ] as const;
   return (
     <View>
+      <ResponseCommands
+        target={`${mailbox?.id}/${message.id}`}
+        pending={pending !== undefined}
+        onStart={start}
+      />
       <View style={styles.responses}>
         {actions.map(([kind, label]) => (
           <Pressable
@@ -512,17 +592,11 @@ function MailboxMessage({
           ids={[message.id]}>
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accent }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
+              <ReadCommand
+                target={`${mailbox?.id}/${message.id}`}
+                unread={message.unread}
+                onChange={() => actions.setUnread(message.id, !message.unread)}
+              />
             ) : (
               <MessageActions
                 id={message.id}

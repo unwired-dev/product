@@ -1,5 +1,6 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
+import type { Drafts } from '@private-email/mail-core/drafts';
 import type {
   AccountRemoval,
   InboxChoice,
@@ -17,6 +18,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
+  defaultProfile,
   approvesDevices,
   linkFailureCopy,
   inboxLanding,
@@ -49,6 +51,7 @@ import {
   View,
 } from 'react-native';
 
+import { Commands, useCommandScope } from './command-palette.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -59,13 +62,18 @@ import {
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { microsoftMail, registration } from './registration.ts';
+import {
+  drafts as defaultDrafts,
+  microsoftMail,
+  registration,
+} from './registration.ts';
 import {
   MailboxRemoteContent,
   RemoteContentSettings,
   remoteContent as deviceRemoteContent,
   RemoteContentContext,
 } from './remote-content.tsx';
+import { SettingsCompose } from './settings-commands.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext, nativeTranslation } from './translation.tsx';
 import { TrustedDevices } from './trusted-devices.tsx';
@@ -621,8 +629,14 @@ export function RegistrationGate({
   mailAssistance = deviceMailAssistance,
   assistance = nativeAssistance,
   translation = nativeTranslation,
+  drafts = defaultDrafts,
+  profile = defaultProfile,
+  onCompose,
 }: {
   readonly children: ReactNode;
+  readonly drafts?: Drafts;
+  readonly profile?: string;
+  readonly onCompose?: ((id: string) => void) | undefined;
   readonly store?: Registration;
   // This build can authorize Microsoft mail.
   readonly microsoft?: boolean;
@@ -658,6 +672,7 @@ export function RegistrationGate({
     snapshot.kind === 'device-pending',
     locked === true,
   ]);
+  useCommandScope(JSON.stringify([preview, assistanceScope, profile]));
   useEffect(() => {
     if (!preview) {
       void mailAssistance.load(assistanceScope);
@@ -723,6 +738,23 @@ export function RegistrationGate({
     return (
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
+          <SettingsCompose
+            key={`${inboxAccount}/${profile}`}
+            account={inboxAccount}
+            mailboxes={actions.mailboxes}
+            profile={profile}
+            drafts={drafts}
+            onCompose={onCompose}
+            onInbox={() => {
+              if (inboxAccount !== undefined) {
+                setChoice({
+                  account: inboxAccount,
+                  destination: 'inbox',
+                  setup,
+                });
+              }
+            }}
+          />
           <RegistrationPage
             assistance={assistance}
             microsoft={microsoft}
@@ -803,6 +835,19 @@ function RegistrationPage({
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
+        {onInbox === undefined ? null : (
+          <Commands
+            commands={[
+              {
+                id: 'inbox',
+                label: t('commandPalette.inbox'),
+                keywords: t('commandPalette.inboxKeywords'),
+                group: 'navigation',
+                onRun: onInbox,
+              },
+            ]}
+          />
+        )}
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: colors.foreground }]}>

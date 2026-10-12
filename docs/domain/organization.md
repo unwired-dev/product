@@ -15,6 +15,10 @@ for launch scope; a term's presence does not establish implementation or release
 
 ## Language
 
+**Command Palette**:
+A searchable collection of app actions and navigation destinations, distinct from email content search. See the [Command Palette requirements](../product/command-palette.md) for its planned scope.
+_Avoid_: Email search, Saved Search
+
 **Mail Rule**:
 A user-defined set of explicit conditions and mail actions for organizing matching messages without model inference.
 _Avoid_: Notification Rule, Category, AI categorization

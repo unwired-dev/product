@@ -5,9 +5,11 @@ import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Selection } from '../src/inbox.tsx';
 
+import { CommandPalette } from '../src/command-palette.tsx';
 import {
   pollGmailWhileActive,
   scheduleGmailFreshness,
@@ -20,6 +22,7 @@ void scheduleGmailFreshness();
 pollGmailWhileActive();
 
 export default function RootLayout() {
+  const insets = useSafeAreaInsets();
   const splitView = useRef<SplitHostCommands>(null);
   const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
     id?: string;
@@ -57,36 +60,47 @@ export default function RootLayout() {
   }
 
   return (
-    <RegistrationGate>
-      <InboxProvider>
-        <ProfileScope profile={shownProfile}>
-          <StatusBar style="auto" />
-          <SplitView
-            ref={splitView}
-            preferredDisplayMode="oneBesideSecondary"
-            preferredSplitBehavior="tile"
-            topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
-            <SplitView.Column>
-              <Inbox
-                composing={draft}
-                onClose={() => {
-                  router.replace({
-                    pathname: '/',
-                    params: { profileId: shownProfile },
-                  });
-                }}
-                onCompose={compose}
-                onSelect={selectMessage}
-                selected={
-                  id === undefined || mailbox === undefined
-                    ? undefined
-                    : { mailbox, id }
-                }
-              />
-            </SplitView.Column>
-          </SplitView>
-        </ProfileScope>
-      </InboxProvider>
-    </RegistrationGate>
+    <CommandPalette topInset={insets.top}>
+      <RegistrationGate
+        onCompose={compose}
+        profile={shownProfile}>
+        <InboxProvider>
+          <ProfileScope profile={shownProfile}>
+            <StatusBar style="auto" />
+            <SplitView
+              ref={splitView}
+              preferredDisplayMode="oneBesideSecondary"
+              preferredSplitBehavior="tile"
+              topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
+              <SplitView.Column>
+                <Inbox
+                  onInbox={() => {
+                    router.replace({
+                      pathname: '/',
+                      params: { profileId: shownProfile },
+                    });
+                    splitView.current?.show('primary');
+                  }}
+                  composing={draft}
+                  onClose={() => {
+                    router.replace({
+                      pathname: '/',
+                      params: { profileId: shownProfile },
+                    });
+                  }}
+                  onCompose={compose}
+                  onSelect={selectMessage}
+                  selected={
+                    id === undefined || mailbox === undefined
+                      ? undefined
+                      : { mailbox, id }
+                  }
+                />
+              </SplitView.Column>
+            </SplitView>
+          </ProfileScope>
+        </InboxProvider>
+      </RegistrationGate>
+    </CommandPalette>
   );
 }

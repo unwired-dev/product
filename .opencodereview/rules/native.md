@@ -1,5 +1,12 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the replacement's native code: `native/private-inbox` (Swift package and React Native bridge), `native/localization` and the AppKit host in `apps/macos/macos`.
 
+- `UnwiredCommandPalette.m` routing a key or header gesture outside its owning
+  active window, host bounds or the product's platform entry contract. Keep
+  Command-P on Mac/iPad and phone opening on the app-header gesture and
+  accessibility action; list swipes must still scroll. Exercise packaged
+  native entry and dismissal, since JavaScript event tests bypass responder
+  routing and native navigation bars.
+
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Product Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
 #### Bundled localization resources

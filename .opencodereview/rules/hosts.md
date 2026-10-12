@@ -31,6 +31,37 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `command-palette.tsx` retaining a captured mailbox picker after the owning
+  Registration gate changes Account, Profile or lock/admission state. Disabled
+  execution alone does not retire captured mailbox addresses; close that
+  presentation at the ownership boundary and exercise Account removal with a
+  real Registration store. Preserve captured targets on ordinary selection
+  changes within the same admitted owner.
+
+- `command-palette.tsx` executing Enter or repeated navigation from the previous
+  rendered query, picker path or selected row. Native text and key callbacks can
+  arrive before React commits; advance event-facing input synchronously and
+  resolve execution from it against the live captured catalog. Exercise batched
+  query-plus-Enter and navigation events, or a command can run the prior row
+  instead of the action the person just requested.
+
+- `command-palette.tsx` changing a wrapping View's flattening eligibility when
+  its accessibility-hidden state changes around a native navigation subtree.
+  Keep the wrapper's native identity stable across open and close, and exercise
+  closing a command over the actual split view; otherwise Fabric reparenting can
+  leave the Inbox or reader blank after dismissal while component tests pass.
+- `command-palette.tsx` or its registered command owners losing the supported
+  catalog when navigation replaces a subtree, especially Settings replacing the
+  Inbox. Keep app-wide actions reachable and unavailable selection actions visible
+  with reasons, reuse the existing Draft creation coordinator, and preserve
+  window/Profile routing. Exercise Settings-to-Compose through the real Draft
+  store; otherwise a global palette silently becomes a single navigation link.
+- Command registrations omitting or misassigning their localized synonym keywords, including
+  disabled fallback rows. Check representative aliases through the rendered
+  catalog, or searches such as Answer, Share and Folder can hide supported
+  actions and their unavailability explanations. Restrict aliases to the
+  corresponding action, or a read query can offer Star, Trash and Spam.
+
 - `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
   failed-Close feedback after accepting another authored edit. Retire the stale
   notice and its recovery controls on every accepted editing path, while keeping
