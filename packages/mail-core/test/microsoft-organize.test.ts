@@ -180,6 +180,83 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(graph.folderOf(kept)).toBe('inbox');
   });
 
+  it('retries Archive when Outlook moved the message to Trash during an interrupted attempt', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    const inbox = await opened(graph);
+    const [target = ''] = ids(inbox);
+    graph.failModify({ status: 503 });
+    await inbox.organize(message(inbox, target), gmailAction.archive);
+    graph.remove(target);
+
+    const relaunched = await opened(graph);
+    expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+    expect(graph.folderOf(target)).toBe('archive');
+    expect(graph.modifies).toHaveLength(2);
+  });
+
+  it.each([
+    { missing: 'parentFolderId', fields: { isRead: true } },
+    { missing: 'isRead', fields: { parentFolderId: 'AQMkFolder-inbox=' } },
+  ])(
+    'keeps an action pending when its Graph reply omits $missing',
+    async ({ fields }) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ messages: 1 });
+      const inbox = createGmailInbox(
+        {
+          ...graph.native,
+          graphModify: ({ message: id }) =>
+            Promise.resolve({
+              status: 200,
+              body: JSON.stringify({
+                id,
+                ...fields,
+              }),
+            }),
+        },
+        { provider: 'microsoft-graph' },
+      );
+      await inbox.load();
+      const [target = ''] = ids(inbox);
+      await inbox.organize(message(inbox, target), gmailAction.read);
+
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        pending: 1,
+        sync: 'retry',
+      });
+      expect(ids(inbox)).toStrictEqual([target]);
+      const relaunched = await opened(graph);
+      expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+      expect(message(relaunched, target).unread).toBe(false);
+    },
+  );
+
+  it('keeps interrupted intent pending when placement read-back is incomplete', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    const inbox = await opened(graph);
+    const [target = ''] = ids(inbox);
+    graph.failModify({ status: 503 });
+    await inbox.organize(message(inbox, target), gmailAction.archive);
+    const readBack = vi.spyOn(graph.native, 'graphRequest');
+    readBack.mockResolvedValueOnce({
+      status: 200,
+      body: JSON.stringify({ id: target }),
+    });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 1,
+      sync: 'retry',
+    });
+    expect(graph.modifies).toHaveLength(1);
+
+    readBack.mockRestore();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(graph.folderOf(target)).toBe('archive');
+  });
+
   it('keeps a change saved and asks for Microsoft again when the grant cannot organize mail', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 1 });
@@ -248,6 +325,27 @@ describe('organizing Microsoft mail through Graph', () => {
     expect(message(inbox, target).labels).toStrictEqual(['INBOX', 'UNREAD']);
   });
 
+  it.each([
+    { folder: 'archive', action: gmailAction.archive },
+    { folder: 'deleteditems', action: gmailAction.trash },
+    { folder: 'junkemail', action: gmailAction.spam },
+  ])(
+    'does not offer or queue $action.kind when its folder is absent',
+    async ({ folder, action }) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ messages: 1 });
+      graph.withoutFolder(folder);
+      const inbox = await opened(graph);
+      const [target = ''] = ids(inbox);
+      expect(ready(inbox.getSnapshot()).unavailableActions).toContain(
+        action.kind,
+      );
+      await inbox.organize(message(inbox, target), action);
+      expect(ready(inbox.getSnapshot()).pending).toBe(0);
+      expect(graph.modifies).toStrictEqual([]);
+    },
+  );
+
   it('searches every folder, labels results by where they are, and continues on the next page', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ pageSize: 1 });
@@ -271,7 +369,7 @@ describe('organizing Microsoft mail through Graph', () => {
     }).toStrictEqual({
       searches: [String.raw`"quarterly \"plan"`, '"quarterly"', '"quarterly"'],
       found: [
-        [archived, ['UNREAD']],
+        [archived, ['ARCHIVE', 'UNREAD']],
         [inboxed, ['INBOX']],
       ],
     });

@@ -128,7 +128,13 @@ export const canOrganize = (message: GmailMessage) =>
 export const quickActions = (
   t: Translate,
   message: GmailMessage,
-  provider: MailProvider = 'gmail',
+  {
+    provider = 'gmail',
+    unavailableActions = [],
+  }: Readonly<{
+    provider?: MailProvider;
+    unavailableActions?: ReadonlyArray<GmailAction['kind']> | undefined;
+  }> = {},
 ) =>
   (canOrganize(message)
     ? [
@@ -145,8 +151,10 @@ export const quickActions = (
         gmailAction.spam,
       ]
     : []
-  ).map((action) => ({
-    name: action.kind,
-    label: t(`gmailActions.label.${action.kind}`),
-    action,
-  }));
+  )
+    .filter((action) => !unavailableActions.includes(action.kind))
+    .map((action) => ({
+      name: action.kind,
+      label: t(`gmailActions.label.${action.kind}`),
+      action,
+    }));

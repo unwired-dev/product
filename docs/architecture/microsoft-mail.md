@@ -5,8 +5,9 @@ Reviewer-only companion to [the operational guide](../microsoft-mail.md), under
 Issue [#634](https://github.com/unwired-dev/product/issues/634) adds a fresh Graph
 reader for the replacement hosts, without reusing the prototype mail engine.
 [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md) establishes
-Microsoft mail at launch; this slice covers own-mailbox authorization and reading.
-Microsoft Product Sign-In, organizing, search and sending have separate issues.
+Microsoft mail at launch; #634 covers own-mailbox authorization and reading,
+and [#635](https://github.com/unwired-dev/product/issues/635) adds organizing and
+online search. Microsoft Product Sign-In and sending have separate issues.
 
 ## Adapter evaluation
 
@@ -19,7 +20,7 @@ The Graph SDK could construct requests behind a native token-free transport, but
 would still need the product's Schema decoding, durable checkpoints, cancellation,
 response bounds and ownership fences. No SDK compatibility experiment is claimed.
 
-For this read-only slice, direct Graph REST requests over the existing bounded
+For reading and organizing, direct Graph REST requests over the existing bounded
 native transport keep those boundaries explicit without a new SDK or native
 module. TypeScript owns URLs, response decoding and synchronization; native owns
 OAuth presentation, token exchange/renewal, credential custody and authenticated
@@ -35,8 +36,12 @@ later slice needs capabilities this public-client flow cannot supply.
 and `ASWebAuthenticationSession`. Random state binds both success and error
 callbacks; scheme, host, path and unique state/code are validated before accepting
 an answer. The common authority admits personal and work/school accounts. Actual
-granted `Mail.Read` scope, `/me` identity and own Inbox availability are checked
-before connection publication. Reauthorization must match the saved Graph subject.
+granted mail access, `/me` identity and own Inbox availability are checked before
+connection publication. New consent requests `offline_access User.Read Mail.ReadWrite`;
+an existing `Mail.Read` connection can keep reading. Refresh requests the connection's
+granted scopes rather than requiring an unconsented write scope. A write denied for
+missing permission retains its durable action and requests reauthorization, which
+must match the saved Graph subject.
 
 Access/refresh tokens and expiry are archived only in the existing device-only
 Keychain registration record. Refresh begins within five minutes of expiry;
@@ -48,7 +53,7 @@ Native Graph requests validate the connection, generation and process verificati
 before renewal and after suspension. Gmail refuses Microsoft grants and vice versa.
 
 The Graph URL allowlist admits only HTTPS `graph.microsoft.com/v1.0/me` message,
-attachment and own-folder message paths; no shared/delegated `/users` path is
+attachment, own-folder and mailbox search paths; no shared/delegated `/users` path is
 accepted. Continuations support documented `mailFolders`/`mailfolders`, slash and
 quoted folder IDs. Responses use the existing ephemeral, redirect-refusing,
 bounded `GmailTransport`, and carry `Prefer: IdType="ImmutableId"` and page size 50.
@@ -56,12 +61,14 @@ Credentials never cross the bridge; only status/body do.
 
 ## Synchronization and identity
 
-`graph-inbox.ts` owns Graph synchronization, attachment metadata and body reads.
+`graph-inbox.ts` owns Graph synchronization, attachment metadata, body reads,
+folder discovery, organizing response interpretation and online search.
 The host-facing Inbox store delegates those operations while retaining cache
 publication, reader lifetime, prefetch and presentation admission. Both providers
 use the same `mailbox-document.ts` cache schemas/reconciliation and
 `mailbox-read.ts` request decoding/failures; the exported store interface and
-persisted document shapes remain unchanged.
+persisted version remains 1 with optional folder-limit metadata. Hosts consume a
+nonpersisted unavailable-action list derived from discovered folder roles.
 
 Initial lists follow [`@odata.nextLink`](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0)
 until the newest 200 messages or all available messages are retained, with a
@@ -115,11 +122,42 @@ consent, isolated WebKit rendering and cleanup follow
 [ADR 0029](../adr/0029-sanitize-html-before-webkit-rendering.md) and
 [ADR 0030](../adr/0030-gate-incoming-attachment-downloads.md).
 
+## Organization and search
+
+Well-known folder lookups bind provider IDs to Inbox, Archive, Deleted Items,
+Junk Email, Drafts, Sent Items and Outbox without guessing localized names.
+Other folders are breadth-first traversal targets with path names. Discovery
+stops at 250 offered folders or each folder's first page; the encrypted document
+retains the resulting list and a visible truncation flag. Role actions remain
+unavailable until their required folder is known and present. Microsoft offers
+read state and moves, with no Gmail label toggles or star.
+
+The shared durable action queue retains ordered intent, immutable attempts,
+ownership fences, refusal markers and removal-only Undo. Graph placement maps to
+internal role labels plus UNREAD, with ARCHIVE distinct from every other folder.
+Archive reconciliation requires that role rather than merely absence from Inbox.
+Authoritative placement replies require both parentFolderId and isRead; incomplete
+replies keep the action pending for read-back and retry. Permanent refusal restores
+provider-derived state, and interrupted writes reconcile before another dispatch.
+
+Native `graphModify` admits only one read-state change or destination folder,
+validates identifiers and constructs PATCH message or POST move requests behind
+the existing `graphCall` authorization and generation fences. Tokens stay native;
+`Prefer: IdType="ImmutableId"` preserves message identity across moves.
+
+Online search uses Graph's own-mailbox `/me/messages?$search`, quoted and escaped,
+with Schema-validated results and same-host own-message continuation URLs.
+Graph orders these matches by sent time and caps them at 1,000; the unified view
+orders returned messages by received time. Search results remain in memory and
+are not organizable in this slice, as for Gmail. No backend-readable index is added.
+
 ## Evidence
 
 Shared store journeys cover realistic continuation pages, partial/repeated delta
 identities, relaunch, expired state, image admission/failure, metadata failure and
-retry, attachment reads, and Gmail/Microsoft isolation. Native hosted tests use
+retry, attachment reads, and Gmail/Microsoft isolation. Organizing tests also cover
+read and move requests, Undo, interrupted/throttled writes, concurrent placement
+changes, incomplete replies, refused grants and missing folder roles. Native hosted tests use
 real local storage and a controlled HTTP boundary through `GraphMailProvider`;
 packaged Microsoft-first registration uses synthetic providers. Neither proves
 live personal/tenant OAuth, real Graph shapes, physical lock enforcement or Mac

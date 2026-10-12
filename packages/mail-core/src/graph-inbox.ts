@@ -55,6 +55,7 @@ import {
   graphPayload,
   graphPlacement,
   graphSearch,
+  graphUnavailableActions,
   graphWellKnownFolder,
   isGraphSearchLink,
   listedMessage,
@@ -526,5 +527,6 @@ export function createGraphReader(native: NativeGraphMailbox) {
     readLabels,
     modify,
     search,
+    unavailableActions: () => graphUnavailableActions(known?.roles),
   } as const;
 }

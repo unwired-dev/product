@@ -348,6 +348,8 @@ export type GmailInboxState =
       readonly labels: readonly GmailLabel[];
       // More folders exist than `labels` lists.
       readonly labelsLimited?: true;
+      // Folder-role actions this mailbox cannot perform, including while roles are unknown.
+      readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
       readonly pending: number;
       readonly saving: number;
@@ -1295,6 +1297,9 @@ export function createGmailInbox(
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       sync: shownSyncState(),
       ...listedLabels(document),
+      ...(graph === undefined
+        ? {}
+        : { unavailableActions: graph.unavailableActions() }),
       pending: durable.length,
       saving: queued.length,
       ...presented(durable),
@@ -3232,8 +3237,15 @@ export function createGmailInbox(
   // Microsoft mail offers only the actions Graph can make.
   const offered = (message: GmailMessage, action: GmailAction) =>
     canOrganize(message) &&
-    (graph === undefined || graphChange(action) !== undefined);
+    (graph === undefined ||
+      (graphChange(action) !== undefined &&
+        !graph.unavailableActions().includes(action.kind)));
   const providerLabels = graph?.readLabels ?? readLabels;
+  const providerRequested = (labels: readonly string[], action: GmailAction) =>
+    requestedLabels(labels, action) &&
+    (graph === undefined ||
+      action.kind !== 'archive' ||
+      labels.includes('ARCHIVE'));
 
   // A refused change leaves the queue once Gmail's current labels for its message are read.
   const settleRefusal = Effect.fnUntraced(function* (
@@ -3327,7 +3339,7 @@ export function createGmailInbox(
     const observed = yield* providerLabels(current.cache, head.message);
     if (
       Option.isSome(observed) &&
-      !requestedLabels(observed.value, head.action)
+      !providerRequested(observed.value, head.action)
     ) {
       return Option.none<{ cache: Cache; document: MailboxDocument }>();
     }

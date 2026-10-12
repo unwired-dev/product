@@ -546,6 +546,30 @@ describe('connected Gmail Inbox', () => {
     ).toStrictEqual([[unsaved]]);
   });
 
+  it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({
+      address: 'alex@example.invalid',
+      messages: 1,
+    });
+    graph.withoutFolder('archive');
+    const connected = renderConnected(
+      graph.native,
+      undefined,
+      'microsoft-graph',
+    );
+    await connected.rendered;
+    const row = await screen.findByRole('button', {
+      name: /Synthetic message 0/u,
+    });
+    expect(row.props.accessibilityActions).not.toContainEqual(
+      expect.objectContaining({ name: 'archive' }),
+    );
+    await fireEvent.press(row);
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeVisible();
+  });
+
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ address: 'alex@example.invalid' });

@@ -8,6 +8,8 @@ import * as Schema from 'effect/Schema';
 import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
 
+import { GraphId } from './mailbox-message.ts';
+
 // Microsoft Graph reads for one Outlook.com or Microsoft 365 mailbox. Native code attaches the
 // mailbox's token and refuses any URL outside the signed-in person's own mail; this module chooses
 // the requests and turns Graph's JSON into Inbox messages and the MIME part tree bodies use.
@@ -50,7 +52,7 @@ export const graphFolders = `${graphRoot}/me/mailFolders?${folderFields}`;
 export const graphChildFolders = (id: string) =>
   `${graphRoot}/me/mailFolders/${id}/childFolders?${folderFields}`;
 
-// Graph's own search of every folder, by relevance; a quote inside the query is escaped.
+// Graph's own search of every folder, ordered by sent time; a quote inside the query is escaped.
 export const graphSearch = (query: string, limit: number) =>
   `${graphRoot}/me/messages?$search=${encodeURIComponent(`"${query.replaceAll(/["\\]/gu, String.raw`\$&`)}"`)}&$select=${listed},parentFolderId&$top=${limit}`;
 
@@ -65,11 +67,6 @@ export const wellKnownFolders = [
   'outbox',
 ] as const;
 export type WellKnownFolder = (typeof wellKnownFolders)[number];
-
-// Graph's message and attachment IDs are URL-safe base64 text.
-export const GraphId = Schema.String.check(
-  Schema.isPattern(/^[\w=-]{1,512}$/u),
-);
 
 // A continuation of an Inbox delta round, as Graph returns it.
 export const GraphDeltaLink = Schema.String.check(
@@ -192,10 +189,11 @@ export const fileData = (contentBytes: string) => {
 };
 
 // A message lives in exactly one folder. Organizing reads it with Gmail's label model: its folder's
-// role, or the folder itself, and its read state. Archive has no label, as an archived Gmail
-// message keeps no Inbox label.
+// role, or the folder itself, and its read state. Archive remains distinct so another folder
+// cannot falsely confirm an interrupted archive.
 const roleLabels: Partial<Record<WellKnownFolder, string>> = {
   inbox: 'INBOX',
+  archive: 'ARCHIVE',
   deleteditems: 'TRASH',
   junkemail: 'SPAM',
 };
@@ -224,6 +222,14 @@ const folderMoves: Partial<Record<GmailAction['kind'], WellKnownFolder>> = {
   spam: 'junkemail',
   restore: 'inbox',
 };
+export const graphUnavailableActions = (
+  roles: FolderRoles | undefined,
+): ReadonlyArray<GmailAction['kind']> => {
+  const available = [...(roles?.values() ?? [])];
+  return (['archive', 'trash', 'spam'] as const).filter(
+    (kind) => !available.some((role) => role === folderMoves[kind]),
+  );
+};
 export const graphChange = (action: GmailAction): GraphChange | undefined => {
   if (action.kind === 'read' || action.kind === 'unread') {
     return { read: action.kind === 'read' };
@@ -235,8 +241,8 @@ export const graphChange = (action: GmailAction): GraphChange | undefined => {
 
 const GraphPlacementSchema = Schema.Struct({
   id: GraphId,
-  parentFolderId: Schema.optionalKey(GraphId),
-  isRead: Schema.optionalKey(Schema.Boolean),
+  parentFolderId: GraphId,
+  isRead: Schema.Boolean,
 });
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);

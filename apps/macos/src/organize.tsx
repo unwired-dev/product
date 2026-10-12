@@ -130,7 +130,10 @@ export function MessageActions({
   return (
     <>
       <View style={styles.bar}>
-        {quickActions(t, message, provider).map(({ name, label, action }) => (
+        {quickActions(t, message, {
+          provider,
+          unavailableActions: state.unavailableActions,
+        }).map(({ name, label, action }) => (
           <ActionButton
             key={name}
             label={label}

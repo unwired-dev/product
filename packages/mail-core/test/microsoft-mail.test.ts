@@ -267,7 +267,9 @@ describe('reading Microsoft mail through Graph', () => {
     expect(
       synced.messages
         .slice(0, 1)
-        .flatMap((message) => quickActions(english, message, 'microsoft-graph'))
+        .flatMap((message) =>
+          quickActions(english, message, { provider: 'microsoft-graph' }),
+        )
         .map(({ name }) => name),
     ).toStrictEqual(['read', 'archive', 'trash', 'spam']);
     // The Inbox shows after one list; the delta round walks every page, then the Inbox is

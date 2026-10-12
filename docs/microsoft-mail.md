@@ -81,9 +81,11 @@ Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Move t
 Trash** (Deleted Items), **Report spam** (Junk Email), and **Move to** one of the
 mailbox's own folders under **Folders**, nested ones included. Each folder shows its
 path, such as **Inbox / Projects**, so folders with equal names stay apart. A mailbox
-with more than 250 folders lists the first 250 and says so. **Undo** moves a message back to
+lists up to 250 folders, stopping at each folder's first provider page, and says
+when some folders were left out. **Undo** moves a message back to
 the Inbox. A Microsoft message lives in one folder, so Gmail's labels and star are
-not offered for it, and a mailbox without an Archive folder refuses Archive.
+not offered for it. Archive, Trash and Spam actions are offered only after their
+folder roles are known and present in the mailbox.
 
 Each change shows at once, is saved on this device and is sent to Microsoft in
 order, exactly as for [Gmail](gmail-inbox.md):
@@ -97,7 +99,8 @@ order, exactly as for [Gmail](gmail-inbox.md):
 - each change goes only to the connection that showed the message.
 
 Online search covers every folder of each Microsoft mailbox beside Gmail's.
-Microsoft orders its results by relevance; the Inbox lists all results newest first.
+Microsoft orders its results by sent time and returns up to 1,000 matches; the
+Inbox lists all returned results newest first.
 
 Sending stays Gmail-only until
 [#636](https://github.com/unwired-dev/product/issues/636): the composer offers only
@@ -140,7 +143,8 @@ by its decoded size, hidden/unreferenced images, optional image and attachment-m
 retry after relaunch, a refused grant, and a unified Inbox that searches both
 providers online and sends only from Gmail. Organizing tests check Graph's read-state
 and move requests, nested folder listing by path and its limit, Undo, an outage across relaunch, a lost reply,
-throttling and server errors, a deleted message or folder, a read-only grant,
+throttling and server errors, a concurrent Outlook move, incomplete placement
+replies, a deleted message or folder, missing folder roles, a read-only grant,
 actions Microsoft lacks, search across folders and pages, and that changes reach only
 the connection that showed the message. Registration-flow tests connect Microsoft mail as a Google or Apple
 account's first mailbox without asking Google for mail, and cover cancellation, refused
