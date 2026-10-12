@@ -4,6 +4,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A Draft editor keyboard regression in `packages/draft-editor/test/editor.test.ts` invoking a command that replays only document steps while the real key handler dispatches a caret change. Exercise the page's keydown handlers and subsequent typing as well as its posted semantic body; otherwise a passing document-only assertion can hide text entering the previous or wrong block. Page key-handler evidence remains distinct from native WebKit keyboard interaction.
+
 - A native test mirror such as `RegistrationFlowSupport.swift` classifying failures
   differently from the production bridge and `registration-flow.ts`. Trace the
   error through the production rejection mapper before comparing cached,

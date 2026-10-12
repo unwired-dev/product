@@ -16,6 +16,16 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
 body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror { min-height: 100vh; box-sizing: border-box; padding: 12px 16px; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ProseMirror p { margin: 0 0 0.75em; }
+.ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { margin: 0 0 0.5em; line-height: 1.25; }
+.ProseMirror h1 { font-size: 1.6em; }
+.ProseMirror h2 { font-size: 1.35em; }
+.ProseMirror h3 { font-size: 1.15em; }
+.ProseMirror ul, .ProseMirror ol { margin: 0 0 0.75em; padding-left: 1.5em; }
+.ProseMirror li p, .ProseMirror blockquote p { margin: 0; }
+.ProseMirror blockquote { margin: 0 0 0.75em; padding-left: 12px; border-left: 3px solid rgba(128, 128, 128, 0.5); }
+.ProseMirror pre { margin: 0; padding: 0 8px; background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; }
+.ProseMirror pre + :not(pre) { margin-top: 0.75em; }
+.ProseMirror code, .ProseMirror pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
 `;
 
 function pageHtml() {

@@ -103,6 +103,11 @@
       "merge_system_rule": false
     },
     {
+      "path": "packages/draft-editor/**",
+      "rule": ".opencodereview/rules/draft-editor.md",
+      "merge_system_rule": false
+    },
+    {
       "path": "apps/{mobile,macos}/**/*.{ts,tsx,js}",
       "rule": ".opencodereview/rules/hosts.md",
       "merge_system_rule": false

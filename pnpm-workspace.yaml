@@ -17,9 +17,17 @@ catalog:
   '@rajzik/tsconfig': ^4.0.4
   '@types/node': ^24.19.1
   '@tiptap/core': 3.31.4
+  '@tiptap/extension-blockquote': 3.31.4
+  '@tiptap/extension-bold': 3.31.4
+  '@tiptap/extension-code': 3.31.4
   '@tiptap/extension-document': 3.31.4
+  '@tiptap/extension-heading': 3.31.4
+  '@tiptap/extension-italic': 3.31.4
+  '@tiptap/extension-list': 3.31.4
   '@tiptap/extension-paragraph': 3.31.4
+  '@tiptap/extension-strike': 3.31.4
   '@tiptap/extension-text': 3.31.4
+  '@tiptap/extension-underline': 3.31.4
   '@tiptap/extensions': 3.31.4
   '@tiptap/pm': 3.31.4
   'esbuild': 0.28.2
