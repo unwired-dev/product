@@ -6,6 +6,7 @@ One root pnpm workspace and lockfile serve two native hosts that cannot share a 
 
 - A dependency version written literally in a package rather than `catalog:` (shared) or `catalog:mobile` / `catalog:macos` (host-specific). Catalogs are the single place a version changes.
 - React, React Native or a renderer-bound library moved into the shared catalog, or a host reading the other host's catalog. Mobile and Mac pin different React and React Native versions on purpose.
+- A direct Expo toolchain pin in `catalogs.mobile`, such as `babel-preset-expo`, outside the selected `expo` package's published dependency range. Check that package's metadata as well as the SDK compatibility map used by `expo install --check`; the map can accept a broader range, leaving the mobile build on an incompatible direct toolchain version while Expo resolves a different transitive copy.
 - A second lockfile, a nested workspace, or a `packageManager`, `engines` or `.mise.toml` version changed in one place and not the others.
 - An install-script permission added or broadened to `true` in `allowBuilds` without a stated need and review of the package, or a package added to `minimumReleaseAgeExclude` without an exact version and a reason for the exception. The first runs install scripts; the second bypasses the release-age delay that protects against a freshly compromised release.
 - A new production dependency for something a few lines or an installed dependency already provides, or a runtime dependency placed in `devDependencies` (or the reverse).

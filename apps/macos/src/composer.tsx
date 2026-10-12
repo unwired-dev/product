@@ -446,7 +446,14 @@ export function DraftList({
   const navigation = useComposerNavigation();
   const windowProfile = useProfile();
   const creating = useRef(false);
+  const scopeGeneration = useRef(0);
   const [creatingShown, setCreatingShown] = useState(false);
+  useLayoutEffect(
+    () => () => {
+      scopeGeneration.current += 1;
+    },
+    [navigation, scope, store, windowProfile],
+  );
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
@@ -468,12 +475,16 @@ export function DraftList({
     if (creating.current) {
       return false;
     }
+    const generation = scopeGeneration.current;
     creating.current = true;
     setCreatingShown(true);
     // Leaving and creating resolve rather than reject, so the press always settles here.
     const result = await navigation.createResult(store, mailbox);
     creating.current = false;
     setCreatingShown(false);
+    if (generation !== scopeGeneration.current) {
+      return false;
+    }
     if (result?.kind === 'created') {
       onCompose(result.id);
       return true;

@@ -121,6 +121,10 @@ and asks the person to reconnect. They reserve
   the palette.
 - An Account, Profile or lock scope change retires the palette without restoring
   its previous React or native focus target. The saved native responder is cleared.
+- Pending Inbox New Message completion cannot open a composer after its initiating
+  Profile, mailbox scope or screen retires. A Draft already created stays with its
+  original sender; completion neither reopens the retired Profile nor retargets
+  the current one.
 - Each new opening starts with an empty query.
 
 ## Maintained-client integration scope

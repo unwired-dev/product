@@ -296,6 +296,86 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   });
 
+  it.each(['button', 'palette'])(
+    'does not open a retired Profile after %s Draft creation settles',
+    async (entry) => {
+      expect.hasAssertions();
+      const registration = account({
+        ...connected(['alex@example.invalid', 'other@example.invalid']),
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'alex@example.invalid', state: 'connected' },
+          {
+            id: other,
+            address: 'other@example.invalid',
+            state: 'connected',
+            profile: 'work',
+          },
+        ]),
+      });
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const view = (profile: string) => (
+        <CommandPalette>
+          <App
+            drafts={drafts}
+            registration={registration}
+            profile={profile}
+          />
+        </CommandPalette>
+      );
+      try {
+        const app = await render(view('work'));
+        await waitFor(() => {
+          expect(
+            screen.getByRole('button', { name: 'New Message' }),
+          ).toBeEnabled();
+        });
+        storage.hold();
+        if (entry === 'palette') {
+          await fireEvent(
+            screen.getByTestId('command-palette-host'),
+            'commandKey',
+            { nativeEvent: { key: 'open' } },
+          );
+        }
+        await press('New Message');
+        await waitFor(() => {
+          expect(drafts.getSnapshot()).toMatchObject({
+            kind: 'ready',
+            save: 'saving',
+          });
+        });
+        await app.rerender(view('default'));
+        await act(async () => {
+          storage.release();
+          await drafts.save();
+        });
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+        expect(screen.queryByLabelText('Command Palette')).toBeNull();
+        expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+          { connection: other },
+        ]);
+        await press('New Message');
+        await expect(
+          screen.findByRole('button', {
+            name: 'Send from alex@example.invalid',
+          }),
+        ).resolves.toHaveProp('accessibilityState', {
+          selected: true,
+          disabled: false,
+        });
+        expect(
+          draftsOf(drafts.getSnapshot())
+            .map(({ connection }) => connection)
+            .sort(),
+        ).toStrictEqual([alex, other].sort());
+      } finally {
+        storage.release();
+        await screen.unmount();
+      }
+    },
+  );
+
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

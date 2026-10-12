@@ -66,6 +66,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Minimal native vault and TypeScript-owned client logic](../adr/0067-keep-native-code-to-a-minimal-vault.md)
 - [Device-local Background Message Summaries for planned Catch Up](../adr/0068-allow-device-local-background-message-summaries.md)
 - [Per-device sealed rotation and atomic recovery activation](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)
+- [Opt-in PostHog EU telemetry, free-plan limits and partial backend coverage](../adr/0071-use-opt-in-posthog-eu-telemetry-on-the-free-plan.md)
 - [Interview decisions and research](../research/expo-react-native-rewrite.md)
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
