@@ -94,6 +94,16 @@ For tests, mock sessions, harnesses, qualification, workflows or operational cha
 
 For documentation, vocabulary, policy or .opencodereview changes, read docs/agents/domain.md and the affected authoritative sources. Keep vocabulary, observable requirements, architecture/rationale and historical evidence in their authorized-reader locations. Inventory every normative clause moved, rewritten or removed and record its destination or explicit reason; moving a requirement solely into reviewer-only content must not hide it from its implementer. Preserve privacy, recovery, migration and qualification scope clause by clause. Use full ADR filenames/titles where numbering collides. Update affected links and operational instructions, format and check local links/fragments; runtime or exported API changes need a changeset. The rule config and architecture/rule-coverage docs remain reviewer-only, while implementers may read their routing AGENTS.md. Maintain complete common-rule coverage: project entries are first-match, not compositional; merge_system_rule preserves only the embedded language rule. Order `rule.json` entries from most specific to the `**/*` fallback, keep every entry's `rule` a readable file under `.opencodereview/rules/` (an unreadable file silently resolves to no project rule), and keep the reference to this checklist as the first instruction of every path rule. Add a path-rule bullet only for a defect a linter, type checker or CI check cannot decide, name the file, helper or invariant it protects, and give the consequence. Validate rule resolution, owned documentation/tests selection and dependency/build/generated/secret exclusions with the real CLI when rules change. This checklist and its source routing must not silently rewrite an accepted decision.
 
+- For product terminology renames, sweep current prose beyond the changed-file
+  list, including configuration and tooling values in `.coderabbit.yaml` and
+  repository-owned YAML, JSON and TOML. Review prose values even when an embedded
+  language rule says to ignore them; otherwise active instructions retain the
+  former term and propagate vocabulary drift. Classify remaining matches against
+  the issue's exclusions for identifiers, paths, code comments, backend errors
+  and historical records, preserving glossary `_Avoid_:` entries and approved
+  exceptions. Exclude dependencies, generated artifacts and the `graft/` cache
+  from the sweep.
+
 #### R12 — Rule upkeep (conditional)
 
 These rules improve from the reviews they take part in. Apply this section when the task answers pull-request review feedback, repairs a defect that an earlier review of the same code let through, or produced a finding you rejected as a false positive.
