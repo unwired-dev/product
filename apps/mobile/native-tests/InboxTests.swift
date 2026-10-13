@@ -688,7 +688,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
     verifyLanguagePreference(in: app)
     if UIDevice.current.userInterfaceIdiom == .phone {
-      let header = app.otherElements["inbox-command-header"]
+      let header = app.otherElements.matching(identifier: "inbox-command-header").firstMatch
       XCTAssertTrue(header.waitForExistence(timeout: 10))
       let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
       start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
