@@ -78,7 +78,9 @@ function NewMessageButton({
     account.mailboxes,
     scope === undefined ? windowProfile : profileOf(scope, account.mailboxes),
   );
-  const sender = senders.find(({ id }) => id === scope) ?? senders[0];
+  // One shown mailbox sends only from itself; every mailbox sends from the first usable one.
+  const sender =
+    scope === undefined ? senders[0] : senders.find(({ id }) => id === scope);
   const disabled =
     state.kind !== 'ready' || sender === undefined || creatingShown;
   const compose = async () => {

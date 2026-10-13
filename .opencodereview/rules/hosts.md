@@ -42,7 +42,22 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
-- `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
+- `inbox-bar.tsx.NewMessageButton` falling back to another sender when a specific
+  mailbox is selected but cannot send. Only All inboxes chooses the first usable
+  mailbox in the window's Profile; a selected mailbox without authorization or
+  SMTP keeps New Message disabled. Exercise a receive-only selection beside a
+  usable sender, then All inboxes, through the real Draft store. Otherwise a new
+  Draft silently starts from an identity the person did not choose.
+
+- `sidebar.tsx.Mailboxes` deriving its entire connection list from open Inbox
+  stores. Connections needing authorization can have no store; retain those
+  definitions from the current Profile with a connection-local problem and the
+  owning provider's recovery action. Check the missing-store state, successful
+  recovery without duplicate rows and Profile isolation; IMAP password repair
+  must open Account through the composer exit guard. Otherwise a saved connection
+  disappears precisely when the person needs to repair its access.
+
+- `sidebar.tsx.Mailboxes` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
@@ -264,7 +279,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
 
-- `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
+- `inbox-bar.tsx.NewMessageButton` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
   until refusal or completion releases it. A second press after leaving settles

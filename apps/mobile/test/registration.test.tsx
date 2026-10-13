@@ -1124,8 +1124,20 @@ describe('product registration', () => {
         'alex@example.invalid: Gmail needs your permission again to show new mail.',
       ),
     ).toBeVisible();
-    await press('Allow Gmail access for alex@example.invalid');
+    // The sidebar keeps the connection listed with its problem beside it, and offers the grant.
+    expect(
+      screen.getByRole('button', {
+        name: 'Allow Gmail access for alex@example.invalid',
+      }),
+    ).toBeVisible();
+    const alexRow = () =>
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' });
+    expect(alexRow()).toHaveAccessibilityValue({
+      text: 'Gmail needs your permission again',
+    });
+    await press('Inbox. In alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
+    expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
 
     // Removal asks first, then removes only that mailbox's mail from this device.
     await openAccount();

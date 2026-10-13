@@ -1,4 +1,5 @@
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import { profileMailboxes } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -8,7 +9,12 @@ import type { InboxMailbox } from './private-storage.ts';
 import { SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { useLeaveComposer, useMailboxes } from './mailbox.tsx';
+import {
+  useLeaveComposer,
+  useMailboxes,
+  useProfile,
+  useReloadMailboxes,
+} from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -63,6 +69,7 @@ function Item({
   label,
   accessibilityLabel = label,
   count = 0,
+  status,
   selected = false,
   onPress,
 }: {
@@ -70,20 +77,22 @@ function Item({
   readonly label: string;
   readonly accessibilityLabel?: string;
   readonly count?: number;
+  // A problem beside the mailbox, in place of its count.
+  readonly status?: string;
   readonly selected?: boolean;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const [focused, setFocused] = useState(false);
+  const value =
+    status ?? (count === 0 ? undefined : t('mailboxes.unread', { count }));
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityValue={
-        count === 0 ? undefined : { text: t('mailboxes.unread', { count }) }
-      }
+      accessibilityValue={value === undefined ? undefined : { text: value }}
       focusable
       onBlur={() => {
         setFocused(false);
@@ -112,7 +121,13 @@ function Item({
         ]}>
         {label}
       </Text>
-      {count === 0 ? null : (
+      {status === undefined ? null : (
+        <SFSymbol
+          name="exclamationmark.triangle"
+          color={colors.statusWarning}
+        />
+      )}
+      {count === 0 || status !== undefined ? null : (
         <Text style={[styles.count, { color: colors.textSecondary }]}>
           {count}
         </Text>
@@ -144,15 +159,28 @@ export function Mailboxes({
 }) {
   const mailboxes = useMailboxes();
   const account = use(AccountContext);
+  const profile = useProfile();
+  const reload = useReloadMailboxes();
   const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
   const chosen = mailboxes.find(({ id }) => id === view.mailbox);
+  // Connections waiting for provider authorization have no Inbox until it is given again; they
+  // stay listed with the problem beside them.
+  const waiting = profileMailboxes(account?.mailboxes ?? [], profile).filter(
+    ({ id, state }) =>
+      state === 'authorization' &&
+      !mailboxes.some((mailbox) => mailbox.id === id),
+  );
   // The account page replaces the Inbox, so an open composer is left first.
   const openAccount = async (open: () => void) => {
     if (await leave()) {
       open();
     }
+  };
+  const authorize = async (connection: string) => {
+    await account?.authorizeMailbox(connection);
+    await reload();
   };
   return (
     <View style={styles.fill}>
@@ -222,6 +250,38 @@ export function Mailboxes({
                     />
                   );
                 })}
+              </Fragment>
+            );
+          })}
+          {waiting.map((connection) => {
+            const provider = t(`mailProviders.${connection.provider}`);
+            const imap = connection.provider === 'imap';
+            return (
+              <Fragment key={connection.id}>
+                <SectionHeader label={`${provider} · ${connection.address}`} />
+                <Item
+                  icon="tray"
+                  label={t('inbox.title')}
+                  accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                    row: t('inbox.title'),
+                    mailbox: connection.address,
+                  })}
+                  status={
+                    imap
+                      ? t('mailboxes.states.imap-authorization')
+                      : t('mailboxes.states.authorization', { provider })
+                  }
+                  onPress={() => {
+                    // IMAP needs its password entered again on the account page.
+                    if (imap) {
+                      if (account !== undefined) {
+                        void openAccount(account.openAccount);
+                      }
+                    } else {
+                      void authorize(connection.id);
+                    }
+                  }}
+                />
               </Fragment>
             );
           })}

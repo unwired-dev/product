@@ -257,6 +257,55 @@ const press = async (name: string) => {
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
+  it('does not substitute a sender for the selected receive-only mailbox', async () => {
+    expect.hasAssertions();
+    const initial = connected(['alex@example.invalid']);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        ...mailboxesOf(initial),
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          imap: {
+            host: 'imap.example.invalid',
+            port: 993,
+            username: 'imap',
+          },
+          state: 'connected',
+        },
+      ]),
+    });
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    const connections = createMailboxes(
+      syntheticConnections(
+        { [alex]: createSyntheticGmail({ messages: 1 }) },
+        { imap: imap.native },
+      ),
+      registration,
+    );
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        mailboxes={{ ...connections, getSnapshot: connections.getConnections }}
+      />,
+    );
+    await press('Inbox. In imap@example.invalid');
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await press('All inboxes');
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();
     const initial = connected([
