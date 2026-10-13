@@ -871,10 +871,7 @@ export function createImapInbox(
     // Keep shown evicted rows and failed first reads until their folder is read or retired;
     // access-closing failures have already cleared every view.
     for (const [name, view] of previous) {
-      if (
-        (view.kind === 'ready' || view.kind === 'failed') &&
-        !folderViews.has(name)
-      ) {
+      if (view.kind !== 'loading' && !folderViews.has(name)) {
         folderViews.set(name, view);
       }
     }
