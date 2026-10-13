@@ -89,8 +89,10 @@ results never appear in the palette. The vocabulary lives in the
 Component tests cover opening from each entry, including the Thread reader,
 the fixed order, fuzzy narrowing, running Archive and Move to… on the open
 message with Undo, the disabled reasons, Search Mail leaving the reader, the
-Account page's entry and its way back to the Inbox, Back, Escape and the Mac's
-outside click, and a target that disappears after opening.
+Account page's entry and its way back to the Inbox, Command-P opening the Mac
+palette only while its window shows the bar, an open palette leaving with its
+screen when registration replaces it, Back, Escape and the Mac's outside click,
+and a target that disappears after opening.
 From the root:
 
 ```sh
@@ -103,4 +105,5 @@ The Command-P menu item, the saved hint preference and the header swipe are
 native and need a built host: the [Mac host](macos-client.md) and the
 [Expo app](expo-client.md). The swipe's arbitration with the scrolling content
 beneath each header, and the accessibility actions, remain to be qualified on
-iPhone and iPad.
+iPhone and iPad; on the Mac, so do clicks on the open panel's rows, which must
+reach them above the outside-click layer.

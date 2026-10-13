@@ -381,7 +381,7 @@ export const inboxCommands = (
   t: Translate,
   handlers: Readonly<{
     search?: (() => void | Promise<void>) | undefined;
-    inbox?: (() => Promise<void>) | undefined;
+    inbox?: (() => void | Promise<void>) | undefined;
     account?: (() => void) | undefined;
   }>,
 ): readonly Command[] => [

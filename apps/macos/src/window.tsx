@@ -1,16 +1,10 @@
-import type { ReactNode } from 'react';
-
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
 
-import {
-  CommandBar,
-  CommandMenuListener,
-  CommandPaletteProvider,
-} from './command-palette.tsx';
+import { CommandBar, CommandPaletteProvider } from './command-palette.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { InboxProvider, ProfileScope } from './mailbox.tsx';
@@ -37,27 +31,11 @@ export function PreviewWindow({
   profile = defaultProfile,
 }: WindowProps) {
   return (
-    <WindowPalette windowId={windowId}>
+    <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
       />
-    </WindowPalette>
-  );
-}
-
-// The window's Command Palette, over every screen the window shows, the account page included.
-function WindowPalette({
-  windowId,
-  children,
-}: {
-  readonly windowId: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <CommandPaletteProvider>
-      <CommandMenuListener windowId={windowId} />
-      {children}
     </CommandPaletteProvider>
   );
 }
@@ -137,14 +115,15 @@ export function InboxWindow({
   windowId,
   profile = defaultProfile,
 }: WindowProps) {
+  // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
-    <WindowPalette windowId={windowId}>
+    <CommandPaletteProvider windowId={windowId}>
       <RegistrationGate>
         <ProfileWindow
           windowId={windowId}
           profile={profile}
         />
       </RegistrationGate>
-    </WindowPalette>
+    </CommandPaletteProvider>
   );
 }

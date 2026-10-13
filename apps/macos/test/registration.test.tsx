@@ -4,6 +4,7 @@ import type {
   RegistrationSnapshot,
 } from '@private-email/mail-core/registration';
 import type { SyntheticAddress } from '@private-email/mail-core/testing/registration-session';
+import type { TurboModule } from 'react-native';
 
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
@@ -38,12 +39,18 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
-import { AppState, Pressable, Text } from 'react-native';
+import {
+  AppState,
+  DeviceEventEmitter,
+  Pressable,
+  Text,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -115,6 +122,72 @@ function ConnectedInbox() {
     </InboxProvider>
   );
 }
+
+// The native Commands… menu, whose Command-P names the key window to every window's JavaScript.
+const commandMenu = () => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  const menu: TurboModule &
+    Readonly<{
+      addListener: () => void;
+      removeListeners: () => void;
+    }> = {
+    addListener: () => undefined,
+    removeListeners: () => undefined,
+  };
+  const module = jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? menu : get(name),
+    );
+  return {
+    choose: async (windowId: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('openCommandPalette', {
+          window: `inbox-window-${windowId}`,
+        });
+        await Promise.resolve();
+      });
+    },
+    restore: () => {
+      module.mockRestore();
+    },
+  };
+};
+
+const barConnected = {
+  kind: 'connected',
+  productAccountId: 'synthetic-product-account',
+  signInProvider: 'google',
+  mailboxes: connectedTo('alex@example.invalid'),
+  privateSync: 'ready',
+} as const;
+
+// A window's gate whose screens show only its Command Palette bar, as the window composes them,
+// with the account the next restore reports.
+const renderBarWindow = async (restored: RegistrationSnapshot) => {
+  let next = restored;
+  const store = createRegistration({
+    ...createMockRegistrationSession('registration-success').native,
+    restore: () => Promise.resolve(next),
+  });
+  await render(
+    <CommandPaletteProvider windowId="bar">
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <CommandBar />
+      </RegistrationGate>
+    </CommandPaletteProvider>,
+  );
+  return {
+    restore: async (snapshot: RegistrationSnapshot) => {
+      next = snapshot;
+      await act(async () => {
+        await store.restore();
+      });
+    },
+  };
+};
 
 const openAccount = async () => {
   const account = await screen.findByRole('button', { name: 'Account' });
@@ -696,38 +769,90 @@ describe('product registration', () => {
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: gmail.native },
     });
-    // As the window composes them: the palette stays above the gate, so the account page keeps it.
-    await render(
-      <CommandPaletteProvider>
-        <RegistrationGate
-          store={store}
-          preview={false}>
-          <InboxProvider mailboxes={mailboxes}>
-            <Inbox
-              onSelect={() => undefined}
-              selected={undefined}
-            />
-          </InboxProvider>
-        </RegistrationGate>
-      </CommandPaletteProvider>,
-    );
-    await expect(
-      screen.findByText('Synthetic message 1'),
-    ).resolves.toBeVisible();
-    await openAccount();
-    expect(
-      screen.getByRole('header', { name: 'Gmail connected' }),
-    ).toBeVisible();
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Open Command Palette' }),
-    );
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Inbox' }));
-    });
-    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-    await expect(
-      screen.findByText('Synthetic message 1'),
-    ).resolves.toBeVisible();
+    const menu = commandMenu();
+    try {
+      // As the window composes them: the palette stays above the gate, so the account page keeps
+      // it.
+      await render(
+        <CommandPaletteProvider windowId="account">
+          <RegistrationGate
+            store={store}
+            preview={false}>
+            <InboxProvider mailboxes={mailboxes}>
+              <Inbox
+                onSelect={() => undefined}
+                selected={undefined}
+              />
+            </InboxProvider>
+          </RegistrationGate>
+        </CommandPaletteProvider>,
+      );
+      await expect(
+        screen.findByText('Synthetic message 1'),
+      ).resolves.toBeVisible();
+      await openAccount();
+      expect(
+        screen.getByRole('header', { name: 'Gmail connected' }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: 'Open Command Palette' }),
+      ).toBeVisible();
+      await menu.choose('account');
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Inbox' }));
+      });
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      await expect(
+        screen.findByText('Synthetic message 1'),
+      ).resolves.toBeVisible();
+    } finally {
+      menu.restore();
+    }
+  });
+
+  it('leaves Command-P without effect while setup shows no Command Palette bar', async () => {
+    expect.hasAssertions();
+    const menu = commandMenu();
+    try {
+      const window = await renderBarWindow({ kind: 'signed-out' });
+      await expect(
+        screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      ).resolves.toBeVisible();
+      await menu.choose('bar');
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      // Nor does the Inbox's bar open later with the commands of that press.
+      await window.restore(barConnected);
+      await expect(
+        screen.findByRole('button', { name: 'Open Command Palette' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    } finally {
+      menu.restore();
+    }
+  });
+
+  it('drops an open Command Palette when the gate replaces the screen of its window', async () => {
+    expect.hasAssertions();
+    const menu = commandMenu();
+    try {
+      const window = await renderBarWindow(barConnected);
+      await expect(
+        screen.findByRole('button', { name: 'Open Command Palette' }),
+      ).resolves.toBeVisible();
+      await menu.choose('bar');
+      expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
+      await window.restore({ kind: 'signed-out' });
+      await expect(
+        screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      ).resolves.toBeVisible();
+      await window.restore(barConnected);
+      await expect(
+        screen.findByRole('button', { name: 'Open Command Palette' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    } finally {
+      menu.restore();
+    }
   });
 
   it('waits for registration verification before loading Gmail on activation', async () => {

@@ -23,6 +23,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -49,22 +50,13 @@ import { textStyles, usePalette } from './theme.ts';
 const PaletteContext = createContext<
   Readonly<{
     registry: CommandRegistry;
-    // The commands as listed when the palette opened, while it is open.
-    opened: readonly Command[] | undefined;
-    open: () => void;
-    close: () => void;
+    // The window whose Commands… menu item opens this palette.
+    windowId: string;
   }>
 >({
   registry: createCommandRegistry(),
-  opened: undefined,
-  open: () => undefined,
-  close: () => undefined,
+  windowId: '',
 });
-
-export function useCommandPalette() {
-  const { opened, open, close } = use(PaletteContext);
-  return { open, close, isOpen: opened !== undefined };
-}
 
 // Offers commands while it is mounted, with the same handlers the owning screen's buttons use.
 // They are built outside rendering, so a handler may read a ref.
@@ -106,7 +98,6 @@ const panelWidth = 460;
 const ringWidth = 3;
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
   bar: {
     height: barHeight,
     flexDirection: 'row',
@@ -226,73 +217,54 @@ const styles = StyleSheet.create({
   hintText: { fontSize: 10, lineHeight: 13 },
 });
 
-// Mounts the palette over its children; every window has one.
+// Collects the commands the window's screens offer; every window has one, above every screen that
+// shows the CommandBar.
 export function CommandPaletteProvider({
+  windowId,
   children,
 }: {
+  readonly windowId: string;
   readonly children: ReactNode;
 }) {
   const registry = useMemo(() => createCommandRegistry(), []);
+  const value = useMemo(() => ({ registry, windowId }), [registry, windowId]);
+  return <PaletteContext value={value}>{children}</PaletteContext>;
+}
+
+// The command input that stays visible at the top of the window. While the palette is closed it
+// is a button; open, it is the focused query with the matching commands beneath. The open palette
+// belongs to the bar, so it leaves with the screen that shows it, as when the gate replaces the
+// window's screen.
+export function CommandBar() {
+  const { registry, windowId } = use(PaletteContext);
+  const colors = usePalette();
   const { t } = useLocalization();
+  // The commands as listed when the palette opened, while it is open.
   const [opened, setOpened] = useState<readonly Command[]>();
   // The control focused when the palette opened, which closing hands focus back to.
   const previous = useRef<ReturnType<
     typeof TextInput.State.currentlyFocusedInput
   > | null>(null);
-  const value = useMemo(
-    () => ({
-      registry,
-      opened,
-      open: () => {
-        if (opened !== undefined) {
-          return;
-        }
-        previous.current = TextInput.State.currentlyFocusedInput();
-        const placeholders = expectedCommands(t, {
-          disabled: t('commands.selectConversation'),
-        });
-        const commands = mergeCommands([
-          ...placeholders,
-          ...registry.getSnapshot(),
-        ]);
-        setOpened(orderCommands(commands));
-      },
-      close: () => {
-        setOpened(undefined);
-        previous.current?.focus();
-        previous.current = null;
-      },
-    }),
-    [registry, opened, t],
-  );
-  return (
-    <PaletteContext value={value}>
-      <View style={styles.fill}>
-        {children}
-        {opened === undefined ? null : (
-          // A click anywhere outside the bar and its panel closes the palette without reaching the
-          // control beneath.
-          <Pressable
-            accessibilityLabel={t('commands.close')}
-            accessibilityRole="button"
-            onPress={() => {
-              value.close();
-            }}
-            style={[StyleSheet.absoluteFill, styles.scrim]}
-          />
-        )}
-      </View>
-    </PaletteContext>
-  );
-}
-
-// Opens this window's palette when its Commands… menu item, Command-P, is chosen.
-export function CommandMenuListener({
-  windowId,
-}: {
-  readonly windowId: string;
-}) {
-  const { open } = useCommandPalette();
+  const open = useCallback(() => {
+    if (opened !== undefined) {
+      return;
+    }
+    previous.current = TextInput.State.currentlyFocusedInput();
+    const placeholders = expectedCommands(t, {
+      disabled: t('commands.selectConversation'),
+    });
+    const commands = mergeCommands([
+      ...placeholders,
+      ...registry.getSnapshot(),
+    ]);
+    setOpened(orderCommands(commands));
+  }, [registry, opened, t]);
+  const close = () => {
+    setOpened(undefined);
+    previous.current?.focus();
+    previous.current = null;
+  };
+  // Opens the palette when this window's Commands… menu item, Command-P, is chosen.
   useEffect(() => {
     const menu = commandMenu();
     if (menu === null) {
@@ -310,61 +282,74 @@ export function CommandMenuListener({
       subscription.remove();
     };
   }, [open, windowId]);
-  return null;
-}
-
-// The command input that stays visible at the top of the window. While the palette is closed it
-// is a button; open, it is the focused query with the matching commands beneath.
-export function CommandBar() {
-  const { opened, open } = use(PaletteContext);
-  const colors = usePalette();
-  const { t } = useLocalization();
   return (
-    <View
-      style={[
-        styles.bar,
-        styles.layer,
-        {
-          backgroundColor: colors.surfaceSidebar,
-          borderBottomColor: colors.separator,
-        },
-      ]}>
-      {opened === undefined ? (
+    <>
+      {opened === undefined ? null : (
+        // A click anywhere outside the bar and its panel closes the palette without reaching the
+        // control beneath. React Native orders zIndex among siblings only, so the scrim shares the
+        // bar's parent.
         <Pressable
-          accessibilityLabel={t('commands.openPalette')}
+          accessibilityLabel={t('commands.close')}
           accessibilityRole="button"
-          onPress={open}
-          style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-          <Glass cornerRadius={inputHeight / 2} />
-          <SFSymbol
-            name="command"
-            color={colors.textSecondary}
-          />
-          <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-            {t('commands.open')}
-          </Text>
-          <Text
-            style={[
-              styles.key,
-              {
-                backgroundColor: colors.fillQuiet,
-                color: colors.textSecondary,
-              },
-            ]}>
-            {t('commands.shortcut')}
-          </Text>
-        </Pressable>
-      ) : (
-        <Palette opened={opened} />
+          onPress={close}
+          style={[StyleSheet.absoluteFill, styles.scrim]}
+        />
       )}
-    </View>
+      <View
+        style={[
+          styles.bar,
+          styles.layer,
+          {
+            backgroundColor: colors.surfaceSidebar,
+            borderBottomColor: colors.separator,
+          },
+        ]}>
+        {opened === undefined ? (
+          <Pressable
+            accessibilityLabel={t('commands.openPalette')}
+            accessibilityRole="button"
+            onPress={open}
+            style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
+            <Glass cornerRadius={inputHeight / 2} />
+            <SFSymbol
+              name="command"
+              color={colors.textSecondary}
+            />
+            <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+              {t('commands.open')}
+            </Text>
+            <Text
+              style={[
+                styles.key,
+                {
+                  backgroundColor: colors.fillQuiet,
+                  color: colors.textSecondary,
+                },
+              ]}>
+              {t('commands.shortcut')}
+            </Text>
+          </Pressable>
+        ) : (
+          <Palette
+            opened={opened}
+            close={close}
+          />
+        )}
+      </View>
+    </>
   );
 }
 
 // The open palette: the focused query in the bar, and beneath it the matching commands or the
 // choices of the command being completed. Up and Down select, Return runs, Escape goes back.
-function Palette({ opened }: { readonly opened: readonly Command[] }) {
-  const { registry, close } = use(PaletteContext);
+function Palette({
+  opened,
+  close,
+}: {
+  readonly opened: readonly Command[];
+  readonly close: () => void;
+}) {
+  const { registry } = use(PaletteContext);
   const colors = usePalette();
   const { t } = useLocalization();
   const [query, setQuery] = useState('');

@@ -16,7 +16,6 @@ import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import { inboxCommands } from '@private-email/mail-core/commands';
 import {
   approvesDevices,
   linkFailureCopy,
@@ -49,13 +48,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-screens/experimental';
 
-import {
-  CommandInput,
-  RegisterCommands,
-  usePaletteHeader,
-} from './command-palette.tsx';
+import { AccountPage } from './account-page.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -956,52 +950,5 @@ function RegistrationPage({
       onInbox={onInbox}>
       {page}
     </AccountPage>
-  );
-}
-
-// The account page of a connected Inbox keeps the Command Palette: its title is a fixed header that
-// opens it by a downward swipe, its accessibility action or, on iPad, the command input, and the
-// palette offers the way back to the Inbox.
-function AccountPage({
-  title,
-  onInbox,
-  children,
-}: {
-  readonly title: string;
-  readonly onInbox: () => void;
-  readonly children: ReactNode;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const header = usePaletteHeader();
-  return (
-    <View style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
-      <RegisterCommands
-        offer={() =>
-          inboxCommands(t, {
-            inbox: () => {
-              onInbox();
-              return Promise.resolve();
-            },
-          })
-        }
-      />
-      <SafeAreaView edges={{ top: true, left: true, right: true }}>
-        <View
-          style={styles.accountHeader}
-          {...header.swipe}>
-          <View style={styles.accountHeading}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.title, styles.grow, { color: colors.textPrimary }]}
-              {...header.action}>
-              {title}
-            </Text>
-            <CommandInput />
-          </View>
-        </View>
-      </SafeAreaView>
-      {children}
-    </View>
   );
 }

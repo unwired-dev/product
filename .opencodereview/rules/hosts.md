@@ -560,6 +560,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `apps/mobile/app` and the Mac window's panes and check each screen the
   requirement names (Inbox, message reading, composer, Settings); otherwise a
   route-specific reader has no palette while the documentation says it does.
+- `CommandPaletteProvider` or another cross-cutting provider placed relative to
+  `registration-gate.tsx.RegistrationGate`, which replaces its children with the
+  account page or the setup and locked pages. A provider below the gate leaves
+  the account page (the app's Settings) without it unless
+  `account-page.tsx.AccountPage` brings its own, as on iPhone and iPad, whose
+  provider renders the open palette over its children. A provider above the
+  gate, as in the Mac window, outlives every screen, so the open palette, the
+  Command-P listener and the outside-click scrim must live in the mounted
+  `CommandBar` and leave with it. Trace `app/_layout.tsx`, `account-page.tsx` and
+  `window.tsx.InboxWindow` themselves, since test harnesses compose the provider
+  on their own; otherwise the palette disappears from Settings, or an open
+  palette, or Command-P before sign-in, outlives its screen with stale commands
+  or an invisible scrim that swallows the next click.
 - `inbox-heading.tsx` offering Search Mail, or another command that focuses or
   reveals a control in the Inbox column, without leaving the reader or composer
   route that covers that column on iPhone and in compact iPad layouts. Trace the

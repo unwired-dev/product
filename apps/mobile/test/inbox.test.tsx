@@ -29,7 +29,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
+import { AccessibilityInfo, AppState, Clipboard, Linking } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
@@ -335,13 +335,11 @@ function renderConnected(
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
     return (
-      // As the root layout composes them: the palette stays above the gate, so the account page
-      // keeps it.
-      <CommandPaletteProvider>
-        <RegistrationGate
-          store={registration}
-          preview={false}>
-          <InboxProvider mailboxes={mailboxes}>
+      <RegistrationGate
+        store={registration}
+        preview={false}>
+        <InboxProvider mailboxes={mailboxes}>
+          <CommandPaletteProvider>
             <Inbox
               onClose={() => {
                 setSelected(undefined);
@@ -356,9 +354,9 @@ function renderConnected(
                 setSelected(undefined);
               }}
             />
-          </InboxProvider>
-        </RegistrationGate>
-      </CommandPaletteProvider>
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </RegistrationGate>
     );
   }
   const rendered = render(<Connected />);
@@ -1236,6 +1234,31 @@ describe('command palette', () => {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     ).resolves.toBeVisible();
+  });
+
+  it('drops an open palette when the gate replaces the Inbox', async () => {
+    expect.hasAssertions();
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const removed = { current: false };
+    await renderConnected(gmail.native, removed).rendered;
+    await openPalette(await screen.findByRole('header', { name: 'Inbox' }));
+    expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
+    // Another device removed this one while the app was away with the palette open.
+    removed.current = true;
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });
