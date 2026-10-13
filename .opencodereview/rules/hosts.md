@@ -42,6 +42,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
+  Inbox state while an explicit online search reports an `offline` failure.
+  Trace the online answer as well as the displayed mailbox states: an unreachable
+  server must select the documented Offline subtitle instead of a result count,
+  while preserving Syncing precedence. Exercise partial failure, fresh retry and
+  query/scope replacement through the real search store on both hosts; otherwise
+  current cached mail makes a failed online search appear connected.
+
 - `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise
@@ -495,6 +503,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- `design.tsx.Notice`, `label.tsx.Label` or another shared notice component
+  dropping live-region, accessible-label or alert semantics during extraction.
+  Compare every migrated asynchronous sync/authorization notice with its previous
+  rendering, and trace the props to the actual accessible native element on each
+  host; otherwise a notice appears without announcing that permission or
+  connectivity changed. Preserve storage-failure alert semantics and keep actions
+  separately reachable. Verify the installed renderer's announcement support;
+  component prop assertions restore the contract but do not qualify VoiceOver.
+
 - `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
   in single-line placeholders. Keep "same as incoming if blank" in visible,
   wrapping text beside each field, including after entry, and retain the field's
@@ -605,6 +622,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
 
 - A changed journey with no component integration test under the host's `test/` that drives the real `mail-core` store with a substituted native boundary. A rendered component test is not native E2E evidence; a Hermes export proves the bundle, not the behavior.
+- A rendered-copy change in `Inbox`, shared host components or the localization
+  catalog verified only with touched test files. Trace visible and accessible
+  text consumers, including registration-to-Inbox and composer journeys, then
+  run the full `pnpm test` suite for every affected host after the final copy or
+  assertion edit. Reviewer fixes follow the same gate; otherwise an unrelated
+  journey's exact-text lookup can fail after a focused review reports success.
 - A test that mocks the store or asserts a callback was called rather than the rendered outcome.
 - Unavailable native evidence reported as passing rather than deferred.
 

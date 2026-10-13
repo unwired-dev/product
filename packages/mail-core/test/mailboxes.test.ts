@@ -6,6 +6,7 @@ import {
   createGmailSearch,
   createMailboxes,
   inboxMessages,
+  messageDateSections,
   searchGmail,
   searchMessages,
 } from '../src/mailboxes.ts';
@@ -191,6 +192,25 @@ describe('mailbox connections and the unified Inbox', () => {
       ['other@example.invalid', 'Other, tied'],
       ['other@example.invalid', 'Other, middle'],
       ['alex@example.invalid', 'Alex, oldest'],
+    ]);
+    // Grouping preserves connection identity and tie order, and advances at UTC midnight.
+    const sections = messageDateSections(unified, at(4));
+    expect(
+      sections.map(({ key, data }) => [
+        key,
+        data.map(({ message }) => message.subject),
+      ]),
+    ).toStrictEqual([
+      ['saved\ntoday', ['Alex, newest']],
+      ['saved\nyesterday', ['Alex, tied', 'Other, tied']],
+      ['saved\nlastWeek', ['Other, middle', 'Alex, oldest']],
+    ]);
+    expect(sections.flatMap(({ data }) => data)).toStrictEqual(unified);
+    expect(messageDateSections(unified, at(5))[0]?.key).toBe(
+      'saved\nyesterday',
+    );
+    expect(messageDateSections([], at(4))).toStrictEqual([
+      { key: 'saved', data: [] },
     ]);
     // The same order holds on every render, and each connection can be shown alone.
     expect(inboxMessages(mailboxes.getSnapshot(), everything)).toStrictEqual(
