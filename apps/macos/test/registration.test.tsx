@@ -465,6 +465,8 @@ describe('product registration', () => {
     await expect(
       screen.findByText('Private archived message'),
     ).resolves.toBeVisible();
+    // The list heading names the chosen folder, which matters where the sidebar is hidden.
+    expect(screen.getByRole('header', { name: 'Archive\n2026' })).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
