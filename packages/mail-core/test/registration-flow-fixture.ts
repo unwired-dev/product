@@ -12,7 +12,7 @@ import {
 // Promise adapter for the flow journeys; production composes these programs in the store.
 export const createRegistrationFlow = (
   vault: NativeRegistrationVault,
-): NativeRegistration => {
+): Required<NativeRegistration> => {
   const flow = registrationPrograms(vault);
   return {
     restore: () => Effect.runPromise(flow.restore()),
@@ -24,6 +24,12 @@ export const createRegistrationFlow = (
     connectImap: (setup) => Effect.runPromise(flow.connectImap(setup)),
     removeMailbox: (connection) =>
       Effect.runPromise(flow.removeMailbox(connection)),
+    createProfile: (name) => Effect.runPromise(flow.createProfile(name)),
+    renameProfile: (profile, name) =>
+      Effect.runPromise(flow.renameProfile(profile, name)),
+    removeProfile: (profile) => Effect.runPromise(flow.removeProfile(profile)),
+    moveMailbox: (connection, profile) =>
+      Effect.runPromise(flow.moveMailbox(connection, profile)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
     confirmRecoveryKey: (entry) =>
       Effect.runPromise(flow.confirmRecoveryKey(entry)),

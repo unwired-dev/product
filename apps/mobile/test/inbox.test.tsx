@@ -110,7 +110,10 @@ describe('preview Inbox', () => {
         const message = await screen.findByRole('button', {
           name: 'Unread. Oliver Park. Saturday, by the river?',
         });
-        expect(message).toHaveStyle({ backgroundColor: colors.surfaceContent });
+        expect(message).toHaveStyle({ backgroundColor: 'transparent' });
+        expect(
+          within(message).getByText('Saturday, by the river?'),
+        ).toHaveStyle({ fontWeight: '600' });
         await fireEvent.press(message);
         await fireEvent(message, 'focus');
         expect(message).toHaveStyle({ borderColor: colors.accentOnFill });
@@ -128,6 +131,49 @@ describe('preview Inbox', () => {
       }
     },
   );
+
+  it('shows saved search matches with the default row preview and result count', async () => {
+    expect.hasAssertions();
+    await render(<InboxJourney />);
+    const row = await screen.findByRole('button', {
+      name: 'Unread. Oliver Park. Saturday, by the river?',
+    });
+    expect(
+      within(row).getByText(
+        'The forecast looks good. Coffee first, then the long way home.',
+      ),
+    ).toHaveProp('numberOfLines', 1);
+    await fireEvent.changeText(
+      screen.getByLabelText('Search senders and subjects'),
+      'Maya',
+    );
+    expect(screen.getByRole('header', { name: 'Search' })).toBeVisible();
+    expect(screen.getByText('1 result in Preview mailbox')).toBeVisible();
+  });
+
+  it('groups rows under the day they arrived and names today by the clock', async () => {
+    expect.hasAssertions();
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+    try {
+      await render(<InboxJourney />);
+      const today = await screen.findByRole('header', { name: 'Today' });
+      expect(today).toBeVisible();
+      expect(screen.getByRole('header', { name: 'Yesterday' })).toBeVisible();
+      expect(
+        within(
+          screen.getByRole('button', {
+            name: 'Unread. Oliver Park. Saturday, by the river?',
+          }),
+        ).getByText(/^0?8:15/u),
+      ).toBeVisible();
+      expect(screen.getAllByText('Yesterday')).toHaveLength(3);
+      expect(screen.getByText(/No unread messages|unread$/u)).toBeVisible();
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   it('opens the activated message and exposes its selected state', async () => {
     expect.hasAssertions();
@@ -423,7 +469,7 @@ describe('connected Gmail Inbox', () => {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     );
-    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    expect(screen.getByText(/^alex@example\.invalid ·/u)).toBeVisible();
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
     // The detail downloads the body; the row keeps Gmail's snippet.
     await expect(screen.findByText('Synthetic body.')).resolves.toBeVisible();
@@ -434,9 +480,13 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ status: 401 });
     gmail.deliver({ subject: 'Arrives after permission returns' });
     await act(store.load);
+    // The notice arrives while the list is shown and retains its live-region semantics.
     expect(
       screen.getByText('Gmail needs your permission again to show new mail.'),
     ).toBeVisible();
+    expect(
+      screen.getByText('Gmail needs your permission again to show new mail.'),
+    ).toHaveProp('accessibilityLiveRegion', 'polite');
     expect(screen.queryByText(/Arrives after permission/u)).toBeNull();
     await act(async () => {
       await fireEvent.press(
@@ -497,6 +547,20 @@ describe('connected Gmail Inbox', () => {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     ).toHaveProp('accessibilityActions', []);
+    // Local search still reports no match while the cached Inbox is synchronizing.
+    await fireEvent.changeText(
+      screen.getByLabelText('Search senders and subjects'),
+      'No saved match',
+    );
+    expect(
+      screen.getByText(
+        'No mail saved on this device matches “No saved match”.',
+      ),
+    ).toBeVisible();
+    await fireEvent.changeText(
+      screen.getByLabelText('Search senders and subjects'),
+      '',
+    );
     await act(async () => {
       held.release();
       await store.load();
@@ -552,7 +616,7 @@ describe('connected Gmail Inbox', () => {
     });
     expect(
       screen.getByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?',
+        name: 'Oliver Park. Saturday, by the river?. Flagged',
       }),
     ).toBeVisible();
     expect(gmail.labelsOf(oliver).toSorted()).toStrictEqual(
@@ -595,7 +659,7 @@ describe('connected Gmail Inbox', () => {
     await act(async () => {
       await fireEvent(
         screen.getByRole('button', {
-          name: 'Oliver Park. Saturday, by the river?',
+          name: 'Oliver Park. Saturday, by the river?. Flagged',
         }),
         'accessibilityAction',
         { nativeEvent: { actionName: 'archive' } },
@@ -615,7 +679,7 @@ describe('connected Gmail Inbox', () => {
     // Foreground verification can close saving after the reader offered Archive.
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?',
+        name: 'Oliver Park. Saturday, by the river?. Flagged',
       }),
     );
     held.becomeCacheOnly();

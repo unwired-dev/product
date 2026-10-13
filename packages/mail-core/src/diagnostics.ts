@@ -30,6 +30,8 @@ const nativeCodes = new Set([
   'model-not-ready',
   'not-installed',
   'offline',
+  'profile-changed',
+  'profile-in-use',
   'refused',
   'removal-refused',
   'same-language',

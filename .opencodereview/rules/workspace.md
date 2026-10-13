@@ -33,6 +33,7 @@ One root pnpm workspace and lockfile serve two native hosts that cannot share a 
 
 - A credential, private key or signing secret committed in configuration or an example file. `.env.example` holds names and placeholders only.
 - A new environment variable read by the backend or a build with no entry in `.env.example` and the setup documentation.
+- A signing placeholder in `.env.example` that changes the documented default when copied to `.env.local`. Trace the environment loader and `apps/macos/scripts/create-project.rb`: an empty identity differs from an omitted identity there, so the template must retain ad-hoc entitlements when `build-native.zsh` selects ad-hoc signing. Otherwise the default build requests profile-required capabilities without a development identity.
 
 #### Release
 

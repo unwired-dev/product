@@ -34,6 +34,8 @@ export {
   removeTrustedDevice,
   storeDescriptor,
   storedDescriptor,
+  storeProfile,
+  storedProfiles,
 } from './registration-product-sync.ts';
 export type { SyntheticProductSync } from './registration-product-sync.ts';
 
@@ -464,6 +466,9 @@ export function createSyntheticVault(
           ...(backend.productSync === undefined || record.product === undefined
             ? {}
             : { productSync: syncAdapter.project(record) }),
+          ...(record.profiles === undefined
+            ? {}
+            : { profiles: structuredClone(record.profiles) }),
           session: live.session !== undefined,
         };
       }),

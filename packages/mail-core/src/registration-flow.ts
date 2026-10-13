@@ -19,6 +19,7 @@ import type {
 } from './registration.ts';
 
 import { imapFallback } from './imap-setup.ts';
+import { profileList, profileOwners } from './mail-profiles.ts';
 import {
   createMailboxVerification,
   setupReason,
@@ -105,21 +106,29 @@ const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
     ? ('cached' as const)
     : ('connected' as const);
 };
-// JSON text listing this device's connections in the order they were added.
-const mailboxList = (value: RegistrationRecord) =>
-  value.product?.pending === true || value.mailboxes.length === 0
-    ? undefined
-    : JSON.stringify(
-        value.mailboxes.map((mailbox) => ({
-          provider: mailbox.provider,
-          address: mailbox.address,
-          ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
-          id: mailbox.id,
-          ...(mailbox.imap === undefined ? {} : { imap: mailbox.imap }),
-          ...(mailbox.smtp === undefined ? {} : { smtp: mailbox.smtp }),
-          state: mailboxState(mailbox),
-        })),
-      );
+// JSON text listing this device's connections in the order they were added. A connection listed
+// without a Profile belongs to the Default Profile.
+const mailboxList = (value: RegistrationRecord) => {
+  if (value.product?.pending === true || value.mailboxes.length === 0) {
+    return undefined;
+  }
+  const owners = profileOwners(value);
+  return JSON.stringify(
+    value.mailboxes.map((mailbox) => {
+      const profile = owners.get(mailbox.id);
+      return {
+        provider: mailbox.provider,
+        address: mailbox.address,
+        ...(mailbox.epoch === undefined ? {} : { epoch: mailbox.epoch }),
+        id: mailbox.id,
+        ...(mailbox.imap === undefined ? {} : { imap: mailbox.imap }),
+        ...(mailbox.smtp === undefined ? {} : { smtp: mailbox.smtp }),
+        state: mailboxState(mailbox),
+        ...(profile === undefined ? {} : { profile }),
+      };
+    }),
+  );
+};
 const account = (
   value: RegistrationRecord,
   listed: ListedDevices | undefined,
@@ -131,6 +140,7 @@ const account = (
   const alternate = product.signInProviders?.find(
     (provider) => provider !== value.signInProvider,
   );
+  const profiles = profileList(value);
   return Effect.succeed({
     productAccountId: product.productAccountId,
     signInProvider: value.signInProvider,
@@ -142,6 +152,7 @@ const account = (
     ...(value.mailboxRemovalPending
       ? { privateSyncPending: 'mailbox' as const }
       : {}),
+    ...(profiles === undefined ? {} : { profiles }),
   });
 };
 const pending = Effect.fnUntraced(function* (
@@ -879,6 +890,31 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       program(
         step(() => vault.removeMailbox(connection)).pipe(
           Effect.andThen(synchronize),
+          Effect.andThen(current),
+        ),
+      ),
+    // A Profile is named on this device first and published when Product Sync is reachable.
+    createProfile: (name) =>
+      program(
+        productSyncFlow
+          .createProfile(name)
+          .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
+      ),
+    renameProfile: (id, name) =>
+      program(
+        productSyncFlow
+          .renameProfile(id, name)
+          .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
+      ),
+    // Removing a Profile and moving a connection need Product Sync.
+    removeProfile: (id) =>
+      program(productSyncFlow.removeProfile(id).pipe(Effect.andThen(current))),
+    moveMailbox: (connection, profile) =>
+      program(
+        saved.pipe(
+          Effect.flatMap((value) =>
+            productSyncFlow.moveMailbox(value, connection, profile),
+          ),
           Effect.andThen(current),
         ),
       ),

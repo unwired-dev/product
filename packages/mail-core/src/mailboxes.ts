@@ -1,3 +1,4 @@
+import { messageDay } from '@private-email/localization';
 import * as Arr from 'effect/Array';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
@@ -27,7 +28,12 @@ import type {
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
-import { canOpenInbox, defaultProfile, mailboxesOf } from './registration.ts';
+import {
+  canOpenInbox,
+  defaultProfile,
+  mailboxesOf,
+  unavailableProfile,
+} from './registration.ts';
 
 type Scope = Readonly<{
   connection: string;
@@ -589,11 +595,18 @@ export type ViewScope = Readonly<{
 
 const decodeProfile = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
-// An absent profileId uses Default; malformed or repeated selectors cannot name any decoded connection.
+// An absent profileId uses Default; malformed or repeated selectors, and the owner of connections
+// whose Profile is unknown, cannot name any decoded connection.
 export const readingProfile = (profileId: unknown): string =>
   profileId === undefined
     ? defaultProfile
-    : Option.getOrElse(decodeProfile(profileId), () => '');
+    : Option.getOrElse(
+        Option.filter(
+          decodeProfile(profileId),
+          (profile) => profile !== unavailableProfile,
+        ),
+        () => '',
+      );
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
 export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
@@ -662,6 +675,39 @@ export function inboxMessages<L extends Listing>(
           : [],
       ),
   );
+}
+
+/**
+ * Group an already newest-first metadata list into UTC date sections, retaining
+ * each entry's mailbox identity and relative order. An empty list keeps a
+ * section for the host's empty state.
+ *
+ * @example
+ *   messageDateSections(inboxMessages(mailboxes, scope), now);
+ *
+ * @param {readonly M[]} messages - Validated metadata in newest-first order.
+ * @param {number} now - The device's current time in milliseconds since the
+ *   Unix epoch.
+ * @returns {{ key: string; data: readonly M[] }[]} Date sections in arrival
+ *   order, or one empty saved section.
+ */
+export function messageDateSections<
+  M extends Readonly<{ message: Readonly<{ receivedAt: string }> }>,
+>(messages: readonly M[], now: number) {
+  const groups = new Map<string, M[]>();
+  for (const entry of messages) {
+    const day = messageDay(entry.message.receivedAt, now);
+    const key = `saved\n${day === 'earlier' ? entry.message.receivedAt.slice(0, 7) : day}`;
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [entry]);
+    } else {
+      group.push(entry);
+    }
+  }
+  return groups.size === 0
+    ? [{ key: 'saved', data: messages }]
+    : [...groups].map(([key, data]) => ({ key, data }));
 }
 
 // Normalize and strip accents before casing to expose compatibility letters. Lowercase so `ẞ` joins `ß`,

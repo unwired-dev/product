@@ -18,6 +18,7 @@ import { usePalette } from './theme.ts';
 // action or, on iPad, its command input, with the one-time hint beneath it; and the app-wide and
 // navigation commands the Inbox offers while each of their controls is available.
 export function InboxHeading({
+  title,
   subtitle,
   detail,
   account,
@@ -25,7 +26,9 @@ export function InboxHeading({
   onClose,
   onLeave,
   search,
+  searchable,
 }: {
+  readonly title: string;
   readonly subtitle: string;
   // Whether a reader or composer is open; Search Mail leaves it first, since on iPhone and in
   // compact iPad layouts it covers the Inbox.
@@ -34,8 +37,9 @@ export function InboxHeading({
   readonly onAccount: (open: () => void) => Promise<void>;
   readonly onClose: (() => void) | undefined;
   readonly onLeave: () => Promise<boolean>;
-  // The search field, once the Inbox can search.
-  readonly search: RefObject<TextInput | null> | undefined;
+  // The search field, which Search Mail focuses while the Inbox can search.
+  readonly search: RefObject<TextInput | null>;
+  readonly searchable: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -45,18 +49,17 @@ export function InboxHeading({
       <RegisterCommands
         offer={() =>
           inboxCommands(t, {
-            search:
-              search === undefined
-                ? undefined
-                : async () => {
-                    if (detail && onClose !== undefined) {
-                      if (!(await onLeave())) {
-                        return;
-                      }
-                      onClose();
+            search: searchable
+              ? async () => {
+                  if (detail && onClose !== undefined) {
+                    if (!(await onLeave())) {
+                      return;
                     }
-                    search.current?.focus();
-                  },
+                    onClose();
+                  }
+                  search.current?.focus();
+                }
+              : undefined,
             inbox:
               onClose === undefined
                 ? undefined
@@ -74,25 +77,31 @@ export function InboxHeading({
           })
         }
       />
-      <View
-        style={styles.heading}
-        {...header.swipe}>
+      <View {...header.swipe}>
         <CommandInput style={styles.commands} />
-        <View style={styles.headingRow}>
+        <View style={styles.heading}>
           <View style={styles.headingText}>
             <Text
               accessibilityRole="header"
+              numberOfLines={1}
               style={[styles.title, { color: colors.textPrimary }]}
               {...header.action}>
-              {t('inbox.title')}
+              {title}
             </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {subtitle}
-            </Text>
+            <View style={styles.subtitle}>
+              <Text
+                accessibilityLiveRegion="polite"
+                numberOfLines={1}
+                style={[styles.subtitleText, { color: colors.textSecondary }]}>
+                {subtitle}
+              </Text>
+            </View>
           </View>
           {account === undefined ? null : (
             <Pressable
+              accessibilityLabel={t('inbox.account')}
               accessibilityRole="button"
+              style={styles.accountTarget}
               onPress={() => {
                 void onAccount(account.openAccount);
               }}>

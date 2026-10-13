@@ -19,6 +19,8 @@ Read the issue, [documentation index](docs/README.md), relevant
 Follow the [implementation and review workflow](docs/agents/implementation-review.md)
 for every implementation, including later implementation fixes.
 
+- Before ChatGPT/Codex delegates work, follow the workflow's
+  [subagent model policy](docs/agents/implementation-review.md#subagent-model-policy).
 - The implementer never reads repository architecture documentation, including
   `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading

@@ -29,7 +29,9 @@ gh run watch
 
 `platform` is `ios`, `macos` or `both`. `--ref` selects the workflow revision;
 the optional `ref` input builds another branch, tag or commit with that revision.
-Each host uploads from its own job, so one can be rerun without the other. Build
+Each host uploads from its own job, so one can be rerun without the other. A
+single-host retry does not repeat certificate cleanup. If it reaches the
+certificate limit, rerun all jobs to repeat cleanup before uploading. Build
 status evidence is attached to the run for seven days. Raw build and upload
 logs stay on the runner because Xcode diagnostics may contain signing tokens.
 
@@ -103,7 +105,19 @@ scripts/testflight.zsh ios|macos|both
 
 No certificate or provisioning profile is stored. Xcode requests development
 signing for the archive and cloud-managed distribution signing for the export
-through the App Store Connect API key.
+through the App Store Connect API key. Each archive on an ephemeral runner
+therefore creates an `Apple Development: Created via API` certificate, and the
+team's certificate limit would stop every archive within days. Before its
+uploads, the workflow's `certificates` job runs
+`scripts/testflight-certificates.rb` from the workflow revision, even when the
+build targets an older ref. It requires a complete certificate listing and
+revokes every `DEVELOPMENT` certificate whose display name is `Created via API`
+and whose expiration date, one year after creation, shows it is more than two
+hours old. That name identifies API creation, not CI ownership: the grace period
+lets a local upload that is running at the same time keep the certificate it
+just created, while the workflow queue serializes CI runs, including release
+uploads. Runs dispatched within two hours of each other keep their certificates
+until a later run, so a burst of uploads can still reach the limit.
 
 Release hosts embed the production JavaScript bundle. The mobile archive
 produces a source map and runs `verify:bundle` against that map. The Mac archive
@@ -219,10 +233,11 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
 
 ## Deferred release evidence
 
-Both hosts have previously archived locally with Xcode 27. Export with the
-previous API key failed because cloud-managed signing requires the Admin role;
-the replacement key is pending. These reviewer changes have credential-free
-runner and API-contract checks only. Successful exports, uploaded-artifact
-inspection, processed builds with TestFlight notes, and installation from
-TestFlight on an iPhone and a Mac remain deferred. They are required before
+[CI run 38431867551](https://github.com/unwired-dev/product/actions/runs/38431867551)
+successfully uploaded both hosts after revoking stale development certificates.
+That run predates the two-hour grace period. The current cleanup and runner
+contracts have credential-free local checks; fresh CI archive and upload evidence
+for the corrected implementation remains deferred. Uploaded-artifact inspection,
+inspection of processed builds and their TestFlight notes, and installation from
+TestFlight on an iPhone and a Mac also remain deferred. They are required before
 claiming #724's release evidence or the qualified beta in #628.

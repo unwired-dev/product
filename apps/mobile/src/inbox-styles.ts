@@ -1,50 +1,137 @@
-import { radius, spacing } from '@private-email/mail-core/theme';
-import { StyleSheet } from 'react-native';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
+import { Platform, StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
 
+export const ipad = Platform.OS === 'ios' && Platform.isPad;
+export const emptySymbolSize = ipad ? 36 * ipadListScale : 45;
+const scale = ipad ? ipadListScale : 1;
+const body = ipad ? typography.ipadList.body : textStyles.subheadline;
+const subheadline = ipad
+  ? typography.ipadList.subheadline
+  : textStyles.subheadline;
+
+// iPad keeps the scaled Mac list recipe in both orientations; iPhone uses its touch layout.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: { padding: spacing.xl, paddingBottom: spacing.l },
-  // iPad's command input takes its own row above the title, as the frames place it.
-  commands: { alignSelf: 'flex-start', marginBottom: spacing.m },
-  headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  headingText: { flex: 1 },
+  heading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.s,
+    paddingHorizontal: ipad ? 14 * scale : spacing.l,
+    paddingTop: ipad ? spacing.l * scale : spacing.xs,
+    paddingBottom: ipad ? 10 * scale : spacing.m,
+  },
+  headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
+  // iPad's command input takes its own row above the heading, as the frames place it.
+  commands: {
+    alignSelf: 'flex-start',
+    marginLeft: 14 * scale,
+    marginTop: spacing.l * scale,
+  },
   account: { ...textStyles.body, paddingVertical: 8 },
-  title: { ...textStyles.largeTitle },
-  subtitle: { ...textStyles.subheadline, marginTop: 4 },
-  list: { paddingHorizontal: spacing.s, gap: 4 },
+  accountTarget: { minHeight: 44, justifyContent: 'center' },
+  title: {
+    ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
+  },
+  subtitle: {
+    flexDirection: 'row',
+    justifyContent: ipad ? 'flex-start' : 'center',
+  },
+  subtitleText: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.caption1),
+    flexShrink: 1,
+  },
+  list: { paddingHorizontal: ipad ? 6 * scale : spacing.l, flexGrow: 1 },
+  listFooter: { flexGrow: 1 },
+  // The 2pt focus ring sits inside the design's 10/12/18pt row insets.
   row: {
-    minHeight: 116,
-    padding: 14,
+    paddingTop: ipad ? 8 * scale - 2 : 8,
+    paddingBottom: ipad ? 9 * scale - 2 : 10,
+    paddingLeft: ipad ? 22 * scale - 2 : 16,
+    paddingRight: ipad ? spacing.m * scale - 2 : 0,
+    gap: ipad ? scale : 2,
     borderWidth: 2,
-    borderRadius: radius.row,
+    borderRadius: radius.row * scale,
     borderCurve: 'continuous',
+  },
+  separator: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
   },
   rowHeading: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.s,
+    alignItems: 'center',
+    gap: ipad ? 4 * scale : 6,
   },
-  sender: { ...textStyles.headline, flex: 1 },
-  date: { ...textStyles.footnote },
-  subjectLine: {
+  sender: { ...(ipad ? body : textStyles.headline), flex: 1 },
+  date: { ...subheadline, flexShrink: 1 },
+  subject: { ...body },
+  unread: {
+    position: 'absolute',
+    left: ipad ? 8 * scale - 2 : 0,
+    top: ipad ? 13 * scale - 2 : 15,
+    width: ipad ? 8 * scale : 9,
+    height: ipad ? 8 * scale : 9,
+    borderRadius: ipad ? 4 * scale : 4.5,
+  },
+  preview: { ...body },
+  divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 5,
+    gap: 10 * scale,
+    paddingTop: ipad ? 14 * scale : spacing.l,
+    paddingBottom: ipad ? spacing.s * scale : 10,
+    paddingHorizontal: ipad ? 10 * scale : spacing.xs,
   },
-  subject: { ...textStyles.subheadline, flex: 1 },
-  unread: { width: 6, height: 6, borderRadius: 3 },
-  preview: { ...textStyles.subheadline, marginTop: 5 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerLabel: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+    fontWeight: '600',
+  },
+  skeleton: {
+    gap: ipad ? spacing.s * scale : 9,
+    paddingTop: ipad ? spacing.m * scale : 14,
+    paddingBottom: ipad ? 14 * scale : spacing.l,
+    paddingLeft: ipad ? 22 * scale : 18,
+    paddingRight: ipad ? spacing.m * scale : 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  skeletonBar: {
+    height: ipad ? 9 * scale : 11,
+    borderRadius: ipad ? 4.5 * scale : 5.5,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6 * scale,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyIcon: { marginBottom: ipad ? spacing.m * scale : 14 },
+  emptyTitle: {
+    ...(ipad
+      ? typography.ipadList.title3Emphasized
+      : textStyles.title3Emphasized),
+  },
+  emptyText: { ...body, textAlign: 'center' },
+  notices: { gap: spacing.s, paddingHorizontal: spacing.l },
   footer: { ...textStyles.footnote, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
-  mailbox: { ...textStyles.footnote, marginTop: 5 },
+  mailbox: { ...textStyles.footnote },
   search: {
     ...textStyles.body,
     minHeight: 44,
-    marginHorizontal: spacing.xl,
-    marginBottom: spacing.l,
+    marginHorizontal: spacing.l,
+    marginBottom: spacing.m,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderRadius: radius.control,
@@ -53,8 +140,8 @@ export const styles = StyleSheet.create({
   scopes: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.s,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.l,
+    gap: 6,
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.s,
   },
 });
