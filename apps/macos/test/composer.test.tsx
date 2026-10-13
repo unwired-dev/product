@@ -43,6 +43,9 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
+// The shared CI runner takes seconds to warm up the first composer journey.
+jest.setTimeout(30_000);
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
