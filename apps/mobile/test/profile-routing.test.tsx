@@ -169,11 +169,14 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('clears the previous Profile’s search when the same window targets another Profile', async () => {
+  it('clears the previous Profile’s search and mailbox choice when the same window targets another Profile', async () => {
     expect.hasAssertions();
     showMail(defaultProfile);
     route.setParams({});
     await render(<RootLayout />);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Inbox. In garden' }),
+    );
     await fireEvent.changeText(
       await screen.findByLabelText('Search senders and subjects'),
       'personal search',
@@ -185,8 +188,17 @@ describe('profile-scoped mobile routes', () => {
     await expect(
       screen.findByLabelText('Search senders and subjects'),
     ).resolves.toHaveProp('value', '');
+    expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
     await expect(
       screen.findByRole('button', { name: /Garden plan/u }),
     ).resolves.toBeVisible();
+    showMail(defaultProfile);
+    await act(() => {
+      route.setParams({});
+    });
+    await expect(
+      screen.findByLabelText('Search senders and subjects'),
+    ).resolves.toHaveProp('value', '');
+    expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
   });
 });

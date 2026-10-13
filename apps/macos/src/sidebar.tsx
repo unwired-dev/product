@@ -1,0 +1,243 @@
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { Fragment, use, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import type { InboxMailbox } from './private-storage.ts';
+
+import { SFSymbol } from './design.tsx';
+import { Label } from './label.tsx';
+import { useLocalization } from './localization.ts';
+import { useLeaveComposer, useMailboxes } from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
+import { textStyles, usePalette } from './theme.ts';
+
+// What the message list shows: every mailbox of the Profile, one mailbox, or one of its IMAP
+// folders. The Inbox folder is the default of a mailbox.
+export type MailboxView = Readonly<{
+  mailbox?: string | undefined;
+  folder?: string | undefined;
+}>;
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  heading: { paddingHorizontal: spacing.xl, paddingVertical: spacing.l },
+  title: { ...textStyles.title3Emphasized },
+  list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
+  section: {
+    ...textStyles.subheadline,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s,
+    paddingTop: spacing.m,
+    paddingBottom: spacing.xs,
+  },
+  row: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.s,
+    borderWidth: 1,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  label: { ...textStyles.body, flex: 1 },
+  count: { ...textStyles.body },
+  footer: {
+    marginHorizontal: spacing.s,
+    paddingVertical: spacing.s,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+});
+
+const unreadCount = (mailbox: InboxMailbox) =>
+  'messages' in mailbox.state && Array.isArray(mailbox.state.messages)
+    ? mailbox.state.messages.filter(
+        (message: Readonly<{ unread?: boolean }>) => message.unread === true,
+      ).length
+    : 0;
+
+// A sidebar item: tinted symbol, label and unread count; selection shows as fill and weight.
+function Item({
+  icon,
+  label,
+  accessibilityLabel = label,
+  count = 0,
+  selected = false,
+  onPress,
+}: {
+  readonly icon: string;
+  readonly label: string;
+  readonly accessibilityLabel?: string;
+  readonly count?: number;
+  readonly selected?: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityValue={
+        count === 0 ? undefined : { text: t('mailboxes.unread', { count }) }
+      }
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        (selected || pressed) && {
+          backgroundColor: colors.accentSelectionSubtle,
+        },
+        { borderColor: focused ? colors.accentInk : 'transparent' },
+      ]}>
+      <SFSymbol
+        name={icon}
+        color={colors.accentInk}
+      />
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.label,
+          selected && { fontWeight: '600' },
+          { color: colors.textPrimary },
+        ]}>
+        {label}
+      </Text>
+      {count === 0 ? null : (
+        <Text style={[styles.count, { color: colors.textSecondary }]}>
+          {count}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+function SectionHeader({ label }: { readonly label: string }) {
+  const colors = usePalette();
+  return (
+    <Label
+      accessibilityRole="header"
+      numberOfLines={1}
+      style={[styles.section, { color: colors.textSecondary }]}>
+      {label}
+    </Label>
+  );
+}
+
+// The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
+// its folders, and the account page last.
+export function Mailboxes({
+  view,
+  onView,
+}: {
+  readonly view: MailboxView;
+  readonly onView: (view: MailboxView) => void;
+}) {
+  const mailboxes = useMailboxes();
+  const account = use(AccountContext);
+  const leave = useLeaveComposer();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const chosen = mailboxes.find(({ id }) => id === view.mailbox);
+  // The account page replaces the Inbox, so an open composer is left first.
+  const openAccount = async (open: () => void) => {
+    if (await leave()) {
+      open();
+    }
+  };
+  return (
+    <View style={styles.fill}>
+      <View style={styles.fill}>
+        <View style={styles.heading}>
+          <Label
+            accessibilityRole="header"
+            style={[styles.title, { color: colors.textPrimary }]}>
+            {t('mailboxes.title')}
+          </Label>
+        </View>
+        <ScrollView
+          style={styles.fill}
+          contentContainerStyle={styles.list}>
+          <SectionHeader label={t('mailboxes.favorites')} />
+          <Item
+            icon="tray.2"
+            label={t('inbox.allInboxes')}
+            count={mailboxes.reduce(
+              (sum, mailbox) => sum + unreadCount(mailbox),
+              0,
+            )}
+            selected={chosen === undefined}
+            onPress={() => {
+              onView({});
+            }}
+          />
+          {mailboxes.map((mailbox) => {
+            const name = mailbox.address ?? mailbox.id;
+            const { state } = mailbox;
+            // An IMAP mailbox lists its selectable folders, Inbox first; others have one Inbox.
+            const folders =
+              state.kind === 'ready' && 'folders' in state
+                ? state.folders.filter(({ selectable }) => selectable)
+                : [{ name: inboxFolder }];
+            return (
+              <Fragment key={mailbox.id}>
+                <SectionHeader
+                  label={`${t(`mailProviders.${mailbox.provider ?? 'gmail'}`)} · ${name}`}
+                />
+                {folders.map(({ name: folder }) => {
+                  const inbox = folder === inboxFolder;
+                  const label = inbox ? t('inbox.title') : folder;
+                  return (
+                    <Item
+                      key={folder}
+                      icon={inbox ? 'tray' : 'folder'}
+                      label={label}
+                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                        row: label,
+                        mailbox: name,
+                      })}
+                      count={inbox ? unreadCount(mailbox) : 0}
+                      selected={
+                        chosen === mailbox &&
+                        (view.folder ?? inboxFolder) === folder
+                      }
+                      onPress={() => {
+                        onView({
+                          mailbox: mailbox.id,
+                          folder: inbox ? undefined : folder,
+                        });
+                        if ('openFolder' in mailbox.inbox) {
+                          void mailbox.inbox.openFolder(folder);
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </ScrollView>
+        {account === undefined ? null : (
+          <View style={[styles.footer, { borderTopColor: colors.separator }]}>
+            <Item
+              icon="gearshape"
+              label={t('inbox.account')}
+              onPress={() => {
+                void openAccount(account.openAccount);
+              }}
+            />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}

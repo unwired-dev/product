@@ -7,10 +7,10 @@ export const styles = StyleSheet.create({
   fill: { flex: 1 },
   headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
   heading: { flex: 1, padding: spacing.xl, paddingBottom: spacing.l },
-  account: { ...textStyles.body, padding: spacing.xl },
   title: { ...textStyles.title3Emphasized },
   subtitle: { ...textStyles.subheadline, marginTop: 4 },
-  list: { paddingHorizontal: spacing.s, gap: 4 },
+  // Rows scroll under the floating bar.
+  list: { paddingHorizontal: spacing.s, paddingBottom: 56, gap: 4 },
   row: {
     minHeight: 116,
     padding: 14,
@@ -37,21 +37,4 @@ export const styles = StyleSheet.create({
   footer: { ...textStyles.subheadline, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.subheadline, marginTop: 5 },
-  search: {
-    ...textStyles.body,
-    minHeight: 44,
-    marginHorizontal: spacing.xl,
-    marginBottom: spacing.l,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.s,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.l,
-  },
 });

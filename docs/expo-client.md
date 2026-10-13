@@ -4,7 +4,11 @@ Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/expo-client.md).
 
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
-a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
+a deterministic Inbox and message detail for iPhone and iPad. The shell is a native
+split view: a Mailboxes sidebar column (**All inboxes**, each Mailbox Connection with
+its Inbox and IMAP folders, and **Account**), the message list with a floating
+search and **New Message** bar, and the reader. On iPhone the columns collapse into
+one navigation stack that opens on the Inbox, with Mailboxes one Back away. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
 Product Sign-In, each followed by a choice of Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an [IMAP mailbox](imap-mailboxes.md).

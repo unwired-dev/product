@@ -30,6 +30,7 @@ import { AppState, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -41,6 +42,7 @@ import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
 // Allow cold component rendering even when a focused run skips the first test.
@@ -213,6 +215,7 @@ function App({
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
   const [selected, setSelected] = useState<Selection>();
+  const [view, setView] = useState<MailboxView>({});
   return (
     <AccountContext
       value={{
@@ -225,6 +228,10 @@ function App({
         drafts={drafts}
         mailboxes={mailboxes}>
         <ProfileScope profile={profile}>
+          <Mailboxes
+            view={view}
+            onView={setView}
+          />
           <Inbox
             composing={composing}
             onCompose={(id) => {
@@ -232,7 +239,9 @@ function App({
               onCompose(id);
             }}
             onSelect={setSelected}
+            onView={setView}
             selected={selected}
+            view={view}
           />
           {composing === undefined ? null : (
             <Composer

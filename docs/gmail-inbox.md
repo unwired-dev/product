@@ -37,9 +37,9 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   newest first. Messages received at the same moment keep the order the mailboxes
   were added, then Gmail's message ID, so rows never reorder between updates. Every
   row, and the reader, names its mailbox (`In alex@example.com`), and VoiceOver
-  reads it with the row. Choosing a mailbox's address above the list shows only that
-  mailbox; **All inboxes** returns. Each window chooses on its own. A removed
-  mailbox's view falls back to **All inboxes**.
+  reads it with the row. Choosing a mailbox's Inbox in the Mailboxes sidebar shows
+  only that mailbox; **All inboxes** returns. Each window chooses on its own. A
+  removed mailbox's view falls back to **All inboxes**.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -67,7 +67,8 @@ prefetch in any mailbox yields to an explicit open in any other.
 ## Searching saved mail
 
 [#608](https://github.com/unwired-dev/product/issues/608) searches the Inbox mail
-saved on this device. The field above the list, **Search senders and subjects**,
+saved on this device. The field in the floating bar under the list, **Search senders
+and subjects**,
 matches the **Durable Message Metadata** already in each mailbox's encrypted cache:
 the sender's name and address and the subject. Every word of the query must appear
 in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's

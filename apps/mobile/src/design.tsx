@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, ViewProps } from 'react-native';
+import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
@@ -84,12 +84,21 @@ export function SFSymbol({
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
-export function GlassGroup({ children }: { readonly children: ReactNode }) {
+export function GlassGroup({
+  children,
+  style,
+}: {
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
+  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
-    <View style={[styles.group, { boxShadow: colors.smallGlassShadow }]}>
+    <View style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
       <NativeGlass
-        cornerRadius={groupRadius}
+        cornerRadius={
+          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+        }
         style={StyleSheet.absoluteFill}
       />
       {children}

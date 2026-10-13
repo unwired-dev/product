@@ -12,10 +12,10 @@ export const styles = StyleSheet.create({
     paddingBottom: spacing.l,
   },
   headingText: { flex: 1 },
-  account: { ...textStyles.body, paddingVertical: 8 },
   title: { ...textStyles.largeTitle },
   subtitle: { ...textStyles.subheadline, marginTop: 4 },
-  list: { paddingHorizontal: spacing.s, gap: 4 },
+  // Rows scroll under the floating bar.
+  list: { paddingHorizontal: spacing.s, paddingBottom: 72, gap: 4 },
   row: {
     minHeight: 116,
     padding: 14,
@@ -42,21 +42,4 @@ export const styles = StyleSheet.create({
   footer: { ...textStyles.footnote, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.footnote, marginTop: 5 },
-  search: {
-    ...textStyles.body,
-    minHeight: 44,
-    marginHorizontal: spacing.xl,
-    marginBottom: spacing.l,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.s,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.l,
-  },
 });

@@ -42,11 +42,13 @@ import { AppState, Pressable, Text } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -107,11 +109,29 @@ function ConnectedInbox() {
   }, [listed]);
   return (
     <InboxProvider mailboxes={mailboxes}>
-      <Inbox
+      <Shell
         onSelect={() => undefined}
         selected={undefined}
       />
     </InboxProvider>
+  );
+}
+
+// The Mailboxes column beside the message list, as the window composes them.
+function Shell(props: Omit<Parameters<typeof Inbox>[0], 'view' | 'onView'>) {
+  const [view, setView] = useState<MailboxView>({});
+  return (
+    <>
+      <Mailboxes
+        view={view}
+        onView={setView}
+      />
+      <Inbox
+        {...props}
+        onView={setView}
+        view={view}
+      />
+    </>
   );
 }
 
@@ -215,7 +235,7 @@ describe('product registration', () => {
           store={store}
           preview={false}>
           <InboxProvider mailboxes={mailboxes}>
-            <Inbox
+            <Shell
               onSelect={() => undefined}
               selected={undefined}
             />
@@ -226,7 +246,11 @@ describe('product registration', () => {
         screen.findByText('Saved IMAP message'),
       ).resolves.toBeVisible();
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Archive. In alex@example.invalid',
+          }),
+        );
       });
       await expect(
         screen.findByText('Private archived message'),
@@ -344,7 +368,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -353,9 +377,15 @@ describe('product registration', () => {
     );
     // A folder with the inbox role keeps its own name beside the reserved INBOX.
     await expect(
-      screen.findByRole('button', { name: 'Primary' }),
+      screen.findByRole('button', {
+        name: 'Primary. In alex@icloud.example.invalid',
+      }),
     ).resolves.toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Inbox' })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', {
+        name: 'Inbox. In alex@icloud.example.invalid',
+      }),
+    ).toHaveLength(1);
     await openAccount();
     await act(async () => {
       await fireEvent.press(
@@ -414,7 +444,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -423,7 +453,9 @@ describe('product registration', () => {
     );
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Archive' }),
+        await screen.findByRole('button', {
+          name: 'Archive. In alex@example.invalid',
+        }),
       );
     });
     await expect(
@@ -432,7 +464,11 @@ describe('product registration', () => {
     // An unreachable server keeps the cached folder visible and says it could not be refreshed.
     imap.server.failure = 'offline';
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive. In alex@example.invalid',
+        }),
+      );
     });
     expect(screen.getByText('Private archived message')).toBeVisible();
     expect(screen.getByRole('alert')).toHaveTextContent(
@@ -459,7 +495,11 @@ describe('product registration', () => {
     expect(screen.queryByText('Private archived message')).toBeNull();
     expect(screen.queryByText('New archived message')).toBeNull();
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive. In alex@example.invalid',
+        }),
+      );
     });
     await expect(
       screen.findByText('New archived message'),
@@ -510,7 +550,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onClose={() => {
               setSelected(undefined);
             }}
@@ -643,7 +683,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -709,7 +749,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -902,7 +942,7 @@ describe('product registration', () => {
         microsoft
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -1024,7 +1064,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -1067,9 +1107,9 @@ describe('product registration', () => {
       'Unread. Maya Chen. Only for Alex. In alex@example.invalid',
       'Unread. Maya Chen. Only for Other. In other@example.invalid',
     ]);
-    await press('other@example.invalid');
+    await press('Inbox. In other@example.invalid');
     expect(
-      screen.getByRole('button', { name: 'other@example.invalid' }),
+      screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
     ).toBeSelected();
     expect(screen.queryByText('Only for Alex')).toBeNull();
     expect(screen.getByText('Only for Other')).toBeVisible();
@@ -1175,7 +1215,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={list}>
-          <Inbox
+          <Shell
             onSelect={(selection) => {
               opened.push(selection);
               setSelected(selection);
@@ -1306,7 +1346,7 @@ describe('product registration', () => {
 
     // One mailbox's view searches only its own mail.
     await search('maya');
-    await press('alex@example.invalid');
+    await press('Inbox. In alex@example.invalid');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
         'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
@@ -1407,7 +1447,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={setSelected}
             selected={selected}
           />
@@ -1477,7 +1517,7 @@ describe('product registration', () => {
     expect(rows()[0]).toMatch(/^Unread\. Maya Chen\. Studio review\./u);
 
     // Changing to one mailbox and back discards the online answer even with the same query.
-    await press('alex@example.invalid');
+    await press('Inbox. In alex@example.invalid');
     await press('Search mail servers for “studio”');
     await waitFor(() => {
       expect(rows()).toHaveLength(3);

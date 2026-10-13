@@ -23,12 +23,12 @@ import {
   SectionList,
   Pressable,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
+import type { MailboxView } from './sidebar.tsx';
 
 import {
   DraftHeading,
@@ -36,8 +36,8 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
-import { Chip } from './design.tsx';
-import { FolderPicker, useImapFolder } from './imap-folders.tsx';
+import { useImapFolder } from './imap-folders.tsx';
+import { FloatingBar } from './inbox-bar.tsx';
 import { styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -85,7 +85,13 @@ interface InboxProps {
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
+  // The mailbox or folder the list shows; every mailbox of the Profile without one.
+  readonly view?: MailboxView;
+  readonly onView?: (view: MailboxView) => void;
 }
+
+const allInboxes: MailboxView = {};
+const keepView = () => undefined;
 
 // A row's organizing action at its provider.
 type RowAction = Readonly<{ name: string; label: string; run: () => void }>;
@@ -440,38 +446,6 @@ function ImapAuthorizationNeeded({
   );
 }
 
-// Chooses every mailbox together, or one on its own.
-function ScopePicker({
-  mailboxes,
-  scope,
-  onScope,
-}: {
-  readonly mailboxes: readonly InboxMailbox[];
-  readonly scope: string | undefined;
-  readonly onScope: (scope: string | undefined) => void;
-}) {
-  const { t } = useLocalization();
-  const choices = [
-    { id: undefined, label: t('inbox.allInboxes') },
-    ...mailboxes.map(({ id, address }) => ({ id, label: address ?? id })),
-  ];
-  return (
-    <View style={styles.scopes}>
-      {choices.map(({ id, label }) => (
-        <Chip
-          key={id ?? 'all'}
-          icon={id === undefined ? 'tray.2' : 'tray'}
-          label={label}
-          selected={id === scope}
-          onPress={() => {
-            onScope(id);
-          }}
-        />
-      ))}
-    </View>
-  );
-}
-
 // A search result's saved state, once known.
 const savedStatus = (t: Translate, saved: boolean | undefined) => {
   if (saved === undefined) {
@@ -658,6 +632,8 @@ export function Inbox({
   onClose,
   onCompose,
   composing,
+  view = allInboxes,
+  onView = keepView,
 }: InboxProps) {
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
@@ -681,10 +657,11 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
-  const [chosen, setChosen] = useState<string>();
   // A removed mailbox's view falls back to every mailbox of the Profile.
-  const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
-  const view = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
+  const scope = mailboxes.some(({ id }) => id === view.mailbox)
+    ? view.mailbox
+    : undefined;
+  const scoped = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
@@ -701,13 +678,13 @@ export function Inbox({
   // Typing stays responsive while the list catches up with the latest query.
   const searched = useDeferredValue(query.trim());
   const inboxListed = useMemo(
-    () => inboxMessages(mailboxes, view),
-    [mailboxes, view],
+    () => inboxMessages(mailboxes, scoped),
+    [mailboxes, scoped],
   );
-  const { imap, folder, listed, failed, chooseFolder } = useImapFolder(
-    shown,
-    inboxListed,
-  );
+  const { listed, failed } = useImapFolder(shown, inboxListed, {
+    view,
+    onView,
+  });
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
     () => (searched === '' ? undefined : searchMessages(listed, searched)),
@@ -718,7 +695,7 @@ export function Inbox({
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
-  const online = useGmailSearch(shown, searched, view);
+  const online = useGmailSearch(shown, searched, scoped);
   const messages = results ?? listed;
   const sections = inboxSections({
     outbox,
@@ -812,49 +789,13 @@ export function Inbox({
               {subtitle}
             </Text>
           </View>
-          {account === undefined ? null : (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                void openAccount(account.openAccount);
-              }}>
-              <Text style={[styles.account, { color: colors.accentInk }]}>
-                {t('inbox.account')}
-              </Text>
-            </Pressable>
-          )}
         </View>
-        {mailboxes.length > 1 ? (
-          <ScopePicker
-            mailboxes={mailboxes}
-            onScope={setChosen}
-            scope={scope}
-          />
-        ) : null}
-        <FolderPicker
-          mailbox={imap}
-          folder={folder}
-          failed={failed}
-          onFolder={chooseFolder}
-        />
-        {ready ? (
-          <TextInput
-            accessibilityLabel={t('search.label')}
-            accessibilityRole="search"
-            autoCapitalize="none"
-            autoComplete="off"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-            onChangeText={setQuery}
-            placeholder={t('search.label')}
-            placeholderTextColor={colors.textSecondary}
-            returnKeyType="search"
-            style={[
-              styles.search,
-              { borderColor: colors.separator, color: colors.textPrimary },
-            ]}
-            value={query}
-          />
+        {failed ? (
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, { color: colors.textSecondary }]}>
+            {t('imap.foldersUnavailable')}
+          </Text>
         ) : null}
         {shown.some(({ state }) => state.kind === 'loading') ? (
           <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
@@ -917,19 +858,18 @@ export function Inbox({
               ? `draft\n${item.draft.id}`
               : resultKey(item);
           }}
-          ListHeaderComponent={
-            onCompose === undefined ? null : (
-              <DraftList
-                onCompose={onCompose}
-                scope={scope}
-              />
-            )
-          }
+          ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
           ListFooterComponent={
-            <OnlineResults
-              query={searched}
-              search={online}
-            />
+            <>
+              <OnlineResults
+                query={searched}
+                search={online}
+              />
+              <LanguageSelector />
+              <Text style={[styles.footer, { color: colors.textSecondary }]}>
+                {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
+              </Text>
+            </>
           }
           renderSectionFooter={({ section }) =>
             section.key === 'saved' && messages.length === 0 && ready
@@ -979,10 +919,13 @@ export function Inbox({
             );
           }}
         />
-        <LanguageSelector />
-        <Text style={[styles.footer, { color: colors.textSecondary }]}>
-          {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
-        </Text>
+        <FloatingBar
+          onCompose={onCompose}
+          onQuery={setQuery}
+          query={query}
+          ready={ready}
+          scope={scope}
+        />
       </View>
     </SafeAreaView>
   );

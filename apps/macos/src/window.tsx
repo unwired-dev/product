@@ -1,20 +1,46 @@
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
+import type { MailboxView } from './sidebar.tsx';
 
+import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
+import { useLocalization } from './localization.ts';
 import { InboxProvider, ProfileScope } from './mailbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate } from './registration-gate.tsx';
+import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
+
+// A window narrower than this hides the sidebar until it is shown again.
+const narrowWindow = 900;
 
 const styles = StyleSheet.create({
   window: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: 320, borderRightWidth: StyleSheet.hairlineWidth },
+  // The floating glass sidebar, inset from the window edges.
+  sidebar: {
+    alignSelf: 'stretch',
+    width: 236,
+    margin: spacing.s,
+    padding: 0,
+    borderRadius: radius.window,
+    borderCurve: 'continuous',
+  },
+  list: { width: 340, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
+  toggle: { margin: spacing.m, marginRight: 0 },
+  toggleTarget: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 14,
+  },
 });
 
 type WindowProps = Readonly<{
@@ -37,10 +63,53 @@ export function PreviewWindow({
   );
 }
 
+function SidebarToggle({
+  shown,
+  onPress,
+}: {
+  readonly shown: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [focused, setFocused] = useState(false);
+  return (
+    <GlassGroup style={styles.toggle}>
+      <Pressable
+        accessibilityLabel={t(
+          shown ? 'native.hideSidebar' : 'native.showSidebar',
+        )}
+        accessibilityRole="button"
+        focusable
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onPress={onPress}
+        style={[
+          styles.toggleTarget,
+          { borderColor: focused ? colors.accentInk : 'transparent' },
+        ]}>
+        <SFSymbol
+          name="sidebar.leading"
+          color={colors.accentInk}
+        />
+      </Pressable>
+    </GlassGroup>
+  );
+}
+
 function WindowContents({ windowId }: { readonly windowId: string }) {
   const [selected, setSelected] = useState<Selection>();
   // The window's one composer replaces the reader while it is open.
   const [composing, setComposing] = useState<string>();
+  const [view, setView] = useState<MailboxView>({});
+  const [width, setWidth] = useState<number>();
+  // The sidebar follows the window width until the toggle chooses for it.
+  const [sidebar, setSidebar] = useState<boolean>();
+  const sidebarShown = sidebar ?? (width === undefined || width > narrowWindow);
   const colors = usePalette();
   // Opening a Draft from either pane replaces the reader with the window's composer.
   const compose = (id: string) => {
@@ -54,10 +123,37 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
   return (
     <View
       testID={`inbox-window-${windowId}`}
-      style={styles.window}>
-      <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+      onLayout={({ nativeEvent }) => {
+        setWidth(nativeEvent.layout.width);
+      }}
+      style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
+      {sidebarShown ? (
+        <GlassGroup
+          style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+          <Mailboxes
+            view={view}
+            onView={setView}
+          />
+        </GlassGroup>
+      ) : null}
+      <View
+        style={[
+          styles.list,
+          {
+            backgroundColor: colors.surfaceContent,
+            borderRightColor: colors.separator,
+          },
+        ]}>
         <Inbox
           composing={composing}
+          leading={
+            <SidebarToggle
+              shown={sidebarShown}
+              onPress={() => {
+                setSidebar(!sidebarShown);
+              }}
+            />
+          }
           selected={selected}
           onClose={close}
           onCompose={compose}
@@ -65,9 +161,11 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
             setComposing(undefined);
             setSelected(selection);
           }}
+          onView={setView}
+          view={view}
         />
       </View>
-      <View style={styles.detail}>
+      <View style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
         {composing === undefined ? (
           <MessageDetail
             id={selected?.id}
