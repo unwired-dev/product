@@ -424,15 +424,20 @@ export function DraftList({
   const { t } = useLocalization();
   const navigation = useComposerNavigation();
   const windowProfile = useProfile();
-  const creating = useRef(false);
+  const owner = useMemo(
+    () => ({ accountId, navigation, scope, store, windowProfile }),
+    [accountId, navigation, scope, store, windowProfile],
+  );
+  const creating = useRef<object | undefined>(undefined);
   const scopeOwner = useRef<object | undefined>(undefined);
-  const [creatingShown, setCreatingShown] = useState(false);
+  const [creatingOwner, setCreatingOwner] = useState<object | undefined>();
+  const creatingShown = creatingOwner === owner;
   useLayoutEffect(() => {
-    scopeOwner.current = { accountId, navigation, scope, store, windowProfile };
+    scopeOwner.current = owner;
     return () => {
       scopeOwner.current = undefined;
     };
-  }, [accountId, navigation, scope, store, windowProfile]);
+  }, [owner]);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
@@ -454,21 +459,20 @@ export function DraftList({
   const composeDisabled = creatingShown
     ? t('commandPalette.busy')
     : composeUnavailable;
-  // One new Draft at a time: a second press while one is being created does nothing.
+  // One new Draft at a time within this scope: a second press does nothing.
   const compose = async (mailbox: MailboxConnection) => {
-    if (creating.current) {
+    if (scopeOwner.current !== owner || creating.current === owner) {
       return false;
     }
-    const owner = scopeOwner.current;
-    creating.current = true;
-    setCreatingShown(true);
+    creating.current = owner;
+    setCreatingOwner(owner);
     // Leaving and creating resolve rather than reject, so the press always settles here.
     const result = await navigation.createResult(store, mailbox);
-    creating.current = false;
-    setCreatingShown(false);
     if (owner !== scopeOwner.current) {
       return false;
     }
+    creating.current = undefined;
+    setCreatingOwner(undefined);
     if (result?.kind === 'created') {
       onCompose(result.id);
       return true;

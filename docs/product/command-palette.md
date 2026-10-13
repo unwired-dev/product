@@ -139,6 +139,9 @@ and bulk actions; they do not describe the current integration.
 - Losing Inbox admission retires pending palette execution even when the Product
   Account identity has not changed. Recovery can execute fresh commands without
   waiting for an operation from the retired admission.
+- New Message owns its busy state by Account, Profile, mailbox and Draft store.
+  A replacement scope can begin creation while the retired operation is pending;
+  its late completion cannot clear the replacement operation or open a composer.
 - Cancel, an outside click or tap, or Escape dismisses the palette. Within a
   parameter picker, Escape first returns to the command list.
 - Dismissing restores the previous focus. Successfully running a command closes

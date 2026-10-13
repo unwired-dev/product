@@ -76,6 +76,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   the button and palette through a Profile replacement, checking visible
   navigation and the next sender. Otherwise a late completion can reopen the
   retired Account or Profile or retarget the current one.
+  Own `DraftList`'s creation latch and visible busy state by that same committed
+  lifetime. A retired pending request must not block replacement creation, and
+  settlement may release only its own owner. Start a held replacement creation
+  before the original settles through both button and palette entry, then verify
+  the old result cannot release the replacement or open its composer. Preserve
+  the coordinator's existing empty-Draft supersession behavior; scope retirement
+  alone does not authorize abandoning a created Draft. Otherwise the new scope
+  stays disabled or an old completion admits overlapping creation.
 
 - `command-palette.tsx` registering disabled fallback commands outside the supported
   screen lifetime. Trace `RegistrationGate` sign-in, initial setup and locked
