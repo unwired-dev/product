@@ -42,6 +42,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-detail.tsx` displaying a conversation count from a constant or only
+  the opened message. Trace ordinary Inbox selections through the single-message
+  route with a cached multi-message Thread: omit the count there or derive it
+  from the mailbox-scoped Thread projection. `ThreadMessages` must count that
+  same projection, or the reader mislabels multi-message conversations.
+
 - `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise

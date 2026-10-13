@@ -12,7 +12,7 @@ import {
 import { Dimensions, ScrollView } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
-import { ThreadView } from '../src/message-detail.tsx';
+import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -206,6 +206,24 @@ describe('thread view', () => {
       );
     });
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+  });
+
+  it('omits the conversation count when opening one message from a cached thread', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createGmailInbox(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <MessageDetail
+          id={middle}
+          mailbox={alex}
+        />
+      </InboxProvider>,
+    );
+    await act(store.load);
+
+    await expect(screen.findByText('Alex Rivera')).resolves.toBeVisible();
+    expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
   });
 
   it('shows the message as unavailable when it is not cached', async () => {

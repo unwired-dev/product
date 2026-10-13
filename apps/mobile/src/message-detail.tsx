@@ -54,7 +54,7 @@ import {
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
-import { ReaderHeader, MessageCount, MessageHeader } from './reader-chrome.tsx';
+import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
@@ -873,7 +873,6 @@ function MailboxMessage({
               {message.subject}
             </Text>
           )}
-          <MessageCount count={1} />
           <MessageMetadata message={message} />
           <ReaderBody
             key={message.id}
