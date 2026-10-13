@@ -26,7 +26,7 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AppState, View } from 'react-native';
+import { AppState, Dimensions, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -3150,6 +3150,160 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('chooses Reply All from the compact sheet and ignores a choice after the reader closes', async () => {
+    expect.hasAssertions();
+    const regular = Dimensions.get('window');
+    Dimensions.set({ window: { ...regular, width: 320, height: 568 } });
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Compact plans',
+      content: { text: 'Meet on Friday?' },
+      headers: {
+        To: 'alex@example.invalid, Bob <bob@example.invalid>',
+        'Message-ID': '<compact@example.invalid>',
+      },
+    });
+    try {
+      const app = await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />,
+      );
+      await press('Reply');
+      await press('Cancel');
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await press('Reply');
+      await press('Reply All');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Re: Compact plans',
+      );
+      expect(draftsOf(drafts.getSnapshot())[0]).toMatchObject({
+        response: { kind: 'replyAll' },
+        to: [
+          { name: 'Maya Chen', address: 'maya@example.invalid' },
+          { name: 'Bob', address: 'bob@example.invalid' },
+        ],
+      });
+      await press('Close');
+      await press('Reply');
+      const choose = queuedPress('Reply All');
+      await app.unmount();
+      await act(async () => {
+        choose();
+        await drafts.save();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    } finally {
+      Dimensions.set({ window: regular });
+    }
+  });
+
+  it('does not open a new message after its compact reader closes during creation', async () => {
+    expect.hasAssertions();
+    const regular = Dimensions.get('window');
+    Dimensions.set({ window: { ...regular, width: 390, height: 844 } });
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({ content: { text: 'Read me.' } });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail }),
+      registration,
+    );
+    const onCompose = jest.fn();
+    try {
+      const reader = await render(
+        <AccountContext
+          value={{
+            mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
+            openAccount: ignore,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+          }}>
+          <InboxProvider
+            drafts={drafts}
+            mailboxes={mailboxes}>
+            <MessageDetail
+              id={message}
+              mailbox={alex}
+              onCompose={onCompose}
+            />
+          </InboxProvider>
+        </AccountContext>,
+      );
+      await screen.findByText('Read me.');
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'New Message' }),
+        ).toBeEnabled();
+      });
+      storage.hold();
+      await press('New Message');
+      await waitFor(() => {
+        expect(drafts.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          save: 'saving',
+        });
+      });
+      await reader.unmount();
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      expect(onCompose).not.toHaveBeenCalled();
+    } finally {
+      storage.release();
+      Dimensions.set({ window: regular });
+    }
+  });
+
+  it('replies to an archived message opened from online search', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Archived plans',
+      content: { text: 'Shall we meet on Friday?' },
+      headers: { 'Message-ID': '<archived-plans@example.invalid>' },
+    });
+    gmail.archive(message);
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Search senders and subjects'),
+      'Archived plans',
+    );
+    await press('Search mail servers for “Archived plans”');
+    await expect(
+      screen.findByText('Shall we meet on Friday?'),
+    ).resolves.toBeOnTheScreen();
+    await press('Reply');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Archived plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())[0]?.response).toMatchObject({
+      kind: 'reply',
+      inReplyTo: '<archived-plans@example.invalid>',
+    });
+  });
+
   it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

@@ -3285,6 +3285,45 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('replies to an archived message opened from online search', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Archived plans',
+      content: { text: 'Shall we meet on Friday?' },
+      headers: { 'Message-ID': '<archived-plans@example.invalid>' },
+    });
+    gmail.archive(message);
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Search senders and subjects'),
+      'Archived plans',
+    );
+    await press('Search mail servers for “Archived plans”');
+    await expect(
+      screen.findByText('Shall we meet on Friday?'),
+    ).resolves.toBeOnTheScreen();
+    await press('Reply');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Archived plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())[0]?.response).toMatchObject({
+      kind: 'reply',
+      inReplyTo: '<archived-plans@example.invalid>',
+    });
+  });
+
   it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

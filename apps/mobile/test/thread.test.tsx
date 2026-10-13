@@ -9,7 +9,7 @@ import {
   screen,
   within,
 } from '@testing-library/react-native';
-import { ScrollView } from 'react-native';
+import { Dimensions, ScrollView } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { ThreadView } from '../src/message-detail.tsx';
@@ -63,9 +63,13 @@ function threadMailbox() {
   return { native: gmail.native, middle };
 }
 
-// A Thread message's section, found by its sender header.
+// A Thread message's section, found by its sender header: the nearest ancestor that reports
+// its layout for scrolling.
 const messageBy = (sender: string) => {
-  const section = screen.getByText(sender).parent;
+  let section = screen.getByText(sender).parent;
+  while (section !== null && section.props.onLayout === undefined) {
+    section = section.parent;
+  }
   if (section === null) {
     throw new Error(`Expected the message from ${sender}`);
   }
@@ -220,5 +224,38 @@ describe('thread view', () => {
     await expect(
       screen.findByText('Message unavailable'),
     ).resolves.toBeVisible();
+  });
+
+  it('shows the compact header with Back, the cached unread count and the subject', async () => {
+    expect.hasAssertions();
+    const regular = Dimensions.get('window');
+    Dimensions.set({ window: { ...regular, width: 390, height: 844 } });
+    const { native, middle } = threadMailbox();
+    const store = createGmailInbox(native);
+    const onClose = jest.fn();
+    try {
+      await render(
+        <InboxProvider mailboxes={singleMailbox(store, alex)}>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+            onClose={onClose}
+          />
+        </InboxProvider>,
+      );
+      await act(store.load);
+      await expect(
+        screen.findByRole('header', { name: 'Re: Planning' }),
+      ).resolves.toBeVisible();
+      expect(screen.getByText('3 Messages')).toBeVisible();
+      // Every delivered message is unread, including the one outside the Thread.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Back, 4 unread' }),
+      );
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce.
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      Dimensions.set({ window: regular });
+    }
   });
 });

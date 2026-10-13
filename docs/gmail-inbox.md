@@ -183,8 +183,17 @@ Gmail's labels.
 | **Move to** a label               | Adds the label, removes `INBOX`, keeps others    |
 | **Undo**                          | Reverses the latest archive, move, trash or spam |
 
-The reader has keyboard-focusable action buttons and label checkboxes with visible
-focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
+The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
+with the action's name as their accessibility label. On the Mac, a fixed toolbar
+above the reading pane groups **Archive**, **Move
+to Trash** and **Labels** (or **Folders**), then Reply, Reply All and Forward,
+then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
+(or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
+over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
+**Reply** and **More**, beside a separate circular New Message button. Reply
+opens a glass-backed modal sheet offering Reply, Reply All and Forward. More lists the remaining
+actions as text buttons. The action buttons and label checkboxes are keyboard-focusable
+with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. Restoring from Trash or Spam is the
 **Undo** of the latest removal; browsing Trash, Spam or a label is not part of

@@ -38,15 +38,17 @@ import {
   ActivityIndicator,
   Clipboard,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { Notice } from './design.tsx';
+import { Glass, Notice, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -104,17 +106,83 @@ function LinkConfirmation({
   const colors = usePalette();
   const { t } = useLocalization();
   const reasons = inspectLink(link.href, link.text);
+  const [focused, setFocused] = useState<string>();
   const proceed = () => {
     onDone();
     if (current()) {
       void openLink(link.href);
     }
   };
+  const tones = {
+    primary: { fill: colors.accentFill, ink: colors.accentOnFill },
+    secondary: { fill: colors.fillQuiet, ink: colors.textPrimary },
+    destructive: { fill: colors.fillQuiet, ink: colors.statusDestructive },
+  };
+  const copyLink = () => {
+    // oxlint-disable-next-line typescript/no-deprecated -- Core Clipboard remains in both hosts; replacing it adds a native module.
+    Clipboard.setString(link.href);
+  };
+  const choice = (
+    label: string,
+    onPress: () => void,
+    tone: keyof typeof tones,
+  ) => (
+    <Pressable
+      key={label}
+      accessibilityRole="button"
+      focusable
+      onFocus={() => {
+        setFocused(label);
+      }}
+      onBlur={() => {
+        setFocused(undefined);
+      }}
+      onPress={onPress}
+      style={[
+        styles.choice,
+        {
+          backgroundColor: tones[tone].fill,
+          borderWidth: 2,
+          borderColor: focused === label ? colors.accentInk : 'transparent',
+        },
+      ]}>
+      <Text
+        style={[
+          styles.choiceLabel,
+          tone === 'primary' && styles.choiceEmphasized,
+          { color: tones[tone].ink },
+        ]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={[styles.confirm, { borderColor: colors.separator }]}>
-      <Text style={[styles.secondary, { color: colors.textPrimary }]}>
+      accessibilityViewIsModal
+      onAccessibilityEscape={onDone}
+      style={[styles.confirm, { backgroundColor: colors.surfaceContent }]}>
+      <Glass
+        cornerRadius={styles.confirm.borderRadius}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.iconTile, { backgroundColor: colors.fillQuiet }]}>
+        <SFSymbol
+          name={reasons.length === 0 ? 'link' : 'exclamationmark.shield'}
+          size={28}
+          color={
+            reasons.length === 0 ? colors.textSecondary : colors.statusWarning
+          }
+        />
+      </View>
+      {reasons.length === 0 ? null : (
+        <Text
+          accessibilityRole="header"
+          style={[styles.confirmTitle, { color: colors.textPrimary }]}>
+          {t('messageBody.cautionTitle')}
+        </Text>
+      )}
+      <Text style={[styles.confirmText, { color: colors.textPrimary }]}>
         {reasons.length === 0
           ? t('messageBody.confirmLink')
           : t('messageBody.cautionLink')}
@@ -122,50 +190,41 @@ function LinkConfirmation({
       {reasons.map((reason) => (
         <Text
           key={reason}
-          style={[styles.secondary, { color: colors.textPrimary }]}>
+          style={[styles.confirmText, { color: colors.textPrimary }]}>
           {t('messageBody.warning', { warning: t(`linkWarnings.${reason}`) })}
         </Text>
       ))}
       <Text
         selectable
-        style={[styles.secondary, { color: colors.textSecondary }]}>
+        style={[styles.confirmText, { color: colors.textPrimary }]}>
         {link.href}
       </Text>
-      <View style={styles.actions}>
-        {reasons.length === 0 ? (
-          <Action
-            label={t('messageBody.openLink')}
-            onPress={proceed}
-          />
-        ) : (
-          <>
-            <Action
-              label={t('messageBody.copyLink')}
-              onPress={() => {
-                onDone();
-                if (current()) {
-                  // oxlint-disable-next-line typescript/no-deprecated -- Core Clipboard remains in both hosts' React Native; a replacement would add a native module.
-                  Clipboard.setString(link.href);
-                }
-              }}
-            />
-            <Action
-              label={t('messageBody.proceed')}
-              onPress={proceed}
-            />
-          </>
-        )}
-        <Action
-          label={t('common.cancel')}
-          onPress={onDone}
-        />
+      <View style={styles.choices}>
+        {reasons.length === 0
+          ? [
+              choice(t('messageBody.openLink'), proceed, 'primary'),
+              choice(t('common.cancel'), onDone, 'secondary'),
+            ]
+          : [
+              choice(t('common.cancel'), onDone, 'primary'),
+              choice(
+                t('messageBody.copyLink'),
+                () => {
+                  onDone();
+                  if (current()) {
+                    copyLink();
+                  }
+                },
+                'secondary',
+              ),
+              choice(t('messageBody.proceed'), proceed, 'destructive'),
+            ]}
       </View>
     </View>
   );
 }
 
-// Shows link confirmations below the reader's scrolling content, so a link chosen anywhere in a
-// long message is confirmed in view.
+// Confirms a link above the reader, keeping its choice visible at every scroll position.
 export function LinkConfirmationProvider({
   children,
   inbox,
@@ -189,22 +248,36 @@ export function LinkConfirmationProvider({
       <View style={styles.fill}>
         {children}
         {pending === undefined || !shown ? null : (
-          <View
-            style={[
-              styles.bar,
-              {
-                borderTopColor: colors.separator,
-                backgroundColor: colors.surfaceContent,
-              },
+          <Modal
+            visible
+            transparent
+            onRequestClose={() => {
+              setPending((value) => (value === pending ? undefined : value));
+            }}
+            supportedOrientations={[
+              'portrait',
+              'portrait-upside-down',
+              'landscape-left',
+              'landscape-right',
             ]}>
-            <LinkConfirmation
-              link={pending.link}
-              current={pending.current}
-              onDone={() => {
-                setPending(undefined);
-              }}
-            />
-          </View>
+            <View
+              style={[
+                styles.modalBackdrop,
+                { backgroundColor: colors.scrimTouch },
+              ]}>
+              <ScrollView style={styles.alertScroll}>
+                <LinkConfirmation
+                  link={pending.link}
+                  current={pending.current}
+                  onDone={() => {
+                    setPending((value) =>
+                      value === pending ? undefined : value,
+                    );
+                  }}
+                />
+              </ScrollView>
+            </View>
+          </Modal>
         )}
       </View>
     </LinkConfirmationContext>
@@ -742,23 +815,29 @@ function AttachmentRow({
       );
   }
   return (
-    <View style={styles.attachment}>
-      <Text
-        selectable
-        style={[styles.attachmentName, { color: colors.textPrimary }]}>
-        {name}
-      </Text>
-      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-        {fileSize(t, sizeFormat, size)}
-      </Text>
-      {status === undefined ? null : (
+    <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
+      <SFSymbol
+        name="doc"
+        color={colors.textSecondary}
+      />
+      <View style={styles.attachmentText}>
         <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.secondary, { color: colors.textSecondary }]}>
-          {status}
+          selectable
+          style={[styles.attachmentName, { color: colors.textPrimary }]}>
+          {name}
         </Text>
-      )}
-      <View style={styles.actions}>{actions}</View>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {fileSize(t, sizeFormat, size)}
+        </Text>
+        {status === undefined ? null : (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.secondary, { color: colors.textSecondary }]}>
+            {status}
+          </Text>
+        )}
+        <View style={styles.actions}>{actions}</View>
+      </View>
     </View>
   );
 }
@@ -804,16 +883,18 @@ function ReceivedAttachments({
         style={[styles.secondary, { color: colors.textSecondary }]}>
         {t('attachment.count', { count: attachments.length })}
       </Text>
-      {attachments.slice(0, shown).map((attachment) => (
-        <AttachmentRow
-          key={attachment.locator}
-          inbox={inbox}
-          id={id}
-          attachment={attachment}
-          current={current}
-          provider={provider}
-        />
-      ))}
+      <View style={styles.attachmentList}>
+        {attachments.slice(0, shown).map((attachment) => (
+          <AttachmentRow
+            key={attachment.locator}
+            inbox={inbox}
+            id={id}
+            attachment={attachment}
+            current={current}
+            provider={provider}
+          />
+        ))}
+      </View>
       {attachments.length > shown ? (
         <Action
           label={t('attachment.more', {

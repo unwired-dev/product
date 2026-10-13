@@ -22,6 +22,7 @@ import {
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -49,30 +50,38 @@ import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them.
+  toolbar: {
+    height: 36 + spacing.m,
+    zIndex: 1,
+    alignItems: 'flex-end',
+    paddingTop: spacing.m,
+    paddingHorizontal: spacing.l,
+    gap: spacing.s,
+  },
   content: {
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    padding: spacing.xl,
+    paddingHorizontal: 40,
+    paddingTop: spacing.xl,
+    paddingBottom: 40,
+    gap: spacing.l,
   },
   subject: { ...textStyles.reading.subject },
   metadata: {
-    gap: 5,
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    gap: 2,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
+  fromText: { flex: 1 },
   sender: { ...textStyles.bodyEmphasized },
+  address: { ...textStyles.body },
   control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
-  responses: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xl,
-    marginTop: spacing.xl,
-  },
-  secondary: { ...textStyles.body },
-  body: { ...textStyles.reading.body, marginTop: spacing.xl },
+  secondary: { ...textStyles.subheadline },
+  body: { ...textStyles.reading.body },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -370,30 +379,25 @@ function ResponseActions({
     }
   };
   const actions = [
-    ['reply', t('message.reply')],
-    ['replyAll', t('message.replyAll')],
-    ['forward', t('message.forward')],
+    ['reply', 'arrowshape.turn.up.left', t('message.reply')],
+    ['replyAll', 'arrowshape.turn.up.left.2', t('message.replyAll')],
+    ['forward', 'arrowshape.turn.up.right', t('message.forward')],
   ] as const;
   return (
-    <View>
-      <View style={styles.responses}>
-        {actions.map(([kind, label]) => (
-          <Pressable
-            style={styles.control}
+    <>
+      <GlassGroup>
+        {actions.map(([kind, icon, label]) => (
+          <ToolbarButton
             key={kind}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: pending !== undefined }}
+            icon={icon}
+            label={label}
             disabled={pending !== undefined}
             onPress={() => {
               void start(kind);
-            }}>
-            <Text style={[styles.secondary, { color: colors.accentInk }]}>
-              {label}
-            </Text>
-          </Pressable>
+            }}
+          />
         ))}
-      </View>
+      </GlassGroup>
       {pending === 'forward' ? (
         <View
           accessible
@@ -415,7 +419,7 @@ function ResponseActions({
           </Text>
         </View>
       ) : null}
-    </View>
+    </>
   );
 }
 
@@ -557,26 +561,34 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           id={message.id}>
-          <ReaderScrollView contentContainerStyle={styles.content}>
+          <View style={styles.toolbar}>
             {'setUnread' in actions ? (
-              <Pressable
-                style={styles.control}
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
+              <GlassGroup>
+                <ToolbarButton
+                  icon={message.unread ? 'envelope.open' : 'envelope.badge'}
+                  label={
+                    message.unread
+                      ? t('message.markRead')
+                      : t('message.markUnread')
+                  }
+                  onPress={() => {
+                    void actions.setUnread(message.id, !message.unread);
+                  }}
+                />
+              </GlassGroup>
             ) : (
               <MessageActions
                 id={message.id}
-                onClose={onClose}
-              />
+                onClose={onClose}>
+                <ResponseActions
+                  key={`${address}:${message.id}`}
+                  message={message}
+                  onCompose={onCompose}
+                />
+              </MessageActions>
             )}
+          </View>
+          <ReaderScrollView contentContainerStyle={styles.content}>
             <Text
               accessibilityRole="header"
               selectable
@@ -588,21 +600,23 @@ function MailboxMessage({
                 styles.metadata,
                 { borderBottomColor: colors.separator },
               ]}>
-              <Text
-                selectable
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                selectable
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {message.address}
-              </Text>
-              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('message.received', {
-                  date: dateFormat.format(new Date(message.receivedAt)),
-                })}
-              </Text>
+              <View style={styles.from}>
+                <Text
+                  selectable
+                  style={[styles.fromText, { color: colors.textSecondary }]}>
+                  <Text style={[styles.sender, { color: colors.textPrimary }]}>
+                    {message.sender}
+                  </Text>
+                  <Text style={styles.address}>{`  ${message.address}`}</Text>
+                </Text>
+                <Text
+                  selectable
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
+                  {t('message.received', {
+                    date: dateFormat.format(new Date(message.receivedAt)),
+                  })}
+                </Text>
+              </View>
               {address === undefined ? null : (
                 <Text
                   style={[styles.secondary, { color: colors.textSecondary }]}>
@@ -616,11 +630,6 @@ function MailboxMessage({
                 </Text>
               )}
             </View>
-            <ResponseActions
-              key={`${address}:${message.id}`}
-              message={message}
-              onCompose={onCompose}
-            />
             <ReaderBody
               key={message.id}
               inbox={actions}

@@ -63,7 +63,9 @@ final class InboxTests: XCTestCase {
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
-    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
+    // an archive and Undo.
+    app.buttons["More"].tap()
     app.buttons["Star"].tap()
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
@@ -622,13 +624,16 @@ final class InboxTests: XCTestCase {
       NSPredicate(format: "label CONTAINS %@", "Garden plans for spring")
     ).firstMatch
     // On iPhone the closed composer leaves the reader route; go back to the Inbox.
-    let back = app.buttons["Back"]
+    let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
     if !message.waitForExistence(timeout: 5), back.exists {
       back.tap()
     }
     XCTAssertTrue(message.waitForExistence(timeout: 15))
     message.tap()
     app.buttons["Reply"].tap()
+    if app.buttons["Reply All"].waitForExistence(timeout: 2) {
+      app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
+    }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.
     let suggest = app.buttons["Suggest a reply to the quoted message"]
@@ -700,7 +705,7 @@ final class InboxTests: XCTestCase {
     let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
       .firstMatch
     if !oliver.exists || !oliver.isHittable {
-      let back = app.navigationBars.buttons.firstMatch
+      let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
       XCTAssertTrue(back.exists)
       back.tap()
     }

@@ -494,6 +494,7 @@ describe('connected Gmail Inbox', () => {
       await store.load();
     });
     expect(screen.getByRole('button', { name: 'Labels' })).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Mark as read' }),
@@ -649,6 +650,7 @@ describe('connected Gmail Inbox', () => {
     );
     await fireEvent.press(row);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeVisible();
   });
 
@@ -674,16 +676,18 @@ describe('connected Gmail Inbox', () => {
       }),
     );
     expect(
-      [
-        'Mark as read',
-        'Archive',
-        'Move to Trash',
-        'Report spam',
-        'Folders',
-      ].map((name) => screen.getByRole('button', { name })),
-    ).toHaveLength(5);
-    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
+      ['Archive', 'Folders', 'More'].map((name) =>
+        screen.getByRole('button', { name }),
+      ),
+    ).toHaveLength(3);
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(
+      ['Mark as read', 'Move to Trash', 'Report spam'].map((name) =>
+        screen.getByRole('button', { name }),
+      ),
+    ).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
 
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));

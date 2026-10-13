@@ -1,4 +1,5 @@
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
@@ -16,9 +17,12 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Modal,
+  ScrollView,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -26,6 +30,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { Glass, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -49,36 +54,82 @@ import {
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
+import { ReaderHeader, MessageCount, MessageHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
+// Below this width the reader is a pushed iPhone screen with its own header and bottom toolbar;
+// at or above it (iPad, regular width) the toolbar sits at the top like the Mac's.
+const compactWidth = 700;
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  replyBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  replyScroll: { width: 310, maxWidth: '100%', maxHeight: '100%', flexGrow: 0 },
+  replySheet: {
+    padding: spacing.l,
+    gap: spacing.s,
+    borderRadius: radius.alertTouch,
+  },
+  replyChoice: {
+    minHeight: 48,
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.s,
+    borderRadius: 24,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  replyLabel: { ...textStyles.headline, textAlign: 'center' },
+  // The regular-width toolbar: glass groups at the pane's trailing edge.
+  topToolbar: {
+    height: 52 + spacing.m,
+    zIndex: 1,
+    alignItems: 'flex-end',
+    paddingTop: spacing.m,
+    paddingHorizontal: spacing.l,
+  },
+  // The compact toolbar floats over the content's bottom edge.
+  bottomToolbar: {
+    position: 'absolute',
+    left: spacing.l,
+    right: spacing.l,
+    bottom: spacing.l,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.s,
+  },
+  bottomActions: {
+    flexShrink: 1,
+    flexDirection: 'column-reverse',
+    gap: spacing.s,
+  },
   content: {
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    padding: spacing.xl,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.s,
+    gap: spacing.l,
   },
+  compactContent: { paddingBottom: 52 + 2 * spacing.l },
   subject: { ...textStyles.reading.subject },
   metadata: {
-    gap: 5,
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    gap: 2,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  sender: { ...textStyles.headline },
   control: { minHeight: 44, minWidth: 44, justifyContent: 'center' },
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
-  responses: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xl,
-    marginTop: spacing.xl,
-  },
-  secondary: { ...textStyles.subheadline },
-  body: { ...textStyles.reading.body, marginTop: spacing.xl },
+  secondary: { ...textStyles.footnote },
+  body: { ...textStyles.reading.body },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -89,11 +140,10 @@ const styles = StyleSheet.create({
   emptyTitle: { ...textStyles.headline, textAlign: 'center' },
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
   threadMessage: {
-    gap: 5,
-    marginTop: spacing.xl,
-    paddingTop: spacing.xl,
+    gap: 10,
+    paddingVertical: 14,
     paddingHorizontal: spacing.l,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
   },
   // A bar beside the opened message, so it stands out without relying on color.
@@ -314,13 +364,16 @@ function ResponseActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
+  const compact = useWindowDimensions().width < compactWidth;
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
   const [failed, setFailed] = useState(false);
+  const [focused, setFocused] = useState<string>();
   const source = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
+  const [choosing, setChoosing] = useState<typeof source>();
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -384,31 +437,126 @@ function ResponseActions({
       setPending(undefined);
     }
   };
-  const actions = [
-    ['reply', t('message.reply')],
-    ['replyAll', t('message.replyAll')],
-    ['forward', t('message.forward')],
-  ] as const;
   return (
-    <View>
-      <View style={styles.responses}>
-        {actions.map(([kind, label]) => (
-          <Pressable
-            style={styles.control}
-            key={kind}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: pending !== undefined }}
+    <>
+      {compact ? (
+        <ToolbarButton
+          icon="arrowshape.turn.up.left"
+          label={t('message.reply')}
+          disabled={pending !== undefined}
+          onPress={() => {
+            setChoosing(source);
+          }}
+        />
+      ) : (
+        <>
+          <ToolbarButton
+            icon="arrowshape.turn.up.left"
+            label={t('message.reply')}
             disabled={pending !== undefined}
             onPress={() => {
-              void start(kind);
-            }}>
-            <Text style={[styles.secondary, { color: colors.accentInk }]}>
-              {label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+              void start('reply');
+            }}
+          />
+          <ToolbarButton
+            icon="arrowshape.turn.up.left.2"
+            label={t('message.replyAll')}
+            disabled={pending !== undefined}
+            onPress={() => {
+              void start('replyAll');
+            }}
+          />
+          <ToolbarButton
+            icon="arrowshape.turn.up.right"
+            label={t('message.forward')}
+            disabled={pending !== undefined}
+            onPress={() => {
+              void start('forward');
+            }}
+          />
+        </>
+      )}
+      {compact && choosing !== undefined && choosing === source ? (
+        <Modal
+          visible
+          transparent
+          onRequestClose={() => {
+            setChoosing(undefined);
+          }}
+          supportedOrientations={[
+            'portrait',
+            'portrait-upside-down',
+            'landscape-left',
+            'landscape-right',
+          ]}>
+          <View
+            style={[
+              styles.replyBackdrop,
+              { backgroundColor: colors.scrimTouch },
+            ]}>
+            <ScrollView style={styles.replyScroll}>
+              <View
+                accessibilityViewIsModal
+                onAccessibilityEscape={() => {
+                  setChoosing(undefined);
+                }}
+                style={[
+                  styles.replySheet,
+                  { backgroundColor: colors.surfaceContent },
+                ]}>
+                <Glass
+                  cornerRadius={radius.alertTouch}
+                  style={StyleSheet.absoluteFill}
+                />
+                {(['reply', 'replyAll', 'forward', 'cancel'] as const).map(
+                  (kind) => {
+                    const label =
+                      kind === 'cancel'
+                        ? t('common.cancel')
+                        : t(`message.${kind}`);
+                    return (
+                      <Pressable
+                        key={kind}
+                        accessibilityRole="button"
+                        accessibilityLabel={label}
+                        onFocus={() => {
+                          setFocused(kind);
+                        }}
+                        onBlur={() => {
+                          setFocused(undefined);
+                        }}
+                        onPress={() => {
+                          setChoosing(undefined);
+                          if (kind !== 'cancel') {
+                            void start(kind);
+                          }
+                        }}
+                        style={[
+                          styles.replyChoice,
+                          {
+                            backgroundColor: colors.fillQuiet,
+                            borderColor:
+                              focused === kind
+                                ? colors.accentInk
+                                : 'transparent',
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.replyLabel,
+                            { color: colors.textPrimary },
+                          ]}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  },
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
+      ) : null}
       {pending === 'forward' ? (
         <Text
           accessibilityLiveRegion="polite"
@@ -424,6 +572,128 @@ function ResponseActions({
           {t('message.respondFailed')}
         </Text>
       ) : null}
+    </>
+  );
+}
+
+// Starts a new message from the reader's mailbox, as the Inbox's New Message does.
+function ComposeButton({
+  mailbox,
+  onCompose,
+}: {
+  readonly mailbox: MailboxConnection;
+  readonly onCompose: (id: string) => void;
+}) {
+  const store = useDraftStore();
+  const drafts = useDrafts();
+  const navigation = useComposerNavigation();
+  const { t } = useLocalization();
+  const creating = useRef(false);
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const compose = async () => {
+    if (!mounted.current || creating.current) {
+      return;
+    }
+    creating.current = true;
+    // Leaving and creating resolve rather than reject, so the press always settles here.
+    const id = await navigation.create(store, mailbox);
+    creating.current = false;
+    if (mounted.current && id !== undefined) {
+      onCompose(id);
+    }
+  };
+  return (
+    <GlassGroup>
+      <ToolbarButton
+        icon="square.and.pencil"
+        label={t('drafts.newMessage')}
+        disabled={drafts.kind !== 'ready'}
+        onPress={() => {
+          void compose();
+        }}
+      />
+    </GlassGroup>
+  );
+}
+
+// The reader's actions: read state alone for the preview fixture, otherwise the provider's
+// organizing actions around Reply, Reply All and Forward.
+function MessageToolbar({
+  message,
+  onClose,
+  onCompose,
+}: {
+  readonly message: NonNullable<ReturnType<typeof shownMessage>>;
+  readonly onClose: (() => void) | undefined;
+  readonly onCompose: ((id: string) => void) | undefined;
+}) {
+  const actions = useInboxActions();
+  const address = useMailbox()?.address;
+  const { t } = useLocalization();
+  if ('setUnread' in actions) {
+    return (
+      <GlassGroup>
+        <ToolbarButton
+          icon={message.unread ? 'envelope.open' : 'envelope.badge'}
+          label={
+            message.unread ? t('message.markRead') : t('message.markUnread')
+          }
+          onPress={() => {
+            void actions.setUnread(message.id, !message.unread);
+          }}
+        />
+      </GlassGroup>
+    );
+  }
+  return (
+    <MessageActions
+      id={message.id}
+      onClose={onClose}>
+      <ResponseActions
+        key={`${address}:${message.id}`}
+        message={message}
+        onCompose={onCompose}
+      />
+    </MessageActions>
+  );
+}
+
+// The opened message's header, mailbox and labels above a hairline.
+function MessageMetadata({
+  message,
+}: {
+  readonly message: NonNullable<ReturnType<typeof shownMessage>>;
+}) {
+  const state = useInbox();
+  const address = useMailbox()?.address;
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const applied = new Set('labels' in message ? message.labels : []);
+  const labelNames =
+    state.kind === 'ready' && 'labels' in state
+      ? state.labels
+          .filter((label) => applied.has(label.id))
+          .map((label) => label.name)
+      : [];
+  return (
+    <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
+      <MessageHeader message={message} />
+      {address === undefined ? null : (
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t('inbox.inMailbox', { mailbox: address })}
+        </Text>
+      )}
+      {labelNames.length === 0 ? null : (
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t('message.labels', { labels: labelNames.join(', ') })}
+        </Text>
+      )}
     </View>
   );
 }
@@ -520,24 +790,21 @@ function MailboxMessage({
   const state = useInbox();
   const actions = useInboxActions();
   const mailbox = useMailbox();
-  const address = mailbox?.address;
+  const account = use(AccountContext);
   const colors = usePalette();
   const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat(true);
+  const compact = useWindowDimensions().width < compactWidth;
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
   const folderMessage = useSyncExternalStore(actions.subscribe, () =>
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
-  const applied = new Set(
-    message !== undefined && 'labels' in message ? message.labels : [],
-  );
-  const labelNames =
-    state.kind === 'ready' && 'labels' in state
-      ? state.labels
-          .filter((label) => applied.has(label.id))
-          .map((label) => label.name)
-      : [];
+  // A new message sends from the reader's mailbox when it can.
+  const mailboxes = account?.mailboxes ?? [];
+  const sender = sendingMailboxes(
+    mailboxes,
+    profileOf(mailbox?.id, mailboxes),
+  ).find(({ id: candidate }) => candidate === mailbox?.id);
 
   if (state.kind === 'loading') {
     return (
@@ -552,11 +819,11 @@ function MailboxMessage({
     return <StorageProblem kind={state.kind} />;
   }
 
-  return (
-    <SafeAreaView
-      edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {message === undefined ? (
+  if (message === undefined) {
+    return (
+      <SafeAreaView
+        edges={{ top: true, bottom: true, left: true, right: true }}
+        style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
         <View style={styles.empty}>
           <Text
             accessibilityRole="header"
@@ -568,83 +835,67 @@ function MailboxMessage({
             {t('message.chooseAnother')}
           </Text>
         </View>
-      ) : (
-        <LinkConfirmationProvider
-          inbox={actions}
-          ids={[message.id]}>
-          <ReaderScrollView contentContainerStyle={styles.content}>
-            {'setUnread' in actions ? (
-              <Pressable
-                style={styles.control}
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
-            ) : (
-              <MessageActions
-                id={message.id}
-                onClose={onClose}
-              />
-            )}
+      </SafeAreaView>
+    );
+  }
+
+  const toolbar = (
+    <MessageToolbar
+      message={message}
+      onClose={onClose}
+      onCompose={onCompose}
+    />
+  );
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      <LinkConfirmationProvider
+        inbox={actions}
+        ids={[message.id]}>
+        {compact && onClose !== undefined ? (
+          <ReaderHeader
+            subject={message.subject}
+            onClose={onClose}
+          />
+        ) : null}
+        {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
+        <ReaderScrollView
+          contentContainerStyle={[
+            styles.content,
+            compact ? styles.compactContent : null,
+          ]}>
+          {compact ? null : (
             <Text
               accessibilityRole="header"
               selectable
               style={[styles.subject, { color: colors.textPrimary }]}>
               {message.subject}
             </Text>
-            <View
-              style={[
-                styles.metadata,
-                { borderBottomColor: colors.separator },
-              ]}>
-              <Text
-                selectable
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                selectable
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {message.address}
-              </Text>
-              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('message.received', {
-                  date: dateFormat.format(new Date(message.receivedAt)),
-                })}
-              </Text>
-              {address === undefined ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('inbox.inMailbox', { mailbox: address })}
-                </Text>
-              )}
-              {labelNames.length === 0 ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('message.labels', { labels: labelNames.join(', ') })}
-                </Text>
-              )}
-            </View>
-            <ResponseActions
-              key={`${address}:${message.id}`}
-              message={message}
-              onCompose={onCompose}
-            />
-            <ReaderBody
-              key={message.id}
-              inbox={actions}
-              message={message}
-              connection={mailbox?.id}
-            />
-          </ReaderScrollView>
-        </LinkConfirmationProvider>
-      )}
+          )}
+          <MessageCount count={1} />
+          <MessageMetadata message={message} />
+          <ReaderBody
+            key={message.id}
+            inbox={actions}
+            message={message}
+            connection={mailbox?.id}
+          />
+        </ReaderScrollView>
+        {compact ? (
+          <View style={styles.bottomToolbar}>
+            <View style={styles.bottomActions}>{toolbar}</View>
+            {sender === undefined || onCompose === undefined ? null : (
+              <View>
+                <ComposeButton
+                  mailbox={sender}
+                  onCompose={onCompose}
+                />
+              </View>
+            )}
+          </View>
+        ) : null}
+      </LinkConfirmationProvider>
     </SafeAreaView>
   );
 }
@@ -654,10 +905,13 @@ function MailboxMessage({
 export function ThreadView({
   mailbox,
   id,
+  onClose,
 }: {
   // The mailbox the message belongs to; Gmail message IDs are unique only within it.
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
+  // Leaves the Thread; the compact header's Back.
+  readonly onClose?: (() => void) | undefined;
 }) {
   const profile = useProfile();
   if (mailbox === undefined || id === undefined) {
@@ -671,17 +925,25 @@ export function ThreadView({
         <ThreadMessages
           key={`${mailbox}/${id}`}
           id={id}
+          onClose={onClose}
         />
       </ReaderMailAssistanceGate>
     </MailboxScope>
   );
 }
 
-function ThreadMessages({ id }: { readonly id: string }) {
+function ThreadMessages({
+  id,
+  onClose,
+}: {
+  readonly id: string;
+  readonly onClose: (() => void) | undefined;
+}) {
   const state = useInbox();
   const inbox = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const compact = useWindowDimensions().width < compactWidth;
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -717,15 +979,24 @@ function ThreadMessages({ id }: { readonly id: string }) {
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
+          {compact && onClose !== undefined ? (
+            <ReaderHeader
+              subject={opened.subject}
+              onClose={onClose}
+            />
+          ) : null}
           <ReaderScrollView
             contentContainerStyle={styles.content}
             maintainVisibleContentPosition={keepVisibleMessage}>
-            <Text
-              accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {opened.subject}
-            </Text>
+            {compact ? null : (
+              <Text
+                accessibilityRole="header"
+                selectable
+                style={[styles.subject, { color: colors.textPrimary }]}>
+                {opened.subject}
+              </Text>
+            )}
+            <MessageCount count={messages.length} />
             {messages.map((message) => (
               <ThreadMessage
                 key={message.id}
@@ -750,6 +1021,7 @@ function ThreadMessage({
   readonly message: Readonly<{
     id: string;
     sender: string;
+    address: string;
     subject: string;
     receivedAt: string;
   }>;
@@ -758,8 +1030,6 @@ function ThreadMessage({
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
-  const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat(true);
   const scrollTo = useReaderScrollTo();
   const scrolled = useRef(false);
   return (
@@ -772,7 +1042,7 @@ function ThreadMessage({
       }}
       style={[
         styles.threadMessage,
-        { borderTopColor: colors.separator },
+        { borderBottomColor: colors.separator },
         highlighted
           ? [
               styles.openedMessage,
@@ -783,17 +1053,10 @@ function ThreadMessage({
             ]
           : null,
       ]}>
-      <Text
-        accessibilityState={highlighted ? { selected: true } : undefined}
-        selectable
-        style={[styles.sender, { color: colors.textPrimary }]}>
-        {message.sender}
-      </Text>
-      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t('message.received', {
-          date: dateFormat.format(new Date(message.receivedAt)),
-        })}
-      </Text>
+      <MessageHeader
+        message={message}
+        highlighted={highlighted}
+      />
       <GmailMessageBody
         inbox={inbox}
         id={message.id}

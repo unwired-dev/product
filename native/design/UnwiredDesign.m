@@ -92,6 +92,44 @@ typedef UIView UnwiredPlatformView;
 @end
 #endif
 
+#if !TARGET_OS_OSX
+// The compact reader supplies its own Back pill; restore native chrome when it leaves.
+@interface UnwiredReaderChromeView : UIView
+@property (nonatomic, weak) UINavigationController *navigation;
+@property (nonatomic) BOOL previousHidden;
+@end
+
+@implementation UnwiredReaderChromeView
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  if (self.window == nil) {
+    [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
+    self.navigation = nil;
+    return;
+  }
+  UIResponder *responder = self;
+  while (responder != nil && ![responder isKindOfClass:[UIViewController class]]) {
+    responder = responder.nextResponder;
+  }
+  UINavigationController *navigation = ((UIViewController *)responder).navigationController;
+  if (navigation != nil && navigation != self.navigation) {
+    self.navigation = navigation;
+    self.previousHidden = navigation.navigationBarHidden;
+    [navigation setNavigationBarHidden:YES animated:NO];
+  }
+}
+@end
+
+@interface UnwiredReaderChromeManager : RCTViewManager
+@end
+
+@implementation UnwiredReaderChromeManager
+RCT_EXPORT_MODULE(UnwiredReaderChrome)
+- (UIView *)view { return [UnwiredReaderChromeView new]; }
+@end
+#endif
+
 // A decorative symbol: its control carries the accessible label.
 @interface UnwiredSymbolManager : RCTViewManager
 @end

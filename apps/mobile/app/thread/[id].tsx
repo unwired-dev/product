@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { ThreadView } from '../../src/message-detail.tsx';
 
@@ -11,6 +11,9 @@ export default function ThreadRoute() {
     <ThreadView
       id={id}
       mailbox={mailbox}
+      onClose={() => {
+        router.back();
+      }}
     />
   );
 }

@@ -34,9 +34,7 @@ export default function RootLayout() {
   const detail = Boolean(id) || Boolean(draft);
 
   useEffect(() => {
-    if (detail) {
-      splitView.current?.show('secondary');
-    }
+    splitView.current?.show(detail ? 'secondary' : 'primary');
   }, [detail]);
 
   function selectMessage(selection: Selection) {
