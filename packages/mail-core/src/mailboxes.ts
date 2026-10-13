@@ -18,9 +18,7 @@ import type {
   ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
-import type { InboxState } from './persistent-inbox.ts';
 import type {
-  MailboxConnection,
   MailGrantProvider,
   MailProvider,
   Registration,
@@ -28,13 +26,16 @@ import type {
 } from './registration.ts';
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
-import { createImapInbox, inboxFolder } from './imap-inbox.ts';
+import { createImapInbox } from './imap-inbox.ts';
 import {
   canOpenInbox,
   defaultProfile,
   mailboxesOf,
   unavailableProfile,
 } from './registration.ts';
+
+export type { MailboxProblem } from './mailbox-views.ts';
+export { mailboxSidebar, profileMailboxes } from './mailbox-views.ts';
 
 type Scope = Readonly<{
   connection: string;
@@ -608,70 +609,6 @@ export const readingProfile = (profileId: unknown): string =>
         ),
         () => '',
       );
-
-// The mailboxes owned by exactly `profile`, in the order the connections were added.
-export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
-  mailboxes: readonly L[],
-  profile: string,
-) => mailboxes.filter((mailbox) => mailbox.profile === profile);
-
-// The sidebar projects already-decoded stores; hosts retain rendering and navigation callbacks.
-export function mailboxSidebar<
-  L extends Readonly<{
-    id: string;
-    state: InboxState | GmailInboxState | ImapInboxState;
-  }>,
-  C extends Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>,
->({
-  mailboxes,
-  connections,
-  profile,
-  view,
-}: Readonly<{
-  mailboxes: readonly L[];
-  connections: readonly C[];
-  profile: string;
-  view: Readonly<{ mailbox?: string | undefined; folder?: string | undefined }>;
-}>) {
-  const chosen = mailboxes.find(({ id }) => id === view.mailbox);
-  const sections = mailboxes.map((mailbox) => {
-    const { state } = mailbox;
-    const unread =
-      'messages' in state
-        ? state.messages.filter((message) => message.unread).length
-        : 0;
-    const folders =
-      state.kind === 'ready' && 'folders' in state
-        ? state.folders.filter(({ selectable }) => selectable)
-        : [{ name: inboxFolder }];
-    return {
-      mailbox,
-      unread,
-      folders: folders.map(({ name }) => ({
-        name,
-        inbox: name === inboxFolder,
-        unread: name === inboxFolder ? unread : 0,
-        selected: chosen === mailbox && (view.folder ?? inboxFolder) === name,
-      })),
-    };
-  });
-  return {
-    unread: sections.reduce((sum, section) => sum + section.unread, 0),
-    allSelected: chosen === undefined,
-    sections,
-    // Waiting connections have no store until authorization succeeds; never duplicate a store row.
-    waiting: profileMailboxes(connections, profile)
-      .filter(
-        ({ id, state }) =>
-          state === 'authorization' &&
-          !mailboxes.some((mailbox) => mailbox.id === id),
-      )
-      .map((connection) => ({
-        connection,
-        recovery: connection.provider === 'imap' ? 'account' : 'authorization',
-      })),
-  };
-}
 
 const inScope =
   ({ profile, mailbox }: ViewScope) =>

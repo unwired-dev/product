@@ -658,12 +658,24 @@ describe('product registration', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     await createGmailInbox(gmail.native).load();
+    const other = createSyntheticGmail({
+      address: 'other@example.invalid',
+      messages: 0,
+    });
     const session = createMockRegistrationSession('registration-success');
     const connected = {
       kind: 'connected',
       productAccountId: 'synthetic-product-account',
       signInProvider: 'google',
-      mailboxes: connectedTo('alex@example.invalid'),
+      mailboxes: JSON.stringify(
+        (['alex@example.invalid', 'other@example.invalid'] as const).map(
+          (address) => ({
+            id: syntheticMailboxes[address],
+            address,
+            state: 'connected',
+          }),
+        ),
+      ),
       privateSync: 'ready',
     } as const;
     let snapshot: unknown = { ...connected, kind: 'cached' };
@@ -677,6 +689,7 @@ describe('product registration', () => {
     });
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: { ...gmail.native, openMailbox: () => openMailbox() } },
+      [syntheticMailboxes['other@example.invalid']]: other,
     });
     await render(
       <RegistrationGate
@@ -693,11 +706,26 @@ describe('product registration', () => {
     await expect(
       screen.findByText('Synthetic message 1'),
     ).resolves.toBeVisible();
-    expect(
-      screen.getByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
-    ).toBeVisible();
+    const unreachable =
+      'Gmail could not be reached. Showing mail saved on this device.';
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
+      );
+    });
+    // The unselected mailbox still explains its problem beside its Inbox row.
+    expect([
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
+        .props.accessibilityState?.selected,
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+      screen.queryByText(/Gmail could not be reached/u),
+    ]).toStrictEqual([false, unreachable, null]);
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
     await openAccount();
     expect(
       screen.getByRole('header', { name: 'Saved Gmail Inbox' }),
@@ -714,7 +742,12 @@ describe('product registration', () => {
     await expect(
       screen.findByText('After verification'),
     ).resolves.toBeVisible();
-    expect(store.getSnapshot().snapshot).toStrictEqual(connected);
+    expect({
+      snapshot: store.getSnapshot().snapshot,
+      problem: screen.getByRole('button', {
+        name: 'Inbox. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    }).toStrictEqual({ snapshot: connected, problem: '2 unread' });
   });
 
   it('waits for registration verification before loading Gmail on activation', async () => {

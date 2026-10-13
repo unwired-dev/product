@@ -57,6 +57,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   must open Account through the composer exit guard. Otherwise a saved connection
   disappears precisely when the person needs to repair its access.
 
+- `sidebar.tsx.Mailboxes` or `mailbox-views.ts.mailboxSidebar` exposing a connection's
+  storage, retry or authentication problem only in the selected Inbox. Keep each
+  store-backed connection's problem beside its sidebar row, independently of the
+  window's mailbox selection, and retain access to its owning Inbox recovery
+  controls. Exercise a failed connection while another mailbox is selected and
+  after recovery; otherwise switching mailboxes hides a connection needing repair.
+
 - `sidebar.tsx.Mailboxes` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise

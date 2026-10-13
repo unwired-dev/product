@@ -1,3 +1,7 @@
+import type { Translate } from '@private-email/localization';
+import type { MailboxProblem } from '@private-email/mail-core/mailboxes';
+import type { MailProvider } from '@private-email/mail-core/registration';
+
 import { mailboxSidebar } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use } from 'react';
@@ -85,7 +89,7 @@ function Item({
   readonly accessibilityLabel?: string;
   readonly count?: number;
   // A problem beside the mailbox, in place of its count.
-  readonly status?: string;
+  readonly status?: string | undefined;
   readonly selected?: boolean;
   readonly onPress: () => void;
 }) {
@@ -158,6 +162,26 @@ function SectionHeader({ label }: { readonly label: string }) {
   );
 }
 
+// The problem beside a mailbox, in the words its Inbox notice uses.
+const problemText = (
+  t: Translate,
+  problem: MailboxProblem | undefined,
+  {
+    provider,
+    name,
+  }: Readonly<{ provider: MailProvider | undefined; name: string }>,
+) => {
+  if (problem === undefined) {
+    return undefined;
+  }
+  if (problem === 'locked' || problem === 'failed') {
+    return t(`storage.${problem}`);
+  }
+  return provider === 'imap'
+    ? t(`imapSync.${problem}`)
+    : t(`gmailSync.${problem}`, { provider: name });
+};
+
 // The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
 // its folders, and the account page last.
 export function Mailboxes({
@@ -223,13 +247,16 @@ export function Mailboxes({
               }}
             />
           </View>
-          {sidebar.sections.map(({ mailbox, folders }) => {
+          {sidebar.sections.map(({ mailbox, folders, problem }) => {
             const name = mailbox.address ?? mailbox.id;
+            const provider = t(`mailProviders.${mailbox.provider ?? 'gmail'}`);
+            const trouble = problemText(t, problem, {
+              provider: mailbox.provider,
+              name: provider,
+            });
             return (
               <Fragment key={mailbox.id}>
-                <SectionHeader
-                  label={`${t(`mailProviders.${mailbox.provider ?? 'gmail'}`)} · ${name}`}
-                />
+                <SectionHeader label={`${provider} · ${name}`} />
                 <View
                   style={
                     compact && [
@@ -258,6 +285,7 @@ export function Mailboxes({
                               mailbox: name,
                             })}
                             count={unread}
+                            status={inbox ? trouble : undefined}
                             selected={selected}
                             onPress={() => {
                               onView({

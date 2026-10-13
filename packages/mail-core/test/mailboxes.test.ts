@@ -1133,6 +1133,28 @@ describe('mailbox sidebar projection', () => {
       ['gmail', 'authorization'],
       ['graph', 'authorization'],
     ]);
+    // A problem the Inbox explains rides beside the mailbox; healthy and loading states have none.
+    expect(
+      (
+        [
+          { kind: 'locked' },
+          { kind: 'failed' },
+          { kind: 'loading' },
+          state,
+          { ...state, status: 'retry' },
+          { ...state, status: 'authentication' },
+          { ...state, status: 'syncing' },
+        ] satisfies readonly ImapInboxState[]
+      ).map((snapshot) => project(snapshot).sections[0]?.problem),
+    ).toStrictEqual([
+      'locked',
+      'failed',
+      undefined,
+      undefined,
+      'retry',
+      'authentication',
+      undefined,
+    ]);
     const unavailable: readonly ImapInboxState[] = [
       { kind: 'loading' },
       { kind: 'locked' },
