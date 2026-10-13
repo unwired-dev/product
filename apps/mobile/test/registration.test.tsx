@@ -1906,7 +1906,8 @@ describe('product registration', () => {
         name: 'Unread. Maya Chen. Synthetic message 0',
       }),
     ).resolves.toBeVisible();
-    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    // The heading's subtitle names the connected mailbox beside its unread count.
+    expect(screen.getByText(/^alex@example\.invalid · /u)).toBeVisible();
     await openAccount();
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),

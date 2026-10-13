@@ -605,6 +605,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
 
 - A changed journey with no component integration test under the host's `test/` that drives the real `mail-core` store with a substituted native boundary. A rendered component test is not native E2E evidence; a Hermes export proves the bundle, not the behavior.
+- A rendered-copy change in `Inbox`, shared host components or the localization
+  catalog verified only with touched test files. Trace visible and accessible
+  text consumers, including registration-to-Inbox and composer journeys, then
+  run the full `pnpm test` suite for every affected host after the final copy or
+  assertion edit. Reviewer fixes follow the same gate; otherwise an unrelated
+  journey's exact-text lookup can fail after a focused review reports success.
 - A test that mocks the store or asserts a callback was called rather than the rendered outcome.
 - Unavailable native evidence reported as passing rather than deferred.
 
