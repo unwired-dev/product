@@ -527,7 +527,11 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   this Objective-C++ host or exercise its lifecycle delegates.
 - An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
 - A deployment target lowered, or a newer API used without the availability the target requires.
-- A native module added to the Mac host without updating the autolinking assertion in `apps/macos/scripts/verify-bundle.ts`.
+- A native module added to the Mac host without updating the autolinking
+  allowlist in `apps/macos/scripts/verify-native.ts` or preserving the renderer
+  boundary in `apps/macos/scripts/verify-bundle.ts`. Review its tracked native
+  lockfile under `.opencodereview/rules/workspace.md`; otherwise the build can
+  include an unreviewed module or dependency graph.
 
 #### Tests in the same change
 
