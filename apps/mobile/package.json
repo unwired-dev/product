@@ -9,7 +9,7 @@
     "check-types": "tsc --noEmit",
     "dev": "expo start --dev-client",
     "fallow": "fallow --format json",
-    "ios": "expo run:ios",
+    "ios": "node --env-file-if-exists=../../.env.local node_modules/expo/bin/cli run:ios",
     "native:generate": "expo prebuild --platform ios",
     "test": "jest --runInBand",
     "test:native": "zsh scripts/test-native.zsh",
