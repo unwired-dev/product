@@ -160,6 +160,27 @@ unavailable or misses an item. Inference is not required to use the commitment l
   Ordinary body-cache eviction marks evidence unavailable rather than deleting
   accepted commitments. Locally available evidence is required before accepting
   a model suggestion; manual creation remains available from mail.
+- Applying a synchronized acceptance, dismissal or deletion decision retires any
+  matching proposal already queued on this device, including an open review.
+  Acceptance retires the proposal instead of permitting another record; link to
+  the existing accepted commitment only when it is available in this Profile.
+  Never expose content or a link to a commitment owned by another Profile. If the
+  corresponding record for this Profile has
+  not arrived yet, show its synchronization as pending; do not keep the proposal
+  actionable while waiting. Dismissal or deletion removes the matching proposal
+  without creating another commitment. Unrelated proposals remain usable.
+- Match the reviewed obligation and proposal through its reviewed source identities
+  and, for an update or link, its target commitment. Sharing a Thread, source
+  message or target alone does not make a different obligation or proposed change
+  a matching copy. Acceptance of creation does not suppress a fresh proposal to
+  update or link that commitment; the fresh proposal still requires review and
+  current source/target evidence. Deletion suppression and Profile-move decision
+  ownership retain their separate lifecycle rules.
+- Before showing, accepting or publishing a proposal, reconcile all locally known
+  review decisions and current target state. A concurrent decision invalidates
+  stale acceptance and late inference results; they cannot restore the retired
+  proposal or overwrite accepted work. Offline devices can act only on known
+  state and apply the same retirement when synchronization delivers the decision.
 
 ## Source removal and Profile moves
 
@@ -211,6 +232,10 @@ Representative acceptance scenarios:
 
 - Track both an owed action and an awaited outcome across two Mailbox Connections
   in one Profile. Review/accept on one device and respect that decision on another.
+- Queue matching proposals on two devices before either is reviewed. Acceptance,
+  dismissal or deletion on one device retires the other's matching queue entry
+  when its decision arrives, including during an open review or pending scan;
+  delayed accepted-record delivery never makes the stale proposal actionable.
 - A Tuesday message saying "tomorrow" scanned on Friday proposes Wednesday in
   the reviewed source zone. "Next week" shows its ambiguity. Accepted dates remain
   fixed after relaunch or travel.

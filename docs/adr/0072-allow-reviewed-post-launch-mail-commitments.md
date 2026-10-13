@@ -39,6 +39,14 @@ record or preserve its deleted content as a conflict copy. Delete removes author
 content while retaining only the minimal encrypted source-review disposition
 until Profile/account deletion.
 
+Applying a synchronized review decision also retires matching proposals already
+saved or open for review on the observing device. Reconcile known decisions and
+current source/target state before presentation, acceptance or result publication;
+late work cannot restore the retired proposal. Delayed accepted-record delivery
+does not authorize a duplicate or a link into another Profile. Apply the product
+contract's reviewed-proposal scope without suppressing distinct obligations or
+fresh reviewed updates. An offline device applies remote decisions when observed.
+
 Authored commitments survive source-message deletion and Mailbox Connection
 removal. Retain reviewed title, state and dates with unavailable source links;
 purge source content and connection-owned proposals. Profile/account deletion

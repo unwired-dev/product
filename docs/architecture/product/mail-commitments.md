@@ -24,6 +24,14 @@ must preserve these requirements through interruption, relaunch and synchronizat
 including stale-result and stale-write rejection. This record selects no new wire
 schema, storage quota or conflict-resolution protocol.
 
+Synchronized human decisions constrain both new processing and materialized local
+queues. Apply the [review-queue contract](../../product/mail-commitments.md#review-queue)
+to persisted proposals, open review, acceptance and in-flight result publication,
+including decision-before-record delivery and delayed offline observation.
+Matching respects the reviewed obligation/proposal, source identities and target
+without treating an entire Thread, message or commitment as one suppressed item.
+This clarification selects no matching algorithm or new source-decision schema.
+
 ## Qualification
 
 The [canonical scenarios](../../product/mail-commitments.md#delivery-and-qualification)
