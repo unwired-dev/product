@@ -36,17 +36,6 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    maxWidth: '100%',
-    paddingLeft: 10,
-    paddingRight: spacing.m,
-    borderRadius: radius.chip,
-    borderCurve: 'continuous',
-  },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
@@ -115,45 +104,6 @@ export function GlassGroup({
       />
       {children}
     </View>
-  );
-}
-
-// A selectable filter: the icon and label together carry its meaning.
-export function Chip({
-  label,
-  icon,
-  selected,
-  onPress,
-}: {
-  readonly label: string;
-  readonly icon: string;
-  readonly selected: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={[
-        styles.chip,
-        { backgroundColor: selected ? colors.accentFill : colors.fillQuiet },
-      ]}>
-      <SFSymbol
-        name={icon}
-        color={selected ? colors.accentOnFill : colors.textSecondary}
-      />
-      <Text
-        style={[
-          selected ? textStyles.bodyEmphasized : textStyles.body,
-          { flexShrink: 1 },
-          { color: selected ? colors.accentOnFill : colors.textPrimary },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
