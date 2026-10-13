@@ -801,14 +801,15 @@ export function Inbox({
             </View>
           </View>
         </View>
-        {failed ? (
-          <Notice
-            icon="exclamationmark.triangle"
-            message={t('imap.foldersUnavailable')}
-            messageRole="alert"
-          />
-        ) : null}
         <View style={styles.notices}>
+          {failed ? (
+            <Notice
+              icon="exclamationmark.triangle"
+              iconColor={colors.statusWarning}
+              message={t('imap.foldersUnavailable')}
+              messageRole="alert"
+            />
+          ) : null}
           {shown.map((mailbox) => (
             <MailboxScope
               key={mailbox.id}
