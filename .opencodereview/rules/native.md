@@ -144,6 +144,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `RegistrationStore.registration` projecting independently saved Profile state
+  only inside `productSyncState`'s key-dependent result. A sibling key failure
+  must not erase retained ownership or replay floors: project saved Profile state
+  independently and distinguish unreadable bytes from absence. Trace the native
+  reply, TypeScript schema and synthetic projection, and test malformed keys and
+  malformed saved Profile bytes separately; otherwise unreadable keys silently
+  reassign moved connections to Default or lose confirmed removals.
+
 - `RegistrationStore.productSyncState` or another native projection retaining
   sensitive presentation fields after their display state ends when status
   derivation moves to TypeScript. Preserve the native field's state gate across

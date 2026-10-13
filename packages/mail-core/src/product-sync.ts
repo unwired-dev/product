@@ -359,8 +359,13 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     return parts.join('-');
   });
 
-  // Every record under an identifier prefix, read across all pages.
-  const list = Effect.fnUntraced(function* (prefix: string) {
+  // Every record under an identifier prefix; Profile pages are learned before another request.
+  const list = Effect.fnUntraced(function* (
+    prefix: string,
+    read?: (
+      records: ReadonlyArray<typeof StoredPayload.Type>,
+    ) => Effect.Effect<void, RegistrationRejected>,
+  ) {
     const records: Array<typeof StoredPayload.Type> = [];
     let cursor: string | null = null;
     let done = false;
@@ -379,6 +384,9 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         StoredPayloadPage,
       );
       records.push(...page.page);
+      if (read !== undefined) {
+        yield* read(page.page);
+      }
       done = page.isDone;
       cursor = page.continueCursor;
     }

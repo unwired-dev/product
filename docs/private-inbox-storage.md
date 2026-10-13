@@ -144,9 +144,10 @@ also keeps a connection's last confirmed owner.
 A connection with no confirmed owner belongs to the Default Profile; losing a
 previously confirmed assignment alone does not move it there. Profile state is
 saved apart from the Private Sync keys. A device that confirmed another Profile's
-ownership but cannot read its keys or its Profile state shows those connections
-in no Profile, and no link can select them, until both are readable again.
-Each listing is saved before the next is requested.
+ownership but cannot read its keys, or a device that cannot read its Profile state,
+shows no connections in any Profile, and no link can select them, until both are
+readable again. Stored connections, Drafts and pending delivery remain in place.
+Each listing page is saved before the next page or listing is requested.
 Confirmed reads and writes survive a later publication failure, including across
 relaunch; a failed unrelated edit cannot erase a removal or ownership change.
 A move or removal reports success only after its stored write opens on this device.

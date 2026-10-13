@@ -467,12 +467,23 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   ciphertext; otherwise a move or removal reports success without authenticated
   evidence of the write.
 - `mail-profiles.ts` retaining authenticated listing or CAS results only until
-  the entire publication batch succeeds. Persist confirmed records and version
-  floors before another publication can fail, including valid records read
+  the entire read or publication batch succeeds. Persist each page's confirmed
+  records and version floors before requesting another page or record namespace,
+  or before another publication can fail, including valid records read
   alongside a replayed one. Otherwise a later unrelated refusal can erase a
   learned removal or ownership change and admit an older authenticated replay
-  after relaunch. Exercise both interrupted reads-to-publication and a successful
-  CAS followed by another failed publication.
+  after relaunch. Exercise failed pagination and a failed ownership listing after
+  definitions, interrupted reads-to-publication, and a successful CAS followed by
+  another failed publication.
+- `mail-profiles.ts.profileOwners` treating unavailable Private Sync keys or
+  unreadable saved Profile state as absent ownership. Keep independently saved
+  ownership separate from the key projection; if this device cannot map a
+  confirmed non-Default owner to its connections, quarantine the connections
+  locally rather than assigning Default. Reject the quarantine selector through
+  `readingProfile`, and verify mixed Default/moved connections recover their
+  owners after readability returns. Never persist the quarantine as ownership
+  or alter connection, Draft or delivery identity; otherwise key failure exposes
+  another Profile's mail or turns transient unavailability into data loss.
 - `product-sync.ts` mailbox reconciliation acknowledging a queued removal from absent or unreadable
   ciphertext, or discarding removal intent on a pre-publication re-add. Require a
   read-back tombstone or an authoritative superseding incarnation, preserve

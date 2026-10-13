@@ -1,6 +1,7 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
+import type { RegistrationRejected } from './registration-rejection.ts';
 import type { StoredPayload } from './registration-replies.ts';
 import type {
   NativeRegistrationVault,
@@ -255,7 +256,12 @@ export function createMailProfileProgram<E>(
     descriptorEpochs,
     freshId,
   }: Readonly<{
-    list: (prefix: string) => Effect.Effect<Stored[], E>;
+    list: (
+      prefix: string,
+      read: (
+        records: readonly Stored[],
+      ) => Effect.Effect<void, RegistrationRejected>,
+    ) => Effect.Effect<Stored[], E | RegistrationRejected>;
     // Compare-and-set of every record in one transaction; uncommitted, it returns what is stored.
     writeAll: (
       writes: ReadonlyArray<
@@ -320,17 +326,20 @@ export function createMailProfileProgram<E>(
   // Every Profile definition and ownership record, merged into the state this device knows.
   // Confirmed owners and version floors stay even when their ciphertext is absent; owners return
   // to the Default Profile only through an explicit record.
-  // Each listing is saved before the next request, which can fail.
+  // Each page is saved before the next request, which can fail.
   const refreshed = Effect.fnUntraced(function* (state: ProfileState) {
-    const definitions = yield* learn(state, yield* list('profile.'));
-    const owners = yield* learn(
-      definitions.state,
-      yield* list('mailbox-profile.'),
-    );
-    return {
-      state: owners.state,
-      readable: definitions.readable && owners.readable,
-    };
+    let learned = { state, readable: true };
+    const read = Effect.fnUntraced(function* (records: readonly Stored[]) {
+      const next = yield* learn(learned.state, records);
+      learned = {
+        state: next.state,
+        readable: learned.readable && next.readable,
+      };
+    });
+    for (const prefix of ['profile.', 'mailbox-profile.']) {
+      yield* list(prefix, read);
+    }
+    return learned;
   });
 
   // Seals the records and compares and sets them together; the state learns what Convex stores

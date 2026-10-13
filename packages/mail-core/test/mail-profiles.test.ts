@@ -155,6 +155,29 @@ const failOwnershipListing = (vault: NativeRegistrationVault) =>
         : vault.call(request),
   });
 
+const failProfileContinuation = (vault: NativeRegistrationVault) =>
+  createRegistrationFlow({
+    ...vault,
+    call: (request) =>
+      request.args.payloadIdentifierPrefix === 'profile.' &&
+      Schema.is(Schema.Struct({ cursor: Schema.NonEmptyString }))(
+        request.args.paginationOpts,
+      )
+        ? Promise.reject(new Error('Synthetic Profile continuation failure'))
+        : vault.call(request),
+  });
+
+const profileRecordOf = (
+  sync: ReturnType<typeof setup>['sync'],
+  ciphertext: string,
+) => {
+  const record = sync.sealedProfiles.get(ciphertext)?.record;
+  if (record?.kind !== 'profile') {
+    throw new Error('No first Profile');
+  }
+  return record;
+};
+
 // A device that knows the definitions but has never opened the now-unreadable ownership record.
 const unreadableOwnership = ({ device, sync }: ReturnType<typeof setup>) => {
   const saved = device.record;
@@ -516,7 +539,7 @@ describe('mail profiles', () => {
 
   it('keeps a removal it read when the ownership listing then fails', async () => {
     expect.hasAssertions();
-    const { flow, vault, sync, records } = await connected();
+    const { flow, vault, sync, records, relaunch } = await connected();
     const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
     const [identifier, published] = [...records()].find(([name]) =>
       name.startsWith('profile.'),
@@ -526,30 +549,85 @@ describe('mail profiles', () => {
     await failing.refreshPrivateSync();
     // Convex then serves the earlier definition again; the removal this device read stays.
     records().set(identifier, published);
-    await expect(flow.refreshPrivateSync()).resolves.not.toHaveProperty(
+    await expect(relaunch().refreshPrivateSync()).resolves.not.toHaveProperty(
       'profiles',
     );
   });
 
+  it('keeps a removal from an earlier Profile page when a later page fails', async () => {
+    expect.hasAssertions();
+    const { flow, vault, sync, records, relaunch } = await connected();
+    await flow.createProfile('Work');
+    await flow.createProfile('Home');
+    const [first, published] = [...records()]
+      .filter(([identifier]) => identifier.startsWith('profile.'))
+      .toSorted(([left], [right]) => left.localeCompare(right))[0]!;
+    const removed = profileRecordOf(
+      sync,
+      published.encryptedPayload.ciphertextBase64,
+    );
+    storeProfile(sync, account, {
+      kind: 'profile',
+      id: removed.id,
+      version: 2,
+    });
+    sync.pageSize = 1;
+    await failProfileContinuation(vault).refreshPrivateSync();
+    records().set(first, published);
+    expect(listed(await relaunch().refreshPrivateSync())).not.toContainEqual({
+      id: removed.id,
+      name: removed.name,
+    });
+  });
+
   it('shows a moved connection in no Profile while this device cannot read its keys or Profile state', async () => {
     expect.hasAssertions();
-    const { flow, relaunch, device, mailboxId } = await connected();
+    const { flow, relaunch, device, mailboxId, google } = await connected();
     const id = await mailboxId();
     const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
     await flow.moveMailbox(id, work);
+    google.subject = 'synthetic-default-mailbox';
+    google.addresses[google.subject] = 'default@example.invalid';
+    await flow.addMailbox('gmail', false);
+    const confirmed = device.record!.profiles;
     device.productSync.unreadable = true;
     const locked = await relaunch().restore();
     expect(locked).toMatchObject({
       kind: 'connected',
       privateSync: 'unavailable',
     });
-    expect(owners(locked)).toStrictEqual([unavailableProfile]);
+    expect(owners(locked)).toStrictEqual([
+      unavailableProfile,
+      unavailableProfile,
+    ]);
     // A link cannot select connections whose Profile is unknown.
     expect(readingProfile(unavailableProfile)).toBe('');
     device.productSync.unreadable = false;
+    expect(owners(await relaunch().restore())).toStrictEqual([
+      work,
+      defaultProfile,
+    ]);
+    const held = device.productSync.vault;
+    device.productSync.vault = undefined;
+    expect(owners(await relaunch().restore())).toStrictEqual([
+      unavailableProfile,
+      unavailableProfile,
+    ]);
+    device.productSync.vault = held;
     device.record!.profiles = 'unreadable';
     expect(owners(await relaunch().restore())).toStrictEqual([
       unavailableProfile,
+      unavailableProfile,
+    ]);
+    await expect(
+      relaunch().renameProfile(work, 'Office'),
+    ).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    device.record!.profiles = confirmed;
+    expect(owners(await relaunch().restore())).toStrictEqual([
+      work,
+      defaultProfile,
     ]);
   });
 

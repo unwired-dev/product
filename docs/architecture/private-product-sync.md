@@ -507,7 +507,8 @@ ownership. The fence was selected by the #920 review panel, 2–1, over document
 the disjoint-record race as a limitation. Connections already owned by a removed
 Profile still project into Default. A device that never observed a newer version
 retains the existing backend rollback limitation.
-Each authenticated listing and CAS winner is persisted before later fallible work.
+Each authenticated listing page and CAS winner is persisted before later fallible work,
+including the next page or record namespace's query.
 Publication and lifecycle callers therefore need no separate save step, and a
 later refusal cannot discard a confirmed version floor.
 
@@ -521,9 +522,22 @@ The #920 review panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`) chose
 the optional registration field over a separate Profile Keychain item, 3–0.
 Registration survives authorized re-enrollment while the key-ring vault is
 replaced; keeping authored metadata outside that replaceable vault preserves
-pending identities and edits without another purge boundary. Projection retains
-`productSync.vault.profiles` when key material is available. Pending devices cannot
+pending identities and edits without another purge boundary. Registration projects
+`profiles` independently of the key-dependent `productSync` result; malformed
+saved bytes report `unreadable` rather than absence. Pending devices cannot
 record or publish Profiles; account purge removes the registration and metadata.
+
+The round-5 #920 review panel unanimously chose a reversible account-wide local
+quarantine over persisting a second connection-to-descriptor mapping. When saved
+Profile state is unreadable, or a key vault is absent/unreadable while saved state
+confirms a non-Default owner, every device connection projects the reserved
+`unavailable` owner. `readingProfile` rejects that selector. Accounts without a
+confirmed non-Default owner keep Default when only keys are unreadable. Readability
+restores the original owners without a write or cleanup; quarantine changes no
+stored connection, Draft, Outbox payload or originating-device delivery rule.
+This favors isolation over temporary Default-connection availability and avoids
+another persistence/incarnation-cleanup boundary in #920. #921/#922 still own the
+remaining caller, presentation and lifetime qualification before app enablement.
 
 Issue #921 owns the remaining Profile Record Scope callers, and #922 owns app
 controls, window restoration and incompatible-client fencing. Neither host offers
