@@ -74,16 +74,36 @@ function Destination({ scope }: { readonly scope: string | undefined }) {
   );
 }
 
-describe('New Message busy state after scope retirement', () => {
+describe('new message busy state after scope retirement', () => {
   /* oxlint-disable vitest/max-expects -- Each retirement journey covers overlapping creation, stale completion, replacement editing and retained Draft ownership. */
   it.each([
-    { entry: 'button', replacement: 'Account' },
-    { entry: 'palette', replacement: 'Account' },
-    { entry: 'button', replacement: 'mailbox' },
-    { entry: 'palette', replacement: 'mailbox' },
+    {
+      entry: 'button',
+      replacement: 'Account',
+      accountId: 'replacement',
+      scope: undefined,
+    },
+    {
+      entry: 'palette',
+      replacement: 'Account',
+      accountId: 'replacement',
+      scope: undefined,
+    },
+    {
+      entry: 'button',
+      replacement: 'mailbox',
+      accountId: 'original',
+      scope: syntheticMailboxes['alex@example.invalid'],
+    },
+    {
+      entry: 'palette',
+      replacement: 'mailbox',
+      accountId: 'original',
+      scope: syntheticMailboxes['alex@example.invalid'],
+    },
   ] as const)(
     'allows $entry creation in a replacement $replacement without stale completion releasing it',
-    async ({ entry, replacement }) => {
+    async ({ entry, accountId, scope }) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
       const registration = createRegistration({
@@ -111,7 +131,7 @@ describe('New Message busy state after scope retirement', () => {
       const senders = mailboxesOf(registration.getSnapshot().snapshot);
       const original = completionGate();
       const replacementResult = completionGate();
-      const create = drafts.create;
+      const { create } = drafts;
       // Hold completion after real persistence to control the two racing owners.
       const pending = jest
         .spyOn(drafts, 'create')
@@ -169,14 +189,7 @@ describe('New Message busy state after scope retirement', () => {
         await waitFor(() => {
           expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
         });
-        await app.rerender(
-          view(
-            replacement === 'Account' ? 'replacement' : 'original',
-            replacement === 'mailbox'
-              ? syntheticMailboxes['alex@example.invalid']
-              : undefined,
-          ),
-        );
+        await app.rerender(view(accountId, scope));
         await waitFor(() => {
           expect(
             screen.getByRole('button', { name: 'New Message' }),
@@ -219,11 +232,9 @@ describe('New Message busy state after scope retirement', () => {
           replacementResult.resolve();
           await pending.mock.results[1]?.value;
         });
-        expect(await screen.findByLabelText('Subject')).toHaveProp('value', '');
-        await fireEvent.changeText(
-          screen.getByLabelText('Subject'),
-          'Replacement Draft',
-        );
+        const subject = await screen.findByLabelText('Subject');
+        expect(subject).toHaveProp('value', '');
+        await fireEvent.changeText(subject, 'Replacement Draft');
         await act(async () => {
           await drafts.save();
         });
