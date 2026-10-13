@@ -1,0 +1,182 @@
+# Mail Commitments
+
+Status: confirmed post-launch requirements from the interview started 2026-10-13.
+The user confirmed the complete feature brief. This note records agreed product
+requirements, not implementation or release qualification. The confirmed
+[power-user launch scope](power-user-launch.md) remains unchanged.
+
+[Vocabulary](../domain/organization.md) · [Domain index](../../GLOSSARY.md)
+
+## Purpose
+
+Help an individual managing personal and work mail keep track of commitments
+that get lost across conversations. The feature tracks both actions the user
+owes and outcomes the user is waiting for, including obligations beyond replying.
+For example, a response saying "Thanks" does not establish that a requested
+contract was delivered.
+
+A Mail Commitment is distinct from a Follow-Up Nudge. The existing nudge revisits
+a sent Thread and is cancelled by an eligible newly observed reply; a commitment
+represents the outstanding action or outcome.
+
+## Ownership and availability
+
+- Each Mail Commitment belongs to one Mail Profile. Its commitment list spans
+  that Profile's Mailbox Connections; Work and Personal remain separate.
+- Commitments synchronize through encrypted Private Sync across trusted devices.
+  Already-synchronized commitments remain usable offline.
+- The mail app owns the initial commitment list and completion controls.
+  Apple Reminders and other external task-manager integrations are later work.
+- Acceptance and dismissal decisions synchronize privately across trusted devices.
+  Unaccepted model suggestions remain device-local. Scans respect prior decisions
+  and propose updating or linking existing commitments instead of repeatedly
+  asking about the same obligation.
+
+Commitment acceptance and state changes are private product actions. They do not
+send mail, communicate agreement to a sender, or change provider mail state.
+
+## Record and lifecycle
+
+- Each commitment has an editable title, an I owe or Waiting for direction, an
+  optional due date, and one or more source-message links. Manual creation starts
+  from mail.
+- States are Open, Done and Cancelled. Completion, cancellation and reopening
+  require an explicit user action.
+- New mail may suggest completion, a changed deadline or linking an existing
+  commitment. It never silently changes accepted state or user edits. Any reply
+  alone is insufficient evidence that the outstanding obligation was fulfilled.
+- Independent edits from different devices combine. Competing edits to the same
+  value are preserved and surfaced for review; a stale device or scan cannot
+  silently reopen a completed commitment.
+- Done and Cancelled retain history. Explicit Delete removes the record's content
+  and reminders across trusted devices through synchronization. Only a minimal
+  encrypted review decision remains to prevent repeated suggestions from the
+  same reviewed source; Profile/account deletion removes that decision too.
+
+## Date recognition
+
+- On-device AI recognizes natural-language date phrases such as "tomorrow" and
+  "next week". Mail phrases use their source message's date and time zone when
+  known; manually typed phrases use today's date in the user's selected zone.
+  Missing source-zone assumptions are shown for confirmation.
+- Clear phrases propose an absolute date directly. Vague phrases show a range or
+  possible interpretations, letting the user choose a deadline or leave it unset.
+- Acceptance resolves a relative phrase to a fixed calendar date or precise
+  instant. "Tomorrow" never rolls forward on reopening. Travel does not silently
+  change the intended deadline; timed values show their zone, and date-only
+  deadlines use a visible chosen zone for overdue evaluation.
+
+Recognition stays within the feature's on-device privacy and review requirements.
+
+## Reminders
+
+Reminders are optional per commitment at a user-chosen time. They respect quiet
+hours, Profile Lock and system notification settings, and use generic private
+content by default. Detecting a suggestion does not itself create an interruption.
+
+Reminders use the Profile's notification-owning Trusted Device to avoid duplicate
+interruptions. Missed or suppressed reminders remain visible in the app; exact-time
+delivery is not promised. A commitment is overdue because its deadline passed,
+not because an earlier reminder was missed.
+
+Locally scheduled reminders may work offline. Completion or cancellation on
+another device reaches the reminder owner only after synchronization, so an
+outdated alert may still appear. Opening it shows current available state and
+never reopens a completed commitment.
+
+## Automatic scanning
+
+- Scanning starts automatically when the user enables On-Device Mail Assistance.
+  Assistance retains its default-off, device-local consent. A separate
+  device-local, per-Profile Settings switch disables commitment scanning without
+  making saved commitments unavailable.
+- New received and sent mail is scanned automatically from enablement onward.
+  Scanning older correspondence is a separate explicit request bounded by a
+  user-selected date range or mailbox.
+- Eligible mail spans normal folders and connections of the Profile, excluding
+  Spam, Trash and unsent Drafts/Outbox. Newly downloaded historical mail does not
+  become new mail merely because it reached the device. Receipts and automated
+  confirmations may provide evidence that an awaited outcome occurred.
+- Analysis uses already-downloaded message text on the device. It does not fetch
+  missing message bodies or analyze attachments solely for this scan. The app
+  discloses incomplete coverage.
+- Detection produces source-linked Mail Commitment Suggestions. The user accepts,
+  edits or dismisses each suggestion before it can enter the active commitment
+  list. A request in received mail does not itself establish an accepted obligation.
+- Scanning catches up eligible mail after system/model interruptions when the
+  client can run. Deliberately disabling the automatic scan cancels active scans
+  and rejects late results. Re-enabling starts with new mail from then; the
+  disabled period requires an explicit historical scan.
+
+This planned scan is a separately accepted exception to per-Thread invocation.
+It does not authorize broader inputs for existing
+[assistance operations](assistance.md).
+
+## Manual creation
+
+Users can add and edit Mail Commitments directly when scanning is disabled,
+unavailable or misses an item. Inference is not required to use the commitment list.
+
+## Review queue
+
+- A separate review queue within Mail Commitments shows editable proposals,
+  original date phrases, interpreted dates and source links. Suggestions remain
+  outside the active commitment list until accepted.
+- Open commitments form the main list. Done and Cancelled remain accessible in
+  history.
+- Minimal unaccepted proposals survive relaunch in encrypted device-local storage,
+  with source links rather than copied message bodies. Disabling automatic
+  scanning keeps the existing queue; disabling all assistance clears unaccepted
+  suggestions. Profile Lock hides the queue and pauses analysis.
+- Known source-text changes or source deletion retire unaccepted suggestions.
+  Ordinary body-cache eviction marks evidence unavailable rather than deleting
+  accepted commitments. Locally available evidence is required before accepting
+  a model suggestion; manual creation remains available from mail.
+
+## Source removal and Profile moves
+
+- Accepted commitments survive source-message deletion and Mailbox Connection
+  removal. Their reviewed title, state and dates remain, with unavailable source
+  links. Suggestions and cached source content belonging to the removed
+  connection are purged. Mailbox removal alone therefore does not erase accepted
+  commitment text.
+- Removing the owning Mail Profile or Product Account deletes its commitments.
+- Commitments belonging solely to a moving connection follow it to the target
+  Profile. Mixed-source commitments require the user to choose one owning Profile
+  and review affected links. Preserve one record, without cross-Profile source
+  access or silent copies.
+
+## Delivery and qualification
+
+Deliver verifiable slices after the confirmed launch:
+
+1. Manual records, lifecycle and Private Sync.
+2. Automatic suggestions and on-device date recognition.
+3. Reminders and full lifecycle integration.
+
+A manual-only milestone does not complete the agreed automatic feature. The full
+feature needs evidence on iPhone, iPad and Mac for the accepted workflows,
+including offline edits, conflicting changes, source removal, Profile moves and
+consent controls. Validate real on-device recognition on eligible hardware;
+manual fallback remains available elsewhere. Documentation, synthetic results
+and compiled bindings do not establish that qualification.
+
+Representative acceptance scenarios:
+
+- Track both an owed action and an awaited outcome across two Mailbox Connections
+  in one Profile. Review/accept on one device and respect that decision on another.
+- A Tuesday message saying "tomorrow" scanned on Friday proposes Wednesday in
+  the reviewed source zone. "Next week" shows its ambiguity. Accepted dates remain
+  fixed after relaunch or travel.
+- A reply saying "Thanks" never silently completes "Send the contract". A changed
+  deadline remains a proposal until accepted.
+- Combine independent offline edits, surface competing edits, and prevent stale
+  work from reopening a Done item.
+- Stop scans and reject late results after disablement; preserve accepted records,
+  enforce queue-clearing/locking rules and disclose unavailable local evidence.
+- Preserve reviewed records after mailbox removal while purging its suggestions
+  and source content; enforce chosen ownership and source isolation on Profile
+  moves; remove all related records and review decisions on Profile/account deletion.
+- Show missed reminders and handle an offline stale alert without changing the
+  commitment's accepted state or exposing private content against notification
+  preferences.

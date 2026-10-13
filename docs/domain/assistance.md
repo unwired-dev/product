@@ -20,7 +20,7 @@ Help for composing, responding to, understanding, or transforming mail through A
 _Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
+A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions, **Background Message Summaries**, and the separately confirmed post-launch **Mail Commitment Suggestions**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:

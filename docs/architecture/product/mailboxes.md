@@ -25,6 +25,14 @@ their presence does not establish implementation or certification in the new cli
 [The documentation index](../../README.md) explains ADR precedence and separates
 current replacement work from prototype maintenance and historical plans.
 
+## Post-launch authored-record retention
+
+[ADR 0072](../../adr/0072-allow-reviewed-post-launch-mail-commitments.md) qualifies mailbox-removal cleanup
+for accepted Mail Commitments only. The [owning contract](../../product/mail-commitments.md#source-removal-and-profile-moves)
+retains reviewed records with unavailable source links while purging source
+content and proposals. Profile/account deletion still purges both records and
+review decisions.
+
 ## Connection identity and authorization
 
 - After wake or reconnect, a trusted device processes synchronized connection-removal tombstones before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection
