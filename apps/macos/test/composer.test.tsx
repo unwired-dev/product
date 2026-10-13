@@ -43,6 +43,10 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
+// Allow cold component rendering on a loaded CI runner, including focused runs.
+// Match the mobile composer suite after this file's first test hit Jest's 5 s default.
+jest.setTimeout(10_000);
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
