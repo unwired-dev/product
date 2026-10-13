@@ -57,10 +57,41 @@ jobs:
     secrets:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
-  upload:
-    name: Upload ${{ matrix.host }}
+  certificates:
+    name: Revoke stale development certificates
     needs: convex
     # A skipped deploy (another branch) still uploads; a failed one stops the upload.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: testflight
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Housekeeping belongs to this workflow revision, including for older build refs.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Each archive creates a development certificate on its ephemeral runner; the
+      # queue keeps other CI runs from archiving during cleanup, and a grace period
+      # protects local uploads outside it.
+      - name: Revoke certificates created by earlier runners
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          umask 077
+          trap 'rm -f "$ASC_KEY_PATH"' EXIT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$ASC_KEY_PATH"
+          unset ASC_PRIVATE_KEY
+          ruby scripts/testflight-certificates.rb
+
+  upload:
+    name: Upload ${{ matrix.host }}
+    needs: certificates
     if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false

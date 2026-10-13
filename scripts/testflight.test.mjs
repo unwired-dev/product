@@ -401,3 +401,110 @@ test('TestFlight notes authenticate and update the exact build without network a
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /Passed TestFlight notes contracts/u);
 });
+
+test('Development certificate cleanup selects API-created ones without network access', () => {
+  const result = spawnSync(
+    'ruby',
+    ['scripts/testflight-certificates.test.rb'],
+    {
+      cwd: root,
+      env: { PATH: inheritedEnv.PATH },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Passed TestFlight certificate contracts/u);
+});
+
+// Runs the preflight step script with a stub helper that checks the key file it received.
+function preflight(script, scenario) {
+  const directory = mkdtempSync(
+    path.join(root, 'scratchpad/testflight-preflight-'),
+  );
+  try {
+    const bin = path.join(directory, 'bin');
+    mkdirSync(bin);
+    writeFileSync(
+      path.join(bin, 'ruby'),
+      `#!${process.execPath}
+import fs from 'node:fs';
+if (process.env.HOME !== process.env.RUNNER_TEMP) throw Error('Missing isolated home');
+if (process.env.ASC_PRIVATE_KEY) throw Error('Private key leaked to helper environment');
+if ((fs.statSync(process.env.ASC_KEY_PATH).mode & 0o077) !== 0) throw Error('Private key permissions too broad');
+if (fs.readFileSync(process.env.ASC_KEY_PATH, 'utf8').trim() !== ${JSON.stringify(sentinel)}) throw Error('Private key not written');
+if (${JSON.stringify(scenario)}.startsWith('SIG')) process.kill(process.ppid, ${JSON.stringify(scenario)});
+process.exit(${scenario === 'failure' ? 1 : 0});
+`,
+      { mode: 0o755 },
+    );
+    // Interrupt or fail after printf has written the key, before the helper starts.
+    const setup = scenario.startsWith('setup-')
+      ? `printf() { builtin printf "$@"; ${scenario === 'setup-failure' ? 'return 1' : `kill -s ${scenario.slice(6)} "$$"`}; }\n`
+      : '';
+    const result = spawnSync(
+      '/bin/bash',
+      [
+        '-e',
+        '-o',
+        'pipefail',
+        '-c',
+        setup + script.replaceAll(/^ {10}/gmu, ''),
+      ],
+      {
+        cwd: root,
+        env: {
+          __ETC_ZSHENV_SOURCED: '1',
+          HOME: directory,
+          PATH: `${bin}:${inheritedEnv.PATH}`,
+          RUNNER_TEMP: directory,
+          ASC_PRIVATE_KEY: sentinel,
+        },
+        encoding: 'utf8',
+      },
+    );
+    return {
+      status: result.status,
+      output: result.stdout + result.stderr,
+      retained: existsSync(path.join(directory, 'AuthKey.p8')),
+    };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('Certificate preflight uses the workflow revision and removes its private key on every exit', () => {
+  const workflow = readFileSync(
+    path.join(root, '.github/workflows/testflight.yml'),
+    'utf8',
+  );
+  const certificates = workflow
+    .split('\n  certificates:\n')[1]
+    ?.split('\n  upload:\n')[0];
+  assert.ok(certificates, 'Missing certificate preflight');
+  assert.match(
+    certificates,
+    /ref: \$\{\{ github\.sha \}\}/u,
+    'Older build refs must not supply cleanup code',
+  );
+  const [, script] = certificates.split('        run: |\n');
+  assert.ok(script, 'Missing certificate preflight command');
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  for (const [scenario, expected] of [
+    ['success', 0],
+    ['failure', 1],
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+    ['setup-failure', 1],
+    ['setup-SIGINT', 130],
+    ['setup-SIGTERM', 143],
+  ]) {
+    const { status, output, retained } = preflight(script, scenario);
+    assert.equal(status, expected, output);
+    assert.equal(retained, false, `${scenario} retained the private key`);
+    assert.equal(
+      output.includes(sentinel),
+      false,
+      'Private key reached diagnostics',
+    );
+  }
+});

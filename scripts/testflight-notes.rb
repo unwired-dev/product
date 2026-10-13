@@ -4,13 +4,9 @@ require 'net/http'
 require 'openssl'
 require 'uri'
 
-# App Store Connect betaBuildLocalizations are the TestFlight "What to Test" notes.
-# https://developer.apple.com/documentation/appstoreconnectapi/beta-build-localizations
-class TestFlightNotes
-  def initialize(host, version, number, commit)
-    @host, @version, @number, @commit = host, version, number, commit
-    raise 'Invalid notes platform' unless %w[ios macos].include?(host)
-    raise 'Invalid source commit' unless commit.match?(/\A[0-9a-f]{40}\z/)
+# App Store Connect API requests signed with the release key.
+class AppStoreConnect
+  def initialize
     @key = OpenSSL::PKey.read(File.binread(ENV.fetch('ASC_KEY_PATH')))
     raise 'Expected a P-256 signing key' unless @key.is_a?(OpenSSL::PKey::EC) && @key.group.curve_name == 'prime256v1'
   end
@@ -26,7 +22,7 @@ class TestFlightNotes
     "#{unsigned}.#{encode.call([raw].pack('H*'))}"
   end
 
-  def request(method, path, query = {}, body = nil)
+  def request(method, path, query = {}, body = nil, require_complete: false)
     uri = URI("https://api.appstoreconnect.apple.com/v1/#{path}")
     uri.query = URI.encode_www_form(query) unless query.empty?
     message = Net::HTTP.const_get(method).new(uri)
@@ -52,7 +48,20 @@ class TestFlightNotes
     # Never include response bodies or the signed authorization token in errors.
     raise "App Store Connect notes request failed (HTTP #{response.code})" unless response.is_a?(Net::HTTPSuccess)
     return nil if response.code == '204'
-    JSON.parse(response.body).fetch('data')
+    document = JSON.parse(response.body)
+    raise 'App Store Connect response is incomplete' if require_complete && document.dig('links', 'next')
+    document.fetch('data')
+  end
+end
+
+# App Store Connect betaBuildLocalizations are the TestFlight "What to Test" notes.
+# https://developer.apple.com/documentation/appstoreconnectapi/beta-build-localizations
+class TestFlightNotes < AppStoreConnect
+  def initialize(host, version, number, commit)
+    @host, @version, @number, @commit = host, version, number, commit
+    raise 'Invalid notes platform' unless %w[ios macos].include?(host)
+    raise 'Invalid source commit' unless commit.match?(/\A[0-9a-f]{40}\z/)
+    super()
   end
 
   def upload
