@@ -467,17 +467,17 @@ describe('command palette interactions', () => {
   });
 
   it.each([
-    ['locked', 'success', false, 0],
-    ['locked', 'failure', false, 0],
-    ['locked', 'success', true, 1],
-    ['locked', 'failure', true, 1],
-    ['unavailable', 'success', false, 0],
-    ['unavailable', 'failure', false, 0],
-    ['unavailable', 'success', true, 1],
-    ['unavailable', 'failure', true, 1],
+    ['locked', 'success', false],
+    ['locked', 'failure', false],
+    ['locked', 'success', true],
+    ['locked', 'failure', true],
+    ['unavailable', 'success', false],
+    ['unavailable', 'failure', false],
+    ['unavailable', 'success', true],
+    ['unavailable', 'failure', true],
   ] as const)(
     'retires a pending command after %s storage, outcome=%s, reopened=%s',
-    async (code, outcome, reopened, newExecutions) => {
+    async (code, outcome, reopened) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
       const connected = {
@@ -599,14 +599,14 @@ describe('command palette interactions', () => {
               name: 'Held command',
               disabled: false,
             }),
-          ).toHaveLength(newExecutions);
+          ).toHaveLength(Number(reopened));
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the reopened scenario starts a second held command.
           if (reopened) {
             await fireEvent.press(
               screen.getByRole('button', { name: 'Held command' }),
             );
           }
-          expect(runCommand).toHaveBeenCalledTimes(newExecutions + 1);
+          expect(runCommand).toHaveBeenCalledTimes(Number(reopened) + 1);
           await act(async () => {
             // oxlint-disable-next-line vitest/no-conditional-in-test -- Settle the controlled old command with the table's outcome.
             if (outcome === 'failure') {
@@ -618,14 +618,14 @@ describe('command palette interactions', () => {
           });
           expect(focus.mock.contexts).not.toContain(previous);
           expect(screen.queryAllByLabelText('Command Palette')).toHaveLength(
-            newExecutions,
+            Number(reopened),
           );
           expect(
             screen.queryAllByRole('button', {
               name: 'Held command',
               disabled: true,
             }),
-          ).toHaveLength(newExecutions);
+          ).toHaveLength(Number(reopened));
           expect(
             screen.queryByText('The command could not finish. Try again.'),
           ).toBeNull();

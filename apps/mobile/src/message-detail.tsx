@@ -430,15 +430,14 @@ function ResponseActions({
     };
   }, [lifetime]);
   const mailboxes = account?.mailboxes ?? [];
-  const sender = sendingMailboxes(
-    mailboxes,
-    profileOf(mailbox?.id, mailboxes),
-  ).find(({ id }) => id === mailbox?.id);
+  const sender = sendingMailboxes(mailboxes, profileOf(mailboxId, mailboxes)).find(
+    ({ id }) => id === mailboxId,
+  );
   if (!('responseSource' in inbox) || !('threadId' in message)) {
     return (
       <ResponseCommands
         owner={owner}
-        target={`${mailbox?.id}/${message.id}`}
+        target={`${mailboxId}/${message.id}`}
         disabled={t('commandPalette.unsupported')}
         onStart={() => false}
       />
@@ -467,7 +466,7 @@ function ResponseActions({
       <View>
         <ResponseCommands
           owner={owner}
-          target={`${mailbox?.id}/${message.id}`}
+          target={`${mailboxId}/${message.id}`}
           disabled={disabled}
           onStart={() => false}
         />
@@ -539,7 +538,7 @@ function ResponseActions({
     <View>
       <ResponseCommands
         owner={owner}
-        target={`${mailbox?.id}/${message.id}`}
+        target={`${mailboxId}/${message.id}`}
         disabled={pending === undefined ? undefined : t('commandPalette.busy')}
         onStart={start}
       />
