@@ -148,6 +148,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   palette sessions stay quiet. Otherwise the palette hides the reader's alert and
   re-enables the failed command without explaining what happened.
 
+- `mailbox.tsx.ProfileScope` retiring Account/Profile command owners while keeping
+  their composer-navigation coordinator above the keyed boundary. Check the
+  editor and every navigation consumer against the actual provider tree; they
+  must share the coordinator owned by the same committed reading scope. Exercise
+  replacement navigation before the retired finish settles, through both Account
+  and Profile replacement, and retain navigation on same-Account context updates.
+  Otherwise the retired coordinator's pending latch blocks the replacement scope
+  even when palette and command owners correctly invalidate their own work.
+
 - `inbox-commands.tsx.InboxCommands` navigating through a captured Inbox,
   Settings or mailbox callback after `leaveResult` waits for composer exit. Fence
   Product Account identity, Profile, mailbox-scope, coordinator replacement and

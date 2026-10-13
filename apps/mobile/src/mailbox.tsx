@@ -44,6 +44,15 @@ const ProfileContext = createContext(defaultProfile);
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
 
 const ComposerNavigationContext = createContext(createComposerNavigation());
+function ComposerNavigationScope({ children }: { readonly children: ReactNode }) {
+  const navigation = useMemo(() => createComposerNavigation(), []);
+  return (
+    <ComposerNavigationContext value={navigation}>
+      {children}
+    </ComposerNavigationContext>
+  );
+}
+
 export function useComposerNavigation() {
   return use(ComposerNavigationContext);
 }
@@ -66,7 +75,6 @@ export function InboxProvider({
   readonly outbox?: Outbox;
 }) {
   const account = use(AccountContext);
-  const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     void drafts.load();
     // Returning picks up other devices' Draft changes; leaving publishes this device's.
@@ -107,9 +115,7 @@ export function InboxProvider({
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
         <OutboxContext value={outbox}>
-          <ComposerNavigationContext value={navigation}>
-            {children}
-          </ComposerNavigationContext>
+          <ComposerNavigationScope>{children}</ComposerNavigationScope>
         </OutboxContext>
       </DraftsContext>
     </MailboxesContext>
@@ -145,11 +151,12 @@ export function ProfileScope({
   readonly children: ReactNode;
 }) {
   const owner = readingProfile(profile);
+  const account = use(AccountContext)?.productAccountId;
   return (
     <ProfileContext
-      key={owner}
+      key={JSON.stringify([account, owner])}
       value={owner}>
-      {children}
+      <ComposerNavigationScope>{children}</ComposerNavigationScope>
     </ProfileContext>
   );
 }

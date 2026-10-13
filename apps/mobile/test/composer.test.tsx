@@ -303,6 +303,11 @@ describe('composing Drafts', () => {
       />
     );
     const app = await render(view('work'));
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'New Message' }),
+      ).toBeEnabled();
+    });
     await press('New Message');
     await expect(
       screen.findByRole('button', {

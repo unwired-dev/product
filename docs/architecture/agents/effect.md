@@ -17,7 +17,10 @@ fails closed; it complements the host's checks and never replaces them.
 `mail-core/composer-navigation` is a framework-independent coordinator for a
 host-provided finishing callback. Like `mailboxes.ts.savedMessageBodies`, it
 composes Promise-returning host actions with plain async code; the underlying
-stores keep their single Effect run. Each Inbox provider owns one coordinator.
+stores keep their single Effect run. Each keyed Account/Profile reading scope
+owns one coordinator; an Inbox provider supplies a separate fallback for consumers
+without an explicit Profile scope. A replacement reading scope receives a new
+coordinator, so a retired composer's pending finish cannot block its navigation.
 
 Convex handlers run their program with `runConvexProgram` from
 `packages/convex/convex/effectRuntime.ts`. It reads each configuration key from

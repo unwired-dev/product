@@ -139,6 +139,8 @@ and bulk actions; they do not describe the current integration.
 - Losing Inbox admission retires pending palette execution even when the Product
   Account identity has not changed. Recovery can execute fresh commands without
   waiting for an operation from the retired admission.
+- The shared composer-navigation coordinator belongs to its Account and Profile.
+  A replacement scope can navigate while the retired composer is still finishing.
 - New Message owns its busy state by Account, Profile, mailbox and Draft store.
   A replacement scope can begin creation while the retired operation is pending;
   its late completion cannot clear the replacement operation or open a composer.

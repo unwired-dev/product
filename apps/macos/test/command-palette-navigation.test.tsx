@@ -120,11 +120,9 @@ describe.each([
           return null;
         }
         function Destinations({
-          accountId,
           profile,
           navigate,
         }: {
-          readonly accountId: string;
           readonly profile: string;
           readonly navigate: (route: string) => void;
         }) {
@@ -133,25 +131,16 @@ describe.each([
             mailboxes.getSnapshot,
           );
           return (
-            <AccountContext
-              value={{
-                productAccountId: accountId,
-                mailboxes: [],
-                openAccount: () => navigate(`${profile}:settings`),
-                authorizeMailbox: () => Promise.resolve(),
-                refreshInbox: (load) => load(),
-              }}>
-              <InboxCommands
-                scope={undefined}
-                hasSelection={false}
-                selectionMailbox={undefined}
-                selectionMessage={undefined}
-                stars={false}
-                mailboxes={connections}
-                onInbox={() => navigate(`${profile}:inbox`)}
-                onScope={(scope) => navigate(`${profile}:${scope}`)}
-              />
-            </AccountContext>
+            <InboxCommands
+              scope={undefined}
+              hasSelection={false}
+              selectionMailbox={undefined}
+              selectionMessage={undefined}
+              stars={false}
+              mailboxes={connections}
+              onInbox={() => navigate(`${profile}:inbox`)}
+              onScope={(scope) => navigate(`${profile}:${scope}`)}
+            />
           );
         }
         function App({
@@ -164,17 +153,25 @@ describe.each([
           const [route, setRoute] = useState('newer route');
           return (
             <CommandPalette>
-              <InboxProvider mailboxes={mailboxes}>
-                <PendingComposer owner={`${accountId}/${profile}`} />
-                <ProfileScope profile={profile}>
-                  <Destinations
-                    accountId={accountId}
-                    profile={profile}
-                    navigate={setRoute}
-                  />
-                </ProfileScope>
-                <Text>{route}</Text>
-              </InboxProvider>
+              <AccountContext
+                value={{
+                  productAccountId: accountId,
+                  mailboxes: [],
+                  openAccount: () => setRoute(`${profile}:settings`),
+                  authorizeMailbox: () => Promise.resolve(),
+                  refreshInbox: (load) => load(),
+                }}>
+                <InboxProvider mailboxes={mailboxes}>
+                  <ProfileScope profile={profile}>
+                    <PendingComposer owner={`${accountId}/${profile}`} />
+                    <Destinations
+                      profile={profile}
+                      navigate={setRoute}
+                    />
+                  </ProfileScope>
+                  <Text>{route}</Text>
+                </InboxProvider>
+              </AccountContext>
             </CommandPalette>
           );
         }
