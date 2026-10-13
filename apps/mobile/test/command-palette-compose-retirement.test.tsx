@@ -38,6 +38,15 @@ jest.mock('react-native', () => {
   return native;
 });
 
+function completionGate() {
+  let settle: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Control completion order independently for the two pending operations.
+  const promise = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, resolve: settle };
+}
+
 // Capture queued native input at the same composite-fiber boundary used by fireEvent.
 const queuedPress = () => {
   let fiber = screen.getByLabelText('New Message').unstable_fiber;
@@ -114,8 +123,8 @@ describe('New Message busy state after scope retirement', () => {
       await drafts.load();
       const mailboxes = createMailboxes(syntheticConnections({}), registration);
       const senders = mailboxesOf(registration.getSnapshot().snapshot);
-      const original = Promise.withResolvers<void>();
-      const replacementResult = Promise.withResolvers<void>();
+      const original = completionGate();
+      const replacementResult = completionGate();
       const create = drafts.create;
       // Hold completion after real persistence to control the two racing owners.
       const pending = jest
