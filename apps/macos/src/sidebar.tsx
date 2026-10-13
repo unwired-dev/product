@@ -1,10 +1,7 @@
-import { inboxFolder } from '@private-email/mail-core/imap-inbox';
-import { profileMailboxes } from '@private-email/mail-core/mailboxes';
+import { mailboxSidebar } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-
-import type { InboxMailbox } from './private-storage.ts';
 
 import { SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
@@ -55,13 +52,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 });
-
-const unreadCount = (mailbox: InboxMailbox) =>
-  'messages' in mailbox.state && Array.isArray(mailbox.state.messages)
-    ? mailbox.state.messages.filter(
-        (message: Readonly<{ unread?: boolean }>) => message.unread === true,
-      ).length
-    : 0;
 
 // A sidebar item: tinted symbol, label and unread count; selection shows as fill and weight.
 function Item({
@@ -164,14 +154,12 @@ export function Mailboxes({
   const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
-  const chosen = mailboxes.find(({ id }) => id === view.mailbox);
-  // Connections waiting for provider authorization have no Inbox until it is given again; they
-  // stay listed with the problem beside them.
-  const waiting = profileMailboxes(account?.mailboxes ?? [], profile).filter(
-    ({ id, state }) =>
-      state === 'authorization' &&
-      !mailboxes.some((mailbox) => mailbox.id === id),
-  );
+  const sidebar = mailboxSidebar({
+    mailboxes,
+    connections: account?.mailboxes ?? [],
+    profile,
+    view,
+  });
   // The account page replaces the Inbox, so an open composer is left first.
   const openAccount = async (open: () => void) => {
     if (await leave()) {
@@ -199,30 +187,20 @@ export function Mailboxes({
           <Item
             icon="tray.2"
             label={t('inbox.allInboxes')}
-            count={mailboxes.reduce(
-              (sum, mailbox) => sum + unreadCount(mailbox),
-              0,
-            )}
-            selected={chosen === undefined}
+            count={sidebar.unread}
+            selected={sidebar.allSelected}
             onPress={() => {
               onView({});
             }}
           />
-          {mailboxes.map((mailbox) => {
+          {sidebar.sections.map(({ mailbox, folders }) => {
             const name = mailbox.address ?? mailbox.id;
-            const { state } = mailbox;
-            // An IMAP mailbox lists its selectable folders, Inbox first; others have one Inbox.
-            const folders =
-              state.kind === 'ready' && 'folders' in state
-                ? state.folders.filter(({ selectable }) => selectable)
-                : [{ name: inboxFolder }];
             return (
               <Fragment key={mailbox.id}>
                 <SectionHeader
                   label={`${t(`mailProviders.${mailbox.provider ?? 'gmail'}`)} · ${name}`}
                 />
-                {folders.map(({ name: folder }) => {
-                  const inbox = folder === inboxFolder;
+                {folders.map(({ name: folder, inbox, unread, selected }) => {
                   const label = inbox ? t('inbox.title') : folder;
                   return (
                     <Item
@@ -233,11 +211,8 @@ export function Mailboxes({
                         row: label,
                         mailbox: name,
                       })}
-                      count={inbox ? unreadCount(mailbox) : 0}
-                      selected={
-                        chosen === mailbox &&
-                        (view.folder ?? inboxFolder) === folder
-                      }
+                      count={unread}
+                      selected={selected}
                       onPress={() => {
                         onView({
                           mailbox: mailbox.id,
@@ -253,9 +228,9 @@ export function Mailboxes({
               </Fragment>
             );
           })}
-          {waiting.map((connection) => {
+          {sidebar.waiting.map(({ connection, recovery }) => {
             const provider = t(`mailProviders.${connection.provider}`);
-            const imap = connection.provider === 'imap';
+            const imap = recovery === 'account';
             return (
               <Fragment key={connection.id}>
                 <SectionHeader label={`${provider} · ${connection.address}`} />

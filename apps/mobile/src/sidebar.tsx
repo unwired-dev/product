@@ -1,5 +1,4 @@
-import { inboxFolder } from '@private-email/mail-core/imap-inbox';
-import { profileMailboxes } from '@private-email/mail-core/mailboxes';
+import { mailboxSidebar } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use } from 'react';
 import {
@@ -11,8 +10,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
-
-import type { InboxMailbox } from './private-storage.ts';
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -72,13 +69,6 @@ const styles = StyleSheet.create({
   count: { ...textStyles.subheadline },
   footer: { paddingHorizontal: spacing.s, paddingVertical: spacing.s },
 });
-
-const unreadCount = (mailbox: InboxMailbox) =>
-  'messages' in mailbox.state && Array.isArray(mailbox.state.messages)
-    ? mailbox.state.messages.filter(
-        (message: Readonly<{ unread?: boolean }>) => message.unread === true,
-      ).length
-    : 0;
 
 // A sidebar item: tinted symbol, label and unread count; selection shows as fill and weight.
 function Item({
@@ -184,14 +174,12 @@ export function Mailboxes({
   const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
-  const chosen = mailboxes.find(({ id }) => id === view.mailbox);
-  // Connections waiting for provider authorization have no Inbox until it is given again; they
-  // stay listed with the problem beside them.
-  const waiting = profileMailboxes(account?.mailboxes ?? [], profile).filter(
-    ({ id, state }) =>
-      state === 'authorization' &&
-      !mailboxes.some((mailbox) => mailbox.id === id),
-  );
+  const sidebar = mailboxSidebar({
+    mailboxes,
+    connections: account?.mailboxes ?? [],
+    profile,
+    view,
+  });
   // The account page replaces the Inbox, so an open composer is left first.
   const openAccount = async (open: () => void) => {
     if (await leave()) {
@@ -228,24 +216,15 @@ export function Mailboxes({
             <Item
               icon="tray.2"
               label={t('inbox.allInboxes')}
-              count={mailboxes.reduce(
-                (sum, mailbox) => sum + unreadCount(mailbox),
-                0,
-              )}
-              selected={chosen === undefined}
+              count={sidebar.unread}
+              selected={sidebar.allSelected}
               onPress={() => {
                 onView({});
               }}
             />
           </View>
-          {mailboxes.map((mailbox) => {
+          {sidebar.sections.map(({ mailbox, folders }) => {
             const name = mailbox.address ?? mailbox.id;
-            const { state } = mailbox;
-            // An IMAP mailbox lists its selectable folders, Inbox first; others have one Inbox.
-            const folders =
-              state.kind === 'ready' && 'folders' in state
-                ? state.folders.filter(({ selectable }) => selectable)
-                : [{ name: inboxFolder }];
             return (
               <Fragment key={mailbox.id}>
                 <SectionHeader
@@ -258,51 +237,49 @@ export function Mailboxes({
                       { backgroundColor: colors.fillQuiet },
                     ]
                   }>
-                  {folders.map(({ name: folder }, index) => {
-                    const inbox = folder === inboxFolder;
-                    const label = inbox ? t('inbox.title') : folder;
-                    return (
-                      <Fragment key={folder}>
-                        {compact && index > 0 ? (
-                          <View
-                            style={[
-                              styles.separator,
-                              { backgroundColor: colors.separator },
-                            ]}
+                  {folders.map(
+                    ({ name: folder, inbox, unread, selected }, index) => {
+                      const label = inbox ? t('inbox.title') : folder;
+                      return (
+                        <Fragment key={folder}>
+                          {compact && index > 0 ? (
+                            <View
+                              style={[
+                                styles.separator,
+                                { backgroundColor: colors.separator },
+                              ]}
+                            />
+                          ) : null}
+                          <Item
+                            icon={inbox ? 'tray' : 'folder'}
+                            label={label}
+                            accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                              row: label,
+                              mailbox: name,
+                            })}
+                            count={unread}
+                            selected={selected}
+                            onPress={() => {
+                              onView({
+                                mailbox: mailbox.id,
+                                folder: inbox ? undefined : folder,
+                              });
+                              if ('openFolder' in mailbox.inbox) {
+                                void mailbox.inbox.openFolder(folder);
+                              }
+                            }}
                           />
-                        ) : null}
-                        <Item
-                          icon={inbox ? 'tray' : 'folder'}
-                          label={label}
-                          accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                            row: label,
-                            mailbox: name,
-                          })}
-                          count={inbox ? unreadCount(mailbox) : 0}
-                          selected={
-                            chosen === mailbox &&
-                            (view.folder ?? inboxFolder) === folder
-                          }
-                          onPress={() => {
-                            onView({
-                              mailbox: mailbox.id,
-                              folder: inbox ? undefined : folder,
-                            });
-                            if ('openFolder' in mailbox.inbox) {
-                              void mailbox.inbox.openFolder(folder);
-                            }
-                          }}
-                        />
-                      </Fragment>
-                    );
-                  })}
+                        </Fragment>
+                      );
+                    },
+                  )}
                 </View>
               </Fragment>
             );
           })}
-          {waiting.map((connection) => {
+          {sidebar.waiting.map(({ connection, recovery }) => {
             const provider = t(`mailProviders.${connection.provider}`);
-            const imap = connection.provider === 'imap';
+            const imap = recovery === 'account';
             return (
               <Fragment key={connection.id}>
                 <SectionHeader label={`${provider} · ${connection.address}`} />

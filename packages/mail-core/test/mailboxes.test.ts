@@ -1,11 +1,14 @@
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
+import type { ImapInboxState } from '../src/imap-inbox.ts';
 import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
+import type { MailboxConnection } from '../src/registration.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
 import {
   createGmailSearch,
   createMailboxes,
   inboxMessages,
+  mailboxSidebar,
   searchGmail,
   searchMessages,
 } from '../src/mailboxes.ts';
@@ -1007,5 +1010,153 @@ describe('searching saved metadata', () => {
       ['α\u0345λφα', ['a', 'f']],
       ['not saved', []],
     ]);
+  });
+});
+
+describe('mailbox sidebar projection', () => {
+  it('keeps unread totals and row selection tied to the current Inbox snapshots', async () => {
+    expect.hasAssertions();
+    const { gmail, mailboxes, registration } = await twoMailboxes();
+    gmail.alex.deliver({ subject: 'Unread in Alex', at: at(1) });
+    gmail.other.deliver({ subject: 'Unread in Other', at: at(2) });
+    await mailboxes.load();
+    const project = (view: { mailbox?: string; folder?: string }) =>
+      mailboxSidebar({
+        mailboxes: mailboxes.getSnapshot(),
+        connections: mailboxesOf(registration.getSnapshot().snapshot),
+        profile: defaultProfile,
+        view,
+      });
+    const selected = project({ mailbox: alex });
+    expect({
+      unread: selected.unread,
+      allSelected: selected.allSelected,
+      rows: selected.sections.map(({ mailbox: entry, folders }) => [
+        entry.id,
+        folders,
+      ]),
+    }).toStrictEqual({
+      unread: 2,
+      allSelected: false,
+      rows: [
+        [alex, [{ name: 'INBOX', inbox: true, unread: 1, selected: true }]],
+        [other, [{ name: 'INBOX', inbox: true, unread: 1, selected: false }]],
+      ],
+    });
+    const { inbox } = mailbox(mailboxes.getSnapshot(), alex);
+    const message = firstOf(ready(inbox.getSnapshot()).messages);
+    await inbox.organize(message, gmailAction.read);
+    expect(project({}).unread).toBe(1);
+    expect([
+      project({}).allSelected,
+      project({ mailbox: 'removed' }).allSelected,
+    ]).toStrictEqual([true, true]);
+  });
+
+  it('keeps selectable IMAP names distinct and missing-store recovery inside its Profile', () => {
+    expect.hasAssertions();
+    const state: ImapInboxState = {
+      kind: 'ready',
+      address: 'alex@example.invalid',
+      messages: [],
+      status: 'current',
+      folders: [
+        { name: 'INBOX', selectable: true, roles: ['inbox'] },
+        { name: 'Other Inbox', selectable: true, roles: ['inbox'] },
+        { name: 'Container', selectable: false, roles: [] },
+      ],
+      capabilities: undefined,
+      pending: 0,
+      blocked: undefined,
+      undo: false,
+      imap: true,
+    };
+    const connections: ReadonlyArray<
+      Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>
+    > = [
+      {
+        id: 'stored',
+        profile: defaultProfile,
+        provider: 'imap',
+        state: 'authorization',
+      },
+      {
+        id: 'imap',
+        profile: defaultProfile,
+        provider: 'imap',
+        state: 'authorization',
+      },
+      {
+        id: 'gmail',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'graph',
+        profile: defaultProfile,
+        provider: 'microsoft-graph',
+        state: 'authorization',
+      },
+      {
+        id: 'foreign',
+        profile: 'work',
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'connected',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'connected',
+      },
+    ];
+    const project = (snapshot: ImapInboxState, folder?: string) =>
+      mailboxSidebar({
+        mailboxes: [{ id: 'stored', state: snapshot }],
+        connections,
+        profile: defaultProfile,
+        view: { mailbox: 'stored', folder },
+      });
+    const selected = project(state, 'Other Inbox');
+    expect(selected.sections.flatMap(({ folders }) => folders)).toStrictEqual([
+      { name: 'INBOX', inbox: true, unread: 0, selected: false },
+      { name: 'Other Inbox', inbox: false, unread: 0, selected: true },
+    ]);
+    expect(
+      selected.waiting.map(({ connection, recovery }) => [
+        connection.id,
+        recovery,
+      ]),
+    ).toStrictEqual([
+      ['imap', 'account'],
+      ['gmail', 'authorization'],
+      ['graph', 'authorization'],
+    ]);
+    const unavailable: readonly ImapInboxState[] = [
+      { kind: 'loading' },
+      { kind: 'locked' },
+      { kind: 'failed' },
+    ];
+    expect(
+      unavailable.map((snapshot) =>
+        project(snapshot).sections.flatMap(({ folders }) => folders),
+      ),
+    ).toStrictEqual([
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+    ]);
+    expect(
+      project(
+        {
+          ...state,
+          folders: state.folders.filter(({ name }) => name !== 'Other Inbox'),
+        },
+        'Other Inbox',
+      )
+        .sections.flatMap(({ folders }) => folders)
+        .some(({ selected: chosen }) => chosen),
+    ).toBe(false);
   });
 });
