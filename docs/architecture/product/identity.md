@@ -10,8 +10,10 @@ replacement requirements or release qualification.
 Product Account identity and device trust apply to the replacement. Optional
 Mail Profiles are launch work under ADR 0069. The replacement's
 [Default Profile foundation](../private-inbox-storage.md#default-profile-foundation)
-is implemented in #644; multiple-Profile creation and synchronized assignments
-remain unavailable until #645–#647. The deployed prototype Profile Record Scope
+is implemented in #644; #920 synchronizes Profile definitions and connection
+ownership. Multiple-Profile creation stays unavailable in the apps until #921
+routes the remaining callers and #922 adds app enablement and lifecycle fencing.
+The deployed prototype Profile Record Scope
 does not establish replacement multi-Profile implementation or qualification.
 
 ## Decisions and scope

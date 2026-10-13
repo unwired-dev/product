@@ -13,6 +13,7 @@ import type {
   Receipt,
   Ring,
   SavedRecord,
+  Stored,
   SyncVault,
 } from './registration-vault-state.ts';
 import type { createSyntheticDevice } from './registration-vault.ts';
@@ -25,6 +26,7 @@ import {
   payload,
   proofOf,
   configuredBackend,
+  sealProfile,
   verifierOf,
 } from './registration-product-sync-state.ts';
 import { attempt, unavailable } from './registration-vault-state.ts';
@@ -35,6 +37,8 @@ export {
   removeTrustedDevice,
   storeDescriptor,
   storedDescriptor,
+  storeProfile,
+  storedProfiles,
 } from './registration-product-sync-state.ts';
 export type { SyntheticProductSync } from './registration-product-sync-state.ts';
 
@@ -148,6 +152,31 @@ export function createSyntheticSyncVault(
       throw unavailable();
     }
     return { vault, account: product.productAccountId };
+  };
+  // Each record's sealed value when it opens for this account under its own identifier, at an
+  // epoch this device's ring holds; otherwise null.
+  const openRecords = <A>(
+    records: ReadonlyArray<Readonly<Stored>>,
+    sealedAs: (ciphertext: string) =>
+      | Readonly<{
+          ring: string;
+          account: string;
+          identifier: string;
+          value: A;
+        }>
+      | undefined,
+  ) => {
+    const { vault, account } = publishedVault();
+    return records.map(({ payloadIdentifier, encryptedPayload }) => {
+      const sealed = sealedAs(encryptedPayload.ciphertextBase64);
+      return sealed !== undefined &&
+        sealed.ring === vault.ring.id &&
+        sealed.account === account &&
+        sealed.identifier === payloadIdentifier &&
+        vault.ring.epochs.includes(encryptedPayload.keyVersion)
+        ? sealed.value
+        : null;
+    });
   };
   // This Pending Device's open request, only while it belongs to the same Pending Device.
   const openEnrollment = (product: Readonly<Receipt>) => {
@@ -321,6 +350,9 @@ export function createSyntheticSyncVault(
     | 'purgeMailbox'
     | 'removeQueuedPushRoutes'
     | 'recordMailboxReadback'
+    | 'sealProfileRecord'
+    | 'openProfileRecords'
+    | 'recordProfiles'
   > = {
     createKeyRing: () =>
       attempt(() => {
@@ -736,20 +768,18 @@ export function createSyntheticSyncVault(
         return payload(ciphertext, vault.ring.current);
       }),
     openMailboxDescriptors: (records) =>
-      attempt(() => {
-        const sync = syncBackend();
-        const { vault, account } = publishedVault();
-        return records.map(({ payloadIdentifier, encryptedPayload }) => {
-          const sealed = sync.sealed.get(encryptedPayload.ciphertextBase64);
-          return sealed !== undefined &&
-            sealed.ring === vault.ring.id &&
-            sealed.account === account &&
-            sealed.record === payloadIdentifier &&
-            vault.ring.epochs.includes(encryptedPayload.keyVersion)
-            ? sealed.descriptor
-            : null;
-        });
-      }),
+      attempt(() =>
+        openRecords(records, (ciphertext) => {
+          const sealed = syncBackend().sealed.get(ciphertext);
+          return (
+            sealed && {
+              ...sealed,
+              identifier: sealed.record,
+              value: sealed.descriptor,
+            }
+          );
+        }),
+      ),
     recordMailboxChanges: (changes, settledRemovals) =>
       attempt(() => {
         const record = saved();
@@ -793,6 +823,28 @@ export function createSyntheticSyncVault(
     removeQueuedPushRoutes: () =>
       attempt(() => {
         syncBackend().steps.push('removeQueuedPushRoutes');
+        return null;
+      }),
+    sealProfileRecord: (record) =>
+      attempt(() => {
+        const { account } = publishedVault();
+        return sealProfile(syncBackend(), account, record);
+      }),
+    openProfileRecords: (records) =>
+      attempt(() =>
+        openRecords(records, (ciphertext) => {
+          const sealed = syncBackend().sealedProfiles.get(ciphertext);
+          return sealed && { ...sealed, value: structuredClone(sealed.record) };
+        }),
+      ),
+    recordProfiles: (state) =>
+      attempt(() => {
+        const { vault } = syncKeys();
+        if (vault === undefined || trusted().product.pending === true) {
+          throw unavailable();
+        }
+        syncBackend().steps.push('recordProfiles');
+        saved().profiles = structuredClone(state);
         return null;
       }),
     recordMailboxReadback: (addresses, confirmed, epochs) =>

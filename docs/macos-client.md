@@ -90,6 +90,14 @@ open ../../artifacts/macos-inbox/DerivedData/Build/Products/Release/UnwiredMail.
 
 `native:build` regenerates the ignored Xcode project, installs Pods
 using the committed `Podfile.lock`, and builds arm64 with isolated DerivedData.
+The Mac Podfile loads `scripts/cocoapods-paths.rb` to avoid CocoaPods' intermittent
+`pathname contains null byte` failure when creating groups for pnpm-linked pods
+([upstream #12798](https://github.com/CocoaPods/CocoaPods/issues/12798)). The
+regression check uses real CocoaPods/Xcodeproj objects and injects the reported filesystem
+failure; run `mise exec -- ruby apps/macos/scripts/cocoapods-paths.test.rb` from
+the repository root. The Mac CI job also runs it against CocoaPods 1.17.0.
+Remove the workaround once the upstream fix has been verified with this pnpm layout.
+
 Local builds default to ad-hoc signing and
 disable hardened runtime because ad-hoc dynamic frameworks have no Team ID. The
 generated project retains hardened runtime for distribution signing.

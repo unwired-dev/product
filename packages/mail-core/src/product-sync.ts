@@ -5,6 +5,7 @@ import * as Order from 'effect/Order';
 import * as Random from 'effect/Random';
 import * as Schema from 'effect/Schema';
 
+import type { RegistrationRejected } from './registration-rejection.ts';
 import type {
   PendingEnrollment,
   TrustedDeviceSummary,
@@ -18,6 +19,7 @@ import type {
 } from './registration-vault.ts';
 import type { MailProvider, PrivateSyncStateSchema } from './registration.ts';
 
+import { createMailProfileProgram } from './mail-profiles.ts';
 import { createDeviceTrustProgram } from './product-sync-devices.ts';
 import {
   backendCode,
@@ -45,6 +47,10 @@ const KeyRing = Schema.Struct({
   deviceKey: Schema.NonEmptyString,
 });
 const Opened = Schema.Array(Schema.NullOr(MailboxDescriptorSchema));
+const AtomicWrite = Schema.Struct({
+  committed: Schema.Boolean,
+  payloads: Schema.Array(StoredPayload),
+});
 type PrivateSyncState = typeof PrivateSyncStateSchema.Type;
 
 // A removal moved the account to a newer key epoch; the write is sealed again after adopting it.
@@ -353,8 +359,13 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     return parts.join('-');
   });
 
-  // Every mailbox descriptor, read across all pages and opened on this device.
-  const descriptors = Effect.gen(function* () {
+  // Every record under an identifier prefix; Profile pages are learned before another request.
+  const list = Effect.fnUntraced(function* (
+    prefix: string,
+    read?: (
+      records: ReadonlyArray<typeof StoredPayload.Type>,
+    ) => Effect.Effect<void, RegistrationRejected>,
+  ) {
     const records: Array<typeof StoredPayload.Type> = [];
     let cursor: string | null = null;
     let done = false;
@@ -364,7 +375,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
           endpoint: 'query',
           path: 'productSync:listEncryptedPayloadsForTrustedDevice',
           args: {
-            payloadIdentifierPrefix: 'mailbox.',
+            payloadIdentifierPrefix: prefix,
             paginationOpts: { cursor, numItems: pageSize },
           },
           session: true,
@@ -373,9 +384,18 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
         StoredPayloadPage,
       );
       records.push(...page.page);
+      if (read !== undefined) {
+        yield* read(page.page);
+      }
       done = page.isDone;
       cursor = page.continueCursor;
     }
+    return records;
+  });
+
+  // Every mailbox descriptor, read across all pages and opened on this device.
+  const descriptors = Effect.gen(function* () {
+    const records = yield* list('mailbox.');
     const opened =
       records.length === 0
         ? []
@@ -394,6 +414,90 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     return stored;
   });
 
+  // Compare-and-set of a sealed record: what Convex stores afterwards, which differs from the
+  // write when another one won.
+  // A Product Sync write's reply, decoded; a removal's newer key epoch is its own failure.
+  const written = Effect.fnUntraced(function* <S extends Schema.Top>(
+    path: string,
+    args: Readonly<Record<string, unknown>>,
+    schema: S,
+  ) {
+    const reply = yield* convexReply({
+      endpoint: 'mutation',
+      path,
+      args,
+      session: true,
+      device: true,
+    });
+    if (!reply.succeeded) {
+      const code = reply.errorData?.code;
+      return yield* code === productSyncKeyRotationRequiredErrorCode
+        ? Effect.fail(new KeyRotationRequired())
+        : failWith(backendCode(code));
+    }
+    return yield* Schema.decodeUnknownEffect(schema)(reply.value).pipe(
+      Effect.catch(unreadable),
+    );
+  });
+  const write = Effect.fnUntraced(function* (
+    record: string,
+    sealed: typeof EncryptedPayload.Type,
+    expectedUpdatedAt: number | undefined,
+  ) {
+    const stored = yield* written(
+      'productSync:putEncryptedPayloadIfUnchanged',
+      {
+        payloadIdentifier: record,
+        encryptedPayload: sealed,
+        ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+      },
+      StoredPayload,
+    );
+    if (stored.payloadIdentifier !== record) {
+      return yield* failWith('unavailable');
+    }
+    return stored;
+  });
+  // Compare-and-set of several sealed records in one transaction: all commit, or none does and
+  // Convex returns what it stores instead.
+  const writeAll = Effect.fnUntraced(function* (
+    writes: ReadonlyArray<
+      Readonly<{
+        record: string;
+        sealed: typeof EncryptedPayload.Type;
+        expectedUpdatedAt: number | undefined;
+      }>
+    >,
+  ) {
+    const reply = yield* written(
+      'productSync:putEncryptedPayloadsAtomically',
+      {
+        checks: [],
+        deletes: [],
+        writes: writes.map(({ record, sealed, expectedUpdatedAt }) => ({
+          payloadIdentifier: record,
+          encryptedPayload: sealed,
+          ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+        })),
+      },
+      AtomicWrite,
+    );
+    const records = new Set(writes.map(({ record }) => record));
+    const returned = new Set(
+      reply.payloads.map(({ payloadIdentifier }) => payloadIdentifier),
+    );
+    if (
+      returned.size !== reply.payloads.length ||
+      (reply.committed && returned.size !== records.size) ||
+      reply.payloads.some(
+        ({ payloadIdentifier }) => !records.has(payloadIdentifier),
+      )
+    ) {
+      return yield* failWith('unavailable');
+    }
+    return reply;
+  });
+
   // Compare-and-set: the stored descriptor, which differs from ours when another write won, or
   // undefined when it does not open here.
   const put = Effect.fnUntraced(function* (
@@ -405,35 +509,50 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       () => vault.sealMailboxDescriptor(record, descriptor),
       EncryptedPayload,
     );
-    const reply = yield* convexReply({
-      endpoint: 'mutation',
-      path: 'productSync:putEncryptedPayloadIfUnchanged',
-      args: {
-        payloadIdentifier: record,
-        encryptedPayload: sealed,
-        ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
-      },
-      session: true,
-      device: true,
-    });
-    if (!reply.succeeded) {
-      const code = reply.errorData?.code;
-      return yield* code === productSyncKeyRotationRequiredErrorCode
-        ? Effect.fail(new KeyRotationRequired())
-        : failWith(backendCode(code));
-    }
-    const stored = yield* Schema.decodeUnknownEffect(StoredPayload)(
-      reply.value,
-    ).pipe(Effect.catch(unreadable));
-    if (stored.payloadIdentifier !== record) {
-      return yield* failWith('unavailable');
-    }
+    const stored = yield* write(record, sealed, expectedUpdatedAt);
     const [winner] = yield* native(
       () => vault.openMailboxDescriptors([stored]),
       Opened,
     );
     return winner ?? undefined;
   });
+
+  const profiles = createMailProfileProgram(vault, {
+    list,
+    writeAll,
+    descriptorEpochs: Effect.gen(function* () {
+      const stored = yield* descriptors;
+      const epochs = new Map<string, string | null>();
+      for (const [record, { descriptor }] of stored) {
+        if (descriptor === undefined) {
+          return yield* failWith('unavailable');
+        }
+        epochs.set(
+          record,
+          descriptor.removed === true
+            ? null
+            : (descriptor.epoch ?? legacyEpoch),
+        );
+      }
+      return epochs;
+    }),
+    freshId: freshEpoch,
+  });
+  // A Profile write sealed at an epoch a removal overtook is sealed again after adopting it.
+  const rotating = <A>(
+    operation: () => Effect.Effect<
+      A,
+      KeyRotationRequired | RegistrationRejected
+    >,
+  ) =>
+    operation().pipe(
+      Effect.catchTag('KeyRotationRequired', () =>
+        adoptRotation.pipe(
+          Effect.andThen(operation()),
+          Effect.catchTag('KeyRotationRequired', () => failWith('unavailable')),
+        ),
+      ),
+    );
 
   // Marks a removal in Product Sync: a tombstone where no descriptor exists, or the live one it
   // removes marked removed. Another device's later addition stays.
@@ -724,6 +843,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       ),
     );
     yield* devices.refreshDevices;
+    yield* rotating(() => profiles.synchronize);
   });
 
   // Synchronizes with this process's verified Product Sign-In. Product Sync stays pending on
@@ -745,5 +865,16 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     Effect.ensuring(step(vault.finishSynchronization).pipe(Effect.ignore)),
   );
 
-  return { synchronize, ...devices };
+  return {
+    synchronize,
+    ...devices,
+    createProfile: profiles.create,
+    renameProfile: profiles.rename,
+    removeProfile: (id: string) => rotating(() => profiles.remove(id)),
+    moveMailbox: (
+      value: RegistrationRecord,
+      connection: string,
+      profile: string,
+    ) => rotating(() => profiles.move(value, connection, profile)),
+  };
 }

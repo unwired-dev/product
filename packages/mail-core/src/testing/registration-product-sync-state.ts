@@ -1,5 +1,8 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
-import type { MailboxDescriptor } from '../registration-vault.ts';
+import type {
+  MailboxDescriptor,
+  ProfileRecord,
+} from '../registration-vault.ts';
 import type { Payload, Ring, Stored } from './registration-vault-state.ts';
 
 import { unavailable } from './registration-vault-state.ts';
@@ -107,6 +110,16 @@ export function createSyntheticProductSyncBackend() {
         descriptor: MailboxDescriptor;
       }
     >(),
+    // What each sealed Mail Profile definition or ownership opens to, and under which identifier.
+    sealedProfiles: new Map<
+      string,
+      {
+        ring: string;
+        account: string;
+        identifier: string;
+        record: ProfileRecord;
+      }
+    >(),
     clock: 1000,
     pageSize: 100,
     initializations: 0,
@@ -203,6 +216,74 @@ export function mailboxRecord(
   const record = `mailbox.${ring}.${sync.identifiers.size + 1}`;
   sync.identifiers.set(name, record);
   return record;
+}
+
+// The opaque identifier a ring stores a Mail Profile's definition or a connection's ownership under.
+function profileIdentifier(
+  sync: SyntheticProductSync,
+  ring: string,
+  record: ProfileRecord,
+) {
+  const [kind, name] =
+    record.kind === 'profile'
+      ? ['profile', record.id]
+      : ['mailbox-profile', record.record];
+  const key = `${ring}\n${kind}\n${name}`;
+  const known = sync.identifiers.get(key);
+  if (known !== undefined) {
+    return known;
+  }
+  const identifier = `${kind}.${ring}.${sync.identifiers.size + 1}`;
+  sync.identifiers.set(key, identifier);
+  return identifier;
+}
+
+// Seals a Profile definition or ownership as the account's keys would, under its identifier.
+export function sealProfile(
+  sync: SyntheticProductSync,
+  account: string,
+  record: ProfileRecord,
+) {
+  const ring = sync.accounts.get(account)?.ring;
+  if (ring === undefined) {
+    throw new Error('Synthetic account without keys');
+  }
+  const identifier = profileIdentifier(sync, ring.id, record);
+  const ciphertext = `profile-sealed-${sync.sealedProfiles.size + 1}`;
+  sync.sealedProfiles.set(ciphertext, {
+    ring: ring.id,
+    account,
+    identifier,
+    record: structuredClone(record),
+  });
+  return {
+    payloadIdentifier: identifier,
+    encryptedPayload: payload(ciphertext, ring.current),
+  };
+}
+
+// Another device's write of a Profile definition or ownership, over whatever is stored.
+export function storeProfile(
+  sync: SyntheticProductSync,
+  account: string,
+  record: ProfileRecord,
+) {
+  const sealed = sealProfile(sync, account, record);
+  sync.clock += 1;
+  sync.accounts.get(account)?.records.set(sealed.payloadIdentifier, {
+    ...sealed,
+    updatedAt: sync.clock,
+  });
+}
+
+// Every Profile definition and ownership stored for the account, opened with its keys.
+export function storedProfiles(sync: SyntheticProductSync, account: string) {
+  return [...(sync.accounts.get(account)?.records.values() ?? [])].flatMap(
+    ({ encryptedPayload }) => {
+      const sealed = sync.sealedProfiles.get(encryptedPayload.ciphertextBase64);
+      return sealed === undefined ? [] : [sealed.record];
+    },
+  );
 }
 
 // The descriptor stored under a record, opened with the account's keys.

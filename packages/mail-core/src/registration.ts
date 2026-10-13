@@ -54,6 +54,23 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
+// The Mail Profiles besides the Default Profile: each one's identifier and name, and whether that
+// name, chosen on this device, is not yet synchronized.
+const ProfilesSchema = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      name: Schema.NonEmptyString,
+      pending: Schema.optionalKey(Schema.Literal(true)),
+    }),
+  ),
+);
+const decodeProfiles = Schema.decodeOption(ProfilesSchema);
+const profilesText = Schema.NonEmptyString.check(
+  Schema.makeFilter((value) => Option.isSome(decodeProfiles(value))),
+);
+export type MailProfile = (typeof ProfilesSchema.Type)[number];
+
 // The Mail Provider a Mailbox Connection reads: Gmail, Outlook.com and Microsoft 365 mail through
 // Microsoft Graph, or a Standards-Based Mailbox Connection over IMAP.
 export const MailProviderSchema = Schema.Literals([
@@ -74,6 +91,8 @@ export const microsoftMailAvailable = Schema.is(
 // and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
 // connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
 export const defaultProfile = 'default';
+// The owner of a connection whose Mail Profile this device cannot determine; no window reads it.
+export const unavailableProfile = 'unavailable';
 
 // This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
 // Inbox until its provider verifies again; 'authorization' needs it authorized again first.
@@ -146,6 +165,8 @@ const Account = Schema.Struct({
   trustedDevices: Schema.optionalKey(trustedDevicesText),
   // JSON text listing this device's Mailbox Connections; absent before the first one.
   mailboxes: Schema.optionalKey(mailboxesText),
+  // JSON text listing the Mail Profiles besides the Default Profile; absent without any.
+  profiles: Schema.optionalKey(profilesText),
   // A prepared removal of this listed Trusted Device waits for its replacement Recovery Key to be
   // confirmed, or for the outcome of its activation, which may already have committed.
   revocationDevice: Schema.optionalKey(Schema.NonEmptyString),
@@ -234,6 +255,14 @@ export const trustedDevicesOf = (
     : Option.getOrThrow(decodeTrustedDevices(snapshot.trustedDevices));
 
 // The native snapshot boundary has already validated this JSON text.
+export const profilesOf = (
+  snapshot: RegistrationSnapshot,
+): readonly MailProfile[] =>
+  !('profiles' in snapshot) || snapshot.profiles === undefined
+    ? []
+    : Option.getOrThrow(decodeProfiles(snapshot.profiles));
+
+// The native snapshot boundary has already validated this JSON text.
 export const mailboxesOf = (
   snapshot: RegistrationSnapshot | Readonly<{ mailboxes?: string }>,
 ): readonly MailboxConnection[] =>
@@ -304,6 +333,18 @@ export interface NativeRegistration {
   readonly connectImap: (setup: ImapSetup) => Promise<unknown>;
   // Removes a Mailbox Connection from this Product Account; its provider's mail is untouched.
   readonly removeMailbox: (connection: string) => Promise<unknown>;
+  // Names a new Mail Profile on this device; Product Sync publishes it when reachable. Hosts
+  // without Product Sync omit the Profile operations.
+  readonly createProfile?: (name: string) => Promise<unknown>;
+  readonly renameProfile?: (profile: string, name: string) => Promise<unknown>;
+  // Removes a Mail Profile that owns no Mailbox Connection; needs Product Sync.
+  readonly removeProfile?: (profile: string) => Promise<unknown>;
+  // Moves one of this device's Mailbox Connections to a published Mail Profile, or back to the
+  // Default Profile; needs Product Sync.
+  readonly moveMailbox?: (
+    connection: string,
+    profile: string,
+  ) => Promise<unknown>;
   // Verifies the current Product Account and the identity being linked, interactively.
   readonly link: (provider: SignInProvider) => Promise<unknown>;
   // Confirms Recovery Key setup with the final group the person wrote down.
@@ -788,6 +829,30 @@ export function createRegistration(
       ),
     removeMailbox: (connection: string) =>
       execute(request(() => native.removeMailbox(connection))),
+    createProfile: (name: string) => {
+      const { createProfile } = native;
+      return createProfile === undefined
+        ? Promise.resolve()
+        : execute(request(() => createProfile(name)));
+    },
+    renameProfile: (profile: string, name: string) => {
+      const { renameProfile } = native;
+      return renameProfile === undefined
+        ? Promise.resolve()
+        : execute(request(() => renameProfile(profile, name)));
+    },
+    removeProfile: (profile: string) => {
+      const { removeProfile } = native;
+      return removeProfile === undefined
+        ? Promise.resolve()
+        : execute(request(() => removeProfile(profile)));
+    },
+    moveMailbox: (connection: string, profile: string) => {
+      const { moveMailbox } = native;
+      return moveMailbox === undefined
+        ? Promise.resolve()
+        : execute(request(() => moveMailbox(connection, profile)));
+    },
     link: (provider: SignInProvider) =>
       execute(
         request(() => native.link(provider)).pipe(

@@ -102,7 +102,16 @@ Use Xcode 27, an iOS 27 simulator runtime, and CocoaPods. `pnpm ios` generates a
 builds the development client and starts Metro; subsequent JavaScript work can
 use `pnpm dev`. These commands use a development build, not Expo Go. From the
 repository root, `mise exec -- pnpm ios --device` and `mise exec -- pnpm dev:ios` run the same commands
-through Turborepo.
+through Turborepo. `pnpm ios` loads the root `.env.local` if it exists; set
+`UNWIRED_DEVELOPMENT_TEAM="<your team ID>"` there so Expo signs with that team
+instead of asking which keychain identity to use. The Sign in with Apple
+entitlement makes even simulator builds sign.
+
+If `apps/mobile/ios` already exists, apply the team before the next build. From
+`apps/mobile`, run
+`UNWIRED_DEVELOPMENT_TEAM="<your team ID>" mise exec -- pnpm native:generate`.
+This command takes the team from the environment; it does not load the root
+`.env.local`. `pnpm ios` reuses an existing native project and its signing team.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
 after changing native dependencies or app configuration. Keep native changes in

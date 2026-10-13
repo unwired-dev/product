@@ -50,8 +50,10 @@ Connections, Drafts, assets, Outbox attempts, caches and encrypted records retai
 their identities and locations. The staging decision and its panel outcome are
 recorded in [ADR 0048's replacement amendment](../adr/0048-separate-encrypted-mail-profile-ownership.md#replacement-staging-amendment--2026-10-11).
 The [caller inventory and release evidence requirements](../private-inbox-storage.md#mail-profiles)
-remain implementer-readable. Multiple-Profile creation stays unavailable through
-#645 and #646; #647 owns synchronized assignments and incompatible-client fencing.
+remain implementer-readable. Multiple-Profile creation stays unavailable in the
+apps through #921; #922 owns app enablement and incompatible-client fencing.
+The [synchronized Profile foundation](private-product-sync.md#synchronized-mail-profiles)
+records #920.
 
 ## Profile-scoped reading
 
@@ -77,8 +79,9 @@ continues account-wide. Reader/cache access and search remain confined to the
 currently projected owner. Account management and opaque Convex connection APIs
 remain Product Account-wide; Convex receives no Profile assignments. Drafts and
 delivery consume the staged connection-Profile boundaries below. Profile
-creation, durable assignments, restoration preferences and older-client fencing
-remain #647 work; this is not qualification of that lifecycle protocol.
+creation, restoration preferences and older-client fencing remain #922 work;
+#920 supplies synchronized assignments without enabling their app controls.
+This is not qualification of the complete lifecycle protocol.
 
 The host tests exercise substituted ownership and routing with real shared
 stores. Native version-27 and real provider/Profile journeys remain required
@@ -92,8 +95,8 @@ current sender; sender changes and received-attachment imports stay within the
 stored Draft's connection Profile; attachment-to-Draft navigation selects only
 the reader's Profile; and Reply All excludes only that Profile's own identities.
 Both hosts consume these shared boundaries for New Message, From choices and
-reader actions. Tests use a synthetic second Profile; production still projects
-every connection into the Default Profile.
+reader actions. Tests use a synthetic second Profile; the apps still offer no
+Profile creation. #920's registration store projects synchronized ownership.
 
 Draft records and windows do not persist a Profile. `profileOf` therefore resolves
 the current connection assignment and falls back to `defaultProfile` for an
@@ -101,8 +104,8 @@ unlisted connection. New Message from the unified Inbox uses the window’s expl
 reading Profile, while a selected connection supplies its current Profile. This
 is a staged connection-Profile boundary,
 not proof of isolation during synchronized connection transfer or multi-Profile
-window restoration. Those ownership and lifetime fences belong to #647 before
-another Profile can be created.
+window restoration. The remaining lifetime fences belong to #921 and #922 before
+another Profile can be created in the apps.
 
 Existing encrypted Drafts/assets, Private Sync identifiers, exact Outbox payloads,
 originating Delivery Owners, pending claims and account cleanup retain their
@@ -120,13 +123,14 @@ that argument would add migration surface without proving routing isolation;
 it would also overlap the native registration migration in PR #866. This follows
 #644's staged projection decision. #647 must synchronize assignments and route
 the explicitly retained backend/native caller inventory by Profile Record Scope.
-The operational [Mail Profiles checklist](../private-inbox-storage.md#mail-profiles)
+The split of #647 assigns synchronization to #920, the retained caller routing to
+#921, and app enablement to #922. The operational [Mail Profiles checklist](../private-inbox-storage.md#mail-profiles)
 retains that prerequisite and the required real-provider/native release evidence.
 
 Reader Mail Assistance uses the reading Profile’s device-local consent, including
 Translation, and cancels retained work when that consent is revoked or the reading
 Profile changes. Account settings and Draft consent retain their staged Default
-Profile paths until #647 supplies their ownership and lifecycle.
+Profile paths until #921 supplies their ownership and lifecycle.
 
 The merge integration panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`)
 selected reader-specific consent and lifetime checks now, 2–1, over deferring them
