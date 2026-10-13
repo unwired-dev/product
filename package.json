@@ -23,7 +23,7 @@
     "native:generate": "turbo run native:generate",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
-    "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs",
+    "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs scripts/build-native.test.mjs",
     "test:native:ios": "turbo run test:native --filter=@private-email/mobile --",
     "test:native:macos": "turbo run test:native --filter=@private-email/macos --",
     "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/opencodereview-rules.test.mjs scripts/native-autolinking.test.mjs scripts/dependency-boundaries.test.mjs",
