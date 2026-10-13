@@ -1,4 +1,5 @@
 require_relative '../node_modules/react-native-macos/scripts/react_native_pods'
+require_relative '../scripts/cocoapods-paths'
 
 platform :macos, '27.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
