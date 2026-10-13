@@ -23,6 +23,7 @@ import {
   decodeMessageContentHeight,
   decodeRemoteImagePositions,
 } from '@private-email/mail-core/message-body';
+import { setStringAsync } from 'expo-clipboard';
 import {
   createContext,
   Fragment,
@@ -36,7 +37,6 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Clipboard,
   Linking,
   Pressable,
   ScrollView,
@@ -144,8 +144,7 @@ function LinkConfirmation({
               onPress={() => {
                 onDone();
                 if (current()) {
-                  // oxlint-disable-next-line typescript/no-deprecated -- Core Clipboard remains in both hosts' React Native; a replacement would add a native module.
-                  Clipboard.setString(link.href);
+                  void setStringAsync(link.href);
                 }
               }}
             />

@@ -28,8 +28,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { setStringAsync } from 'expo-clipboard';
 import { useState } from 'react';
-import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
+import { AccessibilityInfo, Linking } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
@@ -45,6 +46,9 @@ jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
   mailboxes: undefined,
 }));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires string module names.
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -968,8 +972,7 @@ describe('connected Gmail Inbox', () => {
   it('explains a deceptive link and offers copying it instead of opening it', async () => {
     expect.hasAssertions();
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    // oxlint-disable-next-line typescript/no-deprecated -- The reader copies through core Clipboard.
-    const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);
+    const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({
       subject: 'Account notice',

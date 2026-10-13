@@ -25,6 +25,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 - Expo 57.0.28, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.26.
 - Route parameters identify the selected message.
+- The message reader's Copy link action uses `expo-clipboard`, with the native
+  module included in the reviewed Expo autolinking scope. Regenerate and rebuild
+  development clients after adding or updating it.
 - Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
 - Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.48.0, Oxlint 1.86.0 and Oxfmt 0.71.0.

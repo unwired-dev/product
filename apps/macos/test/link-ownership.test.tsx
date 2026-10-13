@@ -2,9 +2,10 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { Clipboard, Linking } from 'react-native';
+import { Linking } from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import {
@@ -84,13 +85,36 @@ const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) =>
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {
+  it('copies the inspected destination through the native Clipboard', async () => {
+    expect.hasAssertions();
+    const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: { html: `<a href="${oldHref}">https://bank.invalid</a>` },
+    });
+    const store = createGmailInbox(gmail.native);
+    await store.load();
+    await render(view(store, id));
+    try {
+      await fireEvent.press(
+        screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
+      );
+      await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+      expect(copy).toHaveBeenCalledWith(oldHref);
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      copy.mockRestore();
+      open.mockRestore();
+    }
+  });
+
   it.each(['forget', 'message', 'account', 'unmount'] as const)(
     'never reveals queued keyboard or WebKit links after %s',
     async (transition) => {
       expect.hasAssertions();
       const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
       const copy = jest
-        // oxlint-disable-next-line typescript/no-deprecated -- Tests the existing core Clipboard boundary in both hosts.
         .spyOn(Clipboard, 'setString')
         .mockReturnValue(undefined);
       const gmail = createSyntheticGmail();
@@ -192,7 +216,6 @@ describe.each(['gmail', 'imap'] as const)(
         expect.hasAssertions();
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
         const copy = jest
-          // oxlint-disable-next-line typescript/no-deprecated -- Exercises the retained native clipboard boundary.
           .spyOn(Clipboard, 'setString')
           .mockReturnValue(undefined);
         const mailbox = linkMailbox(provider);
