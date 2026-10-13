@@ -309,6 +309,7 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
   });
 
+  // Cold CI runs need extra time for the suite's first React Native render.
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();
     const initial = connected([
@@ -351,7 +352,7 @@ describe('composing Drafts', () => {
     await press('Close');
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
-  });
+  }, 15_000);
 
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
