@@ -17,14 +17,20 @@ import {
 } from '../src/mailbox.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
-function Finishing({
+function CommandScope({
   owner,
-  finish,
 }: {
   readonly owner: string;
-  readonly finish: () => Promise<boolean>;
 }) {
   useCommandScope(owner);
+  return null;
+}
+
+function Finishing({
+  finish,
+}: {
+  readonly finish: () => Promise<boolean>;
+}) {
   const navigation = useComposerNavigation();
   useEffect(() => navigation.register(finish), [navigation, finish]);
   return null;
@@ -42,6 +48,7 @@ function App({
   const [route, setRoute] = useState('original route');
   return (
     <CommandPalette>
+      <CommandScope owner={`${account}/${profile}`} />
       <AccountContext
         value={{
           productAccountId: account,
@@ -52,10 +59,7 @@ function App({
         }}>
         <InboxProvider>
           <ProfileScope profile={profile}>
-            <Finishing
-              owner={`${account}/${profile}`}
-              finish={finish}
-            />
+            <Finishing finish={finish} />
             <InboxCommands
               scope={undefined}
               hasSelection={false}
