@@ -58,7 +58,19 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
-  noticeActions: { paddingLeft: 16 + spacing.s },
+  noticeActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s,
+    paddingLeft: 16 + spacing.s,
+  },
+  button: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
 });
 
 // An SF Symbol at regular weight. It is decorative: the control around it carries the label.
@@ -137,13 +149,21 @@ export function Chip({
 }
 
 // A banner beside the content it explains, with its actions stacked under the message.
+// A warning tints its icon; the message is an alert when it reports a failure.
 export function Notice({
   icon,
+  iconColor,
   message,
+  messageRole = 'text',
+  announce,
   children,
 }: {
   readonly icon: string;
+  readonly iconColor?: ColorValue;
   readonly message: string;
+  readonly messageRole?: 'alert' | 'text';
+  // Preserves live-region semantics; native announcement support is platform-specific.
+  readonly announce?: 'polite';
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
@@ -152,10 +172,13 @@ export function Notice({
       <View style={styles.noticeMessage}>
         <SFSymbol
           name={icon}
-          color={colors.textSecondary}
+          color={iconColor ?? colors.textSecondary}
         />
         <View style={styles.noticeMessageText}>
-          <Label style={[textStyles.body, { color: colors.textPrimary }]}>
+          <Label
+            accessibilityLiveRegion={announce}
+            accessibilityRole={messageRole}
+            style={[textStyles.body, { color: colors.textPrimary }]}>
             {message}
           </Label>
         </View>
@@ -164,6 +187,43 @@ export function Notice({
         <View style={styles.noticeActions}>{children}</View>
       )}
     </View>
+  );
+}
+
+// A push button: the primary one carries the accent fill, others the quiet fill.
+export function Button({
+  label,
+  onPress,
+  fill = 'quiet',
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly fill?: 'accent' | 'quiet';
+}) {
+  const colors = usePalette();
+  const primary = fill === 'accent';
+  const idle = primary ? colors.accentFill : colors.fillQuiet;
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      focusable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        {
+          backgroundColor:
+            pressed && !primary ? colors.accentSelectionSubtle : idle,
+        },
+      ]}>
+      <Text
+        style={[
+          primary ? textStyles.bodyEmphasized : textStyles.body,
+          { color: primary ? colors.accentOnFill : colors.textPrimary },
+        ]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 

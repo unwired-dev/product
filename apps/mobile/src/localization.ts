@@ -1,6 +1,7 @@
 import {
   createLocalization,
   createMessageDateFormat,
+  createMessageListDateFormats,
 } from '@private-email/localization';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +30,15 @@ export function useLocalization() {
   );
   const { t } = useTranslation('translation', { i18n: localization.i18n });
   return { t, settings };
+}
+
+// How the message list names a day: a time today, a weekday this week, a month before that.
+export function useMessageListDateFormats() {
+  const { settings } = useLocalization();
+  return useMemo(
+    () => createMessageListDateFormats(settings.locale),
+    [settings.locale],
+  );
 }
 
 export function useMessageDateFormat(detail = false) {

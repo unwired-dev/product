@@ -7,7 +7,12 @@ import { createInstance } from 'i18next';
 import catalog from '../catalogs.bundle/en.json' with { type: 'json' };
 import languages from '../catalogs.bundle/languages.json' with { type: 'json' };
 
-export { createMessageDateFormat } from './message-date-format.ts';
+export {
+  createMessageDateFormat,
+  createMessageListDateFormats,
+  messageDay,
+} from './message-date-format.ts';
+export type { MessageDay } from './message-date-format.ts';
 
 export { default as languages } from '../catalogs.bundle/languages.json' with { type: 'json' };
 
