@@ -1,8 +1,6 @@
 module.exports = {
   preset: 'react-native-macos',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
-  // The shared CI runner takes seconds to warm up the first composer journey.
-  testTimeout: 30_000,
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
     '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
