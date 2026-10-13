@@ -42,6 +42,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
+  Inbox state while an explicit online search reports an `offline` failure.
+  Trace the online answer as well as the displayed mailbox states: an unreachable
+  server must select the documented Offline subtitle instead of a result count,
+  while preserving Syncing precedence. Exercise partial failure, fresh retry and
+  query/scope replacement through the real search store on both hosts; otherwise
+  current cached mail makes a failed online search appear connected.
+
 - `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise
@@ -494,6 +502,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `design.tsx.Notice`, `label.tsx.Label` or another shared notice component
+  dropping live-region, accessible-label or alert semantics during extraction.
+  Compare every migrated asynchronous sync/authorization notice with its previous
+  rendering, and trace the props to the actual accessible native element on each
+  host; otherwise a notice appears without announcing that permission or
+  connectivity changed. Preserve storage-failure alert semantics and keep actions
+  separately reachable. Verify the installed renderer's announcement support;
+  component prop assertions restore the contract but do not qualify VoiceOver.
 
 - `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
   in single-line placeholders. Keep "same as incoming if blank" in visible,

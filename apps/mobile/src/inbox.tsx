@@ -141,6 +141,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   if (state.sync === 'authentication') {
     return (
       <Notice
+        announce="polite"
         icon="person.crop.circle.badge.exclamationmark"
         iconColor={colors.statusWarning}
         message={about(
@@ -162,6 +163,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   }
   return (
     <Notice
+      announce="polite"
       icon="wifi.slash"
       message={about(t, address, t('gmailSync.retry', { provider }))}>
       <Button
@@ -232,6 +234,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   if (state.status === 'authentication') {
     return (
       <Notice
+        announce="polite"
         icon="person.crop.circle.badge.exclamationmark"
         iconColor={colors.statusWarning}
         message={about(t, address, t('imapSync.authentication'))}>
@@ -251,6 +254,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   }
   return (
     <Notice
+      announce="polite"
       icon="wifi.slash"
       message={about(t, address, t('imapSync.retry'))}
     />
@@ -279,6 +283,7 @@ function AuthorizationNeeded({
   const provider = t(`mailProviders.${mailProvider}`);
   return (
     <Notice
+      announce="polite"
       icon="person.crop.circle.badge.exclamationmark"
       iconColor={colors.statusWarning}
       message={about(t, address, t('gmailSync.authentication', { provider }))}>
@@ -305,6 +310,7 @@ function ImapAuthorizationNeeded({
   const { t } = useLocalization();
   return (
     <Notice
+      announce="polite"
       icon="person.crop.circle.badge.exclamationmark"
       iconColor={colors.statusWarning}
       message={about(t, address, t('imapSync.authentication'))}>
@@ -492,12 +498,19 @@ const offline = (state: InboxMailbox['state']) =>
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
-  unread: number,
+  {
+    unread,
+    searchOffline,
+  }: Readonly<{
+    unread: number;
+    // An explicit online search that found a mail server unreachable.
+    searchOffline: boolean;
+  }>,
 ) {
   if (shown.some(({ state }) => checking(state))) {
     return t('inbox.syncing');
   }
-  if (shown.some(({ state }) => offline(state))) {
+  if (searchOffline || shown.some(({ state }) => offline(state))) {
     return t('inbox.offline');
   }
   return unread === 0
@@ -559,6 +572,10 @@ const hasNoMail = ({
 }: Readonly<{ ready: boolean; syncing: boolean; count: number }>) =>
   ready && !syncing && count === 0;
 
+// A mail server an explicit online search could not reach, which the subtitle reports as Offline.
+const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
+  search.found?.failures.some(({ reason }) => reason === 'offline') === true;
+
 function headingOf(
   t: Translate,
   {
@@ -586,6 +603,7 @@ function headingOf(
       : t('search.title');
   const subtitle =
     results === undefined ||
+    searchOffline(search) ||
     shown.some(({ state }) => checking(state) || offline(state))
       ? t('inbox.subtitleLabel', { scope: scopeName, status })
       : t(ipad ? 'search.subtitleRegular' : 'search.subtitleCompact', {
@@ -684,11 +702,10 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const scopeName = scopeOf(t, shown, { several, gmail });
-  const status = statusOf(
-    t,
-    shown,
-    listed.filter(({ message }) => message.unread).length,
-  );
+  const status = statusOf(t, shown, {
+    unread: listed.filter(({ message }) => message.unread).length,
+    searchOffline: searchOffline(online),
+  });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,
     folder: folder === inboxFolder ? undefined : folder,

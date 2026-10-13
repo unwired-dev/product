@@ -472,9 +472,13 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ status: 401 });
     gmail.deliver({ subject: 'Arrives after permission returns' });
     await act(store.load);
+    // The notice arrives while the list is shown and retains its live-region semantics.
     expect(
       screen.getByText('Gmail needs your permission again to show new mail.'),
     ).toBeVisible();
+    expect(
+      screen.getByText('Gmail needs your permission again to show new mail.'),
+    ).toHaveProp('accessibilityLiveRegion', 'polite');
     expect(screen.queryByText(/Arrives after permission/u)).toBeNull();
     await act(async () => {
       await fireEvent.press(

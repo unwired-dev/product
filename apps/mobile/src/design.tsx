@@ -165,12 +165,15 @@ export function Notice({
   iconColor,
   message,
   messageRole,
+  announce,
   children,
 }: {
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
   readonly messageRole?: 'alert';
+  // Preserves live-region semantics; native announcement support is platform-specific.
+  readonly announce?: 'polite';
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
@@ -182,6 +185,7 @@ export function Notice({
           color={iconColor ?? colors.textSecondary}
         />
         <Text
+          accessibilityLiveRegion={announce}
           accessibilityRole={messageRole}
           style={[styles.noticeText, { color: colors.textPrimary }]}>
           {message}
