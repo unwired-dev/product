@@ -23,11 +23,18 @@ results never appear in the palette. The vocabulary lives in the
   composer through the same checks as closing them.
 - **Go To:** Inbox, which leaves the reader or composer through the same
   checks as closing them, and Account, while a Product Account is signed in.
+  The palette stays available on the Account page, the app's settings, where
+  Inbox returns to the connected Inbox.
 - Reply, Forward, Archive and Move to… stay listed and disabled with a reason
   (Select a conversation, or Not available for this message) when nothing can
   run them. The palette lists only supported commands; Pin, Snooze, Flag,
   thread-wide and bulk actions arrive with their owning work, such as
   [keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849).
+- The [Thread view](catch-up.md#thread-view) opens the palette from its fixed
+  subject header, but offers no message actions of its own, so its contextual
+  commands stay disabled with Not available for this message. Catch Up's
+  Thread actions ([#807](https://github.com/unwired-dev/product/issues/807))
+  register them when they define whole-Thread targets.
 
 ## Finding and running
 
@@ -50,7 +57,8 @@ results never appear in the palette. The vocabulary lives in the
 
 ## Entry points
 
-- **Mac:** a command input stays visible in a bar at the top of each window.
+- **Mac:** a command input stays visible in a bar at the top of each window,
+  the Account page included.
   Clicking it, or choosing View › Commands… (Command-P), opens the palette
   beneath it without shifting the window's layout, with the query focused. Up and
   Down select a command, Return runs it, Escape closes the palette or leaves the
@@ -58,15 +66,16 @@ results never appear in the palette. The vocabulary lives in the
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
 - **iPhone:** a downward swipe that starts on a screen header (the Inbox heading,
-  the reader's subject line or the composer's top bar, which stay put while the
-  content scrolls) opens the palette; swipes that start in the content scroll
+  the reader's subject line, the composer's top bar or the Account page's title,
+  which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
   it as usual. There is no visible entry button. A one-time hint under the
   Inbox heading says Swipe down on the header for commands, and goes away once
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command
   Palette accessibility action for VoiceOver and other assistive controls.
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
-  header and the composer's top bar, so one is on screen in every size class,
+  header, the composer's top bar and the Account page's title row, so one is on
+  screen in every size class,
   including compact layouts that show only the reader or composer; tapping it
   or the header swipe opens the palette. Command-P from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
@@ -79,14 +88,15 @@ results never appear in the palette. The vocabulary lives in the
 
 Component tests cover opening from each entry, including the Thread reader,
 the fixed order, fuzzy narrowing, running Archive and Move to… on the open
-message with Undo, the disabled reasons, Search Mail leaving the reader, Back,
-Escape and the Mac's outside click, and a target that disappears after opening.
+message with Undo, the disabled reasons, Search Mail leaving the reader, the
+Account page's entry and its way back to the Inbox, Back, Escape and the Mac's
+outside click, and a target that disappears after opening.
 From the root:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/commands.test.ts
 mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx
-mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx
+mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx
 ```
 
 The Command-P menu item, the saved hint preference and the header swipe are

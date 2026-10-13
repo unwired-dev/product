@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -35,6 +37,39 @@ export function PreviewWindow({
   profile = defaultProfile,
 }: WindowProps) {
   return (
+    <WindowPalette windowId={windowId}>
+      <ProfileWindow
+        windowId={windowId}
+        profile={profile}
+      />
+    </WindowPalette>
+  );
+}
+
+// The window's Command Palette, over every screen the window shows, the account page included.
+function WindowPalette({
+  windowId,
+  children,
+}: {
+  readonly windowId: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <CommandPaletteProvider>
+      <CommandMenuListener windowId={windowId} />
+      {children}
+    </CommandPaletteProvider>
+  );
+}
+
+function ProfileWindow({
+  windowId,
+  profile,
+}: {
+  readonly windowId: string;
+  readonly profile: string;
+}) {
+  return (
     <InboxProvider>
       <ProfileScope profile={profile}>
         <WindowContents windowId={windowId} />
@@ -61,51 +96,55 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
     <View
       testID={`inbox-window-${windowId}`}
       style={styles.window}>
-      <CommandPaletteProvider>
-        <CommandMenuListener windowId={windowId} />
-        <CommandBar />
-        <View style={styles.panes}>
-          <View
-            style={[styles.sidebar, { borderRightColor: colors.separator }]}>
-            <Inbox
-              composing={composing}
-              selected={selected}
+      <CommandBar />
+      <View style={styles.panes}>
+        <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+          <Inbox
+            composing={composing}
+            selected={selected}
+            onClose={close}
+            onCompose={compose}
+            onSelect={(selection) => {
+              setComposing(undefined);
+              setSelected(selection);
+            }}
+          />
+        </View>
+        <View style={styles.detail}>
+          {composing === undefined ? (
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
               onClose={close}
               onCompose={compose}
-              onSelect={(selection) => {
-                setComposing(undefined);
-                setSelected(selection);
-              }}
             />
-          </View>
-          <View style={styles.detail}>
-            {composing === undefined ? (
-              <MessageDetail
-                id={selected?.id}
-                mailbox={selected?.mailbox}
-                onClose={close}
-                onCompose={compose}
-              />
-            ) : (
-              <DraftComposer
-                id={composing}
-                onClose={() => {
-                  setComposing(undefined);
-                }}
-                onRebind={setComposing}
-              />
-            )}
-          </View>
+          ) : (
+            <DraftComposer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+              onRebind={setComposing}
+            />
+          )}
         </View>
-      </CommandPaletteProvider>
+      </View>
     </View>
   );
 }
 
-export function InboxWindow(props: WindowProps) {
+export function InboxWindow({
+  windowId,
+  profile = defaultProfile,
+}: WindowProps) {
   return (
-    <RegistrationGate>
-      <PreviewWindow {...props} />
-    </RegistrationGate>
+    <WindowPalette windowId={windowId}>
+      <RegistrationGate>
+        <ProfileWindow
+          windowId={windowId}
+          profile={profile}
+        />
+      </RegistrationGate>
+    </WindowPalette>
   );
 }

@@ -43,6 +43,7 @@ import { AppState, Pressable, Text } from 'react-native';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -675,6 +676,58 @@ describe('product registration', () => {
       screen.findByText('After verification'),
     ).resolves.toBeVisible();
     expect(store.getSnapshot().snapshot).toStrictEqual(connected);
+  });
+
+  it('keeps the Command Palette bar on the account page and returns to the Inbox from it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 2 });
+    const session = createMockRegistrationSession('registration-success');
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: connectedTo('alex@example.invalid'),
+      privateSync: 'ready',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(connected),
+    });
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: gmail.native },
+    });
+    // As the window composes them: the palette stays above the gate, so the account page keeps it.
+    await render(
+      <CommandPaletteProvider>
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Inbox
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </CommandPaletteProvider>,
+    );
+    await expect(
+      screen.findByText('Synthetic message 1'),
+    ).resolves.toBeVisible();
+    await openAccount();
+    expect(
+      screen.getByRole('header', { name: 'Gmail connected' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Inbox' }));
+    });
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    await expect(
+      screen.findByText('Synthetic message 1'),
+    ).resolves.toBeVisible();
   });
 
   it('waits for registration verification before loading Gmail on activation', async () => {

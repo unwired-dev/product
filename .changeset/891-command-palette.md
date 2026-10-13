@@ -15,4 +15,5 @@ swipe on the Inbox heading, the reader's subject line or the composer's top bar,
 which now stay put while the content scrolls, with a one-time hint and an
 accessibility action; iPad also keeps the input in those headers. On iPhone and
 iPad, Search Mail leaves an open reader or composer before focusing the Inbox
-search field.
+search field. The palette also stays available on the Account page, with the way
+back to the Inbox.

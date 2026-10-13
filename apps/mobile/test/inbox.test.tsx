@@ -335,11 +335,13 @@ function renderConnected(
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
     return (
-      <RegistrationGate
-        store={registration}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <CommandPaletteProvider>
+      // As the root layout composes them: the palette stays above the gate, so the account page
+      // keeps it.
+      <CommandPaletteProvider>
+        <RegistrationGate
+          store={registration}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
             <Inbox
               onClose={() => {
                 setSelected(undefined);
@@ -354,9 +356,9 @@ function renderConnected(
                 setSelected(undefined);
               }}
             />
-          </CommandPaletteProvider>
-        </InboxProvider>
-      </RegistrationGate>
+          </InboxProvider>
+        </RegistrationGate>
+      </CommandPaletteProvider>
     );
   }
   const rendered = render(<Connected />);
@@ -1195,6 +1197,45 @@ describe('command palette', () => {
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
     expect(screen.queryByText('oliver@example.invalid')).toBeNull();
     expect(screen.getByRole('search')).toBeVisible();
+  });
+
+  it('keeps the palette on the account page and returns to the Inbox from it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await screen.findByRole('button', {
+      name: 'Unread. Oliver Park. Saturday, by the river?',
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
+    });
+    await openPalette(
+      await screen.findByRole('header', { name: 'Gmail connected' }),
+    );
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Reply. Select a conversation',
+      }),
+    ).toBeDisabled();
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Inbox' }),
+      );
+    });
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(
+      screen.queryByRole('header', { name: 'Gmail connected' }),
+    ).toBeNull();
+    await expect(
+      screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).resolves.toBeVisible();
   });
   /* oxlint-enable vitest/max-expects */
 });

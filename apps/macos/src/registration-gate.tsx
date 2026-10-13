@@ -16,6 +16,7 @@ import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
+import { inboxCommands } from '@private-email/mail-core/commands';
 import {
   approvesDevices,
   linkFailureCopy,
@@ -49,6 +50,7 @@ import {
   View,
 } from 'react-native';
 
+import { CommandBar, RegisterCommands } from './command-palette.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
@@ -854,7 +856,7 @@ function RegistrationPage({
       <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
-  return (
+  const page = (
     <ScrollView
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
@@ -939,5 +941,38 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
+  );
+  return onInbox === undefined ? (
+    page
+  ) : (
+    <AccountPage onInbox={onInbox}>{page}</AccountPage>
+  );
+}
+
+// The account page of a connected Inbox keeps the window's Command Palette bar, and the palette
+// offers the way back to the Inbox.
+function AccountPage({
+  onInbox,
+  children,
+}: {
+  readonly onInbox: () => void;
+  readonly children: ReactNode;
+}) {
+  const { t } = useLocalization();
+  return (
+    <View style={styles.page}>
+      <RegisterCommands
+        offer={() =>
+          inboxCommands(t, {
+            inbox: () => {
+              onInbox();
+              return Promise.resolve();
+            },
+          })
+        }
+      />
+      <CommandBar />
+      {children}
+    </View>
   );
 }

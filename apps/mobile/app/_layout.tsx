@@ -58,11 +58,11 @@ export default function RootLayout() {
   }
 
   return (
-    <RegistrationGate>
-      <InboxProvider>
-        <ProfileScope profile={shownProfile}>
-          <StatusBar style="auto" />
-          <CommandPaletteProvider>
+    <CommandPaletteProvider>
+      <RegistrationGate>
+        <InboxProvider>
+          <ProfileScope profile={shownProfile}>
+            <StatusBar style="auto" />
             <SplitView
               ref={splitView}
               preferredDisplayMode="oneBesideSecondary"
@@ -87,9 +87,9 @@ export default function RootLayout() {
                 />
               </SplitView.Column>
             </SplitView>
-          </CommandPaletteProvider>
-        </ProfileScope>
-      </InboxProvider>
-    </RegistrationGate>
+          </ProfileScope>
+        </InboxProvider>
+      </RegistrationGate>
+    </CommandPaletteProvider>
   );
 }
