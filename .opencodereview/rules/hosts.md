@@ -73,7 +73,6 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   marking healthy siblings. Otherwise a connection appears healthy despite unreadable
   folders, or one folder's failure is attributed to another.
 
-- `sidebar.tsx.Mailboxes` localizing every folder with the inbox role as
 - `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
   Inbox state while an explicit online search reports an `offline` failure.
   Trace the online answer as well as the displayed mailbox states: an unreachable
@@ -82,11 +81,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   query/scope replacement through the real search store on both hosts; otherwise
   current cached mail makes a failed online search appear connected.
 
-- `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
+- `sidebar.tsx.FolderRows` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
   distinct folders appear to be the same Inbox.
+
+- `inbox.tsx.headingOf` retaining the Inbox title while the sidebar selects a
+  different IMAP folder. Trace the effective folder from `useImapFolder` into
+  the visible and accessible list heading on both hosts, including names with
+  embedded newlines and fallback after folder retirement. Otherwise the list
+  labels Archive or another folder's messages as Inbox. Preserve the search
+  title while searching and the aggregate Inbox title for aggregate mail.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
