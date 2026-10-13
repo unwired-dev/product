@@ -69,11 +69,15 @@ async function prepare() {
   localization.i18n.addResourceBundle('fr', 'translation', {
     inbox: {
       title: 'Boîte de réception',
+      unifiedTitle: 'Boîte de réception',
+      rowLabel: 'Courrier : {{row}}',
+      subtitleLabel: '{{status}} pour {{scope}}',
     },
   });
 }
 
 describe('language selection', () => {
+  /* oxlint-disable vitest/max-expects -- One language-change journey checks copy order and retained selection together. */
   it('switches the visible interface to the device language and back to the saved override', async () => {
     expect.hasAssertions();
     await prepare();
@@ -82,16 +86,25 @@ describe('language selection', () => {
     await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
     await expect(
       first.findByRole('header', {
-        name: 'Boîte de réception. Preview mailbox',
+        name: /^Boîte de réception\. .* pour Preview mailbox$/u,
       }),
     ).resolves.toBeVisible();
     expect(first.getByRole('radio', { name: 'System default' })).toBeChecked();
+    expect(
+      first.getByText(/unread(?: messages)? pour Preview mailbox$/u),
+    ).toBeVisible();
+    expect(
+      first.getByRole('button', {
+        name: 'Courrier : Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
     const second = within(app.getByTestId('second'));
     expect(second.getByText('Boîte de réception')).toBeVisible();
     await fireEvent.press(first.getByRole('radio', { name: 'English' }));
-    await expect(first.findByText('Inbox')).resolves.toBeVisible();
+    await expect(first.findByText('All Inboxes')).resolves.toBeVisible();
     expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
   });
+  /* oxlint-enable vitest/max-expects */
 
   it('shows a recoverable save error while retaining the selected language', async () => {
     expect.hasAssertions();

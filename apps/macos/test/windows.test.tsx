@@ -105,7 +105,10 @@ describe('mac window selection with the shared mock mailbox', () => {
           />,
         );
         const message = await app.findByRole('button', { name: maya });
-        expect(message).toHaveStyle({ backgroundColor: colors.surfaceContent });
+        expect(message).toHaveStyle({ backgroundColor: 'transparent' });
+        expect(
+          within(message).getByText('A little more room to think'),
+        ).toHaveStyle({ fontWeight: '600' });
         await fireEvent.press(message);
         await fireEvent(message, 'focus');
         expect(message).toHaveStyle({ borderColor: colors.accentOnFill });
@@ -123,6 +126,30 @@ describe('mac window selection with the shared mock mailbox', () => {
       }
     },
   );
+
+  it('shows saved search matches with the default row preview and result count', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    const row = await app.findByRole('button', { name: maya });
+    expect(
+      within(row).getByText(
+        'I put together a few notes for our studio review on Thursday.',
+      ),
+    ).toHaveProp('numberOfLines', 1);
+    await fireEvent.changeText(
+      app.getByLabelText('Search senders and subjects'),
+      'Maya',
+    );
+    expect(
+      app.getByRole('header', { name: 'Search. 1 message · Preview mailbox' }),
+    ).toBeVisible();
+    expect(app.getByText('1 message · Preview mailbox')).toBeVisible();
+  });
 
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();
@@ -409,6 +436,20 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // Searching one window does not wait for the shared provider listing.
+    await fireEvent.changeText(
+      first.getByLabelText('Search senders and subjects'),
+      'No saved match',
+    );
+    expect(
+      first.getByText('No mail saved on this device matches “No saved match”.'),
+    ).toBeVisible();
+    expect(second.getByRole('button', { name: oliver })).toBeVisible();
+    await fireEvent.changeText(
+      first.getByLabelText('Search senders and subjects'),
+      '',
+    );
+
     // Each window reads its own message's body; a body another window opened is not read again.
     await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
     await expect(second.findByText('Synthetic body.')).resolves.toBeVisible();
