@@ -2,10 +2,15 @@ import type { Translate } from '@private-email/localization';
 import type { MailboxProblem } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
-import { mailboxSidebar } from '@private-email/mail-core/mailboxes';
+import {
+  failedFolders,
+  mailboxSidebar,
+} from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Fragment, use, useState } from 'react';
+import { Fragment, use, useState, useSyncExternalStore } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import type { InboxMailbox } from './private-storage.ts';
 
 import { SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
@@ -162,6 +167,74 @@ const problemText = (
     : t(`gmailSync.${problem}`, { provider: name });
 };
 
+const noSubscription = () => () => undefined;
+
+// A Mailbox Connection's folder rows. An IMAP folder whose last read failed keeps its warning
+// after another mailbox is chosen; the connection's own problem rides on its Inbox row.
+function FolderRows({
+  mailbox,
+  folders,
+  trouble,
+  onView,
+}: {
+  readonly mailbox: InboxMailbox;
+  readonly folders: ReadonlyArray<
+    Readonly<{
+      name: string;
+      inbox: boolean;
+      unread: number;
+      selected: boolean;
+    }>
+  >;
+  readonly trouble: string | undefined;
+  readonly onView: (view: MailboxView) => void;
+}) {
+  const { t } = useLocalization();
+  const { inbox } = mailbox;
+  const name = mailbox.address ?? mailbox.id;
+  const names = folders.map((folder) => folder.name);
+  // JSON strings escape folder-name newlines while keeping the joined snapshot stable.
+  const failed = useSyncExternalStore(
+    'openFolder' in inbox ? inbox.subscribe : noSubscription,
+    () =>
+      'openFolder' in inbox
+        ? failedFolders(inbox, names)
+            .map((folder) => JSON.stringify(folder))
+            .join('\n')
+        : '',
+  ).split('\n');
+  const folderTrouble = (folder: string) =>
+    failed.includes(JSON.stringify(folder))
+      ? t('imap.foldersUnavailable')
+      : undefined;
+  return folders.map(({ name: folder, inbox: isInbox, unread, selected }) => {
+    const label = isInbox ? t('inbox.title') : folder;
+    return (
+      <Item
+        key={folder}
+        icon={isInbox ? 'tray' : 'folder'}
+        label={label}
+        accessibilityLabel={t('inbox.rowLabel_mailbox', {
+          row: label,
+          mailbox: name,
+        })}
+        count={unread}
+        status={isInbox ? trouble : folderTrouble(folder)}
+        selected={selected}
+        onPress={() => {
+          onView({
+            mailbox: mailbox.id,
+            folder: isInbox ? undefined : folder,
+          });
+          if ('openFolder' in inbox) {
+            void inbox.openFolder(folder);
+          }
+        }}
+      />
+    );
+  });
+}
+
 // The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
 // its folders, and the account page last.
 export function Mailboxes({
@@ -227,32 +300,12 @@ export function Mailboxes({
             return (
               <Fragment key={mailbox.id}>
                 <SectionHeader label={`${provider} · ${name}`} />
-                {folders.map(({ name: folder, inbox, unread, selected }) => {
-                  const label = inbox ? t('inbox.title') : folder;
-                  return (
-                    <Item
-                      key={folder}
-                      icon={inbox ? 'tray' : 'folder'}
-                      label={label}
-                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                        row: label,
-                        mailbox: name,
-                      })}
-                      count={unread}
-                      status={inbox ? trouble : undefined}
-                      selected={selected}
-                      onPress={() => {
-                        onView({
-                          mailbox: mailbox.id,
-                          folder: inbox ? undefined : folder,
-                        });
-                        if ('openFolder' in mailbox.inbox) {
-                          void mailbox.inbox.openFolder(folder);
-                        }
-                      }}
-                    />
-                  );
-                })}
+                <FolderRows
+                  mailbox={mailbox}
+                  folders={folders}
+                  trouble={trouble}
+                  onView={onView}
+                />
               </Fragment>
             );
           })}

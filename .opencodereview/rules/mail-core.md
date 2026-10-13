@@ -18,8 +18,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
   refusal leaves a selected folder loading with unreadable rows.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
-  reading that folder. Preserve its previous ready status, including `syncing`
-  for a read queued behind the semaphore, until that folder read settles; retain
+  reading that folder, or discarding a failed first read because no cache entry
+  exists. Preserve failed uncached views and previous ready status, including
+  `syncing` for a read queued behind the semaphore, until that folder read settles; retain
   access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
   different folder's retry or authentication warning.
 - `imap-inbox.ts.open` rebuilding views only from the bounded metadata cache.

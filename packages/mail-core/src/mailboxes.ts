@@ -35,7 +35,11 @@ import {
 } from './registration.ts';
 
 export type { MailboxProblem } from './mailbox-views.ts';
-export { mailboxSidebar, profileMailboxes } from './mailbox-views.ts';
+export {
+  failedFolders,
+  mailboxSidebar,
+  profileMailboxes,
+} from './mailbox-views.ts';
 
 type Scope = Readonly<{
   connection: string;

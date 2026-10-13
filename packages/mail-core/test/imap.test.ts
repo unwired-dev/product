@@ -835,7 +835,7 @@ describe('connecting IMAP mailboxes', () => {
     );
   });
 
-  it('returns the same folder snapshot on consecutive reads after a reload drops its view', async () => {
+  it('keeps an uncached folder failure and stable snapshots until recovery or retirement', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.addFolder('Archive');
@@ -844,16 +844,20 @@ describe('connecting IMAP mailboxes', () => {
     imap.server.failure = 'offline';
     await inbox.openFolder('Archive');
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'failed' });
-    // Reopening the cache records views only for cached folders; React's external store reads
-    // this one repeatedly and must see one snapshot.
+    // Reopening the Inbox must preserve a failed first read even without a cached folder.
     imap.server.failure = undefined;
     await inbox.load();
+    expect(inbox.folder('Archive')).toStrictEqual({ kind: 'failed' });
     expect(inbox.folder('Archive')).toBe(inbox.folder('Archive'));
     imap.deliver('Archive', { subject: 'Archived' });
     await inbox.openFolder('Archive');
     await inbox.load();
     expect(inbox.folder('Archive')).toBe(inbox.folder('Archive'));
     expect(firstMessage(inbox.folder('Archive')).subject).toBe('Archived');
+    expect(inbox.folder('Archive')).toMatchObject({ status: 'current' });
+    imap.removeFolder('Archive');
+    await inbox.load();
+    expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
   it.each([

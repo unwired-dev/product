@@ -159,6 +159,8 @@ The unified Inbox lists each IMAP connection's Inbox folder. The Mailboxes sideb
 lists the connection's selectable folders under it; choosing one shows that folder, and
 each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
+The failed read also marks that folder's sidebar row, including after another mailbox
+is selected and when the folder has no cached messages.
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache

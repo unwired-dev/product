@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import type {
   NativeRegistration,
   Registration,
@@ -402,13 +404,15 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
-  it('warns when a cached folder cannot be refreshed and falls back to the Inbox once the folder is gone', async () => {
+  it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Saved IMAP message' });
     imap.addFolder('Archive');
-    imap.deliver('Archive', { subject: 'Private archived message' });
+    imap.addFolder('2026');
+    imap.addFolder('Archive\n2026');
+    imap.deliver('Archive\n2026', { subject: 'Private archived message' });
     const session = createMockRegistrationSession('registration-success');
     const connection = 'imap-connection';
     const connected = {
@@ -453,29 +457,93 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', {
-          name: 'Archive. In alex@example.invalid',
+          name: 'Archive\n2026. In alex@example.invalid',
         }),
       );
     });
     await expect(
       screen.findByText('Private archived message'),
     ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
+    const [mailbox] = mailboxes.getSnapshot();
+    assert.ok(mailbox);
+    assert.ok('openFolder' in mailbox.inbox);
+    const { inbox } = mailbox;
+    const beforeFolderFailure = inbox.getSnapshot();
+    imap.server.failure = 'offline';
+    // A folder update must reach the sidebar even when its Inbox snapshot is unchanged.
+    await act(async () => {
+      await inbox.openFolder('Archive\n2026');
+    });
+    expect(inbox.getSnapshot()).toBe(beforeFolderFailure);
+    expect(
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    ).toBe(
+      'Folders could not be listed. Try again when the mail server can be reached.',
+    );
     // An unreachable server keeps the cached folder visible and says it could not be refreshed.
     imap.server.failure = 'offline';
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', {
-          name: 'Archive. In alex@example.invalid',
+          name: 'Archive\n2026. In alex@example.invalid',
         }),
       );
     });
     expect(screen.getByText('Private archived message')).toBeVisible();
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Folders could not be listed. Try again when the mail server can be reached.',
-    );
+    const unlisted =
+      'Folders could not be listed. Try again when the mail server can be reached.';
+    expect(screen.getByRole('alert')).toHaveTextContent(unlisted);
+    // The failed folder keeps its warning in the sidebar after the person moves to the Inbox.
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
+    expect([
+      screen.queryByRole('alert'),
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+      screen.getByRole('button', { name: 'Archive. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+      screen.getByRole('button', { name: '2026. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+    ]).toStrictEqual([null, unlisted, undefined, undefined]);
+    // A first read that fails has no cached rows, but its warning must survive an Inbox reload.
+    await act(async () => {
+      await inbox.openFolder('2026');
+      await mailboxes.load();
+    });
+    expect(
+      screen.getByRole('button', { name: '2026. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+    ).toBe(unlisted);
+    // A successful read clears that folder's warning without hiding its cached mail.
+    imap.server.failure = undefined;
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive\n2026. In alex@example.invalid',
+        }),
+      );
+    });
+    expect([
+      screen.queryByRole('alert'),
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    ]).toStrictEqual([null, undefined]);
+    expect(screen.getByText('Private archived message')).toBeVisible();
     // A folder the refreshed listing no longer offers is not shown from its stale cache.
     imap.server.failure = undefined;
-    imap.removeFolder('Archive');
+    imap.removeFolder('Archive\n2026');
     await act(async () => {
       await mailboxes.load();
     });
@@ -484,9 +552,9 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.queryByText('Private archived message')).toBeNull();
     // Recreating that name does not restore a discarded choice or expose the old cached rows.
-    imap.addFolder('Archive');
-    imap.renumber('Archive');
-    imap.deliver('Archive', { subject: 'New archived message' });
+    imap.addFolder('Archive\n2026');
+    imap.renumber('Archive\n2026');
+    imap.deliver('Archive\n2026', { subject: 'New archived message' });
     await act(async () => {
       await mailboxes.load();
     });
@@ -496,7 +564,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', {
-          name: 'Archive. In alex@example.invalid',
+          name: 'Archive\n2026. In alex@example.invalid',
         }),
       );
     });

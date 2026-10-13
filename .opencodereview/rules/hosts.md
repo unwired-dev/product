@@ -64,6 +64,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   controls. Exercise a failed connection while another mailbox is selected and
   after recovery; otherwise switching mailboxes hides a connection needing repair.
 
+- `sidebar.tsx.FolderRows` or `mailbox-views.ts.failedFolders` losing a folder-local
+  read failure when navigation unmounts its list notice. Subscribe to the owning
+  IMAP store's folder updates independently of its Inbox snapshot, keep the
+  warning on the exact failed folder row after switching destinations, and clear
+  it on successful recovery or folder retirement. A primitive snapshot encoding
+  must preserve every admitted folder name, including embedded separators, without
+  marking healthy siblings. Otherwise a connection appears healthy despite unreadable
+  folders, or one folder's failure is attributed to another.
+
 - `sidebar.tsx.Mailboxes` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise

@@ -1,9 +1,9 @@
 import type { GmailInboxState } from './gmail-inbox.ts';
-import type { ImapInboxState } from './imap-inbox.ts';
+import type { ImapFolderView, ImapInboxState } from './imap-inbox.ts';
 import type { InboxState } from './persistent-inbox.ts';
 import type { MailboxConnection } from './registration.ts';
 
-import { inboxFolder } from './imap-inbox.ts';
+import { imapFolderFailed, inboxFolder } from './imap-inbox.ts';
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
 export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
@@ -34,6 +34,16 @@ const problemOf = (
   const sync = state.kind === 'ready' ? syncOf(state) : undefined;
   return sync === 'retry' || sync === 'authentication' ? sync : undefined;
 };
+
+// The listed IMAP folders, other than the Inbox, whose last read failed. A folder read can fail
+// without changing the connection's status, so the failure rides on its own sidebar row.
+export const failedFolders = (
+  inbox: Readonly<{ folder: (name: string) => ImapFolderView }>,
+  names: readonly string[],
+) =>
+  names.filter(
+    (name) => name !== inboxFolder && imapFolderFailed(inbox.folder(name)),
+  );
 
 // The sidebar projects already-decoded stores; hosts retain rendering and navigation callbacks.
 export function mailboxSidebar<
