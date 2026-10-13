@@ -71,6 +71,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     padding: spacing.xl,
   },
+  // Under the fixed header, the first Thread message keeps its own top margin.
+  threadContent: { paddingTop: 0 },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -534,6 +536,49 @@ function ReaderBody({
   );
 }
 
+// The reader's subject, which stays put while the body scrolls: it is the screen's header, which
+// opens the Command Palette by a downward swipe, its accessibility action or, on iPad, its command
+// input. It also lists the message's expected commands, disabled until a section offers them.
+function ReaderHeader({
+  message,
+}: {
+  readonly message: Readonly<{ id: string; subject: string }>;
+}) {
+  const mailbox = useMailbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const header = usePaletteHeader();
+  return (
+    <>
+      <RegisterCommands
+        offer={() =>
+          expectedCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            disabled: t('commands.unavailable'),
+          })
+        }
+      />
+      <View
+        style={styles.header}
+        {...header.swipe}>
+        <View
+          accessible
+          accessibilityLabel={message.subject}
+          accessibilityRole="header"
+          style={styles.headerText}
+          {...header.action}>
+          <Text
+            selectable
+            style={[styles.subject, { color: colors.textPrimary }]}>
+            {message.subject}
+          </Text>
+        </View>
+        <CommandInput />
+      </View>
+    </>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
@@ -550,7 +595,6 @@ function MailboxMessage({
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
-  const header = usePaletteHeader();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
   const folderMessage = useSyncExternalStore(actions.subscribe, () =>
     'openFolder' in actions ? actions.message(id) : undefined,
@@ -599,33 +643,7 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           ids={[message.id]}>
-          <RegisterCommands
-            offer={() =>
-              expectedCommands(t, {
-                target: commandTarget(mailbox?.id, message),
-                disabled: t('commands.unavailable'),
-              })
-            }
-          />
-          {/* The subject stays put while the body scrolls: it is the screen's header, which opens
-              the Command Palette by a downward swipe. */}
-          <View
-            style={styles.header}
-            {...header.swipe}>
-            <View
-              accessible
-              accessibilityLabel={message.subject}
-              accessibilityRole="header"
-              style={styles.headerText}
-              {...header.action}>
-              <Text
-                selectable
-                style={[styles.subject, { color: colors.textPrimary }]}>
-                {message.subject}
-              </Text>
-            </View>
-            <CommandInput />
-          </View>
+          <ReaderHeader message={message} />
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable
@@ -728,10 +746,8 @@ export function ThreadView({
 function ThreadMessages({ id }: { readonly id: string }) {
   const state = useInbox();
   const inbox = useInboxActions();
-  const mailbox = useMailbox();
   const colors = usePalette();
   const { t } = useLocalization();
-  const header = usePaletteHeader();
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -767,34 +783,9 @@ function ThreadMessages({ id }: { readonly id: string }) {
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
-          <RegisterCommands
-            offer={() =>
-              expectedCommands(t, {
-                target: commandTarget(mailbox?.id, opened),
-                disabled: t('commands.unavailable'),
-              })
-            }
-          />
-          {/* The Thread's subject is its fixed header, which opens the Command Palette. */}
-          <View
-            style={styles.header}
-            {...header.swipe}>
-            <View
-              accessible
-              accessibilityLabel={opened.subject}
-              accessibilityRole="header"
-              style={styles.headerText}
-              {...header.action}>
-              <Text
-                selectable
-                style={[styles.subject, { color: colors.textPrimary }]}>
-                {opened.subject}
-              </Text>
-            </View>
-            <CommandInput />
-          </View>
+          <ReaderHeader message={opened} />
           <ReaderScrollView
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, styles.threadContent]}
             maintainVisibleContentPosition={keepVisibleMessage}>
             {messages.map((message) => (
               <ThreadMessage

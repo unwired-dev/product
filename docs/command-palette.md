@@ -18,7 +18,9 @@ results never appear in the palette. The vocabulary lives in the
   lists the connection's folders or labels. The palette never chooses a message
   on its own.
 - **App commands:** New Message (while a mailbox can send) and Search Mail,
-  which focuses the Inbox search field.
+  which focuses the Inbox search field. On iPhone and iPad, where a reader or
+  composer can cover the Inbox, Search Mail first leaves the open reader or
+  composer through the same checks as closing them.
 - **Go To:** Inbox, which leaves the reader or composer through the same
   checks as closing them, and Account, while a Product Account is signed in.
 - Reply, Forward, Archive and Move to… stay listed and disabled with a reason
@@ -75,14 +77,15 @@ results never appear in the palette. The vocabulary lives in the
 
 ## Validate
 
-Component tests cover opening from each entry, the fixed order, fuzzy
-narrowing, running Archive and Move to… on the open message with Undo, the
-disabled reasons, Back and Escape, and a target that disappears after opening.
+Component tests cover opening from each entry, including the Thread reader,
+the fixed order, fuzzy narrowing, running Archive and Move to… on the open
+message with Undo, the disabled reasons, Search Mail leaving the reader, Back,
+Escape and the Mac's outside click, and a target that disappears after opening.
 From the root:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/commands.test.ts
-mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx
+mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx
 mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx
 ```
 

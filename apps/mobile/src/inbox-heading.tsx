@@ -27,7 +27,8 @@ export function InboxHeading({
   search,
 }: {
   readonly subtitle: string;
-  // Whether a reader or composer covers the Inbox on iPhone; Search Mail leaves it first.
+  // Whether a reader or composer is open; Search Mail leaves it first, since on iPhone and in
+  // compact iPad layouts it covers the Inbox.
   readonly detail: boolean;
   readonly account: Readonly<{ openAccount: () => void }> | undefined;
   readonly onAccount: (open: () => void) => Promise<void>;

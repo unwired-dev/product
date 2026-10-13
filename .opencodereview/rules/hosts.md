@@ -553,6 +553,28 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   journey green. Attach the action to the header's accessible element (the title
   `Text` or an `accessible` wrapper) and keep gesture responders on the wider
   container; otherwise the documented assistive entry point does not exist.
+- A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
+  `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
+  every other screen the host mounts for the same state, such as
+  `ThreadMessages` behind `app/thread/[id].tsx`. Enumerate the routes under
+  `apps/mobile/app` and the Mac window's panes and check each screen the
+  requirement names (Inbox, message reading, composer, Settings); otherwise a
+  route-specific reader has no palette while the documentation says it does.
+- `inbox-heading.tsx` offering Search Mail, or another command that focuses or
+  reveals a control in the Inbox column, without leaving the reader or composer
+  route that covers that column on iPhone and in compact iPad layouts. Trace the
+  command from a collapsed split view: it must leave the detail through the
+  composer leave guard before focusing, and a Jest journey must assert the
+  reader is gone, not only that the field exists; otherwise the command runs
+  with no visible effect. The decision panel chose leaving the detail whenever
+  one is open rather than tracking the alpha split view's collapse events.
+- A floating Mac panel such as the Command Palette's, documented as closing on
+  an outside click, that only handles Escape and Cancel. Render a transparent
+  `Pressable` scrim with an accessible name while the panel is open, and keep it
+  a sibling of the bar with a lower `zIndex`: React Native orders `zIndex`
+  among siblings only, so a scrim mounted elsewhere covers the panel or never
+  covers the content. Press it in the Mac journey; otherwise the documented
+  dismissal does not exist or the panel's rows become unreachable.
 - `message-detail.tsx.ThreadMessage` or another selected reader section marked
   only by a background color and `accessibilityState.selected`. Require a visible
   non-color cue such as a border, icon or text as well as assistive-technology
