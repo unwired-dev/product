@@ -15,7 +15,7 @@ import {
   ProfileRecordSchema,
   ProfileStateSchema,
 } from './registration-vault.ts';
-import { defaultProfile } from './registration.ts';
+import { defaultProfile, unavailableProfile } from './registration.ts';
 
 type Profile = ProfileState['profiles'][number];
 type Owner = ProfileState['owners'][number];
@@ -73,13 +73,26 @@ const receives = (state: ProfileState, profile: string) =>
       id === profile && name !== undefined && version !== undefined,
   );
 
+// This device confirmed that some connection belongs to another Profile.
+const confirmsOwner = (state: ProfileState) =>
+  state.owners.some(
+    ({ record, epoch }) => ownerOf(state, record, epoch) !== defaultProfile,
+  );
+
 // The Mail Profile owning each of this device's connections, by connection. Connections not listed
-// belong to the Default Profile.
+// belong to the Default Profile. Once an owner was confirmed, unreadable Profile state, or keys
+// this device cannot read to name its connections' records, leave every connection's owner
+// unknown rather than the Default Profile's, so no window reads another Profile's mail.
 export const profileOwners = (value: RegistrationRecord) => {
+  const state = value.profiles;
   const vault = stateOf(value);
-  const state = vault?.profiles;
-  if (vault === undefined || state === undefined) {
+  if (state === undefined) {
     return new Map<string, string>();
+  }
+  if (state === 'unreadable' || vault === undefined) {
+    return state !== 'unreadable' && !confirmsOwner(state)
+      ? new Map<string, string>()
+      : new Map(value.mailboxes.map(({ id }) => [id, unavailableProfile]));
   }
   const records = new Map(
     vault.mailboxes.map(({ id, record }) => [id, record]),
@@ -95,20 +108,21 @@ export const profileOwners = (value: RegistrationRecord) => {
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier and name, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
-  const profiles = (stateOf(value)?.profiles?.profiles ?? []).flatMap(
-    ({ id, name, pending }) => {
-      const shown = pending ?? name;
-      return shown === undefined
-        ? []
-        : [
-            {
-              id,
-              name: shown,
-              ...(pending === undefined ? {} : { pending: true }),
-            },
-          ];
-    },
-  );
+  const state = value.profiles;
+  const profiles = (
+    state === undefined || state === 'unreadable' ? [] : state.profiles
+  ).flatMap(({ id, name, pending }) => {
+    const shown = pending ?? name;
+    return shown === undefined
+      ? []
+      : [
+          {
+            id,
+            name: shown,
+            ...(pending === undefined ? {} : { pending: true }),
+          },
+        ];
+  });
   return profiles.length === 0 ? undefined : JSON.stringify(profiles);
 };
 
@@ -260,9 +274,14 @@ export function createMailProfileProgram<E>(
     freshId: Effect.Effect<string>;
   }>,
 ) {
-  const { native, step, sync: syncState } = nativeSteps(vault);
-  const known = syncState.pipe(
-    Effect.map((sync) => sync.vault?.profiles ?? emptyState),
+  const { native, step, saved } = nativeSteps(vault);
+  // Unreadable Profile state is never replaced by what this device could rebuild from records.
+  const known = saved.pipe(
+    Effect.flatMap(({ profiles }) =>
+      profiles === 'unreadable'
+        ? failWith('unavailable')
+        : Effect.succeed(profiles ?? emptyState),
+    ),
   );
   const save = (before: ProfileState, state: ProfileState) =>
     sameState(before, state)
@@ -301,11 +320,17 @@ export function createMailProfileProgram<E>(
   // Every Profile definition and ownership record, merged into the state this device knows.
   // Confirmed owners and version floors stay even when their ciphertext is absent; owners return
   // to the Default Profile only through an explicit record.
+  // Each listing is saved before the next request, which can fail.
   const refreshed = Effect.fnUntraced(function* (state: ProfileState) {
-    return yield* learn(state, [
-      ...(yield* list('profile.')),
-      ...(yield* list('mailbox-profile.')),
-    ]);
+    const definitions = yield* learn(state, yield* list('profile.'));
+    const owners = yield* learn(
+      definitions.state,
+      yield* list('mailbox-profile.'),
+    );
+    return {
+      state: owners.state,
+      readable: definitions.readable && owners.readable,
+    };
   });
 
   // Seals the records and compares and sets them together; the state learns what Convex stores

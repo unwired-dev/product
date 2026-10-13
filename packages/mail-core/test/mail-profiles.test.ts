@@ -2,11 +2,13 @@ import type { NativeRegistrationVault } from '@private-email/mail-core/registrat
 
 import * as Schema from 'effect/Schema';
 
+import { readingProfile } from '../src/mailboxes.ts';
 import {
   defaultProfile,
   mailboxesOf,
   profilesOf,
   RegistrationSnapshotSchema,
+  unavailableProfile,
 } from '../src/registration.ts';
 import {
   storeProfile,
@@ -43,7 +45,7 @@ const forgetPublication = (
   id: string,
 ) => {
   const saved = device.record;
-  if (saved?.profiles === undefined) {
+  if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
     throw new Error('No Profile state');
   }
   saved.profiles = { ...saved.profiles, profiles: [{ id, pending: 'Work' }] };
@@ -143,10 +145,20 @@ const repeatProfileFenceReply = (vault: NativeRegistrationVault) => {
   });
 };
 
+// A process whose ownership listing fails after the definitions listing succeeded.
+const failOwnershipListing = (vault: NativeRegistrationVault) =>
+  createRegistrationFlow({
+    ...vault,
+    call: (request) =>
+      request.args.payloadIdentifierPrefix === 'mailbox-profile.'
+        ? Promise.reject(new Error('Synthetic ownership listing failure'))
+        : vault.call(request),
+  });
+
 // A device that knows the definitions but has never opened the now-unreadable ownership record.
 const unreadableOwnership = ({ device, sync }: ReturnType<typeof setup>) => {
   const saved = device.record;
-  if (saved?.profiles === undefined) {
+  if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
     throw new Error('No Profile state');
   }
   saved.profiles = { ...saved.profiles, owners: [] };
@@ -500,6 +512,45 @@ describe('mail profiles', () => {
     const published = await flow.refreshPrivateSync();
     expect(listed(published)).toStrictEqual([{ id: work, name: 'Office' }]);
     expect(owners(published)).toStrictEqual([work]);
+  });
+
+  it('keeps a removal it read when the ownership listing then fails', async () => {
+    expect.hasAssertions();
+    const { flow, vault, sync, records } = await connected();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    const [identifier, published] = [...records()].find(([name]) =>
+      name.startsWith('profile.'),
+    )!;
+    storeProfile(sync, account, { kind: 'profile', id: work, version: 2 });
+    const failing = failOwnershipListing(vault);
+    await failing.refreshPrivateSync();
+    // Convex then serves the earlier definition again; the removal this device read stays.
+    records().set(identifier, published);
+    await expect(flow.refreshPrivateSync()).resolves.not.toHaveProperty(
+      'profiles',
+    );
+  });
+
+  it('shows a moved connection in no Profile while this device cannot read its keys or Profile state', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, device, mailboxId } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    await flow.moveMailbox(id, work);
+    device.productSync.unreadable = true;
+    const locked = await relaunch().restore();
+    expect(locked).toMatchObject({
+      kind: 'connected',
+      privateSync: 'unavailable',
+    });
+    expect(owners(locked)).toStrictEqual([unavailableProfile]);
+    // A link cannot select connections whose Profile is unknown.
+    expect(readingProfile(unavailableProfile)).toBe('');
+    device.productSync.unreadable = false;
+    device.record!.profiles = 'unreadable';
+    expect(owners(await relaunch().restore())).toStrictEqual([
+      unavailableProfile,
+    ]);
   });
 
   it('does not revive a removed Profile or regress connection ownership from replayed authenticated records', async () => {

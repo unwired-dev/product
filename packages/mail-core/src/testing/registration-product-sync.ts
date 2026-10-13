@@ -243,9 +243,6 @@ export function createSyntheticSyncVault(
               ...(vault.savedMailboxes === undefined
                 ? {}
                 : { savedMailboxes: vault.savedMailboxes }),
-              ...(record.profiles === undefined
-                ? {}
-                : { profiles: structuredClone(record.profiles) }),
               mailboxes: record.connections.map((connection) => {
                 const id = connectionId(
                   connection.provider,

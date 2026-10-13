@@ -913,8 +913,17 @@ extension PrivateInboxTests {
       ProductSyncVault(
         productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true))
     let relaunched = backend.store(keys: keys, google: google)
-    let projected = (try syncState(relaunched)["vault"] as? [String: Any])?["profiles"]
-    #expect((projected as? NSDictionary)?.isEqual(to: state) == true)
+    func projected() throws -> Any? { try relaunched.registration()?["profiles"] }
+    #expect((try projected() as? NSDictionary)?.isEqual(to: state) == true)
+    // Unreadable keys leave the confirmed Profile state readable.
+    try keys.save(Data("malformed".utf8), account: "product-sync." + account)
+    #expect(try relaunched.registration()?["productSync"] as? String == "unreadable")
+    #expect((try projected() as? NSDictionary)?.isEqual(to: state) == true)
+    // Unreadable Profile state is reported as such, never as none.
+    var saved = try #require(try relaunched.load())
+    saved.profiles = Data("malformed".utf8)
+    try relaunched.save(saved)
+    #expect(try projected() as? String == "unreadable")
   }
 
   // Enrollment, Recovery Key recovery, key rotation adoption and Device Revocation moved to

@@ -90,7 +90,8 @@ export interface SavedRecord {
   credential: number;
   contactEmail?: string;
   product?: Receipt;
-  profiles?: ProfileState;
+  // Unreadable stands for saved bytes that do not parse.
+  profiles?: ProfileState | 'unreadable';
   mailboxSetupReason?: string;
   connections: Connection[];
   removal?: {

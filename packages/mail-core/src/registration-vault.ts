@@ -136,7 +136,6 @@ const ProductSyncStateSchema = Schema.Struct({
           observedEpoch: Schema.optionalKey(Schema.String),
         }),
       ),
-      profiles: Schema.optionalKey(ProfileStateSchema),
       // Removed connections whose descriptors are still to be marked removed.
       removals: Schema.Array(
         Schema.Struct({
@@ -192,6 +191,10 @@ export const RegistrationRecordSchema = Schema.Struct({
   // Absent where a host has no Product Sync backend or before a Product Account.
   productSync: Schema.optionalKey(
     Schema.Union([Schema.Literal('unreadable'), ProductSyncStateSchema]),
+  ),
+  // Mail Profile state, saved apart from the Product Sync keys; absent before any Profile.
+  profiles: Schema.optionalKey(
+    Schema.Union([Schema.Literal('unreadable'), ProfileStateSchema]),
   ),
   // This process holds a verified Product Sign-In.
   session: Schema.Boolean,

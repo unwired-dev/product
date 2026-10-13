@@ -465,6 +465,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
       Self.logProductSyncFailure("Product Sync state unreadable", error)
       result["productSync"] = "unreadable"
     }
+    // Mail Profile state is saved apart from the keys, so confirmed ownership stays known while
+    // they are unreadable; unreadable state itself is reported rather than taken for none.
+    if let profiles = saved.profiles {
+      result["profiles"] = (try? JSONSerialization.jsonObject(with: profiles)) ?? "unreadable"
+    }
     return result
   }
 

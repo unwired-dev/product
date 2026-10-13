@@ -91,6 +91,8 @@ export const microsoftMailAvailable = Schema.is(
 // and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
 // connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
 export const defaultProfile = 'default';
+// The owner of a connection whose Mail Profile this device cannot determine; no window reads it.
+export const unavailableProfile = 'unavailable';
 
 // This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
 // Inbox until its provider verifies again; 'authorization' needs it authorized again first.

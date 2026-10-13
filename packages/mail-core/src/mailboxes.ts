@@ -27,7 +27,12 @@ import type {
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
-import { canOpenInbox, defaultProfile, mailboxesOf } from './registration.ts';
+import {
+  canOpenInbox,
+  defaultProfile,
+  mailboxesOf,
+  unavailableProfile,
+} from './registration.ts';
 
 type Scope = Readonly<{
   connection: string;
@@ -589,11 +594,18 @@ export type ViewScope = Readonly<{
 
 const decodeProfile = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
-// An absent profileId uses Default; malformed or repeated selectors cannot name any decoded connection.
+// An absent profileId uses Default; malformed or repeated selectors, and the owner of connections
+// whose Profile is unknown, cannot name any decoded connection.
 export const readingProfile = (profileId: unknown): string =>
   profileId === undefined
     ? defaultProfile
-    : Option.getOrElse(decodeProfile(profileId), () => '');
+    : Option.getOrElse(
+        Option.filter(
+          decodeProfile(profileId),
+          (profile) => profile !== unavailableProfile,
+        ),
+        () => '',
+      );
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
 export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
