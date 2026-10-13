@@ -152,7 +152,10 @@ unavailable or misses an item. Inference is not required to use the commitment l
 - Minimal unaccepted proposals survive relaunch in encrypted device-local storage,
   with source links rather than copied message bodies. Disabling automatic
   scanning keeps the existing queue; disabling all assistance clears unaccepted
-  suggestions. Profile Lock hides the queue and pauses analysis.
+  suggestions. Profile Lock preserves and hides the encrypted saved queue, cancels
+  active scans and rejects their late results, including results arriving after
+  unlock. Unlock does not resume pre-lock work; any new scan requires current
+  consent, scan enablement and source ownership.
 - Known source-text changes or source deletion retire unaccepted suggestions.
   Ordinary body-cache eviction marks evidence unavailable rather than deleting
   accepted commitments. Locally available evidence is required before accepting

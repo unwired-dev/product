@@ -42,4 +42,4 @@ records this exception to explicit invocation and ephemeral summary storage.
 
 ## Profile lock and assistance
 
-- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview. The planned [Commitment Review Queue](mail-commitments.md#review-queue) is a scoped persistence exception: lock hides its encrypted saved proposals and pauses analysis without deleting the queue.
+- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview. The planned [Commitment Review Queue](mail-commitments.md#review-queue) is a scoped persistence exception: lock preserves and hides its encrypted saved proposals while cancelling active scans and rejecting their late results, even after unlock; it does not preserve resumable pre-lock work.
