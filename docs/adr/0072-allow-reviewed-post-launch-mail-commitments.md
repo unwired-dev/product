@@ -33,9 +33,11 @@ Only explicit review creates or updates an authored commitment. Accepted records
 and minimal review decisions synchronize end-to-end encrypted; unaccepted model
 outputs never synchronize. Existing native key custody and account/device trust
 requirements apply. Independent edits merge and competing edits remain available
-for review. Stale work cannot silently reopen or resurrect accepted or deleted
-records. Delete removes authored content while retaining only the minimal
-encrypted source-review disposition until Profile/account deletion.
+for review. Stale work cannot silently reopen accepted records. Delete wins over
+concurrent or stale edits, scans and retries: they cannot resurrect the deleted
+record or preserve its deleted content as a conflict copy. Delete removes authored
+content while retaining only the minimal encrypted source-review disposition
+until Profile/account deletion.
 
 Authored commitments survive source-message deletion and Mailbox Connection
 removal. Retain reviewed title, state and dates with unavailable source links;

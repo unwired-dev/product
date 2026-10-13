@@ -16,7 +16,7 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **On-Device Mail Assistance**:
-Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries**.
+Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries** and the separately confirmed post-launch **Mail Commitment Suggestions**.
 _Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:

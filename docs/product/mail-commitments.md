@@ -49,7 +49,10 @@ send mail, communicate agreement to a sender, or change provider mail state.
   value are preserved and surfaced for review; a stale device or scan cannot
   silently reopen a completed commitment.
 - Done and Cancelled retain history. Explicit Delete removes the record's content
-  and reminders across trusted devices through synchronization. Only a minimal
+  and reminders across trusted devices through synchronization. Deletion wins
+  over concurrent or stale edits to that record: edits, scans and retries cannot
+  restore it or materialize its deleted content as a conflict copy when devices
+  synchronize. Only a minimal
   encrypted review decision remains to prevent repeated suggestions from the
   same reviewed source; Profile/account deletion removes that decision too.
 
@@ -59,6 +62,12 @@ send mail, communicate agreement to a sender, or change provider mail state.
   "next week". Mail phrases use their source message's date and time zone when
   known; manually typed phrases use today's date in the user's selected zone.
   Missing source-zone assumptions are shown for confirmation.
+- For a new manual deadline, the editor initially proposes this device's current time zone,
+  shown and editable before confirmation. Store the confirmed zone with that
+  commitment's deadline and synchronize it privately; it is not a Profile or
+  device preference. Use that zone for subsequent interpretation and date-only
+  overdue evaluation. Travel or another device never changes it automatically;
+  changing it requires an explicit deadline edit.
 - Clear phrases propose an absolute date directly. Vague phrases show a range or
   possible interpretations, letting the user choose a deadline or leave it unset.
 - Acceptance resolves a relative phrase to a fixed calendar date or precise
@@ -70,9 +79,11 @@ Recognition stays within the feature's on-device privacy and review requirements
 
 ## Reminders
 
-Reminders are optional per commitment at a user-chosen time. They respect quiet
-hours, Profile Lock and system notification settings, and use generic private
-content by default. Detecting a suggestion does not itself create an interruption.
+Reminders are optional per commitment at a user-chosen time. They use the Profile's
+[Return-to-Attention](../domain/privacy-and-sync.md) preference and respect Quiet
+State, Quiet Hours, Profile Lock, system notification authorization and device-local
+lock-screen content policy. Content is generic and private by default. Detecting a
+suggestion does not itself create an interruption.
 
 Reminders use the Profile's notification-owning Trusted Device to avoid duplicate
 interruptions. Missed or suppressed reminders remain visible in the app; exact-time

@@ -79,7 +79,7 @@ An optional user setting that allows a visible new-mail notification when catego
 _Avoid_: Default generic notification
 
 **Return-to-Attention**:
-A default-on, per-Mail Profile preference permitting the current notification-owning Trusted Device to request an interruption for a due Thread Snooze, Follow-Up Nudge, or Send Reminder. Presentation remains subject to Quiet State, Profile Lock, OS notification authorization, and device-local lock-screen content policy.
+A default-on, per-Mail Profile preference permitting the current notification-owning Trusted Device to request an interruption for a due Thread Snooze, Follow-Up Nudge, Send Reminder, or separately confirmed post-launch **Mail Commitment Reminder**. Presentation remains subject to Quiet State, Profile Lock, OS notification authorization, and device-local lock-screen content policy.
 _Avoid_: Return to Attention, guaranteed reminder, automatic send
 
 **Quiet State**:
