@@ -118,6 +118,7 @@ describe('composer exit ownership across command scopes', () => {
           />,
         );
         await chooseInbox();
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
         await waitFor(() => expect(finish).toHaveBeenCalledTimes(1));
         await app.rerender(
           <App
