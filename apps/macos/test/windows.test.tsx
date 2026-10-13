@@ -302,8 +302,31 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(
       await first.findByRole('link', { name: 'Open link: the plan' }),
     );
-    expect(first.getByText('https://example.invalid/plan')).toBeVisible();
-    expect(second.queryByText('https://example.invalid/plan')).toBeNull();
+    expect({
+      firstDestination:
+        first.queryByText('https://example.invalid/plan') !== null,
+      secondDestination: second.queryByText('https://example.invalid/plan'),
+      backgroundRow: first.queryByRole('button', {
+        name: /Not downloaded yet/u,
+      }),
+    }).toStrictEqual({
+      firstDestination: true,
+      secondDestination: null,
+      backgroundRow: null,
+    });
+    await fireEvent(
+      first.getByText('https://example.invalid/plan'),
+      'keyDown',
+      {
+        nativeEvent: { key: 'Escape' },
+      },
+    );
+    expect(
+      first.getByRole('button', { name: /Not downloaded yet/u }),
+    ).toBeVisible();
+    await fireEvent.press(
+      first.getByRole('link', { name: 'Open link: the plan' }),
+    );
     await fireEvent.press(
       await second.findByRole('button', { name: /Other window/u }),
     );
@@ -311,7 +334,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await second.findByRole('link', { name: 'Open link: other plan' }),
     );
     await fireEvent.press(
-      first.getByRole('button', { name: /Not downloaded yet/u }),
+      first.getByRole('button', {
+        name: /Not downloaded yet/u,
+        includeHiddenElements: true,
+      }),
     );
     await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
     await act(() => {

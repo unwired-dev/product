@@ -6,12 +6,14 @@ import type { Selection } from './inbox.tsx';
 
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
-import { InboxProvider, ProfileScope } from './mailbox.tsx';
+import { InboxProvider, ProfileScope, useMailboxes } from './mailbox.tsx';
+import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   window: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 320, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
@@ -41,6 +43,9 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
   const [selected, setSelected] = useState<Selection>();
   // The window's one composer replaces the reader while it is open.
   const [composing, setComposing] = useState<string>();
+  const inbox = useMailboxes().find(
+    (mailbox) => mailbox.id === selected?.mailbox,
+  )?.inbox;
   const colors = usePalette();
   // Opening a Draft from either pane replaces the reader with the window's composer.
   const compose = (id: string) => {
@@ -54,37 +59,44 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
   return (
     <View
       testID={`inbox-window-${windowId}`}
-      style={styles.window}>
-      <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
-        <Inbox
-          composing={composing}
-          selected={selected}
-          onClose={close}
-          onCompose={compose}
-          onSelect={(selection) => {
-            setComposing(undefined);
-            setSelected(selection);
-          }}
-        />
-      </View>
-      <View style={styles.detail}>
-        {composing === undefined ? (
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={close}
-            onCompose={compose}
-          />
-        ) : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
-          />
-        )}
-      </View>
+      style={styles.fill}>
+      <LinkConfirmationProvider
+        inbox={inbox}
+        id={selected?.id}>
+        <View style={styles.window}>
+          <View
+            style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+            <Inbox
+              composing={composing}
+              selected={selected}
+              onClose={close}
+              onCompose={compose}
+              onSelect={(selection) => {
+                setComposing(undefined);
+                setSelected(selection);
+              }}
+            />
+          </View>
+          <View style={styles.detail}>
+            {composing === undefined ? (
+              <MessageDetail
+                id={selected?.id}
+                mailbox={selected?.mailbox}
+                onClose={close}
+                onCompose={compose}
+              />
+            ) : (
+              <DraftComposer
+                id={composing}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
+                onRebind={setComposing}
+              />
+            )}
+          </View>
+        </View>
+      </LinkConfirmationProvider>
     </View>
   );
 }

@@ -501,6 +501,29 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- `apps/macos/src/message-body.tsx.LinkConfirmationProvider` or another Mac
+  view using a React Native component whose native host is absent on macOS.
+  Inspect the installed renderer's platform guards before relying on mobile
+  component APIs: react-native-macos 0.81.9 excludes both legacy and Fabric
+  Modal hosts. Use supported host views while preserving bounded content,
+  dismissal and reader ownership; otherwise the confirmation has no native
+  presentation even though types, bundles and rendered host tests pass.
+- Mac link confirmation mounted inside `message-detail.tsx.MailboxMessage`
+  instead of `window.tsx.WindowContents`. The window's selected mailbox store
+  and message must gate its overlay; cover both columns and hide their
+  background accessibility while it is open. Check independent windows and
+  queued input after selection changes, or the alert leaves the list usable
+  beneath a partial scrim and can escape its reader's ownership.
+  Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
+  excluded by the Mac renderer; preserve the AppKit background wrapper's
+  accessibility-children and hit-test suppression rather than relying on props
+  that rendered tests recognize but the native host ignores.
+- `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
+  expanded. Trace its `organize.tsx` callers through opening and closing the
+  panel, preserving the visual open state and omitting disclosure state for
+  ordinary actions; otherwise assistive technology reports selection without
+  communicating whether the controlled panel is open.
+
 - `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
   in single-line placeholders. Keep "same as incoming if blank" in visible,
   wrapping text beside each field, including after entry, and retain the field's

@@ -194,7 +194,7 @@ function Toolbar({
             <ToolbarButton
               icon="folder"
               label={folders.label}
-              selected={folders.open}
+              expanded={folders.open}
               onPress={() => {
                 folders.toggle();
               }}
@@ -204,7 +204,7 @@ function Toolbar({
           <ToolbarButton
             icon="ellipsis"
             label={t('message.more')}
-            selected={more.open}
+            expanded={more.open}
             onPress={() => {
               more.toggle();
             }}

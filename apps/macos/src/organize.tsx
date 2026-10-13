@@ -205,7 +205,7 @@ function Toolbar({
               <ToolbarButton
                 icon="folder"
                 label={folders.label}
-                selected={folders.open}
+                expanded={folders.open}
                 onPress={() => {
                   folders.toggle();
                 }}

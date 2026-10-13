@@ -518,6 +518,11 @@ or Inbox owner changes, and the current ownership boundary is checked again
 immediately before handoff. No link inspection needs a network lookup, backend,
 persistence or URL logging.
 
+On Mac, confirmation is a window-level glass alert over a dimmed Inbox and
+reading pane. The window's selected mailbox and message gate the presentation;
+background accessibility is hidden while it is open, and Escape dismisses it.
+Other windows retain their independent selections and confirmations.
+
 The accepted link inspection additionally compares URL-like visible anchor text
 with the destination and checks scheme mismatch, internationalized or numeric
 hosts, embedded credentials, bidirectional controls and cross-site redirect-query

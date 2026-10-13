@@ -39,7 +39,6 @@ import {
 import {
   AttachContext,
   GmailMessageBody,
-  LinkConfirmationProvider,
   ReaderScrollView,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
@@ -558,9 +557,7 @@ function MailboxMessage({
           </Text>
         </View>
       ) : (
-        <LinkConfirmationProvider
-          inbox={actions}
-          id={message.id}>
+        <>
           <View style={styles.toolbar}>
             {'setUnread' in actions ? (
               <GlassGroup>
@@ -637,7 +634,7 @@ function MailboxMessage({
               connection={mailbox?.id}
             />
           </ReaderScrollView>
-        </LinkConfirmationProvider>
+        </>
       )}
     </View>
   );

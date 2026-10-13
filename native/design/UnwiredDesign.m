@@ -3,8 +3,44 @@
 // SF Symbols and Liquid Glass for both hosts, which target iOS and macOS 27.
 #if TARGET_OS_OSX
 #import <AppKit/AppKit.h>
+#import <React/RCTView.h>
 
 typedef NSView UnwiredPlatformView;
+
+// Core React Native modal accessibility properties are not implemented on Mac.
+@interface UnwiredModalBackgroundView : RCTView
+@property (nonatomic) BOOL accessibilityElementsHidden;
+@end
+
+@implementation UnwiredModalBackgroundView
+- (void)setAccessibilityElementsHidden:(BOOL)hidden
+{
+  if (_accessibilityElementsHidden == hidden) return;
+  _accessibilityElementsHidden = hidden;
+  NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
+}
+- (BOOL)isAccessibilityElement
+{
+  return self.accessibilityElementsHidden ? NO : [super isAccessibilityElement];
+}
+- (NSArray *)accessibilityChildren
+{
+  return self.accessibilityElementsHidden ? @[] : [super accessibilityChildren];
+}
+- (id)accessibilityHitTest:(NSPoint)point
+{
+  return self.accessibilityElementsHidden ? nil : [super accessibilityHitTest:point];
+}
+@end
+
+@interface UnwiredModalBackgroundManager : RCTViewManager
+@end
+
+@implementation UnwiredModalBackgroundManager
+RCT_EXPORT_MODULE(UnwiredModalBackground)
+RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
+- (RCTView *)view { return [UnwiredModalBackgroundView new]; }
+@end
 
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;

@@ -38,7 +38,6 @@ import {
   ActivityIndicator,
   Clipboard,
   Linking,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -48,7 +47,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { Glass, Notice, SFSymbol } from './design.tsx';
+import { Glass, ModalBackground, Notice, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -229,59 +228,56 @@ export function LinkConfirmationProvider({
   id,
 }: {
   readonly children: ReactNode;
-  readonly inbox: object;
-  readonly id: string;
+  readonly inbox: object | undefined;
+  readonly id: string | undefined;
 }) {
   const colors = usePalette();
   const [pending, setPending] = useState<PendingLink>();
   // Compare the render owner too: layout cleanup has not invalidated the old reader yet.
   const shown = useSyncExternalStore(
     pending?.subscribe ?? noSubscription,
-    () => pending?.inbox === inbox && pending?.id === id && pending.current(),
+    () =>
+      pending !== undefined &&
+      pending.inbox === inbox &&
+      pending.id === id &&
+      pending.current(),
   );
   return (
     <LinkConfirmationContext value={setPending}>
-      <View style={styles.fill}>
-        {children}
+      <View
+        keyDownEvents={[{ key: 'Escape' }]}
+        onKeyDown={(event) => {
+          if (shown && event.nativeEvent.key === 'Escape') {
+            setPending((value) => (value === pending ? undefined : value));
+          }
+        }}
+        style={styles.fill}>
+        <ModalBackground
+          accessibilityElementsHidden={shown}
+          style={styles.fill}>
+          {children}
+        </ModalBackground>
         {pending === undefined || !shown ? null : (
-          <Modal
-            visible
-            transparent
-            onRequestClose={() => {
-              setPending((value) => (value === pending ? undefined : value));
-            }}
-            supportedOrientations={[
-              'portrait',
-              'portrait-upside-down',
-              'landscape-left',
-              'landscape-right',
+          // react-native-macos has no native Modal host, so the window owns this overlay.
+          <View
+            accessibilityViewIsModal
+            style={[
+              StyleSheet.absoluteFill,
+              styles.modalBackdrop,
+              { backgroundColor: colors.scrimMac },
             ]}>
-            <View
-              keyDownEvents={[{ key: 'Escape' }]}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.key === 'Escape') {
+            <ScrollView style={styles.alertScroll}>
+              <LinkConfirmation
+                link={pending.link}
+                current={pending.current}
+                onDone={() => {
                   setPending((value) =>
                     value === pending ? undefined : value,
                   );
-                }
-              }}
-              style={[
-                styles.modalBackdrop,
-                { backgroundColor: colors.scrimMac },
-              ]}>
-              <ScrollView style={styles.alertScroll}>
-                <LinkConfirmation
-                  link={pending.link}
-                  current={pending.current}
-                  onDone={() => {
-                    setPending((value) =>
-                      value === pending ? undefined : value,
-                    );
-                  }}
-                />
-              </ScrollView>
-            </View>
-          </Modal>
+                }}
+              />
+            </ScrollView>
+          </View>
         )}
       </View>
     </LinkConfirmationContext>

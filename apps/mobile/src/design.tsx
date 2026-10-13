@@ -164,14 +164,14 @@ export function ToolbarButton({
   icon,
   onPress,
   disabled = false,
-  selected,
+  expanded,
 }: {
   readonly label: string;
   readonly icon: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
-  readonly selected?: boolean;
+  readonly expanded?: boolean;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
@@ -181,7 +181,7 @@ export function ToolbarButton({
       accessibilityRole="button"
       accessibilityState={{
         disabled,
-        ...(selected === undefined ? {} : { selected }),
+        ...(expanded === undefined ? {} : { expanded }),
       }}
       disabled={disabled}
       focusable
@@ -196,7 +196,7 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || selected === true
+            pressed || expanded === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
