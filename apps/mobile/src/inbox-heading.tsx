@@ -19,6 +19,7 @@ import { usePalette } from './theme.ts';
 // navigation commands the Inbox offers while each of their controls is available.
 export function InboxHeading({
   subtitle,
+  detail,
   account,
   onAccount,
   onClose,
@@ -26,6 +27,8 @@ export function InboxHeading({
   search,
 }: {
   readonly subtitle: string;
+  // Whether a reader or composer covers the Inbox on iPhone; Search Mail leaves it first.
+  readonly detail: boolean;
   readonly account: Readonly<{ openAccount: () => void }> | undefined;
   readonly onAccount: (open: () => void) => Promise<void>;
   readonly onClose: (() => void) | undefined;
@@ -44,7 +47,13 @@ export function InboxHeading({
             search:
               search === undefined
                 ? undefined
-                : () => {
+                : async () => {
+                    if (detail && onClose !== undefined) {
+                      if (!(await onLeave())) {
+                        return;
+                      }
+                      onClose();
+                    }
                     search.current?.focus();
                   },
             inbox:

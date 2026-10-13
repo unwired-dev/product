@@ -728,8 +728,10 @@ export function ThreadView({
 function ThreadMessages({ id }: { readonly id: string }) {
   const state = useInbox();
   const inbox = useInboxActions();
+  const mailbox = useMailbox();
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -765,15 +767,35 @@ function ThreadMessages({ id }: { readonly id: string }) {
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
+          <RegisterCommands
+            offer={() =>
+              expectedCommands(t, {
+                target: commandTarget(mailbox?.id, opened),
+                disabled: t('commands.unavailable'),
+              })
+            }
+          />
+          {/* The Thread's subject is its fixed header, which opens the Command Palette. */}
+          <View
+            style={styles.header}
+            {...header.swipe}>
+            <View
+              accessible
+              accessibilityLabel={opened.subject}
+              accessibilityRole="header"
+              style={styles.headerText}
+              {...header.action}>
+              <Text
+                selectable
+                style={[styles.subject, { color: colors.textPrimary }]}>
+                {opened.subject}
+              </Text>
+            </View>
+            <CommandInput />
+          </View>
           <ReaderScrollView
             contentContainerStyle={styles.content}
             maintainVisibleContentPosition={keepVisibleMessage}>
-            <Text
-              accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {opened.subject}
-            </Text>
             {messages.map((message) => (
               <ThreadMessage
                 key={message.id}

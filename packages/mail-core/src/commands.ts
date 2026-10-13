@@ -380,7 +380,7 @@ export const organizeCommands = <A>(
 export const inboxCommands = (
   t: Translate,
   handlers: Readonly<{
-    search?: (() => void) | undefined;
+    search?: (() => void | Promise<void>) | undefined;
     inbox?: (() => Promise<void>) | undefined;
     account?: (() => void) | undefined;
   }>,

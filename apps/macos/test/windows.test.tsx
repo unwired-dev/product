@@ -278,6 +278,12 @@ describe('mac window selection with the shared mock mailbox', () => {
       nativeEvent: { key: 'Escape' },
     });
     expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    // So does a click anywhere outside the bar and its panel.
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(app.getByRole('button', { name: 'Close commands' }));
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
     expect(
       app.getByRole('button', { name: 'Open Command Palette' }),
     ).toBeVisible();

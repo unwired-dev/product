@@ -1169,5 +1169,32 @@ describe('command palette', () => {
     expect(gmail.labelsOf(lisbon)).toContain('INBOX');
     expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
   });
+
+  it('leaves the reader before Search Mail focuses the Inbox search field', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Search Mail' }),
+      );
+    });
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(screen.queryByText('oliver@example.invalid')).toBeNull();
+    expect(screen.getByRole('search')).toBeVisible();
+  });
   /* oxlint-enable vitest/max-expects */
 });

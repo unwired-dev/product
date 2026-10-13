@@ -155,6 +155,8 @@ const styles = StyleSheet.create({
   },
   input: { ...textStyles.body, flex: 1, paddingVertical: 0 },
   layer: { zIndex: 10 },
+  // Beneath the bar and its panel, over the window's content.
+  scrim: { zIndex: 5 },
   panel: {
     position: 'absolute',
     // 6pt beneath the input, which is centered in the bar.
@@ -265,7 +267,21 @@ export function CommandPaletteProvider({
   );
   return (
     <PaletteContext value={value}>
-      <View style={styles.fill}>{children}</View>
+      <View style={styles.fill}>
+        {children}
+        {opened === undefined ? null : (
+          // A click anywhere outside the bar and its panel closes the palette without reaching the
+          // control beneath.
+          <Pressable
+            accessibilityLabel={t('commands.close')}
+            accessibilityRole="button"
+            onPress={() => {
+              value.close();
+            }}
+            style={[StyleSheet.absoluteFill, styles.scrim]}
+          />
+        )}
+      </View>
     </PaletteContext>
   );
 }

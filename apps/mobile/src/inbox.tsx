@@ -805,6 +805,7 @@ export function Inbox({
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
         <InboxHeading
           account={account}
+          detail={selected !== undefined || composing !== undefined}
           onAccount={openAccount}
           onClose={onClose}
           onLeave={leave}
