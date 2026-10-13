@@ -4,6 +4,11 @@ import { StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
 
+import {
+  CommandBar,
+  CommandMenuListener,
+  CommandPaletteProvider,
+} from './command-palette.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { InboxProvider, ProfileScope } from './mailbox.tsx';
@@ -12,7 +17,8 @@ import { RegistrationGate } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  window: { flex: 1, flexDirection: 'row' },
+  window: { flex: 1 },
+  panes: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 320, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
 });
@@ -55,36 +61,43 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
     <View
       testID={`inbox-window-${windowId}`}
       style={styles.window}>
-      <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
-        <Inbox
-          composing={composing}
-          selected={selected}
-          onClose={close}
-          onCompose={compose}
-          onSelect={(selection) => {
-            setComposing(undefined);
-            setSelected(selection);
-          }}
-        />
-      </View>
-      <View style={styles.detail}>
-        {composing === undefined ? (
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={close}
-            onCompose={compose}
-          />
-        ) : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
-          />
-        )}
-      </View>
+      <CommandPaletteProvider>
+        <CommandMenuListener windowId={windowId} />
+        <CommandBar />
+        <View style={styles.panes}>
+          <View
+            style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+            <Inbox
+              composing={composing}
+              selected={selected}
+              onClose={close}
+              onCompose={compose}
+              onSelect={(selection) => {
+                setComposing(undefined);
+                setSelected(selection);
+              }}
+            />
+          </View>
+          <View style={styles.detail}>
+            {composing === undefined ? (
+              <MessageDetail
+                id={selected?.id}
+                mailbox={selected?.mailbox}
+                onClose={close}
+                onCompose={compose}
+              />
+            ) : (
+              <DraftComposer
+                id={composing}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
+                onRebind={setComposing}
+              />
+            )}
+          </View>
+        </View>
+      </CommandPaletteProvider>
     </View>
   );
 }

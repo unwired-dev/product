@@ -35,6 +35,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -49,6 +50,11 @@ jest.mock('../src/private-storage.ts', () => ({
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const preview = 'preview';
@@ -333,20 +339,22 @@ function renderConnected(
         store={registration}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
-            onClose={() => {
-              setSelected(undefined);
-            }}
-            onSelect={setSelected}
-            selected={selected}
-          />
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={() => {
-              setSelected(undefined);
-            }}
-          />
+          <CommandPaletteProvider>
+            <Inbox
+              onClose={() => {
+                setSelected(undefined);
+              }}
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={() => {
+                setSelected(undefined);
+              }}
+            />
+          </CommandPaletteProvider>
         </InboxProvider>
       </RegistrationGate>
     );
@@ -1005,6 +1013,161 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
     expect(copy).toHaveBeenCalledWith('https://PHISH.invalid:443');
     expect(openURL).not.toHaveBeenCalled();
+  });
+  /* oxlint-enable vitest/max-expects */
+});
+
+// Opens the palette as VoiceOver does, through the header's accessibility action.
+const openPalette = (header: ReturnType<typeof screen.getByRole>) =>
+  fireEvent(header, 'accessibilityAction', {
+    nativeEvent: { actionName: 'openCommandPalette' },
+  });
+// The open palette, apart from the reader's own buttons beneath it.
+const openedPalette = () => within(screen.getByTestId('command-palette'));
+// A message the connected Inbox lists, as the reader's actions receive it.
+const listedMessage = (
+  store: ReturnType<ReturnType<typeof renderConnected>['store']>,
+  id: string,
+) => {
+  const state = store.getSnapshot();
+  const message =
+    state.kind === 'ready'
+      ? state.messages.find((item) => item.id === id)
+      : undefined;
+  if (message === undefined) {
+    throw new Error(`Expected ${id} to be listed`);
+  }
+  return message;
+};
+
+describe('command palette', () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */
+  it('lists contextual commands first, narrows by typing and moves the open message from its picker', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const oliver = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const row = await screen.findByRole('button', {
+      name: 'Unread. Oliver Park. Saturday, by the river?',
+    });
+    // Nothing open: the mail commands stay listed, disabled, with the reason.
+    await openPalette(screen.getByRole('header', { name: 'Inbox' }));
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Reply. Select a conversation',
+      }),
+    ).toBeDisabled();
+    expect(
+      openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Cancel' }),
+    );
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+
+    // A downward swipe on the reader's header opens it for the open message, once the reader
+    // offers its labels.
+    await fireEvent.press(row);
+    const subject = await screen.findByRole('header', {
+      name: 'Saturday, by the river?',
+    });
+    await screen.findByRole('button', { name: 'Labels' });
+    await fireEvent(subject, 'touchStart', {
+      nativeEvent: { pageX: 10, pageY: 10 },
+    });
+    await expect(
+      fireEvent(subject, 'moveShouldSetResponder', {
+        nativeEvent: { pageX: 14, pageY: 60 },
+      }),
+    ).resolves.toBe(true);
+    await fireEvent(subject, 'responderGrant');
+    const headers = openedPalette()
+      .getAllByRole('header')
+      .map((item) => String(item.props.children));
+    expect(
+      headers.indexOf('Selected Message · Saturday, by the river?'),
+    ).toBeLessThan(headers.indexOf('App'));
+    expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
+    const input = screen.getByPlaceholderText('Type a command');
+    await fireEvent.changeText(input, 'arch');
+    expect(
+      openedPalette().getByRole('button', { name: 'Archive' }),
+    ).toBeVisible();
+    expect(openedPalette().queryByRole('button', { name: 'Reply' })).toBeNull();
+    await fireEvent.changeText(input, '');
+
+    // Move to… chooses inside the palette; Back returns; nothing moves until chosen.
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Move to…' }),
+    );
+    expect(openedPalette().getByText('Move 1 message')).toBeVisible();
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Back to commands' }),
+    );
+    expect(openedPalette().queryByText('Move 1 message')).toBeNull();
+    expect(gmail.labelsOf(oliver)).toContain('INBOX');
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Move to…' }),
+    );
+    await fireEvent.changeText(
+      screen.getByPlaceholderText('Choose a folder'),
+      'tra',
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Travel' }),
+      );
+    });
+    expect(gmail.labelsOf(oliver)).toContain(travel);
+    expect(gmail.labelsOf(oliver)).not.toContain('INBOX');
+    expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(screen.queryByText('Saturday, by the river?')).toBeNull();
+  });
+
+  it('never runs a command on a message that left the reader after the palette opened', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const lisbon = gmail.deliver({ subject: 'Tickets for Lisbon' });
+    const oliver = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    expect(
+      openedPalette().getByRole('button', { name: 'Archive' }),
+    ).toBeEnabled();
+    // Meanwhile the message is archived elsewhere and the reader closes.
+    const store = connected.store();
+    await act(async () => {
+      await store.organize(listedMessage(store, oliver), gmailAction.archive);
+    });
+    expect(screen.queryByText('oliver@example.invalid')).toBeNull();
+    const organize = jest.spyOn(store, 'organize');
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Archive' }),
+    );
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Archive. No longer available',
+      }),
+    ).toBeDisabled();
+    expect(organize).not.toHaveBeenCalled();
+    expect(gmail.labelsOf(lisbon)).toContain('INBOX');
+    expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
   });
   /* oxlint-enable vitest/max-expects */
 });

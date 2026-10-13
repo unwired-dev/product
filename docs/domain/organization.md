@@ -15,6 +15,10 @@ for launch scope; a term's presence does not establish implementation or release
 
 ## Language
 
+**Command Palette**:
+A panel that finds and runs the app's commands by name, including navigation to app destinations, over the current screen; it acts on the open message and never searches mail content. See the [Command Palette guide](../command-palette.md).
+_Avoid_: Spotlight, quick actions, search
+
 **Mail Rule**:
 A user-defined set of explicit conditions and mail actions for organizing matching messages without model inference.
 _Avoid_: Notification Rule, Category, AI categorization

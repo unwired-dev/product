@@ -544,6 +544,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `command-palette.tsx.usePaletteHeader` or another hook attaching
+  `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
+  not itself `accessible`, such as the Inbox heading row or the composer's top
+  bar. iOS exposes custom actions only on the focused accessibility element, so
+  VoiceOver never reaches an action on a non-accessible container, while the
+  testing library's `fireEvent` bubbles the event up from a child and keeps the
+  journey green. Attach the action to the header's accessible element (the title
+  `Text` or an `accessible` wrapper) and keep gesture responders on the wider
+  container; otherwise the documented assistive entry point does not exist.
 - `message-detail.tsx.ThreadMessage` or another selected reader section marked
   only by a background color and `accessibilityState.selected`. Require a visible
   non-color cue such as a border, icon or text as well as assistive-technology

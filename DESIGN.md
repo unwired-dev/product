@@ -317,6 +317,17 @@ styles) so the file stays editable.
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
   under it behind a 72pt scroll edge fade. It hides while the composer is open.
+- **Command Palette:** on the Mac a 36pt glass command input (command
+  symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
+  it becomes the focused query with an esc key cap and a 460pt glass panel with
+  the menu shadow beneath it.
+  Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
+  or a chevron for a picker, highlighted in the accent fill; section headers read
+  Selected Message · subject, App and Go To, and a footer names the keys. iPhone
+  and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
+  iPad keeps the command input in the Inbox heading and, pending a compact
+  frame, in the reader and composer headers too; iPhone opens by header swipe
+  with a one-time hint. See the [Command Palette guide](docs/command-palette.md).
 - **Synchronization status:** retain the bottom-anchored, non-blocking progress
   overlay, Retry on failure, aggregate progress with expandable connection details,
   and globally visible refresh and last success from the

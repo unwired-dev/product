@@ -2,6 +2,11 @@ import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
+import {
+  commandTarget,
+  expectedCommands,
+  responseCommands,
+} from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
@@ -26,6 +31,11 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import {
+  CommandInput,
+  RegisterCommands,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -61,6 +71,17 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     padding: spacing.xl,
   },
+  header: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+  },
+  headerText: { flex: 1 },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 5,
@@ -391,6 +412,11 @@ function ResponseActions({
   ] as const;
   return (
     <View>
+      <RegisterCommands
+        offer={() =>
+          responseCommands(t, commandTarget(mailbox?.id, message), start)
+        }
+      />
       <View style={styles.responses}>
         {actions.map(([kind, label]) => (
           <Pressable
@@ -524,6 +550,7 @@ function MailboxMessage({
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
+  const header = usePaletteHeader();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
   const folderMessage = useSyncExternalStore(actions.subscribe, () =>
     'openFolder' in actions ? actions.message(id) : undefined,
@@ -572,6 +599,33 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           ids={[message.id]}>
+          <RegisterCommands
+            offer={() =>
+              expectedCommands(t, {
+                target: commandTarget(mailbox?.id, message),
+                disabled: t('commands.unavailable'),
+              })
+            }
+          />
+          {/* The subject stays put while the body scrolls: it is the screen's header, which opens
+              the Command Palette by a downward swipe. */}
+          <View
+            style={styles.header}
+            {...header.swipe}>
+            <View
+              accessible
+              accessibilityLabel={message.subject}
+              accessibilityRole="header"
+              style={styles.headerText}
+              {...header.action}>
+              <Text
+                selectable
+                style={[styles.subject, { color: colors.textPrimary }]}>
+                {message.subject}
+              </Text>
+            </View>
+            <CommandInput />
+          </View>
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable
@@ -592,12 +646,6 @@ function MailboxMessage({
                 onClose={onClose}
               />
             )}
-            <Text
-              accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {message.subject}
-            </Text>
             <View
               style={[
                 styles.metadata,

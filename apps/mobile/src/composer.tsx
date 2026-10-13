@@ -33,6 +33,7 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { composeCommand } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -97,6 +98,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import {
+  CommandInput,
+  RegisterCommands,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -133,6 +139,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.s,
+  },
+  top: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
   },
   grow: { flex: 1 },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
@@ -450,6 +463,17 @@ export function DraftList({
   };
   return (
     <View>
+      {state.kind !== 'ready' ||
+      sender === undefined ||
+      creatingShown ? null : (
+        <RegisterCommands
+          offer={() => [
+            composeCommand(t, () => {
+              void compose(sender);
+            }),
+          ]}
+        />
+      )}
       <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
         <Action
           disabled={
@@ -1556,6 +1580,7 @@ function Editor({
   }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
+  const paletteHeader = usePaletteHeader();
   const discard = async () => {
     if (discarded.current) {
       return;
@@ -1668,12 +1693,12 @@ function Editor({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <ScrollView
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled">
-        <View style={styles.bar}>
+      {/* The bar stays put while the body scrolls: it is the screen's header, which opens the
+          Command Palette by a downward swipe. */}
+      <View style={styles.top}>
+        <View
+          style={styles.bar}
+          {...paletteHeader.swipe}>
           <Action
             disabled={closing === 'saving'}
             label={t('drafts.close')}
@@ -1689,9 +1714,11 @@ function Editor({
               styles.grow,
               styles.actionText,
               { color: colors.textPrimary, fontWeight: '600' },
-            ]}>
+            ]}
+            {...paletteHeader.action}>
             {title}
           </Text>
+          <CommandInput />
           <Action
             disabled={lockedUnless(history.past.length > 0)}
             label={t('drafts.undo')}
@@ -1724,6 +1751,12 @@ function Editor({
             }}
           />
         </View>
+      </View>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled">
         <Text
           accessibilityLiveRegion="polite"
           style={[styles.status, { color: colors.textSecondary }]}>

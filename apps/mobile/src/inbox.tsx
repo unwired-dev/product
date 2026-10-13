@@ -17,7 +17,7 @@ import {
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import { use, useDeferredValue, useMemo, useState } from 'react';
+import { use, useDeferredValue, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   SectionList,
@@ -38,6 +38,7 @@ import {
 } from './composer.tsx';
 import { Chip } from './design.tsx';
 import { FolderPicker, useImapFolder } from './imap-folders.tsx';
+import { InboxHeading } from './inbox-heading.tsx';
 import { styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -681,6 +682,7 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
+  const search = useRef<TextInput>(null);
   const [chosen, setChosen] = useState<string>();
   // A removed mailbox's view falls back to every mailbox of the Profile.
   const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
@@ -801,29 +803,14 @@ export function Inbox({
       edges={{ top: true, bottom: true, left: true }}
       style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.heading}>
-          <View style={styles.headingText}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.title, { color: colors.textPrimary }]}>
-              {t('inbox.title')}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {subtitle}
-            </Text>
-          </View>
-          {account === undefined ? null : (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                void openAccount(account.openAccount);
-              }}>
-              <Text style={[styles.account, { color: colors.accentInk }]}>
-                {t('inbox.account')}
-              </Text>
-            </Pressable>
-          )}
-        </View>
+        <InboxHeading
+          account={account}
+          onAccount={openAccount}
+          onClose={onClose}
+          onLeave={leave}
+          search={ready ? search : undefined}
+          subtitle={subtitle}
+        />
         {mailboxes.length > 1 ? (
           <ScopePicker
             mailboxes={mailboxes}
@@ -846,6 +833,7 @@ export function Inbox({
             autoCorrect={false}
             clearButtonMode="while-editing"
             onChangeText={setQuery}
+            ref={search}
             placeholder={t('search.label')}
             placeholderTextColor={colors.textSecondary}
             returnKeyType="search"

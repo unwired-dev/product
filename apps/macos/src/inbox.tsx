@@ -5,6 +5,7 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
+import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
   quickActions,
@@ -17,7 +18,7 @@ import {
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import { use, useDeferredValue, useMemo, useState } from 'react';
+import { use, useDeferredValue, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   SectionList,
@@ -29,6 +30,7 @@ import {
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { RegisterCommands } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -695,6 +697,7 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
+  const search = useRef<TextInput>(null);
   const [chosen, setChosen] = useState<string>();
   // A removed mailbox's view falls back to every mailbox of the Profile.
   const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
@@ -813,6 +816,32 @@ export function Inbox({
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+        <RegisterCommands
+          offer={() =>
+            inboxCommands(t, {
+              // The search field, once the Inbox can search.
+              search: ready
+                ? () => {
+                    search.current?.focus();
+                  }
+                : undefined,
+              inbox:
+                onClose === undefined
+                  ? undefined
+                  : async () => {
+                      if (await leave()) {
+                        onClose();
+                      }
+                    },
+              account:
+                account === undefined
+                  ? undefined
+                  : () => {
+                      void openAccount(account.openAccount);
+                    },
+            })
+          }
+        />
         <View style={styles.headingRow}>
           <View
             accessible
@@ -865,6 +894,7 @@ export function Inbox({
             autoComplete="off"
             autoCorrect={false}
             onChangeText={setQuery}
+            ref={search}
             placeholder={t('search.label')}
             placeholderTextColor={colors.textSecondary}
             returnKeyType="search"

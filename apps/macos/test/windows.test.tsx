@@ -235,6 +235,54 @@ describe('mac window selection with the shared mock mailbox', () => {
     ).resolves.toBeVisible();
     expect(app.getByText('Select a message to start reading.')).toBeVisible();
   });
+
+  /* oxlint-disable vitest/max-expects -- One journey proves the bar, the fixed order, narrowing and the keys. */
+  it('opens the Command Palette from the window bar and drives it with the keyboard', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await app.findByRole('button', { name: maya });
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    const input = app.getByPlaceholderText('Type a command');
+    // Nothing open: mail commands stay listed, disabled, before App and Go To.
+    expect(
+      app.getByRole('button', { name: 'Reply. Select a conversation' }),
+    ).toBeDisabled();
+    const headers = app
+      .getAllByRole('header')
+      .map((item) => String(item.props.accessibilityLabel));
+    expect(headers.indexOf('Selected Message')).toBeLessThan(
+      headers.indexOf('App'),
+    );
+    expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
+    await fireEvent.changeText(input, 'se');
+    expect(app.getByRole('button', { name: 'Search Mail' })).toBeVisible();
+    expect(app.queryByRole('button', { name: 'Inbox' })).toBeNull();
+    await fireEvent.changeText(input, '');
+    // Down selects the next command that can run; Return runs it and closes the palette.
+    await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+    expect(app.getByRole('button', { name: 'Inbox' })).toBeSelected();
+    await fireEvent(input, 'submitEditing');
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    // Escape closes it too, back to the visible input.
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent(app.getByPlaceholderText('Type a command'), 'keyDown', {
+      nativeEvent: { key: 'Escape' },
+    });
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    ).toBeVisible();
+  });
+  /* oxlint-enable vitest/max-expects */
 });
 
 function holdingListing(

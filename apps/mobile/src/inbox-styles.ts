@@ -5,12 +5,10 @@ import { textStyles } from './theme.ts';
 
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: spacing.xl,
-    paddingBottom: spacing.l,
-  },
+  heading: { padding: spacing.xl, paddingBottom: spacing.l },
+  // iPad's command input takes its own row above the title, as the frames place it.
+  commands: { alignSelf: 'flex-start', marginBottom: spacing.m },
+  headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
   headingText: { flex: 1 },
   account: { ...textStyles.body, paddingVertical: 8 },
   title: { ...textStyles.largeTitle },
