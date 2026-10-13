@@ -35,6 +35,10 @@ jobs:
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
         with:
           ruby-version: '3.3.12'
+      - name: Check CocoaPods pnpm paths and localized resources
+        run: |
+          gem install cocoapods --version 1.17.0 --no-document
+          ruby apps/macos/scripts/cocoapods-paths.test.rb
       - run: pnpm --filter @private-email/macos fallow
       - run: pnpm --filter @private-email/macos build
       - run: pnpm --filter @private-email/macos verify:bundle

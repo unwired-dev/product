@@ -32,6 +32,12 @@ and update all windows without changing their selections.
 The checked-in Objective-C++ host, Podfile and Ruby project generator own the
 native setup.
 
+The Mac Podfile loads `scripts/cocoapods-paths.rb` to bypass CocoaPods 1.17.0's
+intermittent pnpm base-path resolution failure. The workaround keeps the group's
+base path lexical; CocoaPods still resolves source file references and creates
+localized resource variant groups. The upstream-derived grouping method and its
+license remain together in the Mac scripts directory.
+
 The generator also compiles the first-party SF Symbol and Liquid Glass view
 managers from `native/design`. Host components consume them through Fabric's
 legacy-view interop. This adds no autolinked package and preserves the existing
