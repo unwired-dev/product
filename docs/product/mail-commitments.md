@@ -97,10 +97,24 @@ never reopens a completed commitment.
 
 ## Automatic scanning
 
-- Scanning starts automatically when the user enables On-Device Mail Assistance.
+- Scanning starts automatically when informed On-Device Mail Assistance consent
+  and the commitment scan switch are both on.
   Assistance retains its default-off, device-local consent. A separate
   device-local, per-Profile Settings switch disables commitment scanning without
   making saved commitments unavailable.
+- The first informed assistance enablement explains automatic analysis of new
+  local received and sent mail; confirming that scope initializes the scan switch
+  to On unless an explicit scan-Off choice is already saved. An already-enabled
+  Profile whose earlier consent did not cover this
+  feature keeps its existing assistance usable, but its commitment scan switch
+  starts Off. It requires a one-time, explicit confirmation of the new scope on
+  that device and Profile before scanning starts. Declining keeps commitment
+  scanning off. Preserve an explicit scan-Off choice across upgrades instead of
+  resetting it to the initial default. Turning all assistance off clears proposals,
+  not the saved scan choice; turning assistance back on preserves that choice.
+- Confirmation starts scanning with new mail from then. Mail received before
+  confirmation requires a bounded explicit historical scan; upgrading or
+  confirming consent never silently backfills that interval.
 - New received and sent mail is scanned automatically from enablement onward.
   Scanning older correspondence is a separate explicit request bounded by a
   user-selected date range or mailbox.
@@ -156,6 +170,24 @@ unavailable or misses an item. Inference is not required to use the commitment l
   Profile. Mixed-source commitments require the user to choose one owning Profile
   and review affected links. Preserve one record, without cross-Profile source
   access or silent copies.
+- When a move takes effect, retire every unaccepted proposal involving the moving
+  connection, including mixed-source proposals. Fence its old-Profile scans and
+  reject late results; do not transfer model output to the target queue.
+- Minimal encrypted acceptance, dismissal and deletion decisions follow their
+  reviewed source identities to the connection's current Profile. Partition
+  mixed-source suppression decisions by current ownership, retaining no foreign
+  source links or authored content. Preserve authoritative deletion fences and
+  the reviewed accepted-record ownership; suppression never exposes a commitment
+  retained in another Profile.
+- Publish ownership, queue invalidation and decision reassignment as one move
+  outcome before admitting target scans or proposal acceptance. Each device
+  applies that outcome when it observes the move; interruption, retry or stale
+  work cannot expose old-Profile sources, lose suppression or resurrect deleted
+  records. A cancelled move retains its prior ownership and queue.
+- Target scans require that device and Profile's informed assistance consent and
+  enabled scan switch. Moving mail neither enables consent nor turns existing
+  history into new mail; reconsidering retired proposals requires an explicit
+  bounded historical scan under target consent.
 
 ## Delivery and qualification
 
