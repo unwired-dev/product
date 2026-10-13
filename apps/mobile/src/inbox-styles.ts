@@ -24,11 +24,12 @@ export const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.s,
     paddingHorizontal: ipad ? 14 * scale : spacing.l,
-    paddingTop: ipad ? spacing.l * scale : spacing.xs,
+    paddingTop: ipad ? 10 * scale : spacing.xs,
     paddingBottom: ipad ? 10 * scale : spacing.m,
   },
   headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
-  // iPad's command input takes its own row above the heading, as the frames place it.
+  // iPad's command input takes its own row above the heading, as the frames place it, so the
+  // heading's top padding is the gap beneath it.
   commands: {
     alignSelf: 'flex-start',
     marginLeft: 14 * scale,
