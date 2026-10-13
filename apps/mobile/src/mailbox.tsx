@@ -44,7 +44,11 @@ const ProfileContext = createContext(defaultProfile);
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
 
 const ComposerNavigationContext = createContext(createComposerNavigation());
-function ComposerNavigationScope({ children }: { readonly children: ReactNode }) {
+function ComposerNavigationScope({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
   const navigation = useMemo(() => createComposerNavigation(), []);
   return (
     <ComposerNavigationContext value={navigation}>
