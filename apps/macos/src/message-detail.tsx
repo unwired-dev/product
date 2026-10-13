@@ -416,9 +416,10 @@ function ResponseActions({
     };
   }, [lifetime]);
   const mailboxes = account?.mailboxes ?? [];
-  const sender = sendingMailboxes(mailboxes, profileOf(mailboxId, mailboxes)).find(
-    ({ id }) => id === mailboxId,
-  );
+  const sender = sendingMailboxes(
+    mailboxes,
+    profileOf(mailboxId, mailboxes),
+  ).find(({ id }) => id === mailboxId);
   if (!('responseSource' in inbox) || !('threadId' in message)) {
     return (
       <ResponseCommands
