@@ -15,8 +15,8 @@ results never appear in the palette. The vocabulary lives in the
   The reader offers the same handlers its buttons use: Reply, Reply All and
   Forward where a response can start; Mark as read or unread, Star, Archive,
   Move to Trash and Report spam as the provider allows; and **Move to…**, which
-  lists the connection's folders or labels. The palette never chooses a message
-  on its own.
+  lists the connection's folders or labels. The preview Inbox's reader offers its
+  Mark as read or unread. The palette never chooses a message on its own.
 - **App commands:** New Message (while a mailbox can send) and Search Mail,
   which focuses the Inbox search field. On iPhone and iPad, where a reader or
   composer can cover the Inbox, Search Mail first leaves the open reader or
@@ -72,7 +72,9 @@ results never appear in the palette. The vocabulary lives in the
   Inbox heading says Swipe down on the header for commands, and goes away once
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command
-  Palette accessibility action for VoiceOver and other assistive controls.
+  Palette accessibility action for VoiceOver and other assistive controls. A
+  reader that is loading, cannot open its storage or shows no message keeps
+  the same swipe and action on its title, since it still covers the Inbox.
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
   header, the composer's top bar and the Account page's title row, so one is on
   screen in every size class,

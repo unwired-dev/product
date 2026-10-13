@@ -1324,5 +1324,75 @@ describe('command palette', () => {
     ).resolves.toBeVisible();
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
   });
+
+  it("runs the preview reader's read state from the palette", async () => {
+    expect.hasAssertions();
+    const inbox = createPersistentInbox(
+      makeMockInboxStorage(),
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
+    function PreviewJourney() {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={singleMailbox(inbox, preview)}>
+          <CommandPaletteProvider>
+            <Inbox
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+            />
+          </CommandPaletteProvider>
+        </InboxProvider>
+      );
+    }
+    await render(<PreviewJourney />);
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      screen.getByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Mark as read' }),
+      );
+    });
+    await expect(
+      screen.findByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).resolves.toBeVisible();
+  });
+
+  it('opens the palette from a reader that shows no message', async () => {
+    expect.hasAssertions();
+    const inbox = createPersistentInbox(
+      makeMockInboxStorage(),
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, preview)}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            id="not-in-this-mailbox"
+            mailbox={preview}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Message unavailable' }),
+    );
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Reply. Select a conversation',
+      }),
+    ).toBeDisabled();
+  });
   /* oxlint-enable vitest/max-expects */
 });

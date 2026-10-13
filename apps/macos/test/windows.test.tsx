@@ -263,6 +263,32 @@ describe('mac window selection with the shared mock mailbox', () => {
     expect(app.getByText('Select a message to start reading.')).toBeVisible();
   });
 
+  it("runs the preview reader's read state from the palette", async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await fireEvent.press(await app.findByRole('button', { name: oliver }));
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        within(app.getByTestId('command-palette')).getByRole('button', {
+          name: 'Mark as read',
+        }),
+      );
+    });
+    await expect(
+      app.findByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).resolves.toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves the bar, the fixed order, narrowing and the keys. */
   it('opens the Command Palette from the window bar and drives it with the keyboard', async () => {
     expect.hasAssertions();

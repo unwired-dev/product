@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import {
   commandTarget,
   expectedCommands,
+  organizeCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
@@ -130,14 +131,18 @@ const keepVisibleMessage = { minIndexForVisible: 0 };
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.empty}>
+      <View
+        style={styles.empty}
+        {...header.swipe}>
         <Text
           accessibilityRole="header"
-          style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+          style={[styles.emptyTitle, { color: colors.textPrimary }]}
+          {...header.action}>
           {id ? t('message.unavailable') : t('message.empty')}
         </Text>
         <Text
@@ -461,11 +466,15 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
   const actions = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
-    <View style={styles.empty}>
+    <View
+      style={styles.empty}
+      {...header.swipe}>
       <Text
         accessibilityRole="alert"
-        style={[styles.emptyDescription, { color: colors.textPrimary }]}>
+        style={[styles.emptyDescription, { color: colors.textPrimary }]}
+        {...header.action}>
         {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
       </Text>
       <Pressable
@@ -591,6 +600,8 @@ function MailboxMessage({
   const state = useInbox();
   const actions = useInboxActions();
   const mailbox = useMailbox();
+  // Every state the reader shows on iPhone, where it covers the Inbox, keeps a palette entry.
+  const header = usePaletteHeader();
   const address = mailbox?.address;
   const colors = usePalette();
   const { t } = useLocalization();
@@ -615,6 +626,8 @@ function MailboxMessage({
       <ActivityIndicator
         accessibilityLabel={t('message.loading')}
         style={styles.fill}
+        {...header.swipe}
+        {...header.action}
       />
     );
   }
@@ -628,10 +641,13 @@ function MailboxMessage({
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       {message === undefined ? (
-        <View style={styles.empty}>
+        <View
+          style={styles.empty}
+          {...header.swipe}>
           <Text
             accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+            style={[styles.emptyTitle, { color: colors.textPrimary }]}
+            {...header.action}>
             {t('message.unavailable')}
           </Text>
           <Text
@@ -646,18 +662,44 @@ function MailboxMessage({
           <ReaderHeader message={message} />
           <ReaderScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
-              <Pressable
-                style={styles.control}
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
+              <>
+                <RegisterCommands
+                  offer={() =>
+                    organizeCommands(t, {
+                      target: commandTarget(mailbox?.id, message),
+                      actions: [
+                        message.unread
+                          ? {
+                              name: 'read',
+                              label: t('message.markRead'),
+                              action: false,
+                            }
+                          : {
+                              name: 'unread',
+                              label: t('message.markUnread'),
+                              action: true,
+                            },
+                      ],
+                      act: (unread) => {
+                        void actions.setUnread(message.id, unread);
+                      },
+                      destinations: [],
+                    })
+                  }
+                />
+                <Pressable
+                  style={styles.control}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    void actions.setUnread(message.id, !message.unread);
+                  }}>
+                  <Text style={[styles.secondary, { color: colors.accentInk }]}>
+                    {message.unread
+                      ? t('message.markRead')
+                      : t('message.markUnread')}
+                  </Text>
+                </Pressable>
+              </>
             ) : (
               <MessageActions
                 id={message.id}
