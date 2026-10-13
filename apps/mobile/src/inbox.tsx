@@ -11,13 +11,21 @@ import {
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
   inboxMessages,
+  messageDateSections,
   profileMailboxes,
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import { use, useDeferredValue, useMemo, useState } from 'react';
+import {
+  use,
+  useDeferredValue,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ActivityIndicator,
   SectionList,
@@ -27,6 +35,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
@@ -36,11 +45,13 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
+import { Button, Notice, SFSymbol } from './design.tsx';
 import { useImapFolder } from './imap-folders.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
-import { styles } from './inbox-styles.ts';
+import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
-import { useLocalization, useMessageDateFormat } from './localization.ts';
+import { useLocalization } from './localization.ts';
 import {
   MailboxScope,
   useDrafts,
@@ -93,152 +104,26 @@ interface InboxProps {
 const allInboxes: MailboxView = {};
 const keepView = () => undefined;
 
-// A row's organizing action at its provider.
-type RowAction = Readonly<{ name: string; label: string; run: () => void }>;
-const noActions: readonly RowAction[] = [];
-
-function MessageRow({
-  message,
-  mailbox,
-  status,
-  selected,
-  onSelect,
-  actions = noActions,
-}: {
-  readonly message: Message | GmailMessage | ImapMessage;
-  // Shown when the Inbox holds more than one mailbox.
-  readonly mailbox: string | undefined;
-  // Whether a search result's body is saved on this device, once known.
-  readonly status: string | undefined;
-  readonly selected: boolean;
-  readonly onSelect: () => void;
-  // The organizing actions its provider offers, as accessibility actions.
-  readonly actions?: readonly RowAction[] | undefined;
-}) {
-  const colors = usePalette();
-  const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
-  const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
-  const focusColor = selected ? colors.accentOnFill : colors.accentInk;
-  const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Pressable
-      accessibilityActions={actions.map(({ name, label }) => ({
-        name,
-        label,
-      }))}
-      accessibilityLabel={t('inbox.rowLabel', {
-        context: [
-          mailbox === undefined ? undefined : 'mailbox',
-          status === undefined ? undefined : 'status',
-        ]
-          .filter((part) => part !== undefined)
-          .join('_'),
-        row: t(message.unread ? 'inbox.unreadRow' : 'inbox.row', {
-          sender: message.sender,
-          subject: message.subject,
-        }),
-        mailbox,
-        status,
-      })}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      focusable
-      onAccessibilityAction={({ nativeEvent }) => {
-        actions.find(({ name }) => name === nativeEvent.actionName)?.run();
-      }}
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onSelect}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.surfaceContent,
-          borderColor: focused ? focusColor : 'transparent',
-        },
-        selected && { backgroundColor: colors.accentFill },
-      ]}>
-      {({ pressed }) => (
-        <>
-          <View style={styles.rowHeading}>
-            <Text
-              style={[
-                styles.sender,
-                {
-                  color: primaryColor,
-                  fontWeight: message.unread ? '600' : '400',
-                },
-              ]}
-              numberOfLines={1}>
-              {message.sender}
-            </Text>
-            <Text style={[styles.date, { color: secondaryColor }]}>
-              {dateFormat.format(new Date(message.receivedAt))}
-            </Text>
-          </View>
-          <View style={styles.subjectLine}>
-            {message.unread ? (
-              <View
-                style={[
-                  styles.unread,
-                  {
-                    backgroundColor: pressed
-                      ? colors.accentInk
-                      : colors.accentFill,
-                  },
-                  selected && { backgroundColor: colors.accentOnFill },
-                ]}
-              />
-            ) : null}
-            <Text
-              style={[
-                styles.subject,
-                {
-                  color: primaryColor,
-                  fontWeight: message.unread ? '600' : '400',
-                },
-              ]}
-              numberOfLines={1}>
-              {message.subject}
-            </Text>
-          </View>
-          <Text
-            style={[styles.preview, { color: secondaryColor }]}
-            numberOfLines={2}>
-            {message.preview}
-          </Text>
-          {mailbox === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {t('inbox.inMailbox', { mailbox })}
-            </Text>
-          )}
-          {status === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {status}
-            </Text>
-          )}
-        </>
-      )}
-    </Pressable>
+// The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
+const minute = 60_000;
+const subscribeMinute = (notify: () => void) => {
+  const timer = setInterval(notify, minute);
+  return () => {
+    clearInterval(timer);
+  };
+};
+const useNow = () =>
+  useSyncExternalStore(
+    subscribeMinute,
+    () => Math.floor(Date.now() / minute) * minute,
   );
-}
 
 // Names the mailbox a notice is about when the Inbox holds more than one.
 const about = (t: Translate, address: string | undefined, text: string) =>
   address === undefined ? text : t('inbox.about', { address, text });
 
-// Synchronization keeps the cached list visible and says why Gmail may be behind.
+// Synchronization keeps the cached list visible and says why the provider may be behind; the
+// heading's subtitle says while it is being checked.
 function SyncNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
@@ -250,7 +135,8 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
-    state.sync === 'current'
+    state.sync === 'current' ||
+    state.sync === 'syncing'
   ) {
     return null;
   }
@@ -259,40 +145,43 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     await authorize();
     await actions.load();
   };
+  if (state.sync === 'authentication') {
+    return (
+      <Notice
+        announce="polite"
+        icon="person.crop.circle.badge.exclamationmark"
+        iconColor={colors.statusWarning}
+        message={about(
+          t,
+          address,
+          t('gmailSync.authentication', { provider }),
+        )}>
+        {account !== undefined && mailbox !== undefined ? (
+          <Button
+            fill="accent"
+            label={t('common.allowAccess', { provider })}
+            onPress={() => {
+              void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
+            }}
+          />
+        ) : null}
+      </Notice>
+    );
+  }
   return (
-    <>
-      <Text
-        accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.textSecondary }]}>
-        {about(t, address, t(`gmailSync.${state.sync}`, { provider }))}
-      </Text>
-      {state.sync === 'authentication' &&
-      account !== undefined &&
-      mailbox !== undefined ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('common.allowAccess', { provider })}
-          </Text>
-        </Pressable>
-      ) : null}
-      {state.sync === 'retry' ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void (account === undefined
-              ? actions.load()
-              : account.refreshInbox(actions.load));
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('common.retry')}
-          </Text>
-        </Pressable>
-      ) : null}
-    </>
+    <Notice
+      announce="polite"
+      icon="wifi.slash"
+      message={about(t, address, t('gmailSync.retry', { provider }))}>
+      <Button
+        label={t('common.retry')}
+        onPress={() => {
+          void (account === undefined
+            ? actions.load()
+            : account.refreshInbox(actions.load));
+        }}
+      />
+    </Notice>
   );
 }
 
@@ -300,33 +189,25 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
 function MailboxStatus({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
-  const colors = usePalette();
   const { t } = useLocalization();
   return (
     <>
       {state.kind === 'failed' || state.kind === 'locked' ? (
-        <>
-          <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {about(
-              t,
-              address,
-              state.kind === 'locked'
-                ? t('storage.locked')
-                : t('storage.failed'),
-            )}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
+        <Notice
+          icon={state.kind === 'locked' ? 'lock' : 'exclamationmark.triangle'}
+          message={about(
+            t,
+            address,
+            state.kind === 'locked' ? t('storage.locked') : t('storage.failed'),
+          )}
+          messageRole="alert">
+          <Button
+            label={t('common.retry')}
             onPress={() => {
               void actions.load();
-            }}>
-            <Text style={[styles.notice, { color: colors.accentInk }]}>
-              {t('common.retry')}
-            </Text>
-          </Pressable>
-        </>
+            }}
+          />
+        </Notice>
       ) : null}
       <SyncNotice address={address} />
       <ImapNotice address={address} />
@@ -347,7 +228,8 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('imap' in state) ||
-    state.status === 'current'
+    state.status === 'current' ||
+    state.status === 'syncing'
   ) {
     return null;
   }
@@ -356,27 +238,33 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
       account?.openAccount();
     }
   };
-  return (
-    <>
-      <Text
-        accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.textSecondary }]}>
-        {about(t, address, t(`imapSync.${state.status}`))}
-      </Text>
-      {state.status === 'authentication' && account !== undefined ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void openAccount();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('mailboxes.enterPassword', {
+  if (state.status === 'authentication') {
+    return (
+      <Notice
+        announce="polite"
+        icon="person.crop.circle.badge.exclamationmark"
+        iconColor={colors.statusWarning}
+        message={about(t, address, t('imapSync.authentication'))}>
+        {account === undefined ? null : (
+          <Button
+            fill="accent"
+            label={t('mailboxes.enterPassword', {
               address: mailbox?.address ?? state.address,
             })}
-          </Text>
-        </Pressable>
-      ) : null}
-    </>
+            onPress={() => {
+              void openAccount();
+            }}
+          />
+        )}
+      </Notice>
+    );
+  }
+  return (
+    <Notice
+      announce="polite"
+      icon="wifi.slash"
+      message={about(t, address, t('imapSync.retry'))}
+    />
   );
 }
 
@@ -401,22 +289,19 @@ function AuthorizationNeeded({
   const { t } = useLocalization();
   const provider = t(`mailProviders.${mailProvider}`);
   return (
-    <View>
-      <Text
-        accessibilityLiveRegion="polite"
-        style={[styles.footer, { color: colors.textSecondary }]}>
-        {about(t, address, t('gmailSync.authentication', { provider }))}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
+    <Notice
+      announce="polite"
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('gmailSync.authentication', { provider }))}>
+      <Button
+        fill="accent"
+        label={t('mailboxes.allow', { address, provider })}
         onPress={() => {
           void onAllow();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('mailboxes.allow', { address, provider })}
-        </Text>
-      </Pressable>
-    </View>
+        }}
+      />
+    </Notice>
   );
 }
 
@@ -431,18 +316,17 @@ function ImapAuthorizationNeeded({
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <View>
-      <Text style={[styles.footer, { color: colors.textSecondary }]}>
-        {about(t, address, t('imapSync.authentication'))}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onRepair}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('mailboxes.enterPassword', { address })}
-        </Text>
-      </Pressable>
-    </View>
+    <Notice
+      announce="polite"
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('imapSync.authentication'))}>
+      <Button
+        fill="accent"
+        label={t('mailboxes.enterPassword', { address })}
+        onPress={onRepair}
+      />
+    </Notice>
   );
 }
 
@@ -564,7 +448,7 @@ function OnlineHeading({
 }
 
 // The shown mailbox's address, or what the list holds when it shows several or none.
-function subtitleOf(
+function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
   { several, gmail }: Readonly<{ several: boolean; gmail: boolean }>,
@@ -579,15 +463,45 @@ function subtitleOf(
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
 
+// A mailbox whose server could not be reached shows the mail saved on this device.
+const offline = (state: InboxMailbox['state']) =>
+  state.kind === 'ready' &&
+  (('sync' in state && state.sync === 'retry') ||
+    ('status' in state && state.status === 'retry'));
+
+// The subtitle's status: checking the server, cut off from it, or how much is unread.
+function statusOf(
+  t: Translate,
+  shown: readonly InboxMailbox[],
+  {
+    unread,
+    searchOffline,
+  }: Readonly<{
+    unread: number;
+    // An explicit online search that found a mail server unreachable.
+    searchOffline: boolean;
+  }>,
+) {
+  if (shown.some(({ state }) => checking(state))) {
+    return t('inbox.syncing');
+  }
+  if (searchOffline || shown.some(({ state }) => offline(state))) {
+    return t('inbox.offline');
+  }
+  return unread === 0
+    ? t('inbox.noUnread')
+    : t('inbox.unread', { count: unread });
+}
+
 // Section data lets the native list virtualize online pages together with saved rows.
 const searchSections = <T,>(
-  messages: readonly T[],
+  saved: ReadonlyArray<Readonly<{ key: string; data: readonly T[] }>>,
   online: Readonly<{
     searching: boolean;
     found?: Readonly<{ results: readonly T[] }> | undefined;
   }>,
 ) => [
-  { key: 'saved', data: messages },
+  ...saved,
   ...(online.found === undefined && !online.searching
     ? []
     : [{ key: 'gmail', data: online.found?.results ?? [] }]),
@@ -605,7 +519,7 @@ function inboxSections<M>({
   outbox: readonly OutboxEntry[];
   canCompose: boolean;
   drafts: readonly Draft[];
-  messages: readonly M[];
+  messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
   online: Readonly<{
     searching: boolean;
     found?: Readonly<{ results: readonly M[] }> | undefined;
@@ -624,6 +538,54 @@ function inboxSections<M>({
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
     ...searchSections<OutboxItem | DraftItem | M>(messages, online),
   ];
+}
+
+const hasNoMail = ({
+  ready,
+  syncing,
+  count,
+}: Readonly<{ ready: boolean; syncing: boolean; count: number }>) =>
+  ready && !syncing && count === 0;
+
+// A mail server an explicit online search could not reach, which the subtitle reports as Offline.
+const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
+  search.found?.failures.some(({ reason }) => reason === 'offline') === true;
+
+function headingOf(
+  t: Translate,
+  {
+    scope,
+    folder,
+    scopeName,
+    status,
+    shown,
+    results,
+    search,
+  }: Readonly<{
+    scope: string | undefined;
+    folder: string | undefined;
+    scopeName: string;
+    status: string;
+    shown: readonly InboxMailbox[];
+    results: readonly unknown[] | undefined;
+    search: ReturnType<typeof useGmailSearch>;
+  }>,
+) {
+  const title =
+    results === undefined
+      ? (folder ??
+        t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title'))
+      : t('search.title');
+  const subtitle =
+    results === undefined ||
+    searchOffline(search) ||
+    shown.some(({ state }) => checking(state) || offline(state))
+      ? t('inbox.subtitleLabel', { scope: scopeName, status })
+      : t(ipad ? 'search.subtitleRegular' : 'search.subtitleCompact', {
+          count: results.length + (search.found?.results.length ?? 0),
+          scope: scopeName,
+        });
+  return { title, subtitle, emptyScope: folder ?? scopeName };
 }
 
 export function Inbox({
@@ -681,7 +643,7 @@ export function Inbox({
     () => inboxMessages(mailboxes, scoped),
     [mailboxes, scoped],
   );
-  const { listed, failed } = useImapFolder(shown, inboxListed, {
+  const { folder, listed, failed } = useImapFolder(shown, inboxListed, {
     view,
     onView,
   });
@@ -697,11 +659,16 @@ export function Inbox({
   );
   const online = useGmailSearch(shown, searched, scoped);
   const messages = results ?? listed;
+  const now = useNow();
+  const dated = useMemo(
+    () => messageDateSections(messages, now),
+    [messages, now],
+  );
   const sections = inboxSections({
     outbox,
     canCompose: onCompose !== undefined,
     drafts,
-    messages,
+    messages: dated,
     online,
     searching: results !== undefined,
   });
@@ -712,7 +679,20 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
-  const subtitle = subtitleOf(t, shown, { several, gmail });
+  const scopeName = scopeOf(t, shown, { several, gmail });
+  const status = statusOf(t, shown, {
+    unread: listed.filter(({ message }) => message.unread).length,
+    searchOffline: searchOffline(online),
+  });
+  const { title, subtitle, emptyScope } = headingOf(t, {
+    scope,
+    folder: folder === inboxFolder ? undefined : folder,
+    scopeName,
+    status,
+    shown,
+    results,
+    search: online,
+  });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
     mailbox: InboxMailbox,
@@ -764,13 +744,25 @@ export function Inbox({
     return [];
   };
   const empty =
-    results === undefined && gmail && syncing ? (
-      <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
+    results === undefined ? (
+      <View style={styles.empty}>
+        <View style={styles.emptyIcon}>
+          <SFSymbol
+            name="tray.2"
+            size={emptySymbolSize}
+            color={colors.textSecondary}
+          />
+        </View>
+        <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+          {t('inbox.empty')}
+        </Text>
+        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+          {t('inbox.emptyDetail', { scope: emptyScope })}
+        </Text>
+      </View>
     ) : (
       <Text style={[styles.notice, { color: colors.textSecondary }]}>
-        {results === undefined
-          ? t('inbox.empty')
-          : t('search.empty', { query: searched })}
+        {t('search.empty', { query: searched })}
       </Text>
     );
   return (
@@ -782,54 +774,59 @@ export function Inbox({
           <View style={styles.headingText}>
             <Text
               accessibilityRole="header"
+              numberOfLines={1}
               style={[styles.title, { color: colors.textPrimary }]}>
-              {t('inbox.title')}
+              {title}
             </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {subtitle}
-            </Text>
+            <View style={styles.subtitle}>
+              <Text
+                accessibilityLiveRegion="polite"
+                numberOfLines={1}
+                style={[styles.subtitleText, { color: colors.textSecondary }]}>
+                {subtitle}
+              </Text>
+            </View>
           </View>
         </View>
         {failed ? (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.textSecondary }]}>
-            {t('imap.foldersUnavailable')}
-          </Text>
+          <Notice
+            icon="exclamationmark.triangle"
+            message={t('imap.foldersUnavailable')}
+            messageRole="alert"
+          />
         ) : null}
-        {shown.some(({ state }) => state.kind === 'loading') ? (
-          <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
-        ) : null}
-        {shown.map((mailbox) => (
-          <MailboxScope
-            key={mailbox.id}
-            id={mailbox.id}>
-            <MailboxStatus address={several ? mailbox.address : undefined} />
-          </MailboxScope>
-        ))}
-        {waiting.map((mailbox) =>
-          mailbox.provider === 'imap' ? (
-            <ImapAuthorizationNeeded
+        <View style={styles.notices}>
+          {shown.map((mailbox) => (
+            <MailboxScope
               key={mailbox.id}
-              address={mailbox.address}
-              onRepair={() => {
-                if (account !== undefined) {
-                  void openAccount(account.openAccount);
-                }
-              }}
-            />
-          ) : (
-            <AuthorizationNeeded
-              key={mailbox.id}
-              address={mailbox.address}
-              provider={mailbox.provider}
-              onAllow={async () => {
-                await account?.authorizeMailbox(mailbox.id);
-                await reload();
-              }}
-            />
-          ),
-        )}
+              id={mailbox.id}>
+              <MailboxStatus address={several ? mailbox.address : undefined} />
+            </MailboxScope>
+          ))}
+          {waiting.map((mailbox) =>
+            mailbox.provider === 'imap' ? (
+              <ImapAuthorizationNeeded
+                key={mailbox.id}
+                address={mailbox.address}
+                onRepair={() => {
+                  if (account !== undefined) {
+                    void openAccount(account.openAccount);
+                  }
+                }}
+              />
+            ) : (
+              <AuthorizationNeeded
+                key={mailbox.id}
+                address={mailbox.address}
+                provider={mailbox.provider}
+                onAllow={async () => {
+                  await account?.authorizeMailbox(mailbox.id);
+                  await reload();
+                }}
+              />
+            ),
+          )}
+        </View>
         <SectionList
           accessibilityLabel={t('inbox.messages')}
           contentContainerStyle={styles.list}
@@ -842,12 +839,23 @@ export function Inbox({
             if (section.key === 'drafts') {
               return <DraftHeading />;
             }
-            return section.key === 'gmail' ? (
-              <OnlineHeading
-                search={online}
-                several={several}
+            if (section.key === 'gmail') {
+              return (
+                <OnlineHeading
+                  search={online}
+                  several={several}
+                />
+              );
+            }
+            const [first] = section.data;
+            return section.key === 'saved' ||
+              first === undefined ||
+              !('message' in first) ? null : (
+              <DateDivider
+                receivedAt={first.message.receivedAt}
+                now={now}
               />
-            ) : null;
+            );
           }}
           extraData={rows}
           keyExtractor={(item) => {
@@ -861,6 +869,11 @@ export function Inbox({
           ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
           ListFooterComponent={
             <>
+              {results === undefined &&
+              hasNoMail({ ready, syncing, count: messages.length })
+                ? empty
+                : null}
+              {results === undefined && syncing ? <SkeletonRows /> : null}
               <OnlineResults
                 query={searched}
                 search={online}
@@ -871,8 +884,9 @@ export function Inbox({
               </Text>
             </>
           }
+          ListFooterComponentStyle={styles.listFooter}
           renderSectionFooter={({ section }) =>
-            section.key === 'saved' && messages.length === 0 && ready
+            section.key === 'saved' && ready && results !== undefined
               ? empty
               : null
           }
@@ -896,10 +910,11 @@ export function Inbox({
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
                 actions={
-                  section.key === 'saved'
-                    ? rowActions(item.mailbox, item.message)
-                    : undefined
+                  section.key === 'gmail'
+                    ? undefined
+                    : rowActions(item.mailbox, item.message)
                 }
+                now={now}
                 onSelect={() => {
                   void select({
                     mailbox: item.mailbox.id,

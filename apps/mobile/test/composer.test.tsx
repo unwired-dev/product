@@ -728,16 +728,14 @@ describe('composing Drafts', () => {
       screen.findByRole('button', { name }),
     ).resolves.toBeOnTheScreen();
     expect(screen.getByLabelText('Loading Inbox')).toBeOnTheScreen();
-    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No Mail')).not.toBeOnTheScreen();
     expect(
       screen.queryByLabelText('Search senders and subjects'),
     ).not.toBeOnTheScreen();
     await act(async () => {
       release();
     });
-    await expect(
-      screen.findByText('Your inbox is clear.'),
-    ).resolves.toBeOnTheScreen();
+    await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
     expect(screen.getByRole('button', { name })).toBeOnTheScreen();
   });
 
@@ -778,7 +776,7 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No Mail')).not.toBeOnTheScreen();
     await search('Synthetic message 0');
     const resultName =
       'Unread. Maya Chen. Synthetic message 0. Downloads from the mail server when opened';

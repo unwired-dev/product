@@ -132,7 +132,14 @@ so `from:a+b@example.com` keeps its plus sign.
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
 address, subject, Gmail's snippet, received time, unread state and Gmail's label
-IDs. Opening a message shows its body, as described in
+IDs. Rows are grouped under Today, Yesterday, Last Week and month dividers by
+the UTC day they arrived; a row shows the time today, Yesterday for the prior
+day, the weekday within the last week and the date before that, with Gmail's
+star as its flag. The list
+header's subtitle names the shown mailboxes and the unread count, or Syncing or
+Offline while the server is being checked or cannot be reached. Search changes
+the title to Search and the subtitle to the displayed saved and online result
+count; Syncing and Offline still take precedence. Opening a message shows its body, as described in
 [Reading messages](#reading-messages). The detail view also shows the message's
 own labels and the [organizing actions](#organizing-mail).
 
