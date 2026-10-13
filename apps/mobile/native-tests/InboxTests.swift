@@ -680,7 +680,8 @@ final class InboxTests: XCTestCase {
   }
 
   private func inboxJourney(_ app: XCUIApplication) {
-    XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
+    let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
+    XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
