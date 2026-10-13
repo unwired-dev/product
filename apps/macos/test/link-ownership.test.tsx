@@ -4,7 +4,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { Clipboard, Linking } from 'react-native';
+import { Clipboard, Linking, View } from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import {
@@ -186,6 +186,70 @@ describe('queued message link privacy', () => {
 describe.each(['gmail', 'imap'] as const)(
   '%s message link ownership at commit',
   (provider) => {
+    it.each(['message', 'account'] as const)(
+      'keeps the replacement reader confirmation through old passive cleanup after %s changes',
+      async (transition) => {
+        expect.hasAssertions();
+        const mailbox = linkMailbox(provider);
+        const id = mailbox.deliver(
+          `<a href="${oldHref}">https://bank.invalid</a>`,
+        );
+        const nextHref = 'https://next.invalid/reader';
+        const next = mailbox.deliver(`<a href="${nextHref}">Next link</a>`);
+        const other = linkMailbox(provider, 'another@example.invalid');
+        const sameId = other.deliver(`<a href="${nextHref}">Next link</a>`);
+        await mailbox.store.load();
+        await other.store.load();
+        const replacement = {
+          message: { store: mailbox.store, id: next },
+          account: { store: other.store, id: sameId },
+        }[transition];
+        const app = await render(
+          <LinkConfirmationProvider
+            inbox={mailbox.store}
+            id={id}>
+            <View key="old">{reader(mailbox.store, id)}</View>
+            <View key="replacement">
+              {reader(replacement.store, replacement.id)}
+            </View>
+          </LinkConfirmationProvider>,
+        );
+        try {
+          expect(sameId).toBe(id);
+          await screen.findByRole('link', {
+            name: 'Open link: https://bank.invalid',
+          });
+          const chooseNext = pressHandler(
+            await screen.findByRole('link', { name: 'Open link: Next link' }),
+          );
+          const retainedAtCommit: boolean[] = [];
+          await app.rerender(
+            <LinkConfirmationProvider
+              inbox={replacement.store}
+              id={replacement.id}>
+              <View key="replacement">
+                {reader(replacement.store, replacement.id)}
+              </View>
+              <CommitProbe
+                inspect={() => {
+                  retainedAtCommit.push(
+                    mailbox.store.messageBody(id)?.kind === 'ready',
+                  );
+                  chooseNext();
+                }}
+              />
+            </LinkConfirmationProvider>,
+          );
+          expect(retainedAtCommit).toStrictEqual([true]);
+          expect(screen.getByText(nextHref)).toBeVisible();
+          await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+          expect(screen.queryByText(nextHref)).toBeNull();
+        } finally {
+          await app.unmount();
+        }
+      },
+    );
+
     it.each(['message', 'account'] as const)(
       'hides the old destination and rejects queued input before passive cleanup after %s changes',
       async (transition) => {

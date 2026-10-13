@@ -3203,19 +3203,58 @@ describe('replying to and forwarding from the reader', () => {
     }
   });
 
-  it('does not open a new message after its compact reader closes during creation', async () => {
+  it('uses a sending mailbox in the compact reader Profile and does not open after the reader closes during creation', async () => {
     expect.hasAssertions();
     const regular = Dimensions.get('window');
     Dimensions.set({ window: { ...regular, width: 390, height: 844 } });
-    const registration = account(connected(['alex@example.invalid']));
+    const initial = connected([
+      'other@example.invalid',
+      'alex@example.invalid',
+    ]);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+        {
+          id: alex,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          profile: 'work',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'imap' },
+          state: 'connected',
+        },
+      ]),
+    });
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
-    const gmail = createSyntheticGmail({ messages: 0 });
-    const message = gmail.deliver({ content: { text: 'Read me.' } });
-    const mailboxes = createMailboxes(
-      syntheticConnections({ [alex]: gmail }),
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    const message = `7.${imap.deliver('INBOX', {
+      subject: 'Compact reader sender fallback',
+      body: 'Read me.',
+    })}.INBOX`;
+    const connections = createMailboxes(
+      syntheticConnections(
+        {
+          [alex]: createSyntheticGmail({ messages: 0 }),
+          [other]: createSyntheticGmail({
+            address: 'other@example.invalid',
+            messages: 0,
+          }),
+        },
+        { imap: imap.native },
+      ),
       registration,
     );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
     const onCompose = jest.fn();
     try {
       const reader = await render(
@@ -3229,11 +3268,13 @@ describe('replying to and forwarding from the reader', () => {
           <InboxProvider
             drafts={drafts}
             mailboxes={mailboxes}>
-            <MessageDetail
-              id={message}
-              mailbox={alex}
-              onCompose={onCompose}
-            />
+            <ProfileScope profile="work">
+              <MessageDetail
+                id={message}
+                mailbox="imap"
+                onCompose={onCompose}
+              />
+            </ProfileScope>
           </InboxProvider>
         </AccountContext>,
       );
@@ -3251,6 +3292,9 @@ describe('replying to and forwarding from the reader', () => {
           save: 'saving',
         });
       });
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { connection: alex, from: 'alex@example.invalid' },
+      ]);
       await reader.unmount();
       await act(async () => {
         storage.release();

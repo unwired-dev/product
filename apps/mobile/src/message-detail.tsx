@@ -799,12 +799,16 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
-  // A new message sends from the reader's mailbox when it can.
+  // A new message sends from the reader's mailbox when it can, or the first one in its Mail
+  // Profile that can, as the Inbox's New Message does.
   const mailboxes = account?.mailboxes ?? [];
-  const sender = sendingMailboxes(
+  const senders = sendingMailboxes(
     mailboxes,
     profileOf(mailbox?.id, mailboxes),
-  ).find(({ id: candidate }) => candidate === mailbox?.id);
+  );
+  const sender =
+    senders.find(({ id: candidate }) => candidate === mailbox?.id) ??
+    senders[0];
 
   if (state.kind === 'loading') {
     return (

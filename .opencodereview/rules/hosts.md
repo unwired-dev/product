@@ -278,6 +278,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
 
+- `message-detail.tsx.MailboxMessage` offering compact New Message only when the
+  opened mailbox can send. Use the eligible senders in that reader's Mail Profile,
+  preferring the opened mailbox and otherwise the same first sender as the Inbox.
+  Exercise a read-only IMAP mailbox beside an eligible sender, with an earlier
+  sender in another Profile; otherwise the compact reader hides a supported
+  action or creates a Draft in the wrong Profile. Preserve unavailable Draft
+  storage and retired-reader creation fences.
+
 - `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
