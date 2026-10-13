@@ -19,10 +19,8 @@ Read the issue, [documentation index](docs/README.md), relevant
 Follow the [implementation and review workflow](docs/agents/implementation-review.md)
 for every implementation, including later implementation fixes.
 
-- When ChatGPT/Codex starts a subagent, use only GPT models. The
-  [decision panel](docs/agents/implementation-review.md#decision-panel) is the
-  only exception. Follow the workflow's [subagent model policy](docs/agents/implementation-review.md#subagent-model-policy)
-  for delegated and nested work.
+- Before ChatGPT/Codex delegates work, follow the workflow's
+  [subagent model policy](docs/agents/implementation-review.md#subagent-model-policy).
 - The implementer never reads repository architecture documentation, including
   `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
