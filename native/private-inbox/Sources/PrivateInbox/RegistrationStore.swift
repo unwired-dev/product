@@ -243,6 +243,8 @@ struct SavedRegistration: Codable {
   var identityCredential: Data
   var contactEmail: String?
   var product: ProductRegistrationReceipt?
+  // Profile metadata survives replacement of the key-ring vault during authorized re-enrollment.
+  var profiles: Data?
   // The single mailbox of records written before Mailbox Connections; read as one connection.
   var mailboxCredential: Data?
   var mailbox: GmailRegistrationReceipt?
@@ -462,6 +464,11 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     } catch {
       Self.logProductSyncFailure("Product Sync state unreadable", error)
       result["productSync"] = "unreadable"
+    }
+    // Mail Profile state is saved apart from the keys, so confirmed ownership stays known while
+    // they are unreadable; unreadable state itself is reported rather than taken for none.
+    if let profiles = saved.profiles {
+      result["profiles"] = (try? JSONSerialization.jsonObject(with: profiles)) ?? "unreadable"
     }
     return result
   }

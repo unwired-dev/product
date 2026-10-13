@@ -476,6 +476,73 @@ purge retains watch, credential and cache cleanup custody. The shared registrati
 store serializes host actions; the bridge gate serializes each native operation.
 The remaining #758–#759 migrations authorize no new native application subsystem.
 
+## Synchronized Mail Profiles
+
+Issue #920 adds independently updated `profile.` definitions and `mailbox-profile.`
+ownership records without changing the mailbox descriptor format. Native derives
+each opaque identifier with the existing first-epoch HMAC: the Profile identity
+for a definition, and the descriptor's opaque record identifier for ownership.
+Opening verifies that the authenticated content derives the served identifier.
+Definitions carry an authenticated write version and an optional name; absence
+of that name is a removal tombstone. Ownership names a descriptor epoch, so a
+later incarnation starts in Default. The Default Profile has no record.
+
+`mail-profiles.ts` owns listing, merging and CAS publication. The account's
+device-only `SavedRegistration.profiles` retains the confirmed records and version
+floors, plus pending names. Lower authenticated versions are read-only even under
+a newer unauthenticated row revision. Absent or unreadable ownership retains the
+last confirmed owner. Pending names survive a CAS loss and apply to the winner on
+the next pass; a remote tombstone drops them. Removal publishes a tombstone even
+for a never-confirmed Profile, fencing a delayed first publication. Removal also
+refuses unknown ownership, unreadable descriptors or an omitted owned descriptor
+instead of assuming emptiness. Online lifecycle writes require an authenticated
+CAS winner matching each write's identifier and ciphertext, with unique and
+complete returned records for a claimed commit; an unreadable winner leaves publication
+pending and a move or removal unavailable.
+A move into a non-Default Profile atomically rewrites that Profile's definition
+alongside ownership, incrementing its version while retaining its stored name and
+any pending local rename. Both writes use their observed row revisions, so a
+concurrent removal and move cannot both commit. Moving to Default writes only
+ownership. The fence was selected by the #920 review panel, 2–1, over documenting
+the disjoint-record race as a limitation. Connections already owned by a removed
+Profile still project into Default. A device that never observed a newer version
+retains the existing backend rollback limitation.
+Each authenticated listing page and CAS winner is persisted before later fallible work,
+including the next page or record namespace's query.
+Publication and lifecycle callers therefore need no separate save step, and a
+later refusal cannot discard a confirmed version floor.
+
+The review panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`) chose retaining
+confirmed ownership through ciphertext omission over projecting Default while
+retaining a separate version floor, 3–0. Initial absent ownership still means
+Default; omission of an already confirmed record is unknown, not an authenticated
+move. Moving back to Default writes explicit ownership.
+
+The #920 review panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`) chose
+the optional registration field over a separate Profile Keychain item, 3–0.
+Registration survives authorized re-enrollment while the key-ring vault is
+replaced; keeping authored metadata outside that replaceable vault preserves
+pending identities and edits without another purge boundary. Registration projects
+`profiles` independently of the key-dependent `productSync` result; malformed
+saved bytes report `unreadable` rather than absence. Pending devices cannot
+record or publish Profiles; account purge removes the registration and metadata.
+
+The round-5 #920 review panel unanimously chose a reversible account-wide local
+quarantine over persisting a second connection-to-descriptor mapping. When saved
+Profile state is unreadable, or a key vault is absent/unreadable while saved state
+confirms a non-Default owner, every device connection projects the reserved
+`unavailable` owner. `readingProfile` rejects that selector. Accounts without a
+confirmed non-Default owner keep Default when only keys are unreadable. Readability
+restores the original owners without a write or cleanup; quarantine changes no
+stored connection, Draft, Outbox payload or originating-device delivery rule.
+This favors isolation over temporary Default-connection availability and avoids
+another persistence/incarnation-cleanup boundary in #920. #921/#922 still own the
+remaining caller, presentation and lifetime qualification before app enablement.
+
+Issue #921 owns the remaining Profile Record Scope callers, and #922 owns app
+controls, window restoration and incompatible-client fencing. Neither host offers
+Profile creation in #920.
+
 ## Synchronized Draft records and assets
 
 Issue #614 keeps merge orchestration in the framework-independent TypeScript Draft

@@ -439,6 +439,51 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   address updates and subsequent removals cannot extend an old grant to another
   incarnation; otherwise concurrent additions lose valid mail or resurrect
   authorization after removal.
+- `mail-profiles.ts.move` writing only connection ownership while concurrent
+  `remove` checks the target Profile before tombstoning a different record. A
+  read-time empty check cannot prevent both disjoint writes from committing.
+  For a non-Default target, conditionally rewrite its stored definition and
+  ownership in one atomic transaction; preserve a pending local rename and the
+  stored name. Exercise both commit orders, including no partial ownership write
+  when the move loses. Keep moves to Default independent of a Profile record.
+- `product-sync.ts.writeAll` or `mail-profiles.ts.wrote` accepting duplicate,
+  missing or unrelated returned records as proof of an atomic commitment.
+  Require unique requested identifiers and complete returned coverage for a
+  claimed commit, and compare each authenticated winner with its corresponding
+  sealed write. A duplicate authentic record cannot prove another write; exercise
+  a reply that repeats the Profile fence while omitting connection ownership.
+- `mail-profiles.ts.remove` treating an owned descriptor omitted from
+  `product-sync.ts`'s listing as proof that its connection is no longer live.
+  Keep absent and unreadable descriptors unknown; require an authenticated
+  tombstone or a different incarnation before discounting retained ownership.
+  Exercise omission separately from an unreadable listed record. Otherwise
+  removal can tombstone a Profile that still owns live mail and project it into
+  Default.
+- `mail-profiles.ts.put` or `commit` reporting CAS success from matching
+  ciphertext before the stored winner opens under its authenticated envelope
+  and record identity. Preserve unknown winners as unavailable for online
+  lifecycle actions and pending for publication, and distinguish a readable
+  competing winner. Exercise altered authenticated envelope fields with unchanged
+  ciphertext; otherwise a move or removal reports success without authenticated
+  evidence of the write.
+- `mail-profiles.ts` retaining authenticated listing or CAS results only until
+  the entire read or publication batch succeeds. Persist each page's confirmed
+  records and version floors before requesting another page or record namespace,
+  or before another publication can fail, including valid records read
+  alongside a replayed one. Otherwise a later unrelated refusal can erase a
+  learned removal or ownership change and admit an older authenticated replay
+  after relaunch. Exercise failed pagination and a failed ownership listing after
+  definitions, interrupted reads-to-publication, and a successful CAS followed by
+  another failed publication.
+- `mail-profiles.ts.profileOwners` treating unavailable Private Sync keys or
+  unreadable saved Profile state as absent ownership. Keep independently saved
+  ownership separate from the key projection; if this device cannot map a
+  confirmed non-Default owner to its connections, quarantine the connections
+  locally rather than assigning Default. Reject the quarantine selector through
+  `readingProfile`, and verify mixed Default/moved connections recover their
+  owners after readability returns. Never persist the quarantine as ownership
+  or alter connection, Draft or delivery identity; otherwise key failure exposes
+  another Profile's mail or turns transient unavailability into data loss.
 - `product-sync.ts` mailbox reconciliation acknowledging a queued removal from absent or unreadable
   ciphertext, or discarding removal intent on a pre-publication re-add. Require a
   read-back tombstone or an authoritative superseding incarnation, preserve

@@ -230,6 +230,13 @@ including deletion tombstones, and their files as verified encrypted chunks.
 All writes retain compare-and-set. Uploaded files remain encrypted until Product
 Account deletion so offline conflicting copies can recover them.
 
+[Mail Profile](private-inbox-storage.md#mail-profiles) definitions and connection
+ownership synchronize as sealed `profile.` and `mailbox-profile.` records. Native code
+owns sealing and opening them under their opaque identifiers, so Convex learns neither
+Profile names nor which Profile owns a connection. Older clients never list these
+prefixes, so they can neither rewrite nor corrupt them. Mailbox descriptions keep
+their unchanged format.
+
 Every description a device cannot open or decode is read-only. This includes
 newer formats, missing keys and failed authentication. The device neither shows
 nor replaces it, and an unreadable description cannot acknowledge a removal.
