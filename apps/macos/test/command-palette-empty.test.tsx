@@ -26,16 +26,15 @@ describe('command palette no-results accessibility', () => {
       screen.getByLabelText('Command Palette'),
       'zzzzzz',
     );
-    expect(
-      screen.getByRole('text', { name: 'No matching commands' }),
-    ).toHaveProp('accessibilityLabel', 'No matching commands');
+    expect(screen.getByLabelText('No matching commands')).toHaveProp(
+      'accessible',
+      true,
+    );
     await fireEvent.changeText(
       screen.getByLabelText('Command Palette'),
       'inbox',
     );
-    expect(
-      screen.queryByRole('text', { name: 'No matching commands' }),
-    ).toBeNull();
+    expect(screen.queryByLabelText('No matching commands')).toBeNull();
     expect(screen.getByRole('button', { name: 'Go to Inbox' })).toBeVisible();
   });
 });

@@ -756,7 +756,9 @@ export function RegistrationGate({
     snapshot.kind === 'device-pending',
     locked === true,
   ]);
-  useCommandScope(JSON.stringify([preview, assistanceScope, profile]));
+  useCommandScope(
+    JSON.stringify([preview, assistanceScope, inboxAccount, profile]),
+  );
   useEffect(() => {
     if (!preview) {
       void mailAssistance.load(assistanceScope);

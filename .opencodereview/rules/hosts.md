@@ -121,6 +121,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   before `ResponseActions` mounts; keep a target-bound registration with that
   reader's persistent owner so recovery cannot strand a targetless Inbox fallback.
 
+- `message-detail.tsx.ResponseActions` fencing delayed Reply, Reply All or
+  Forward only on mounted state or message identity. Capture the committed Product
+  Account ID, Profile, mailbox/message, response owner, Inbox, Draft store and
+  navigation coordinator; use that same lifetime for preparation, post-await
+  composing, progress, errors and the starting latch. Routine context updates
+  within the same Account must still complete. Exercise held response creation
+  through both button and palette entry with a mounted reader and unchanged sender
+  on Account replacement, plus same-Account updates. Otherwise the old completion
+  can open a retired Account or clear or poison a replacement response's state.
+  Keep the coordinator's empty-only provisional-Draft cleanup and retention of
+  prepared or authored Drafts; lifetime refusal does not authorize their deletion.
+
 - `message-detail.tsx.ResponseActions` or another command owner swallowing a
   rejected action into the same false result used for cancellation. Trace failures
   through both the reader button and the open palette: failures must reach visible
@@ -163,11 +175,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   the previous folder.
 
 - `command-palette.tsx` retaining a captured mailbox picker after the owning
-  Registration gate changes Account, Profile or lock/admission state. Disabled
-  execution alone does not retire captured mailbox addresses; close that
-  presentation at the ownership boundary and exercise Account removal with a
-  real Registration store. Retire the host's running-command session at that
-  boundary too, without restoring the retired owner's focus. Settle a delayed
+  Registration gate changes Account, Profile or lock/admission state. Include
+  lost Inbox admission within the same Account, such as connected-to-mailbox-needed
+  recovery after storage verification fails; stable identity alone cannot retire
+  that execution. Disabled execution alone does not retire captured mailbox
+  addresses; close that presentation at the ownership boundary and exercise
+  Account removal with a real Registration store. Retire the host's
+  running-command session at that boundary too, without restoring the retired
+  owner's focus. Settle a delayed
   success and failure before and after reopening; a later opening already fences
   old results, but a direct store close can still restore stale focus before it.
   Release the retired execution's busy latch immediately, and let settlement
@@ -179,8 +194,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   owner.
 
 - `command-palette.tsx.close` releasing a running command on ordinary dismissal.
-  Only Account, Profile or lock retirement may release the busy latch early;
-  reopening after Cancel or Escape must wait for the original token to settle.
+  Only Account, Profile or lock/admission retirement may release the busy latch
+  early; reopening after Cancel or Escape must wait for the original token to
+  settle.
   Exercise held Settings New Message creation through dismissal and reopening,
   checking one actual Draft and no second queued creation before settlement;
   otherwise dismissal admits duplicate work while the first command still runs.

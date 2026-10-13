@@ -421,13 +421,17 @@ describe('command palette interactions', () => {
   });
 
   it.each([
-    ['success', false, 0],
-    ['failure', false, 0],
-    ['success', true, 1],
-    ['failure', true, 1],
+    ['locked', 'success', false, 0],
+    ['locked', 'failure', false, 0],
+    ['locked', 'success', true, 1],
+    ['locked', 'failure', true, 1],
+    ['unavailable', 'success', false, 0],
+    ['unavailable', 'failure', false, 0],
+    ['unavailable', 'success', true, 1],
+    ['unavailable', 'failure', true, 1],
   ] as const)(
-    'retires a pending command when its Account locks, outcome=%s, reopened=%s',
-    async (outcome, reopened, newExecutions) => {
+    'retires a pending command after %s storage, outcome=%s, reopened=%s',
+    async (code, outcome, reopened, newExecutions) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession('registration-success');
       const connected = {
@@ -508,11 +512,17 @@ describe('command palette interactions', () => {
           );
           restore = () =>
             Promise.reject(
-              Object.assign(new Error('Locked'), { code: 'locked' }),
+              Object.assign(new Error('Storage unavailable'), { code }),
             );
           await act(async () => {
             await registration.resume();
           });
+          expect(registration.getSnapshot()).toMatchObject(
+            {
+              locked: { locked: true },
+              unavailable: { snapshot: { kind: 'mailbox-needed' } },
+            }[code],
+          );
           expect(screen.queryByLabelText('Command Palette')).toBeNull();
           expect(screen.getByTestId('command-palette-host')).toHaveProp(
             'presentation',

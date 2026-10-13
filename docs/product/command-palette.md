@@ -124,6 +124,9 @@ and bulk actions; they do not describe the current integration.
 - Back returns from the picker to the command list.
 - Palette commands use the same confirmations, Undo, and error behavior as the
   corresponding buttons or menus.
+- Pending Reply, Reply All and Forward keep their initiating Product Account,
+  Profile, reader and Draft store. A retired completion cannot open a composer or
+  change the new scope's response progress or error state.
 - Navigation waiting for composer exit checks the Product Account identity again
   before opening its destination. Routine status updates within the same admitted
   Account do not retire that navigation.
@@ -133,6 +136,9 @@ and bulk actions; they do not describe the current integration.
 
 ## Closing and reopening
 
+- Losing Inbox admission retires pending palette execution even when the Product
+  Account identity has not changed. Recovery can execute fresh commands without
+  waiting for an operation from the retired admission.
 - Cancel, an outside click or tap, or Escape dismisses the palette. Within a
   parameter picker, Escape first returns to the command list.
 - Dismissing restores the previous focus. Successfully running a command closes

@@ -378,22 +378,43 @@ function ResponseActions({
   const navigation = useComposerNavigation();
   const account = use(AccountContext);
   const mailbox = useMailbox();
+  const profile = useProfile();
+  const accountId = account?.productAccountId;
+  const mailboxId = mailbox?.id;
+  const messageId = message.id;
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
-  const mounted = useRef(true);
-  const starting = useRef(false);
-  const [pending, setPending] = useState<ResponseKind | undefined>();
-  const [failed, setFailed] = useState(false);
+  const lifetime = useMemo(
+    () => ({
+      accountId,
+      profile,
+      mailboxId,
+      messageId,
+      owner,
+      inbox,
+      store,
+      navigation,
+    }),
+    [accountId, profile, mailboxId, messageId, owner, inbox, store, navigation],
+  );
+  const mounted = useRef<object | undefined>(undefined);
+  const starting = useRef<object | undefined>(undefined);
+  const [operation, setOperation] = useState<
+    Readonly<{ lifetime: object; kind: ResponseKind }> | undefined
+  >();
+  const pending = operation?.lifetime === lifetime ? operation.kind : undefined;
+  const [failure, setFailure] = useState<object | undefined>();
+  const failed = failure === lifetime;
   const source = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
   useLayoutEffect(() => {
-    mounted.current = true;
+    mounted.current = lifetime;
     return () => {
-      mounted.current = false;
+      mounted.current = undefined;
     };
-  }, []);
+  }, [lifetime]);
   const mailboxes = account?.mailboxes ?? [];
   const sender = sendingMailboxes(
     mailboxes,
@@ -444,15 +465,15 @@ function ResponseActions({
   });
   const start = async (kind: ResponseKind) => {
     if (
-      !mounted.current ||
-      starting.current ||
+      mounted.current !== lifetime ||
+      starting.current === lifetime ||
       inbox.responseSource(message.id) !== source
     ) {
       return false;
     }
-    starting.current = true;
-    setPending(kind);
-    setFailed(false);
+    starting.current = lifetime;
+    setOperation({ lifetime, kind });
+    setFailure(undefined);
     let completed = false;
     try {
       const draft = await startResponse(
@@ -464,25 +485,25 @@ function ResponseActions({
           message,
           received,
           mailboxes: account?.mailboxes ?? [sender],
-          current: () => mounted.current,
+          current: () => mounted.current === lifetime,
         },
       );
-      if (mounted.current && draft !== undefined) {
+      if (mounted.current === lifetime && draft !== undefined) {
         onCompose(draft);
         completed = true;
       }
     } catch (error) {
-      starting.current = false;
-      if (mounted.current) {
-        setPending(undefined);
+      if (mounted.current === lifetime) {
+        starting.current = undefined;
+        setOperation(undefined);
         throw error;
       }
       return false;
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
-    starting.current = false;
-    if (mounted.current) {
-      setPending(undefined);
+    if (mounted.current === lifetime) {
+      starting.current = undefined;
+      setOperation(undefined);
     }
     return completed;
   };
@@ -490,8 +511,8 @@ function ResponseActions({
     try {
       await start(kind);
     } catch {
-      if (mounted.current) {
-        setFailed(true);
+      if (mounted.current === lifetime) {
+        setFailure(lifetime);
       }
     }
   };
