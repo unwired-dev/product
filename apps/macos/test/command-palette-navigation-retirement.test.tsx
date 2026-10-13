@@ -17,20 +17,12 @@ import {
 } from '../src/mailbox.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
-function CommandScope({
-  owner,
-}: {
-  readonly owner: string;
-}) {
+function CommandScope({ owner }: { readonly owner: string }) {
   useCommandScope(owner);
   return null;
 }
 
-function Finishing({
-  finish,
-}: {
-  readonly finish: () => Promise<boolean>;
-}) {
+function Finishing({ finish }: { readonly finish: () => Promise<boolean> }) {
   const navigation = useComposerNavigation();
   useEffect(() => navigation.register(finish), [navigation, finish]);
   return null;
