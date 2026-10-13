@@ -26,6 +26,22 @@ review as blocked. Leave the implementer's model, host defaults and saved OCR
 provider/model configuration unchanged. Delegation needs no OCR API key or
 provider configuration, and `gpt-6.1-sol` here is the host model identifier.
 
+## Subagent model policy
+
+When ChatGPT/Codex starts a subagent, select a GPT model explicitly. This applies
+to implementation, review, research and other delegated work through native
+subagent tools or T3 delegation, including nested delegation. Pass this policy
+to each child agent. Skills and tool defaults must follow it.
+
+The [decision panel](#decision-panel) is the only exception. Keep its prescribed
+`claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` panelists; the Claude panelist
+remains read-only and does not receive implementation or review work. Outside
+that panel, ChatGPT/Codex must not start Claude or other non-GPT subagents.
+
+Keep the required review model and reasoning settings above. If an eligible
+GPT model is unavailable, report that delegation as blocked and continue
+independent work; do not fall back to a non-GPT model.
+
 ## Reading responsibilities
 
 The implementer reads the user request, originating issue or specification,
