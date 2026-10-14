@@ -688,6 +688,19 @@ final class InboxTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.label.hasPrefix("Unread."))
+    // The floating search field rises above the software keyboard while it is in use.
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.tap()
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    let aboveKeyboard = NSPredicate { _, _ in search.frame.maxY <= keyboard.frame.minY }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
+      .completed)
+    search.typeText("\n")
+    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))

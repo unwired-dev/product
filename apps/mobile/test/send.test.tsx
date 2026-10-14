@@ -35,6 +35,10 @@ import { AccountContext } from '../src/registration-gate.tsx';
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The Inbox's keyboard avoidance reads the inset; the host has none here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
