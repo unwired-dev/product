@@ -50,7 +50,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Draft silently starts from an identity the person did not choose.
   The same applies when `inbox.tsx.Inbox` normalizes the window's view: a chosen
   connection whose Inbox store closes while it waits for authorization stays
-  chosen (`mailboxes.ts.keepsChoice`); only a removed connection falls back to
+  chosen (`mailboxes.ts.inboxChoice`); only a removed connection falls back to
   All inboxes. Exercise a lapse of the chosen mailbox beside a usable sender and
   check New Message, the heading and the sidebar selection; otherwise the view
   silently widens to All inboxes and New Message picks another sender.

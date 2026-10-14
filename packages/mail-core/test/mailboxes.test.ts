@@ -7,14 +7,12 @@ import { gmailAction } from '../src/gmail-actions.ts';
 import {
   createGmailSearch,
   createMailboxes,
-  authorizationWaiting,
+  inboxChoice,
   inboxMessages,
-  keepsChoice,
   mailboxSidebar,
   messageDateSections,
   searchGmail,
   searchMessages,
-  waitingChoice,
 } from '../src/mailboxes.ts';
 import {
   createRegistration,
@@ -1109,9 +1107,12 @@ describe('mailbox sidebar projection', () => {
         profile: defaultProfile,
         view,
       });
+      const choice = inboxChoice({ mailboxes, connections, view });
       return {
-        kept: keepsChoice({ mailboxes, connections, view }),
-        waiting: waitingChoice({ mailboxes, connections, view })?.id,
+        kept: choice.keepsChoice,
+        waiting: choice.chosenWaiting?.id,
+        // The chosen waiting connection shows its own notice; every mailbox shows all; a listed one none.
+        notices: choice.waiting.map(({ id }) => id),
         allSelected: sidebar.allSelected,
         selectedWaiting: sidebar.waiting
           .filter(({ selected }) => selected)
@@ -1127,40 +1128,32 @@ describe('mailbox sidebar projection', () => {
       {
         kept: true,
         waiting: 'lapsed',
+        notices: ['lapsed'],
         allSelected: false,
         selectedWaiting: ['lapsed'],
       },
       {
         kept: true,
         waiting: undefined,
+        notices: [],
         allSelected: false,
         selectedWaiting: [],
       },
       {
         kept: false,
         waiting: undefined,
+        notices: ['lapsed', 'other'],
         allSelected: true,
         selectedWaiting: [],
       },
       {
         kept: false,
         waiting: undefined,
+        notices: ['lapsed', 'other'],
         allSelected: true,
         selectedWaiting: [],
       },
     ]);
-    const [, lapsed] = connections;
-    // The chosen waiting connection shows its own notice; every mailbox shows all; a listed one none.
-    expect(
-      [
-        authorizationWaiting(connections, { scope: 'lapsed', chosen: lapsed }),
-        authorizationWaiting(connections, {
-          scope: undefined,
-          chosen: undefined,
-        }),
-        authorizationWaiting(connections, { scope: 'open', chosen: undefined }),
-      ].map((notices) => notices.map(({ id }) => id)),
-    ).toStrictEqual([['lapsed'], ['lapsed', 'other'], []]);
   });
 
   it('keeps selectable IMAP names distinct and missing-store recovery inside its Profile', () => {

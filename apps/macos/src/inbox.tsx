@@ -14,14 +14,12 @@ import {
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
+  inboxChoice,
   inboxMessages,
   messageDateSections,
   profileMailboxes,
   resultKey,
   searchMessages,
-  authorizationWaiting,
-  keepsChoice,
-  waitingChoice,
 } from '@private-email/mail-core/mailboxes';
 import {
   use,
@@ -642,19 +640,18 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
-  const waitingChosen = waitingChoice({ mailboxes, connections, view });
-  const scope = keepsChoice({ mailboxes, connections, view })
-    ? view.mailbox
-    : undefined;
+  // Connections waiting for provider authorization have no Inbox until it is given again.
+  const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
+    mailboxes,
+    connections,
+    view,
+  });
+  // A plain conditional of the view, so React Compiler can preserve the memo below.
+  const scope = keepsChoice ? view.mailbox : undefined;
   const scoped = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
-  // Connections waiting for provider authorization have no Inbox until it is given again.
-  const waiting = authorizationWaiting(connections, {
-    scope,
-    chosen: waitingChosen,
-  });
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
@@ -704,7 +701,7 @@ export function Inbox({
   const scopeName = scopeOf(t, shown, {
     several,
     gmail,
-    waiting: waitingChosen,
+    waiting: chosenWaiting,
   });
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
