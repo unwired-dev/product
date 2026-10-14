@@ -231,6 +231,13 @@ describe('preview Inbox', () => {
     // Each matched word is bold where search found it, ignoring case.
     expect(within(maya).getByText('Maya')).toHaveStyle({ fontWeight: '600' });
     expect(within(maya).getByText('room')).toHaveStyle({ fontWeight: '600' });
+    // Unread must not give the surrounding text the same weight as a match.
+    expect(within(maya).getByText('Maya Chen')).toHaveStyle({
+      fontWeight: '400',
+    });
+    expect(within(maya).getByText('A little more room to think')).toHaveStyle({
+      fontWeight: '400',
+    });
     // Clearing the query keeps search open rather than flashing the Inbox.
     await fireEvent.changeText(field, '');
     await waitFor(() => {
@@ -257,6 +264,15 @@ describe('preview Inbox', () => {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     ).toBeVisible();
+    const restored = within(
+      screen.getByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      }),
+    );
+    expect(restored.getByText('Maya Chen')).toHaveStyle({ fontWeight: '600' });
+    expect(restored.getByText('A little more room to think')).toHaveStyle({
+      fontWeight: '600',
+    });
   });
 
   it.each([false, true])(

@@ -144,7 +144,8 @@ export function MessageRow({
                   styles.sender,
                   {
                     color: primaryColor,
-                    fontWeight: message.unread ? '600' : '400',
+                    fontWeight:
+                      query === undefined && message.unread ? '600' : '400',
                   },
                 ]}
                 numberOfLines={1}>
@@ -171,7 +172,8 @@ export function MessageRow({
                 styles.subject,
                 {
                   color: primaryColor,
-                  fontWeight: message.unread ? '600' : '400',
+                  fontWeight:
+                    query === undefined && message.unread ? '600' : '400',
                 },
               ]}
               numberOfLines={1}>

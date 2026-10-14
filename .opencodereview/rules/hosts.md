@@ -654,6 +654,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   rows, the bar and filtered-empty copy; otherwise exclusions that no longer
   apply leave an enabled control labelled Filtered by None. Returning to a scope
   where the retained settings apply may restore filtering without resetting them.
+- `inbox-rows.tsx.Marked` giving matches the same weight as their unread parent.
+  Compare the surrounding sender and subject with the matched spans in unread
+  search results, not just the nested span's style. Preserve ordinary Inbox
+  unread emphasis; otherwise bold matches have no visible emphasis where mail
+  is unread despite a passing assertion on the span alone.
 - `message-body.tsx.ReceivedAttachments` eagerly mounting a native row/control tree
   for every sender-controlled descriptor. The MIME part limit bounds decoding,
   not acceptable native view count; cap, batch or virtualize before constructing

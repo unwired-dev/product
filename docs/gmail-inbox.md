@@ -111,7 +111,9 @@ reaches it.
 - **Results.** On iPhone and iPad, results are listed in that order under **Top Results**, whose spoken
   label also gives the number of saved and online results and where they were found.
   Saved results retain day dividers on iPad; iPhone lists them without dividers.
-  The words of the query are bold in each result's sender and subject. On Mac, the Search heading's
+  The words of the query are bold in each result's sender and subject, against
+  regular text even in unread results, which retain their unread dot.
+  On Mac, the Search heading's
   subtitle reports the result count, with Syncing and Offline taking precedence,
   and rows keep their ordinary sender and subject styling. Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
