@@ -80,7 +80,9 @@
     "showInbox": "Show Inbox",
     "minimize": "Minimize",
     "nextWindow": "Next Window",
-    "windowTitle": "Inbox {{number}}"
+    "windowTitle": "Inbox {{number}}",
+    "view": "View",
+    "commands": "Commands…"
   },
   "providers": {
     "google": "Google",
@@ -842,5 +844,60 @@
     "syncing": "Checking the mail server…",
     "authentication": "The mail server needs your password again to show new mail.",
     "retry": "The mail server could not be reached. Showing mail saved on this device."
+  },
+  "commands": {
+    "open": "Commands",
+    "openPalette": "Open Command Palette",
+    "close": "Close commands",
+    "placeholder": "Type a command",
+    "shortcut": "⌘P",
+    "escape": "esc",
+    "selection": "Selected Message",
+    "selectionWith": "Selected Message · {{subject}}",
+    "app": "App",
+    "navigation": "Go To",
+    "empty": "No matching commands",
+    "selectConversation": "Select a conversation",
+    "unavailable": "Not available for this message",
+    "gone": "No longer available",
+    "starting": "Already opening a draft",
+    "back": "Commands",
+    "backLabel": "Back to commands",
+    "move": "Move to…",
+    "moveChip": "Move to",
+    "moveOne": "Move 1 message",
+    "chooseFolder": "Choose a folder",
+    "search": "Search Mail",
+    "inbox": "Inbox",
+    "hint": "Swipe down on the header for commands",
+    "hintDetail": "Reply, archive, move or go anywhere without leaving this screen.",
+    "dismissHint": "Dismiss hint",
+    "keys": {
+      "arrows": "↑↓",
+      "return": "return",
+      "escape": "esc",
+      "select": "Select",
+      "run": "Run",
+      "close": "Close",
+      "back": "Back",
+      "move": "Move"
+    },
+    "keywords": {
+      "reply": "respond answer",
+      "replyAll": "respond answer everyone",
+      "forward": "send share",
+      "archive": "file away done",
+      "trash": "delete remove bin",
+      "spam": "junk report",
+      "read": "seen",
+      "unread": "unseen",
+      "star": "flag favorite",
+      "unstar": "unflag",
+      "move": "folder label file",
+      "compose": "write new mail email",
+      "search": "find filter",
+      "inbox": "home mail messages back",
+      "account": "settings preferences profile mailboxes"
+    }
   }
 }

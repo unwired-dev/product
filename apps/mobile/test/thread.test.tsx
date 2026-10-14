@@ -11,6 +11,7 @@ import {
 } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { ThreadView } from '../src/message-detail.tsx';
 
@@ -23,6 +24,11 @@ jest.mock('../src/private-storage.ts', () => ({
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -202,6 +208,39 @@ describe('thread view', () => {
       );
     });
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+  });
+
+  it('opens the Command Palette from the thread header for the opened message', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createGmailInbox(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    await fireEvent(
+      await screen.findByRole('header', { name: 'Re: Planning' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'openCommandPalette' } },
+    );
+    const palette = within(screen.getByTestId('command-palette'));
+    expect(
+      palette.getByRole('header', {
+        name: 'Selected Message · Re: Planning',
+      }),
+    ).toBeVisible();
+    expect(
+      palette.getByRole('button', {
+        name: 'Reply. Not available for this message',
+      }),
+    ).toBeDisabled();
   });
 
   it('shows the message as unavailable when it is not cached', async () => {
