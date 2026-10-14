@@ -784,6 +784,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   or menu controls. Preserve the shared panel's palette-backed surface beneath the
   material, or the presentations overlap two sets of text and icons even though
   rendered component tests pass.
+- Mobile `reply-sheet.tsx.ReplySheet` invoking a selected action before its retained
+  exit and native Modal dismissal finish. Trace Move's sibling Modal through the
+  installed iOS presenter and keep the closing Modal mounted to receive `onDismiss`;
+  otherwise UIKit refuses the second sheet while Reply still occupies its presenter.
+  Retire deferred choices on reader replacement/unmount and recheck current action
+  availability before dispatch. Exercise Reply-to-Move in the native journey;
+  mocked animation completion alone does not prove native presentation ordering.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is

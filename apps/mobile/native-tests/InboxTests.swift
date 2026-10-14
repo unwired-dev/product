@@ -176,7 +176,11 @@ final class InboxTests: XCTestCase {
         XCTWaiter.wait(
           for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 5),
         .completed)
-      app.buttons["Folders"].tap()
+      app.buttons["Reply"].tap()
+      let actions = app.scrollViews.containing(.button, identifier: "Reply All").firstMatch
+      let move = actions.buttons["Folders"]
+      XCTAssertTrue(move.waitForExistence(timeout: 10))
+      move.tap()
       XCTAssertTrue(
         app.staticTexts["Move this message to another folder."].waitForExistence(timeout: 10))
       let search = app.textFields["Search"]

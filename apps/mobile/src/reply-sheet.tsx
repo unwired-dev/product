@@ -1,7 +1,14 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { createContext, Fragment, use, useState } from 'react';
+import {
+  createContext,
+  Fragment,
+  use,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   Animated,
   Modal,
@@ -121,6 +128,18 @@ export function ReplySheet({
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
   const motion = useMenuMotion(open, 'grow');
+  const pending = useRef<
+    | Readonly<{ message: typeof message; name: string; origin: number }>
+    | undefined
+  >(undefined);
+  const owner = useRef<typeof message | undefined>(undefined);
+  useLayoutEffect(() => {
+    owner.current = message;
+    return () => {
+      owner.current = undefined;
+      pending.current = undefined;
+    };
+  }, [message]);
   const actions = use(ThreadActionsContext)?.actions ?? [];
   const tiles = [
     ...(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
@@ -136,15 +155,33 @@ export function ReplySheet({
   const groups = (['state', 'place'] as const)
     .map((group) => actions.filter((action) => action.group === group))
     .filter((group) => group.length > 0);
-  if (!motion.shown) {
-    return null;
-  }
+  const select = (name: string) => {
+    if (!open || owner.current !== message || pending.current !== undefined) {
+      return;
+    }
+    pending.current = { message, name, origin };
+    onClose();
+  };
   return (
     <Modal
-      visible
+      visible={motion.shown}
       transparent
       animationType="none"
       onRequestClose={onClose}
+      // A sibling Move Modal cannot present until UIKit dismisses this one.
+      onDismiss={() => {
+        const selected = pending.current;
+        pending.current = undefined;
+        if (
+          !open &&
+          owner.current === message &&
+          selected?.message === message
+        ) {
+          [...tiles, ...actions]
+            .find(({ name }) => name === selected.name)
+            ?.run(selected.origin);
+        }
+      }}
       supportedOrientations={[
         'portrait',
         'portrait-upside-down',
@@ -228,7 +265,7 @@ export function ReplySheet({
               </Pressable>
             </View>
             <View style={styles.replyTiles}>
-              {tiles.map(({ name, label, icon, run }) => (
+              {tiles.map(({ name, label, icon }) => (
                 <Pressable
                   key={name}
                   accessibilityRole="button"
@@ -240,8 +277,7 @@ export function ReplySheet({
                     setFocused(undefined);
                   }}
                   onPress={() => {
-                    onClose();
-                    run(origin);
+                    select(name);
                   }}
                   style={({ pressed }) => [
                     styles.replyTile,
@@ -272,7 +308,7 @@ export function ReplySheet({
                   styles.actionGroup,
                   { backgroundColor: colors.fillQuiet },
                 ]}>
-                {group.map(({ name, label, icon, run }, index) => (
+                {group.map(({ name, label, icon }, index) => (
                   <Fragment key={name}>
                     {index === 0 ? null : (
                       <View
@@ -292,8 +328,7 @@ export function ReplySheet({
                         setFocused(undefined);
                       }}
                       onPress={() => {
-                        onClose();
-                        run(origin);
+                        select(name);
                       }}
                       style={({ pressed }) => [
                         styles.actionRow,
