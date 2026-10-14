@@ -19,6 +19,10 @@ colors:
   brand-on-seal: '#FFFFFF'
   brand-monogram: '#15171B'
   brand-monogram-dark: '#6A6E78'
+  apple-button: '#000000'
+  apple-button-dark: '#FFFFFF'
+  apple-on-button: '#FFFFFF'
+  apple-on-button-dark: '#000000'
   text-primary: 'rgba(0, 0, 0, 0.85)'
   text-primary-dark: 'rgba(255, 255, 255, 0.85)'
   text-secondary: 'rgba(0, 0, 0, 0.6)'
@@ -252,6 +256,8 @@ Graphite neutrals with a single warm seal.
 | Brand seal        | `brand/seal`              | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
 | On brand seal     | `brand/on-seal`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
 | Monogram          | `brand/monogram`          | `#15171B`     | `#6A6E78`     | Mail Profile and account monograms                            |
+| Apple button      | `apple/button`            | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
+| On Apple button   | `apple/on-button`         | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
 | Primary text      | `text/primary`            | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
 | Secondary text    | `text/secondary`          | black 60%     | white 55%     | Previews, timestamps, captions                                |
 | Content surface   | `surface/content`         | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
@@ -311,6 +317,10 @@ styles) so the file stays editable.
 
 ## Layout
 
+- **iPhone account setup:** the approved #907 adaptations use 24pt side margins
+  and 10pt content gaps. Scrollable setup content starts 62pt below the top safe
+  area and ends 26pt above the bottom safe area. Respect the horizontal safe area
+  when the phone rotates.
 - **macOS window:** 1280×800 reference, three columns. A floating glass sidebar
   236pt wide inset 8pt, a 340pt message list, and the reading pane. The reading
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt

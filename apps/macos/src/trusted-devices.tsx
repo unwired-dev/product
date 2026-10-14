@@ -175,7 +175,7 @@ export function TrustedDevices({
             async () => {
               const owner = store.getSnapshot().snapshot;
               Alert.alert(
-                t('revocation.remove', { name: device.name }),
+                t('revocation.confirmTitle', { name: device.name }),
                 t('revocation.confirm', { name: device.name }),
                 [
                   { text: t('revocation.cancel'), style: 'cancel' },
