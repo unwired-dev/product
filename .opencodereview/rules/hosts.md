@@ -642,6 +642,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Keep the Drafts heading conditional on the same search mode as its rows;
   otherwise received-mail-only search exposes an empty Drafts section to sighted
   and accessibility users. Preserve New Message and storage-recovery controls.
+- `inbox-filters.tsx.useInboxFilter` treating a saved enabled flag as proof that
+  its settings narrow the current view. Reconcile eligible connections after a
+  scope change or connection removal, and use the effective active state for
+  rows, the bar and filtered-empty copy; otherwise exclusions that no longer
+  apply leave an enabled control labelled Filtered by None. Returning to a scope
+  where the retained settings apply may restore filtering without resetting them.
 - `message-body.tsx.ReceivedAttachments` eagerly mounting a native row/control tree
   for every sender-controlled descriptor. The MIME part limit bounds decoding,
   not acceptable native view count; cap, batch or virtualize before constructing
@@ -800,6 +806,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   but forwards touch and accessibility props to a spinner-sized native view that
   is not an accessibility element unless `accessible`. Put the swipe on a
   full-size wrapper `View` and the action on an `accessible` element.
+  Check modes that replace the ready heading too, such as
+  `inbox-search.tsx.SearchHeading`: move the action to a focused accessible
+  replacement, such as `inbox-bar.tsx.SearchField`, while retaining the header
+  swipe; otherwise entering search removes the documented assistive entry until
+  the user closes it, despite ordinary Inbox and loading states passing.
 - A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
   `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
   every other screen the host mounts for the same state, such as
