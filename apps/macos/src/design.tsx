@@ -2,8 +2,11 @@ import type { ReactNode } from 'react';
 import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Pressable,
   requireNativeComponent,
   StyleSheet,
@@ -152,16 +155,78 @@ export function GlassGroup({
   );
 }
 
-// Menus float independently of their toolbar, with the deeper menu shadow.
-export function GlassPanel({ children }: { readonly children: ReactNode }) {
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
+
+// Menus float independently of their toolbar, with the deeper menu shadow. They ease out of the
+// toolbar and fade away once closed; Reduce Motion keeps only the fade.
+export function GlassPanel({
+  open,
+  children,
+}: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
   const colors = usePalette();
+  const [shown, setShown] = useState(open);
+  const progress = useMemo(() => new Animated.Value(0), []);
+  const [reduced, setReduced] = useState(false);
+  if (open && !shown) {
+    setShown(true);
+  }
+  useEffect(() => {
+    const read = async () => {
+      setReduced(await AccessibilityInfo.isReduceMotionEnabled());
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduced,
+    );
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 200 : 150,
+      easing: open ? easeOut : Easing.linear,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !open) {
+        setShown(false);
+      }
+    });
+    return () => {
+      animation.stop();
+    };
+  }, [open, progress]);
+  if (!shown) {
+    return null;
+  }
   return (
-    <View
+    <Animated.View
+      // A closing menu leaves VoiceOver and the pointer at once; only its picture fades.
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
       style={[
         styles.panel,
         {
           boxShadow: colors.menuGlassShadow,
           backgroundColor: colors.surfaceContent,
+          opacity: progress,
+          transformOrigin: 'top right',
+          transform: reduced
+            ? []
+            : [
+                {
+                  scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.95, 1],
+                  }),
+                },
+              ],
         },
       ]}>
       <Glass
@@ -169,7 +234,7 @@ export function GlassPanel({ children }: { readonly children: ReactNode }) {
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </View>
+    </Animated.View>
   );
 }
 

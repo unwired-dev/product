@@ -659,6 +659,12 @@ final class InboxTests: XCTestCase {
     message.tap()
     app.buttons["Reply"].tap()
     if app.buttons["Reply All"].waitForExistence(timeout: 2) {
+      // iPhone's Reply sheet names the sender beside its Close button.
+      XCTAssertTrue(app.buttons["Close"].exists)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Reply sheet"
+      sheet.lifetime = .keepAlways
+      add(sheet)
       app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
     }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))

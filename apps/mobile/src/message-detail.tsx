@@ -29,8 +29,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
@@ -42,7 +44,15 @@ import {
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { Glass, GlassGroup, ToolbarButton } from './design.tsx';
+import {
+  Glass,
+  GlassGroup,
+  growEntering,
+  Monogram,
+  SFSymbol,
+  ToolbarButton,
+  useEntering,
+} from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -74,31 +84,51 @@ import { MessageTranslation } from './translation.tsx';
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
 const compact = Platform.OS === 'ios' && !Platform.isPad;
+const replySheetWidth = 500;
+const responseIcons = {
+  reply: 'arrowshape.turn.up.left',
+  replyAll: 'arrowshape.turn.up.left.2',
+  forward: 'arrowshape.turn.up.right',
+} as const;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  replyBackdrop: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  replyScroll: { width: 310, maxWidth: '100%', maxHeight: '100%', flexGrow: 0 },
+  // iPhone's Reply sheet floats inside the screen edges and grows out of the Reply button.
+  replyBackdrop: { flex: 1, justifyContent: 'flex-end', padding: spacing.s },
   replySheet: {
-    padding: spacing.l,
-    gap: spacing.s,
-    borderRadius: radius.alertTouch,
+    width: '100%',
+    maxWidth: replySheetWidth,
+    maxHeight: '100%',
+    alignSelf: 'center',
+    borderRadius: radius.sheet,
+    borderCurve: 'continuous',
   },
-  replyChoice: {
-    minHeight: 48,
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
-    borderRadius: 24,
+  replyContent: { gap: spacing.l, padding: spacing.l },
+  replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  replyFrom: { flex: 1 },
+  replySender: { ...textStyles.headline },
+  replyClose: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  replyLabel: { ...textStyles.headline, textAlign: 'center' },
+  replyTiles: { flexDirection: 'row', gap: spacing.s },
+  replyTile: {
+    flex: 1,
+    minHeight: 64,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.s,
+    borderRadius: radius.insetGroup,
+    borderCurve: 'continuous',
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  replyLabel: { ...textStyles.subheadline, textAlign: 'center' },
   // The regular-width toolbar: glass groups at the pane's trailing edge.
   topToolbar: {
     height: 52 + spacing.m,
@@ -465,6 +495,13 @@ function ResponseActions({
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
   const [choosing, setChoosing] = useState<typeof source>();
+  const [origin, setOrigin] = useState(0);
+  const { width } = useWindowDimensions();
+  const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
+  const entering = useEntering(growEntering);
+  const close = () => {
+    setChoosing(undefined);
+  };
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -553,7 +590,9 @@ function ResponseActions({
           label={t('message.reply')}
           disabled={pending !== undefined}
           expanded={choosing === source}
-          onPress={() => {
+          onPress={(event) => {
+            // Keyboard activation reports no touch; grow from the middle then.
+            setOrigin(event.nativeEvent.pageX || width / 2);
             setChoosing(source);
           }}
         />
@@ -589,9 +628,8 @@ function ResponseActions({
         <Modal
           visible
           transparent
-          onRequestClose={() => {
-            setChoosing(undefined);
-          }}
+          animationType="fade"
+          onRequestClose={close}
           supportedOrientations={[
             'portrait',
             'portrait-upside-down',
@@ -603,66 +641,121 @@ function ResponseActions({
               styles.replyBackdrop,
               { backgroundColor: colors.scrimTouch },
             ]}>
-            <ScrollView style={styles.replyScroll}>
-              <View
-                accessibilityViewIsModal
-                onAccessibilityEscape={() => {
-                  setChoosing(undefined);
-                }}
-                style={[
-                  styles.replySheet,
-                  { backgroundColor: colors.surfaceContent },
-                ]}>
-                <Glass
-                  cornerRadius={radius.alertTouch}
-                  style={StyleSheet.absoluteFill}
-                />
-                {(['reply', 'replyAll', 'forward', 'cancel'] as const).map(
-                  (kind) => {
-                    const label =
-                      kind === 'cancel'
-                        ? t('common.cancel')
-                        : t(`message.${kind}`);
-                    return (
-                      <Pressable
-                        key={kind}
-                        accessibilityRole="button"
-                        accessibilityLabel={label}
-                        onFocus={() => {
-                          setFocused(kind);
-                        }}
-                        onBlur={() => {
-                          setFocused(undefined);
-                        }}
-                        onPress={() => {
-                          setChoosing(undefined);
-                          if (kind !== 'cancel') {
-                            void start(kind);
-                          }
-                        }}
+            <Pressable
+              accessible={false}
+              onPress={close}
+              style={StyleSheet.absoluteFill}
+            />
+            <Animated.View
+              accessibilityViewIsModal
+              entering={entering}
+              onAccessibilityEscape={close}
+              style={[
+                styles.replySheet,
+                {
+                  boxShadow: colors.menuGlassShadow,
+                  // The sheet grows out of where Reply was pressed.
+                  transformOrigin: `${Math.max(0, origin - (width - sheetWidth) / 2)}px 100%`,
+                },
+              ]}>
+              <Glass
+                cornerRadius={radius.sheet}
+                style={StyleSheet.absoluteFill}
+              />
+              <ScrollView
+                style={{ flexGrow: 0 }}
+                contentContainerStyle={styles.replyContent}>
+                <View style={styles.replyHeader}>
+                  <Monogram name={message.sender} />
+                  <View style={styles.replyFrom}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.replySender,
+                        { color: colors.textPrimary },
+                      ]}>
+                      {message.sender}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.secondary,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {message.preview}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('message.closeResponses')}
+                    onFocus={() => {
+                      setFocused('close');
+                    }}
+                    onBlur={() => {
+                      setFocused(undefined);
+                    }}
+                    onPress={close}
+                    style={({ pressed }) => [
+                      styles.replyClose,
+                      {
+                        backgroundColor: pressed
+                          ? colors.accentSelectionSubtle
+                          : colors.fillQuiet,
+                        borderColor:
+                          focused === 'close'
+                            ? colors.accentInk
+                            : 'transparent',
+                      },
+                    ]}>
+                    <SFSymbol
+                      name="xmark"
+                      color={colors.textPrimary}
+                    />
+                  </Pressable>
+                </View>
+                <View style={styles.replyTiles}>
+                  {(['reply', 'replyAll', 'forward'] as const).map((kind) => (
+                    <Pressable
+                      key={kind}
+                      accessibilityRole="button"
+                      accessibilityLabel={t(`message.${kind}`)}
+                      onFocus={() => {
+                        setFocused(kind);
+                      }}
+                      onBlur={() => {
+                        setFocused(undefined);
+                      }}
+                      onPress={() => {
+                        close();
+                        void start(kind);
+                      }}
+                      style={({ pressed }) => [
+                        styles.replyTile,
+                        {
+                          backgroundColor: pressed
+                            ? colors.accentSelectionSubtle
+                            : colors.fillQuiet,
+                          borderColor:
+                            focused === kind ? colors.accentInk : 'transparent',
+                        },
+                      ]}>
+                      <SFSymbol
+                        name={responseIcons[kind]}
+                        size={22}
+                        color={colors.textPrimary}
+                      />
+                      <Text
                         style={[
-                          styles.replyChoice,
-                          {
-                            backgroundColor: colors.fillQuiet,
-                            borderColor:
-                              focused === kind
-                                ? colors.accentInk
-                                : 'transparent',
-                          },
+                          styles.replyLabel,
+                          { color: colors.textPrimary },
                         ]}>
-                        <Text
-                          style={[
-                            styles.replyLabel,
-                            { color: colors.textPrimary },
-                          ]}>
-                          {label}
-                        </Text>
-                      </Pressable>
-                    );
-                  },
-                )}
-              </View>
-            </ScrollView>
+                        {t(`message.${kind}`)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </Animated.View>
           </View>
         </Modal>
       ) : null}

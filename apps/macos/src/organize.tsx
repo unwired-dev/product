@@ -260,11 +260,13 @@ function Toolbar({
         {children}
         {rest.length === 0 ? null : <GlassGroup>{rest.map(button)}</GlassGroup>}
       </View>
-      {folders?.open === true ? (
-        <View style={styles.floatingPanels}>
-          <GlassPanel>{folders.panel}</GlassPanel>
+      {folders === undefined ? null : (
+        <View
+          pointerEvents="box-none"
+          style={styles.floatingPanels}>
+          <GlassPanel open={folders.open}>{folders.panel}</GlassPanel>
         </View>
-      ) : null}
+      )}
     </>
   );
 }

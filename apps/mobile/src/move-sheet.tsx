@@ -11,8 +11,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { Glass, SFSymbol, sheetEntering, useEntering } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -115,6 +116,7 @@ export function MoveSheet({
       subscription.remove();
     };
   }, [height]);
+  const entering = useEntering(sheetEntering);
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState<string>();
   const needle = query.trim().toLocaleLowerCase();
@@ -151,8 +153,9 @@ export function MoveSheet({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <Animated.View
           accessibilityViewIsModal
+          entering={entering}
           onAccessibilityEscape={onClose}
           testID="move-sheet"
           style={[styles.sheet, { boxShadow: colors.menuGlassShadow }]}>
@@ -306,7 +309,7 @@ export function MoveSheet({
                   )}
             </View>
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

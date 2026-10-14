@@ -3346,7 +3346,7 @@ describe('replying to and forwarding from the reader', () => {
         'accessibilityState',
         { disabled: false, expanded: true },
       );
-      await press('Cancel');
+      await press('Close');
       expect(screen.getByRole('button', { name: 'Reply' })).toHaveProp(
         'accessibilityState',
         { disabled: false, expanded: false },

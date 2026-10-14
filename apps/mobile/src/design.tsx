@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
+import type {
+  ColorValue,
+  GestureResponderEvent,
+  StyleProp,
+  ViewProps,
+  ViewStyle,
+} from 'react-native';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { useState } from 'react';
@@ -11,6 +17,15 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  Keyframe,
+  ReduceMotion,
+  SlideInDown,
+  useReducedMotion,
+} from 'react-native-reanimated';
 
 import { textStyles, usePalette } from './theme.ts';
 
@@ -39,6 +54,30 @@ export function Glass({
     />
   );
 }
+
+// Menus and sheets ease out of where they open and fade away; Reduce Motion keeps only the fades.
+const fadeIn = FadeIn.duration(200).reduceMotion(ReduceMotion.Never);
+const menuExiting = FadeOut.duration(150).reduceMotion(ReduceMotion.Never);
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
+const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
+const menuEntering = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.95 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: easeOut },
+}).duration(200);
+export const sheetEntering = SlideInDown.duration(300).easing(easeSheet);
+// A sheet that grows out of the control that opened it; the sheet's transform origin is the control.
+export const growEntering = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.3 }] },
+  30: { opacity: 1 },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: easeSheet },
+}).duration(300);
+
+export function useEntering<T>(entering: T) {
+  return useReducedMotion() ? fadeIn : entering;
+}
+
+// The iPhone's menus open above its bottom toolbar; elsewhere they hang from the top one.
+const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 // Toolbar buttons are 44pt for touch; the group adds a 4pt inset and takes half its height.
 const groupRadius = (44 + 2 * spacing.xs) / 2;
@@ -156,13 +195,17 @@ export function GlassGroup({
 // Menus float independently of their toolbar, with the deeper menu shadow.
 export function GlassPanel({ children }: { readonly children: ReactNode }) {
   const colors = usePalette();
+  const entering = useEntering(menuEntering);
   return (
-    <View
+    <Animated.View
+      entering={entering}
+      exiting={menuExiting}
       style={[
         styles.panel,
         {
           boxShadow: colors.menuGlassShadow,
           backgroundColor: colors.surfaceContent,
+          transformOrigin: compact ? 'bottom' : 'top right',
         },
       ]}>
       <Glass
@@ -170,7 +213,7 @@ export function GlassPanel({ children }: { readonly children: ReactNode }) {
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -184,7 +227,7 @@ export function ToolbarButton({
 }: {
   readonly label: string;
   readonly icon: string;
-  readonly onPress: () => void;
+  readonly onPress: (event: GestureResponderEvent) => void;
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;

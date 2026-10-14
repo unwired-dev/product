@@ -63,6 +63,7 @@
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
+    "closeResponses": "Close",
     "preparingForward": "Preparing to forward…",
     "respondFailed": "A reply or forward could not be started. Try again."
   },
