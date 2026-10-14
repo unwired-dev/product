@@ -66,6 +66,7 @@ export const messageCommands = (
 // The enabled commands for the open message, in the reader menu's fixed groups.
 export const messageContextMenu = (
   t: Translate,
+  target: CommandTarget,
   commands: readonly Command[],
 ): readonly MenuSection[] => {
   const items = (
@@ -77,6 +78,7 @@ export const messageContextMenu = (
         return [];
       }
       const { choices = [], run } = command;
+      const key = `${target.id}\n${id}`;
       const enabled = choices.filter((choice) => choice.disabled === undefined);
       if (enabled.length > 0) {
         return [
@@ -84,7 +86,7 @@ export const messageContextMenu = (
             title,
             symbol,
             items: enabled.map((choice) => ({
-              key: `${command.target?.id}\n${id}\n${choice.id}`,
+              key: `${key}\n${choice.id}`,
               title: choice.title,
               symbol: choice.icon ?? 'folder',
               run: choice.run,
@@ -96,7 +98,7 @@ export const messageContextMenu = (
         ? []
         : [
             {
-              key: `${command.target?.id}\n${id}`,
+              key,
               title,
               symbol,
               destructive: id === 'trash',

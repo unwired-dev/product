@@ -756,7 +756,7 @@ function MessageMenu({
   const { t } = useLocalization();
   const commands = useMessageCommands(target);
   return (
-    <ContextMenu sections={messageContextMenu(t, commands)}>
+    <ContextMenu sections={messageContextMenu(t, target, commands)}>
       {children}
     </ContextMenu>
   );
