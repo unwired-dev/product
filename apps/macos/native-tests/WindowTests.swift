@@ -33,9 +33,11 @@ final class WindowTests: XCTestCase {
   }
 
   // Selectable keys are native text views holding the grouped characters as their value.
+  // Enrollment codes display their groups separated by spaces so they wrap; Recovery Keys keep
+  // hyphens.
   private func key(groups: Int, in window: XCUIElement) -> XCUIElement {
     window.textViews.matching(
-      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){\(groups - 1)}[0-9A-Z]{4}")
+      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}[- ]){\(groups - 1)}[0-9A-Z]{4}")
     ).firstMatch
   }
 
