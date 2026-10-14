@@ -2943,7 +2943,9 @@ describe('product registration', () => {
         await act(async () => {
           await fireEvent.press(screen.getByRole('button', { name: remove }));
         });
-        expect(nativeAlert.mock.lastCall?.[0]).toBe(remove);
+        expect(nativeAlert.mock.lastCall?.[0]).toBe(
+          english('revocation.confirmTitle', { name }),
+        );
         expect(nativeAlert.mock.lastCall?.[1]).toMatch(
           /only then is iPad removed.*cannot be erased remotely/u,
         );

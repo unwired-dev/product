@@ -2711,7 +2711,11 @@ describe('product registration', () => {
         await fireEvent.press(screen.getByRole('button', { name: remove }));
       });
       const dialog = within(screen.getByTestId('device-removal-confirmation'));
-      expect(dialog.getByRole('header', { name: remove })).toBeVisible();
+      expect(
+        dialog.getByRole('header', {
+          name: english('revocation.confirmTitle', { name }),
+        }),
+      ).toBeVisible();
       expect(
         dialog.getByText(english('revocation.confirm', { name })),
       ).toHaveTextContent(
