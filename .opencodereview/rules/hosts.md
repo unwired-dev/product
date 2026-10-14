@@ -642,6 +642,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Keep the Drafts heading conditional on the same search mode as its rows;
   otherwise received-mail-only search exposes an empty Drafts section to sighted
   and accessibility users. Preserve New Message and storage-recovery controls.
+- `inbox.tsx.Inbox` combining a standalone search-header section with
+  `mailboxes.ts.messageDateSections` without accounting for its empty `saved`
+  fallback. Keep one saved-result header/empty notice and unique section keys
+  with no local matches, including provider-only results; otherwise iPad search
+  duplicates Top Results or its no-matches notice. Exercise both platforms and
+  retain their deliberate day-divider difference.
 - `inbox-filters.tsx.useInboxFilter` treating a saved enabled flag as proof that
   its settings narrow the current view. Reconcile eligible connections after a
   scope change or connection removal, and use the effective active state for
