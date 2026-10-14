@@ -204,9 +204,11 @@ describe('profile-scoped mobile routes', () => {
     await expect(
       screen.findByText('Synthetic garden body.'),
     ).resolves.toBeVisible();
+    split.shown.length = 0;
     await fireEvent.press(
       screen.getByRole('button', { name: 'Back, 1 unread' }),
     );
+    expect(split.shown).toStrictEqual(['supplementary']);
     expect(screen.queryByText('Synthetic garden body.')).toBeNull();
     expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
     expect(screen.getByRole('button', { name: /Garden plan/u })).toBeVisible();
@@ -247,14 +249,19 @@ describe('profile-scoped mobile routes', () => {
       expect.hasAssertions();
       showMail(profile);
       route.setParams(params);
+      split.shown.length = 0;
       await render(<RootLayout />);
+      expect(split.shown).toStrictEqual(['supplementary']);
       await fireEvent.press(
         await screen.findByRole('button', { name: /Garden plan/u }),
       );
       await expect(
         screen.findByText('Synthetic garden body.'),
       ).resolves.toBeVisible();
+      split.shown.length = 0;
       await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      // On iPhone the closed reader returns to the message list, not Mailboxes.
+      expect(split.shown).toStrictEqual(['supplementary']);
       // Reader close must leave the same Profile's search control visible, rather than a Default fallback.
       expect(
         screen.queryByRole('header', { name: 'Message unavailable' }),

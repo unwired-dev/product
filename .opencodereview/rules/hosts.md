@@ -78,6 +78,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   must preserve every admitted folder name, including embedded separators, without
   marking healthy siblings. Otherwise a connection appears healthy despite unreadable
   folders, or one folder's failure is attributed to another.
+
 - `organize.tsx.GmailMessageActions` returning saved-only explanations or other
   persistent notices inside the reader's fixed-height toolbar or iPhone capsule.
   Trace every capability branch with replies available and organizing disabled:
@@ -345,7 +346,6 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
 
-- `inbox-bar.tsx.NewMessageButton` guarding only `useLeaveComposer.leave` rather than the
 - `message-detail.tsx.MailboxMessage` offering compact New Message only when the
   opened mailbox can send. Use the eligible senders in that reader's Mail Profile,
   preferring the opened mailbox and otherwise the same first sender as the Inbox.
@@ -354,7 +354,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   action or creates a Draft in the wrong Profile. Preserve unavailable Draft
   storage and retired-reader creation fences.
 
-- `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
+- `inbox-bar.tsx.NewMessageButton` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
   until refusal or completion releases it. A second press after leaving settles
@@ -612,10 +612,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presentation even though types, bundles and rendered host tests pass.
 - Mac link confirmation mounted inside `message-detail.tsx.MailboxMessage`
   instead of `window.tsx.WindowContents`. The window's selected mailbox store
-  and message must gate its overlay; cover both columns and hide their
-  background accessibility while it is open. Check independent windows and
-  queued input after selection changes, or the alert leaves the list usable
-  beneath a partial scrim and can escape its reader's ownership.
+  and message must gate its overlay; cover the glass sidebar, command bar and
+  both columns and hide their background accessibility while it is open. Check
+  independent windows and queued input after selection changes, or the alert
+  leaves Mailboxes or the list usable beneath a partial scrim and can escape its
+  reader's ownership.
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
@@ -752,6 +753,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
+- `app/_layout.tsx` asking its split view for a column by its two-column name.
+  Mailboxes is the `primary` column and the message list `supplementary`: when a
+  reader, Thread or composer closes, including the compact reader's own Back
+  that hides the native navigation bar, and on first mount, show
+  `supplementary`. Assert the requested column in the routing journey; otherwise
+  iPhone returns to Mailboxes instead of the list, and iPad portrait opens the
+  sidebar over it.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it
