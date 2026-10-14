@@ -103,6 +103,15 @@ State, Quiet Hours, Profile Lock, system notification authorization and device-l
 lock-screen content policy. Content is generic and private by default. Detecting a
 suggestion does not itself create an interruption.
 
+Confirm each reminder as a fixed absolute instant with a visible interpretation
+and display zone. A new reminder initially proposes the creating device's current
+zone, editable before confirmation. Keep the confirmed instant and zone with that
+reminder through encrypted Private Sync; they are independent of the deadline's
+zone and are not a Profile or device preference. Travel, a different notification
+owner, a Profile move or Reopen never automatically shifts or rebases the chosen
+instant or zone. Changing that intent requires an explicit reminder edit; a
+deadline edit does not silently recalculate it.
+
 Reminders use the Profile's notification-owning Trusted Device to avoid duplicate
 interruptions. Missed or suppressed reminders remain visible in the app; exact-time
 delivery is not promised. A commitment is overdue because its deadline passed,
@@ -199,8 +208,18 @@ unavailable or misses an item. Inference is not required to use the commitment l
   a model suggestion; manual creation remains available from mail.
 - Applying a synchronized acceptance, dismissal or deletion decision retires any
   matching proposal already queued on this device, including an open review.
-  Acceptance retires the proposal instead of permitting another record; link to
-  the existing accepted commitment only when it is available in this Profile.
+  Acceptance retires the proposal instead of permitting another record. Availability
+  covers the accepted creation or update outcome, not merely the target record's
+  existence. If its accepted revision or changes have not arrived, show synchronization
+  as pending even when an earlier target revision is already available; do not
+  present older title, deadline, reminder or other values as the accepted current
+  changes. Available last-known state may remain visible with that pending status.
+  Link to the accepted outcome only when it is available in this Profile.
+  Current authoritative state may incorporate, supersede or resolve those accepted
+  changes; availability does not require restoring a superseded revision. Pending
+  synchronization preserves an existing usable target and never overrides known
+  Delete or owner loss, current lifecycle state, conflicting edits or reminder
+  revision authority.
   Never expose content or a link to a commitment owned by another Profile. If the
   corresponding record for this Profile has
   not arrived yet, show its synchronization as pending; do not keep the proposal
@@ -290,6 +309,19 @@ manual fallback remains available elsewhere. Documentation, synthetic results
 and compiled bindings do not establish that qualification.
 
 Representative acceptance scenarios:
+
+- Confirm a reminder in a visible chosen zone, then synchronize to a different-zone
+  owner, travel, move Profiles and close/reopen before or after its instant. Preserve
+  the confirmed instant and zone, apply current ownership/controls and past-time
+  rules, and change reminder intent only through an explicit edit. Include clock
+  and daylight-saving boundaries without promising exact-time delivery.
+
+- Accept an update while another device already has its earlier target revision.
+  Deliver the review decision before or after the accepted changes. The receiving
+  device retires its matching proposal and shows pending synchronization until
+  the accepted outcome arrives, without presenting older values as that outcome.
+  Repeat with concurrent local edits, completion/Delete, retry and reordered sync;
+  preserve authored work and lifecycle authority.
 
 - With informed consent and saved scan On, turn master Assistance Off while mail
   arrives, then re-enable it. Start automatic scanning with new eligible mail

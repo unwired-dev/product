@@ -48,7 +48,11 @@ govern new work.
 Synchronized human decisions constrain both new processing and materialized local
 queues. Apply the [review-queue contract](../../product/mail-commitments.md#review-queue)
 to persisted proposals, open review, acceptance and in-flight result publication,
-including decision-before-record delivery and delayed offline observation.
+including decision-before-creation or decision-before-update delivery, an earlier
+available target and delayed offline observation. Accepted outcome availability
+is distinct from record existence. Reconcile it against current authoritative
+state, preserving later authored edits, lifecycle/Delete authority, current
+reminder work and Profile isolation without restoring superseded revisions.
 Matching respects the reviewed obligation/proposal, source identities and target
 without treating an entire Thread, message or commitment as one suppressed item.
 This clarification selects no matching algorithm or new source-decision schema.
@@ -83,6 +87,11 @@ remote-cancellation protocol.
 
 The [reminder contract](../../product/mail-commitments.md#reminders) also retires
 known scheduled work and fences late delivery after observed Done or Cancelled.
+ADR 0072 records the panel-selected fixed instant and visible confirmed reminder
+zone, synchronized independently of deadline zone. Travel, notification-owner
+changes, Profile moves, Reopen and deadline edits cannot silently rebase it;
+an explicit reminder edit changes intent. This selects no scheduling or wire
+algorithm and creates no Profile/device zone preference.
 ADR 0072 records the panel-selected explicit-Reopen rule: restore only a
 still-future chosen reminder under current ownership, controls and revision; keep
 past times as missed/history without immediate catch-up. Synchronized reopening

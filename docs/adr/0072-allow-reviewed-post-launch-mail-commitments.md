@@ -50,8 +50,13 @@ until Profile/account deletion.
 Applying a synchronized review decision also retires matching proposals already
 saved or open for review on the observing device. Reconcile known decisions and
 current source/target state before presentation, acceptance or result publication;
-late work cannot restore the retired proposal. Delayed accepted-record delivery
-does not authorize a duplicate or a link into another Profile. Apply the product
+late work cannot restore the retired proposal. Delayed accepted creation or update
+outcomes remain pending even when an earlier target exists; stale fields cannot
+be presented as the accepted changes. Current authoritative state may incorporate,
+supersede or resolve that outcome without restoring a superseded revision. Keep
+existing usable records, concurrent authored work, lifecycle/deletion authority
+and Profile isolation intact. Delayed delivery does not authorize a duplicate
+or a link into another Profile. Apply the product
 contract's reviewed-proposal scope without suppressing distinct obligations or
 fresh reviewed updates. An offline device applies remote decisions when observed.
 
@@ -88,7 +93,14 @@ revealing protected content. This makes the retention trade-off visible at the
 removal decision and adds no bulk-delete action.
 
 Optional reminders reuse the current owning Profile's notification owner and
-privacy controls. The canonical Profile-move outcome also reconciles existing
+privacy controls. The 2026-10-14 reminder-zone panel selected a fixed absolute
+instant with a visible editable interpretation/display zone initially proposed
+from the creating device. Two matching valid votes selected A; the third panelist
+was unavailable, so no retry was required. Synchronize the confirmed instant and
+zone with the reminder, independently of the deadline zone. Travel, notification
+owner or Profile changes and Reopen never rebase them. Only an explicit reminder
+edit changes that intent; deadline edits do not silently recalculate reminders.
+This selects no scheduler or storage protocol. The canonical Profile-move outcome also reconciles existing
 reminder ownership and schedules; record reassignment alone is insufficient.
 Observed Done or Cancelled retires known scheduled work and fences late delivery
 for the closed state while retaining the chosen time as history. The 2026-10-14
