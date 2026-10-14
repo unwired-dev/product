@@ -137,6 +137,10 @@ The leading `x` has the accessibility label “Close Composer.” It closes only
 
 ### Composer structure
 
+The structure below records the earlier header-only-fixed contract. The
+[platform control placement amendment](../adr/0057-present-composing-inside-the-mail-shell.md#platform-control-placement-amendment-2026-10-14)
+supersedes that control placement while preserving the single content scroll.
+
 Only the compact header remains fixed. It contains:
 
 - Leading `x`

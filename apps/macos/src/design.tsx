@@ -22,7 +22,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeGlass = requireNativeComponent<
+export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -180,6 +180,9 @@ export function ToolbarButton({
   onPress,
   disabled = false,
   expanded,
+  selected,
+  destructive = false,
+  accessibilityHint,
 }: {
   readonly label: string;
   readonly icon: string;
@@ -187,16 +190,22 @@ export function ToolbarButton({
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;
+  // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{
         disabled,
         ...(expanded === undefined ? {} : { expanded }),
+        ...(selected === undefined ? {} : { selected }),
       }}
       disabled={disabled}
       focusable
@@ -211,18 +220,19 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true
+            pressed || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
-          borderColor: focused ? colors.accentInk : 'transparent',
+          borderColor:
+            focused || selected === true ? colors.accentInk : 'transparent',
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <SFSymbol
         name={icon}
         size={16}
-        color={colors.textPrimary}
+        color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
   );
@@ -297,23 +307,35 @@ export function Notice({
   );
 }
 
-// A push button: the primary one carries the accent fill, others the quiet fill.
+// A push button, 28pt tall: the accent fill carries the view's main action, the quiet fill the rest.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
+  disabled = false,
+  destructive = false,
+  accessibilityLabel,
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly fill?: 'accent' | 'quiet';
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  let color = primary ? colors.accentOnFill : colors.textPrimary;
+  if (destructive) {
+    color = colors.statusDestructive;
+  }
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       focusable
       onPress={onPress}
       style={({ pressed }) => [
@@ -321,12 +343,13 @@ export function Button({
         {
           backgroundColor:
             pressed && !primary ? colors.accentSelectionSubtle : idle,
+          opacity: disabled ? 0.5 : 1,
         },
       ]}>
       <Text
         style={[
           primary ? textStyles.bodyEmphasized : textStyles.body,
-          { color: primary ? colors.accentOnFill : colors.textPrimary },
+          { color },
         ]}>
         {label}
       </Text>

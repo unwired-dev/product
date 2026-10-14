@@ -151,7 +151,9 @@ function isScrollable(
 ): boolean {
   return (
     element !== null &&
-    (element.props.onScroll !== undefined || isScrollable(element.parent))
+    (element.type === 'RCTScrollView' ||
+      element.props.onScroll !== undefined ||
+      isScrollable(element.parent))
   );
 }
 
@@ -221,48 +223,59 @@ function App({
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(snapshot),
-        openAccount,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <ProfileScope profile={profile}>
-          <Mailboxes
-            view={view}
-            onView={setView}
-          />
-          <Inbox
-            composing={composing}
-            onCompose={setComposing}
-            onSelect={setSelected}
-            onView={setView}
-            selected={selected}
-            view={view}
-          />
-          {composing === undefined ? null : (
-            <Composer
-              id={composing}
-              onClose={() => {
-                setComposing(undefined);
-              }}
-              onRebind={(id) => {
-                setComposing(id);
-                onRebind(id);
-              }}
+    <CommandPaletteProvider windowId="composer">
+      <CommandBar />
+      <AccountContext
+        value={{
+          mailboxes: mailboxesOf(snapshot),
+          openAccount,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <InboxProvider
+          drafts={drafts}
+          mailboxes={mailboxes}>
+          <ProfileScope profile={profile}>
+            <Mailboxes
+              view={view}
+              onView={setView}
             />
-          )}
-        </ProfileScope>
-      </InboxProvider>
-    </AccountContext>
+            <Inbox
+              composing={composing}
+              onCompose={setComposing}
+              onSelect={setSelected}
+              onView={setView}
+              selected={selected}
+              view={view}
+            />
+            {composing === undefined ? null : (
+              <Composer
+                id={composing}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
+                onRebind={(id) => {
+                  setComposing(id);
+                  onRebind(id);
+                }}
+              />
+            )}
+          </ProfileScope>
+        </InboxProvider>
+      </AccountContext>
+    </CommandPaletteProvider>
   );
 }
 
 const press = async (name: string) => {
+  if (
+    name === 'New Message' &&
+    screen.queryByRole('button', { name }) === null
+  ) {
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
@@ -302,17 +315,14 @@ describe('composing Drafts', () => {
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
     await render(
-      <CommandPaletteProvider windowId="composer">
-        <CommandBar />
-        <App
-          drafts={drafts}
-          registration={registration}
-          mailboxes={{
-            ...connections,
-            getSnapshot: connections.getConnections,
-          }}
-        />
-      </CommandPaletteProvider>,
+      <App
+        drafts={drafts}
+        registration={registration}
+        mailboxes={{
+          ...connections,
+          getSnapshot: connections.getConnections,
+        }}
+      />,
     );
     // The Command Palette's New Message follows the floating bar's button.
     const palette = async () => {
@@ -421,18 +431,51 @@ describe('composing Drafts', () => {
     await press('New Message');
     await expect(
       screen.findByRole('button', { name: 'Send from other@example.invalid' }),
-    ).resolves.toHaveProp('accessibilityState', {
-      selected: true,
-      disabled: false,
-    });
+    ).resolves.toHaveProp(
+      'accessibilityState',
+      // The From pop-up also reports whether its menu is open.
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
     expect(
       screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
     ).toBeNull();
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
     await press('Close');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   }, 15_000);
+
+  it('closes an untouched New Message on Close and on Discard', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await screen.findByLabelText('Message body');
+    await press('Close');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
+    expect(screen.queryByText('This Draft is not available.')).toBeNull();
+    await press('New Message');
+    await screen.findByLabelText('Message body');
+    await press('Compose actions');
+    await press('Discard');
+    await press('Discard Draft');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+  });
 
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
@@ -625,10 +668,11 @@ describe('composing Drafts', () => {
       screen.findByRole('button', {
         name: 'Send from alex@example.invalid',
       }),
-    ).resolves.toHaveProp('accessibilityState', {
-      selected: true,
-      disabled: false,
-    });
+    ).resolves.toHaveProp(
+      'accessibilityState',
+      // The From pop-up also reports whether its menu is open.
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
 
     // Recipients become tokens; invalid text stays for correction and duplicates are refused.
     const to = screen.getByLabelText('To');
@@ -700,6 +744,13 @@ describe('composing Drafts', () => {
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'z', metaKey: true },
     });
+    // The new pop-up edits the same semantic document and history as keyboard formatting.
+    await press('Text style');
+    await press('Heading 1');
+    expect(drafts()[0]?.body[0]?.kind).toBe('heading1');
+    expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
+    await press('Undo');
+    expect(drafts()[0]?.body[0]?.kind).toBe('bulleted');
     await waitFor(() => {
       expect(
         screen.getByText('Draft · Saved on this device'),
@@ -759,6 +810,8 @@ describe('composing Drafts', () => {
         'This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.',
       ),
     ).toBeOnTheScreen();
+    // The From menu lists the mailbox under its current address.
+    await press('alex@example.invalid, cannot send');
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
     ).toHaveProp('accessibilityState', { selected: false, disabled: false });
@@ -766,13 +819,17 @@ describe('composing Drafts', () => {
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
     );
+    await press('alex@example.invalid, cannot send');
     await press('Send from renamed@example.invalid');
     expect(
       screen.queryByLabelText('alex@example.invalid, cannot send'),
     ).not.toBeOnTheScreen();
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
+    ).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
     await press('Close');
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From renamed@example.invalid',
@@ -788,10 +845,75 @@ describe('composing Drafts', () => {
         'This mailbox was removed from this account. Choose another mailbox to send from.',
       ),
     ).toBeOnTheScreen();
+    await press('renamed@example.invalid, cannot send');
     await press('Send from other@example.invalid');
     expect(
       screen.getByRole('button', { name: 'Send from other@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
+    ).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
+  });
+
+  it('keeps Close exclusive while saving despite queued Discard and later typing', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Before Close',
+    );
+    await press('Compose actions');
+    const queuedDiscard = queuedPress('Discard');
+    const queuedClose = queuedPress('Close');
+    storage.hold();
+    try {
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Saving on Close',
+      );
+      await press('Close');
+      expect(
+        screen.getByRole('button', { name: 'Compose actions' }),
+      ).toBeDisabled();
+      await act(() => {
+        queuedDiscard();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Discard Draft' }),
+      ).toBeNull();
+      expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Typed while closing',
+      );
+      expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await act(() => {
+        queuedClose();
+      });
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { subject: 'Typed while closing' },
+      ]);
+    } finally {
+      storage.release();
+    }
   });
 
   it('keeps a Draft open while it cannot be saved', async () => {
@@ -814,6 +936,7 @@ describe('composing Drafts', () => {
     );
     await waitFor(() => {
       expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
+      expect(isScrollable(screen.getByText(/Not saved/u))).toBe(true);
     });
     storage.failNextCommit('locked');
     await press('Close');
@@ -822,6 +945,13 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
+    expect(
+      isScrollable(
+        screen.getByText(
+          'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        ),
+      ),
+    ).toBe(true);
     storage.failNextCommit('locked');
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
@@ -833,6 +963,7 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     storage.failNextCommit('locked');
     await press('Discard Draft');
@@ -990,6 +1121,8 @@ describe('composing Drafts', () => {
     await expect(
       screen.findByRole('button', { name: draftName }),
     ).resolves.toHaveProp('accessibilityState', { selected: true });
+    await press('Open Command Palette');
+    await press('Search Mail');
     const search = async (query: string) => {
       await act(async () => {
         await fireEvent.changeText(
@@ -1268,6 +1401,11 @@ describe('composing Drafts', () => {
     ).toBe('Second window continued');
     // Discarding in the stale window deletes only its own version.
     await act(async () => {
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Compose actions' }),
+      );
+    });
+    await act(async () => {
       await fireEvent.press(second.getByRole('button', { name: 'Discard' }));
     });
     await act(async () => {
@@ -1401,6 +1539,7 @@ describe('composing Drafts', () => {
           screen.getByText('Draft · Saved on this device'),
         ).toBeOnTheScreen();
       });
+      await press('Compose actions');
       await press('Discard');
       await press('Keep Editing');
       await fireEvent.changeText(
@@ -1412,6 +1551,7 @@ describe('composing Drafts', () => {
           screen.getByText('Draft · Saved on this device'),
         ).toBeOnTheScreen();
       });
+      await press('Compose actions');
       await press('Discard');
       storage.hold();
       storage.failNextCommit('locked');
@@ -1448,6 +1588,7 @@ describe('composing Drafts', () => {
       );
       // A callback already queued by this editor cannot recreate its completed discard.
       const queuedSubject = screen.getByLabelText('Subject');
+      await press('Compose actions');
       await press('Discard');
       await press('Discard Draft');
       await act(async () => {
@@ -1482,6 +1623,7 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Subject'),
       'Before discard',
     );
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     // This accepted native event changes the editor while its autosave is suppressed.
@@ -1537,6 +1679,7 @@ describe('composing Drafts', () => {
     await otherWriter.update({ ...before, subject: 'Other writer' }, before);
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     refusing = true;
@@ -1587,6 +1730,7 @@ describe('composing Drafts', () => {
     await otherWriter.update({ ...before, subject: 'Other writer' }, before);
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     // A native window close destroys the composer independently of its pending Discard.

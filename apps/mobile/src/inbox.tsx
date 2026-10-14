@@ -97,6 +97,10 @@ export type Selection = Readonly<{ mailbox: string; id: string }>;
 interface InboxProps {
   readonly selected: Selection | undefined;
   readonly onSelect: (selection: Selection) => void;
+  // A collapsed overlay keeps editing while the reader's selection changes beneath it.
+  readonly onSelectBehindComposer?:
+    | ((selection: Selection) => void)
+    | undefined;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
@@ -619,6 +623,7 @@ function headingOf(
 export function Inbox({
   selected,
   onSelect,
+  onSelectBehindComposer,
   onClose,
   onCompose,
   composing,
@@ -628,6 +633,10 @@ export function Inbox({
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
+    if (onSelectBehindComposer !== undefined) {
+      onSelectBehindComposer(selection);
+      return;
+    }
     if (await leave()) {
       onSelect(selection);
     }
@@ -971,6 +980,7 @@ export function Inbox({
             }}
           />
           <FloatingBar
+            hidden={composing !== undefined}
             search={search}
             onCompose={onCompose}
             onQuery={setQuery}
