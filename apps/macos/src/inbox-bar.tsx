@@ -55,6 +55,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.s,
     paddingVertical: 0,
     borderRadius: 20,
+    backgroundColor: 'transparent',
   },
 });
 
@@ -115,7 +116,12 @@ function NewMessageButton({
           ]}
         />
       )}
-      <GlassGroup style={{ padding: 0, borderRadius: 20 }}>
+      <GlassGroup
+        style={{
+          padding: 0,
+          borderRadius: 20,
+          backgroundColor: 'transparent',
+        }}>
         <Pressable
           accessibilityLabel={t('drafts.newMessage')}
           accessibilityRole="button"

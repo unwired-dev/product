@@ -33,10 +33,15 @@ const styles = StyleSheet.create({
     padding: 0,
     borderRadius: radius.window,
     borderCurve: 'continuous',
+    backgroundColor: 'transparent',
   },
   list: { width: 340, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
-  toggle: { margin: spacing.m, marginRight: 0 },
+  toggle: {
+    margin: spacing.m,
+    marginRight: 0,
+    backgroundColor: 'transparent',
+  },
   toggleTarget: {
     width: 28,
     height: 28,
