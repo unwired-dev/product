@@ -6,7 +6,9 @@ import { messageDay } from '@private-email/localization';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { SFSymbol } from './design.tsx';
+import type { MenuItem } from './design.tsx';
+
+import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import {
   useLocalization,
@@ -71,114 +73,152 @@ export function MessageRow({
     mailbox,
     status,
   });
+  // The context menu offers the same actions in the design's order, Delete last.
+  const menuItems = (
+    entries: ReadonlyArray<readonly [string, string, string]>,
+  ): MenuItem[] =>
+    entries.flatMap(([name, title, symbol]) => {
+      const action = actions.find((each) => each.name === name);
+      return action === undefined
+        ? []
+        : [
+            {
+              title,
+              symbol,
+              destructive: name === 'trash',
+              run: action.run,
+            },
+          ];
+    });
   return (
-    <Pressable
-      accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
-        name,
-        label: actionLabel,
-      }))}
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      focusable
-      onAccessibilityAction={({ nativeEvent }) => {
-        actions.find(({ name }) => name === nativeEvent.actionName)?.run();
-      }}
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onSelect}
-      style={({ pressed }) => [
-        styles.row,
+    <ContextMenu
+      sections={[
         {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-          borderColor: focused ? focusColor : 'transparent',
+          items: menuItems([
+            ['archive', t('contextMenu.archive'), 'archivebox'],
+          ]),
         },
-        selected && { backgroundColor: colors.accentFill },
+        {
+          items: menuItems([
+            ['star', t('contextMenu.star'), 'flag'],
+            ['unstar', t('contextMenu.unstar'), 'flag.slash'],
+            ['read', t('contextMenu.read'), 'envelope.open'],
+            ['unread', t('contextMenu.unread'), 'envelope.badge'],
+          ]),
+        },
+        { items: menuItems([['trash', t('contextMenu.trash'), 'trash']]) },
       ]}>
-      {({ pressed }) => (
-        <>
-          <View style={styles.rowHeading}>
+      <Pressable
+        accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
+          name,
+          label: actionLabel,
+        }))}
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        focusable
+        onAccessibilityAction={({ nativeEvent }) => {
+          actions.find(({ name }) => name === nativeEvent.actionName)?.run();
+        }}
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onPress={onSelect}
+        style={({ pressed }) => [
+          styles.row,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+            borderColor: focused ? focusColor : 'transparent',
+          },
+          selected && { backgroundColor: colors.accentFill },
+        ]}>
+        {({ pressed }) => (
+          <>
+            <View style={styles.rowHeading}>
+              <Text
+                style={[
+                  styles.sender,
+                  {
+                    color: primaryColor,
+                    fontWeight: message.unread ? '600' : '400',
+                  },
+                ]}
+                numberOfLines={1}>
+                {message.sender}
+              </Text>
+              {flagged ? (
+                <SFSymbol
+                  name="flag.fill"
+                  size={13}
+                  color={selected ? colors.accentOnFill : colors.statusWarning}
+                />
+              ) : null}
+              <Text
+                numberOfLines={1}
+                style={[styles.date, { color: secondaryColor }]}>
+                {time}
+              </Text>
+            </View>
             <Text
               style={[
-                styles.sender,
+                styles.subject,
                 {
                   color: primaryColor,
                   fontWeight: message.unread ? '600' : '400',
                 },
               ]}
               numberOfLines={1}>
-              {message.sender}
+              {message.subject}
             </Text>
-            {flagged ? (
-              <SFSymbol
-                name="flag.fill"
-                size={13}
-                color={selected ? colors.accentOnFill : colors.statusWarning}
+            <Text
+              style={[styles.preview, { color: secondaryColor }]}
+              numberOfLines={1}>
+              {message.preview}
+            </Text>
+            {mailbox === undefined ? null : (
+              <Text
+                numberOfLines={1}
+                style={[styles.mailbox, { color: secondaryColor }]}>
+                {t('inbox.inMailbox', { mailbox })}
+              </Text>
+            )}
+            {status === undefined ? null : (
+              <Text
+                numberOfLines={1}
+                style={[styles.mailbox, { color: secondaryColor }]}>
+                {status}
+              </Text>
+            )}
+            {message.unread ? (
+              <View
+                style={[
+                  styles.unread,
+                  {
+                    backgroundColor: pressed
+                      ? colors.accentInk
+                      : colors.accentFill,
+                  },
+                  selected && { backgroundColor: colors.accentOnFill },
+                ]}
               />
             ) : null}
-            <Text
-              numberOfLines={1}
-              style={[styles.date, { color: secondaryColor }]}>
-              {time}
-            </Text>
-          </View>
-          <Text
-            style={[
-              styles.subject,
-              {
-                color: primaryColor,
-                fontWeight: message.unread ? '600' : '400',
-              },
-            ]}
-            numberOfLines={1}>
-            {message.subject}
-          </Text>
-          <Text
-            style={[styles.preview, { color: secondaryColor }]}
-            numberOfLines={1}>
-            {message.preview}
-          </Text>
-          {mailbox === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {t('inbox.inMailbox', { mailbox })}
-            </Text>
-          )}
-          {status === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {status}
-            </Text>
-          )}
-          {message.unread ? (
-            <View
-              style={[
-                styles.unread,
-                {
-                  backgroundColor: pressed
-                    ? colors.accentInk
-                    : colors.accentFill,
-                },
-                selected && { backgroundColor: colors.accentOnFill },
-              ]}
-            />
-          ) : null}
-          {selected ? null : (
-            <View
-              style={[styles.separator, { backgroundColor: colors.separator }]}
-            />
-          )}
-        </>
-      )}
-    </Pressable>
+            {selected ? null : (
+              <View
+                style={[
+                  styles.separator,
+                  { backgroundColor: colors.separator },
+                ]}
+              />
+            )}
+          </>
+        )}
+      </Pressable>
+    </ContextMenu>
   );
 }
 

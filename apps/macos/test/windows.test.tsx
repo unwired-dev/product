@@ -15,6 +15,7 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { palette } from '@private-email/mail-core/theme';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import {
   AccessibilityInfo,
@@ -98,6 +99,50 @@ const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
     throw new Error('Expected the command row around its button');
   }
   return row;
+};
+
+// The native context menu around a rendered control, its item titles by section, and choosing one.
+type MenuNode = ReturnType<ReturnType<typeof within>['getByText']>;
+interface RenderedMenuItem {
+  readonly id: string;
+  readonly title: string;
+  readonly items?: readonly RenderedMenuItem[];
+}
+const contextMenuOf = (element: MenuNode) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected a context menu');
+  }
+  return node;
+};
+const menuSections = (menu: MenuNode) => {
+  const sections: ReadonlyArray<{ items: readonly RenderedMenuItem[] }> =
+    menu.props.sections;
+  const titles = ({ title, items }: RenderedMenuItem) =>
+    items === undefined ? title : [title, items.map((each) => each.title)];
+  return sections.map(({ items }) => items.map(titles));
+};
+const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
+  const sections: ReadonlyArray<{ items: readonly RenderedMenuItem[] }> =
+    menu.props.sections;
+  let items: readonly RenderedMenuItem[] = sections.flatMap(
+    (section) => section.items,
+  );
+  let chosen: RenderedMenuItem | undefined = undefined;
+  for (const title of path) {
+    chosen = items.find((item) => item.title === title);
+    items = chosen?.items ?? [];
+  }
+  if (chosen === undefined) {
+    throw new Error(`Expected ${path.join(' › ')} in the menu`);
+  }
+  const { id } = chosen;
+  await act(async () => {
+    await fireEvent(menu, 'select', { nativeEvent: { id } });
+  });
 };
 
 describe('mac window selection with the shared mock mailbox', () => {
@@ -870,6 +915,100 @@ describe('mac windows over a connected Gmail mailbox', () => {
     expect(
       announce.mock.calls.filter(([message]) => message === unsaved),
     ).toStrictEqual([[unsaved]]);
+  });
+
+  it('dispatches a row, the open message and sender context menu actions in their design order', async () => {
+    expect.hasAssertions();
+    const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const id = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      mailboxes: connectedMailboxes,
+    } as const;
+    const registration = createRegistration({
+      restore: () => Promise.resolve(connected),
+      addMailbox: () => Promise.reject(new Error('Not adding')),
+      authorizeMailbox: () => Promise.resolve(connected),
+      connectImap: () => Promise.reject(new Error('Not connecting')),
+      removeMailbox: () => Promise.reject(new Error('Not removing')),
+      signIn: () => Promise.reject(new Error('Not signing in')),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
+      approveEnrollment: () => Promise.reject(new Error('No device')),
+      declineEnrollment: () => Promise.reject(new Error('No device')),
+      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+      confirmRevocation: () => Promise.reject(new Error('No device')),
+      cancelRevocation: () => Promise.reject(new Error('No device')),
+      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
+      signOut: () => Promise.reject(new Error('Not signing out')),
+      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+    });
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <RegistrationGate
+        store={registration}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      const row = await window.findByRole('button', { name: oliver });
+      // Issue #905 requires destructive actions last, superseding the Mac frame's grouping.
+      expect(menuSections(contextMenuOf(row))).toStrictEqual([
+        ['Archive'],
+        ['Flag', 'Mark as Read'],
+        ['Delete'],
+      ]);
+      await fireEvent.press(row);
+      await window.findByRole('button', { name: 'Labels' });
+      const sender = contextMenuOf(window.getByText('oliver@example.invalid'));
+      expect(menuSections(sender)).toStrictEqual([['Copy Address']]);
+      await chooseFromMenu(sender, 'Copy Address');
+      expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
+      const senderText = window.getByRole('text', {
+        name: 'Oliver Park, oliver@example.invalid',
+      });
+      copy.mockClear();
+      await fireEvent(senderText, 'accessibilityAction', {
+        nativeEvent: { actionName: 'copy' },
+      });
+      expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
+      const message = contextMenuOf(sender);
+      const received = within(message).getByLabelText(/UTC$/u);
+      // Selectable native date text consumes secondary clicks before the message menu.
+      expect({
+        selectableDate:
+          within(received).getByText(/UTC$/u).props.selectable === true,
+      }).toStrictEqual({ selectableDate: false });
+      expect(menuSections(message)).toStrictEqual([
+        ['Mark as Read', 'Flag'],
+        [['Move Message', ['Travel']], 'Delete Message'],
+      ]);
+      await chooseFromMenu(message, 'Delete Message');
+      expect(gmail.labelsOf(id)).toContain('TRASH');
+      expect(
+        window.getByText('Select a message to start reading.'),
+      ).toBeVisible();
+      expect(gmail.labelsOf(id)).not.toContain(travel);
+    } finally {
+      await app.unmount();
+      copy.mockRestore();
+    }
   });
 
   it('hands a device found removed while organizing to the account page explanation', async () => {

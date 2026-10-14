@@ -189,7 +189,8 @@ unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**
 to** any other selectable folder, including the Inbox. IMAP has no labels or star.
 Archive, Trash and Spam move the message to the folder the server declares with the
 `\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
-not offered, and no folder is guessed by name.
+not offered, and no folder is guessed by name. The row and reader
+[context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus.
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers

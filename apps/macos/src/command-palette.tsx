@@ -2,6 +2,7 @@ import type {
   Command,
   CommandChoice,
   CommandRegistry,
+  CommandTarget,
 } from '@private-email/mail-core/commands';
 import type { ReactNode } from 'react';
 import type {
@@ -77,6 +78,19 @@ export function RegisterCommands({
     [registry, owner, offer],
   );
   return null;
+}
+
+// The commands the mounted screens offer now for one message, which its context menu lists.
+export function useMessageCommands(target: CommandTarget) {
+  const { registry } = use(PaletteContext);
+  const commands = useSyncExternalStore(
+    registry.subscribe,
+    registry.getSnapshot,
+  );
+  return mergeCommands(commands).filter(
+    (command) =>
+      command.target?.id === target.id && command.disabled === undefined,
+  );
 }
 
 interface CommandMenu extends TurboModule {

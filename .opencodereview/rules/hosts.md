@@ -42,6 +42,22 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `design.tsx.ContextMenu` assigning action IDs from section/item positions while
+  native menus retain their original IDs. Keep selection bound to the same live
+  callback or reject its retired ID when commands or submenu choices change;
+  otherwise choosing a displayed read or move action can execute a different one.
+  Exercise a section insertion and a retired choice through the native event boundary.
+
+- Mac context-menu content removing `selectable` text without an accessible
+  labeled replacement, or retaining selectable text that handles secondary
+  clicks before its ancestor menu. Trace the installed paragraph's native event
+  and accessibility behavior; otherwise senders disappear from VoiceOver or the
+  attachment name or `message-detail.tsx`'s received date opens the text menu
+  instead of the attachment or message actions.
+  On iPhone and iPad, also check the paragraph's selectable-text long-press
+  recognizer before retaining `selectable` on an attachment filename; otherwise
+  its Copy menu competes with the attachment's context menu.
+
 - `organize.tsx.GmailMessageActions` returning saved-only explanations or other
   persistent notices inside the reader's fixed-height toolbar or iPhone capsule.
   Trace every capability branch with replies available and organizing disabled:

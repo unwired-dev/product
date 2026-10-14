@@ -206,6 +206,19 @@ synchronization and kept with the cache. Restoring from Trash or Spam is the
 **Undo** of the latest removal; browsing Trash, Spam or a label is not part of
 this slice.
 
+Inbox rows and the reader also offer native context menus: long-press on iPhone and
+iPad, secondary click with an iPad pointer, and right-click or Control-click on the
+Mac. A row's menu lists the row's own actions in the design's order: **Archive**,
+**Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
+and **Delete** (Move to Trash), placed last on every platform. Report spam stays a
+row accessibility action and a reader action. The
+open message's header lists Reply, Reply All and Forward, its read state and flag,
+**Move Message** with the same destinations as the reader's Move to, and **Delete
+Message**; its sender offers **Copy Address**. A link in the reader's link list
+offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
+downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
+message body and plain-text link spans have no app context menu yet.
+
 A change shows at once with **Saving the change on this device…** until local
 storage confirms it. It then becomes a durable **Pending Provider Action** before
 Gmail is asked. A current Gmail request may finish before the local save completes;

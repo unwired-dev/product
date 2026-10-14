@@ -905,5 +905,23 @@
       "inbox": "home mail messages back",
       "account": "settings preferences profile mailboxes"
     }
+  },
+  "contextMenu": {
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "archive": "Archive",
+    "trash": "Delete",
+    "trashMessage": "Delete Message",
+    "star": "Flag",
+    "unstar": "Unflag",
+    "read": "Mark as Read",
+    "unread": "Mark as Unread",
+    "moveMessage": "Move Message",
+    "openLink": "Open Link",
+    "copyLink": "Copy Link",
+    "quickLook": "Quick Look",
+    "share": "Share…",
+    "copyAddress": "Copy Address"
   }
 }
