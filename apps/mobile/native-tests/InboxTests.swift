@@ -165,7 +165,8 @@ final class InboxTests: XCTestCase {
     if UIDevice.current.userInterfaceIdiom == .phone {
       // A no-match search shrinks the Move sheet; its field and explanation must stay above the keyboard.
       app.buttons["Folders"].tap()
-      XCTAssertTrue(app.staticTexts["Move to…"].waitForExistence(timeout: 10))
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForExistence(timeout: 10))
       let search = app.textFields["Search"]
       search.tap()
       let keyboard = app.keyboards.firstMatch
@@ -179,8 +180,9 @@ final class InboxTests: XCTestCase {
       sheet.name = "Move sheet no-match search above the keyboard"
       sheet.lifetime = .keepAlways
       add(sheet)
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
-      XCTAssertFalse(app.staticTexts["Move to…"].exists)
+      app.buttons["Close"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForNonExistence(timeout: 5))
     }
     app.terminate()
     app.launch()
@@ -412,7 +414,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
     entry.tap()
     // Confirm each character reached the controlled field before sending the next one.

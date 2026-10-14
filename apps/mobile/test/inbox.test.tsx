@@ -782,9 +782,9 @@ describe('connected Gmail Inbox', () => {
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(
-      within(screen.getByTestId('move-sheet')).getByText(
-        'Microsoft · alex@example.invalid',
-      ),
+      within(screen.getByTestId('move-sheet')).getByRole('header', {
+        name: 'alex@example.invalid',
+      }),
     ).toBeVisible();
     expect(
       within(screen.getByTestId('move-sheet')).getByRole('button', {

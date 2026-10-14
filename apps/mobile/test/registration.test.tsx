@@ -688,12 +688,15 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders. On iPhone it is a sheet: the current folder is
-    // checked and cannot be chosen again, and a search narrows the rest.
+    // Move to lists the mailbox's other folders. On iPhone it is a picker naming the message: the
+    // current folder cannot be chosen again, and a search narrows the rest.
     await press(/Team lunch/u);
     await press('Folders');
     const sheet = within(screen.getByTestId('move-sheet'));
-    expect(sheet.getByRole('header', { name: 'Move to…' })).toBeVisible();
+    expect(
+      sheet.getByText('Move this message to another folder.'),
+    ).toBeVisible();
+    expect(sheet.getByText('Team lunch')).toBeVisible();
     expect(
       sheet.getByRole('button', { name: 'Inbox', selected: true }),
     ).toBeDisabled();

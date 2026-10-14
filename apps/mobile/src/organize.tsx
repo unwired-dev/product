@@ -96,11 +96,20 @@ const styles = StyleSheet.create({
   status: { paddingHorizontal: spacing.xl, paddingBottom: spacing.s },
 });
 
+// Folders the server declares a role for show its SF Symbol, as the Move picker lists them.
+const roleIcons: Readonly<Record<string, string>> = {
+  archive: 'archivebox',
+  drafts: 'doc',
+  sent: 'paperplane',
+  junk: 'xmark.bin',
+  trash: 'trash',
+};
 const folderIcon = (name: string, roles: readonly string[]) => {
   if (name === inboxFolder) {
     return 'tray';
   }
-  return roles.includes('archive') ? 'archivebox' : 'folder';
+  const role = roles.find((declared) => declared in roleIcons);
+  return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
 
 // A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
@@ -221,7 +230,8 @@ function Toolbar({
         {
           label: string;
           open: boolean;
-          toggle: () => void;
+          // Where the button was pressed, so a sheet can grow out of it.
+          toggle: (origin: number) => void;
         } & ({ panel: ReactNode } | { sheet: ReactNode })
       >
     | undefined;
@@ -257,8 +267,8 @@ function Toolbar({
               icon="folder"
               label={folders.label}
               expanded={folders.open}
-              onPress={() => {
-                folders.toggle();
+              onPress={(event) => {
+                folders.toggle(event.nativeEvent.pageX);
               }}
             />
           )}
@@ -363,6 +373,7 @@ function ImapMessageActions({
   const mailbox = useMailbox();
   // At most one panel is open: the folders to move to, or the remaining actions.
   const [panel, setPanel] = useState<'folders' | 'more'>();
+  const [origin, setOrigin] = useState(0);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -418,7 +429,8 @@ function ImapMessageActions({
                     : 'gmailActions.folders',
                 ),
                 open: panel === 'folders',
-                toggle: () => {
+                toggle: (x) => {
+                  setOrigin(x);
                   toggle('folders');
                 },
                 ...(compact
@@ -426,6 +438,8 @@ function ImapMessageActions({
                       sheet: (
                         <MoveSheet
                           open={panel === 'folders'}
+                          origin={origin}
+                          message={message}
                           destinations={state.folders
                             .filter(({ selectable }) => selectable)
                             .map(({ name, roles }) => ({
@@ -515,6 +529,7 @@ function GmailMessageActions({
   const { t } = useLocalization();
   // At most one panel is open: the labels or folders, or the remaining actions.
   const [panel, setPanel] = useState<'folders' | 'more'>();
+  const [origin, setOrigin] = useState(0);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
   if (
@@ -592,7 +607,8 @@ function GmailMessageActions({
                   : 'gmailActions.labels',
               ),
           open: panel === 'folders',
-          toggle: () => {
+          toggle: (x) => {
+            setOrigin(x);
             toggle('folders');
           },
           ...(folders && compact
@@ -600,6 +616,8 @@ function GmailMessageActions({
                 sheet: (
                   <MoveSheet
                     open={panel === 'folders'}
+                    origin={origin}
+                    message={message}
                     destinations={[
                       // Graph lists only custom move destinations; Inbox is display-only here.
                       {

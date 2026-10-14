@@ -18,7 +18,6 @@ import {
   requireNativeComponent,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -54,11 +53,10 @@ const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 
 // Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
-export function useMenuMotion(open: boolean, kind: 'menu' | 'reply' | 'sheet') {
+export function useMenuMotion(open: boolean, kind: 'menu' | 'grow') {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const [reduced, setReduced] = useState(true);
-  const { height } = useWindowDimensions();
   const enteringDuration = kind === 'menu' || reduced ? 200 : 300;
   if (open && !shown) {
     setShown(true);
@@ -101,28 +99,18 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'reply' | 'sheet') {
     };
   }, [open, kind, enteringDuration, progress]);
   const backdropStyle = { opacity: progress };
-  const initialScale = kind === 'reply' ? 0.3 : 0.95;
-  const transform =
-    kind === 'sheet'
-      ? [
-          {
-            translateY: progress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [height, 0],
-            }),
-          },
-        ]
-      : [
-          {
-            scale: progress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [initialScale, 1],
-            }),
-          },
-        ];
+  // A grown sheet starts small at its control; a menu barely scales.
+  const transform = [
+    {
+      scale: progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [kind === 'grow' ? 0.3 : 0.95, 1],
+      }),
+    },
+  ];
   const style = {
     opacity:
-      kind === 'reply'
+      kind === 'grow'
         ? progress.interpolate({
             inputRange: [0, 0.3, 1],
             outputRange: [0, 1, 1],

@@ -1,8 +1,8 @@
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
-  Keyboard,
   Animated,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -12,27 +12,45 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, SFSymbol, useMenuMotion } from './design.tsx';
+import { Glass, Monogram, SFSymbol, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   sheetBackdrop: { justifyContent: 'flex-end' },
-  // shortcut: a fixed home-indicator inset; read the safe area if a sheet ever opens without one.
   sheet: {
-    maxHeight: '85%',
-    gap: 14,
-    paddingTop: 10,
+    flex: 1,
+    gap: spacing.m,
+    paddingTop: spacing.m,
     paddingHorizontal: spacing.l,
-    paddingBottom: 34,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
     borderCurve: 'continuous',
   },
-  grabber: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3 },
-  sheetTitle: { ...textStyles.headline, textAlign: 'center', paddingTop: 4 },
+  caption: { ...textStyles.footnote, textAlign: 'center' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  title: { ...textStyles.headline, flex: 1, textAlign: 'center' },
+  close: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  message: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingBottom: spacing.m,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  messageText: { flex: 1 },
+  sender: { ...textStyles.headline },
+  subject: { ...textStyles.footnote },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -44,32 +62,22 @@ const styles = StyleSheet.create({
   },
   searchIcon: { width: spacing.xl, alignItems: 'center' },
   searchInput: { ...textStyles.body, flex: 1, minHeight: 44, padding: 0 },
-  sheetList: { flexGrow: 0 },
-  section: { gap: 6 },
-  sectionHeader: {
-    ...textStyles.footnote,
-    paddingTop: 4,
-    paddingHorizontal: spacing.l,
-  },
-  group: {
-    overflow: 'hidden',
-    borderRadius: radius.insetGroup,
-    borderCurve: 'continuous',
-  },
+  sheetList: { flex: 1 },
+  note: { ...textStyles.footnote, paddingVertical: spacing.s },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
-    minHeight: 48,
-    // The focus border counts toward the frame's 16pt horizontal and 13pt vertical insets.
-    paddingHorizontal: spacing.l - 2,
-    paddingVertical: 13 - 2,
+    minHeight: 44,
+    // The focus border counts toward the row's 12pt horizontal and 11pt vertical insets.
+    paddingHorizontal: spacing.m - 2,
+    paddingVertical: 11 - 2,
     borderWidth: 2,
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.card,
   },
   rowIcon: { width: 22, alignItems: 'center' },
   rowName: { ...textStyles.body, flex: 1 },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
 });
 
 // A folder Move to… offers: tray for the Inbox, archivebox for the archive, folder otherwise.
@@ -80,16 +88,22 @@ type Destination = Readonly<{
   current: boolean;
 }>;
 
-// iPhone's Move to… sheet for a mailbox whose messages live in one folder: its folders, the
-// message's current one checked, narrowed by a search. Moving closes it.
+// iPhone's Move picker for a mailbox whose messages live in one folder. It grows out of the Move
+// button: the mailbox, the message, its folders with the current one unavailable, and a search
+// below them. Moving closes it.
 export function MoveSheet({
   open,
+  origin,
+  message,
   destinations,
   limited,
   onMove,
   onClose,
 }: {
   readonly open: boolean;
+  // Where the Move button was pressed, across the screen.
+  readonly origin: number;
+  readonly message: Readonly<{ sender: string; subject: string }>;
   readonly destinations: readonly Destination[];
   // Microsoft lists only its first folders; IMAP lists all of them.
   readonly limited: number | undefined;
@@ -100,7 +114,8 @@ export function MoveSheet({
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const provider = useProviderName();
-  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const [keyboardHeight, setKeyboardHeight] = useState(
     () => Keyboard.metrics()?.height ?? 0,
   );
@@ -118,7 +133,7 @@ export function MoveSheet({
       subscription.remove();
     };
   }, [height]);
-  const motion = useMenuMotion(open, 'sheet');
+  const motion = useMenuMotion(open, 'grow');
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState<string>();
   const [wasOpen, setWasOpen] = useState(open);
@@ -134,9 +149,7 @@ export function MoveSheet({
     name.toLocaleLowerCase().includes(needle),
   );
   const note = (text: string) => (
-    <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>
-      {text}
-    </Text>
+    <Text style={[styles.note, { color: colors.textSecondary }]}>{text}</Text>
   );
   if (!motion.shown) {
     return null;
@@ -160,6 +173,7 @@ export function MoveSheet({
           styles.sheetBackdrop,
           {
             height: Math.max(0, height - keyboardHeight),
+            paddingTop: insets.top + spacing.s,
           },
         ]}>
         <Animated.View
@@ -181,20 +195,161 @@ export function MoveSheet({
           style={[
             styles.sheet,
             motion.style,
-            { boxShadow: colors.menuGlassShadow },
+            {
+              boxShadow: colors.menuGlassShadow,
+              // Above the keyboard the search needs no home-indicator inset.
+              paddingBottom: keyboardHeight > 0 ? spacing.s : 34,
+              // The picker grows out of where Move was pressed, at the bottom of the screen.
+              // Keyboard activation reports no touch; grow from the middle then.
+              transformOrigin: `${origin || width / 2}px 100%`,
+            },
           ]}>
           <Glass
             cornerRadius={radius.sheet}
             style={StyleSheet.absoluteFill}
           />
-          <View
-            style={[styles.grabber, { backgroundColor: colors.textSecondary }]}
-          />
-          <Text
-            accessibilityRole="header"
-            style={[styles.sheetTitle, { color: colors.textPrimary }]}>
-            {t('gmailActions.moveToTitle')}
+          <Text style={[styles.caption, { color: colors.textSecondary }]}>
+            {t('gmailActions.moveCaption')}
           </Text>
+          <View style={styles.titleRow}>
+            <View style={styles.close} />
+            <Text
+              accessibilityRole="header"
+              numberOfLines={1}
+              style={[styles.title, { color: colors.textPrimary }]}>
+              {mailbox?.address ?? provider}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('message.closeResponses')}
+              onFocus={() => {
+                setFocused('close');
+              }}
+              onBlur={() => {
+                setFocused(undefined);
+              }}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.close,
+                {
+                  backgroundColor: pressed
+                    ? colors.accentSelectionSubtle
+                    : colors.fillQuiet,
+                  borderColor:
+                    focused === 'close' ? colors.accentInk : 'transparent',
+                },
+              ]}>
+              <SFSymbol
+                name="xmark"
+                color={colors.textPrimary}
+              />
+            </Pressable>
+          </View>
+          <View style={[styles.message, { borderColor: colors.separator }]}>
+            <Monogram name={message.sender} />
+            <View style={styles.messageText}>
+              <Text
+                numberOfLines={1}
+                style={[styles.sender, { color: colors.textPrimary }]}>
+                {message.sender}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[styles.subject, { color: colors.textSecondary }]}>
+                {message.subject}
+              </Text>
+            </View>
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            style={styles.sheetList}>
+            {shown.length === 0
+              ? note(
+                  t(
+                    destinations.length === 0
+                      ? 'gmailActions.noFolders'
+                      : 'gmailActions.noMatchingFolders',
+                  ),
+                )
+              : shown.map((destination, index) => (
+                  <View key={destination.id}>
+                    {index === 0 ? null : (
+                      <View
+                        style={[
+                          styles.separator,
+                          { backgroundColor: colors.separator },
+                        ]}
+                      />
+                    )}
+                    <Pressable
+                      accessibilityLabel={
+                        destination.current
+                          ? destination.name
+                          : t('gmailActions.moveTo', {
+                              label: destination.name,
+                            })
+                      }
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        disabled: destination.current,
+                        selected: destination.current,
+                      }}
+                      disabled={destination.current}
+                      focusable
+                      onBlur={() => {
+                        setFocused(undefined);
+                      }}
+                      onFocus={() => {
+                        setFocused(destination.id);
+                      }}
+                      onPress={() => {
+                        onMove(destination.id);
+                      }}
+                      style={({ pressed }) => [
+                        styles.row,
+                        {
+                          backgroundColor: pressed
+                            ? colors.accentSelectionSubtle
+                            : 'transparent',
+                          borderColor:
+                            focused === destination.id
+                              ? colors.accentInk
+                              : 'transparent',
+                        },
+                      ]}>
+                      <View style={styles.rowIcon}>
+                        <SFSymbol
+                          name={destination.icon}
+                          size={18}
+                          color={
+                            destination.current
+                              ? colors.textSecondary
+                              : colors.textPrimary
+                          }
+                        />
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.rowName,
+                          {
+                            color: destination.current
+                              ? colors.textSecondary
+                              : colors.textPrimary,
+                          },
+                        ]}>
+                        {destination.name}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ))}
+            {shown.length > 0 && destinations.every(({ current }) => current)
+              ? note(t('gmailActions.noFolders'))
+              : null}
+            {limited === undefined
+              ? null
+              : note(t('gmailActions.foldersLimited', { count: limited }))}
+          </ScrollView>
           <View style={[styles.search, { backgroundColor: colors.fillQuiet }]}>
             <View style={styles.searchIcon}>
               <SFSymbol
@@ -215,124 +370,6 @@ export function MoveSheet({
               value={query}
             />
           </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            style={styles.sheetList}>
-            <View style={styles.section}>
-              {note(
-                mailbox === undefined
-                  ? provider
-                  : t('gmailActions.connection', {
-                      provider,
-                      address: mailbox.address,
-                    }),
-              )}
-              {shown.length === 0 ? (
-                note(
-                  t(
-                    destinations.length === 0
-                      ? 'gmailActions.noFolders'
-                      : 'gmailActions.noMatchingFolders',
-                  ),
-                )
-              ) : (
-                <View
-                  style={[
-                    styles.group,
-                    { backgroundColor: colors.surfaceContent },
-                  ]}>
-                  {shown.map((destination, index) => (
-                    <View key={destination.id}>
-                      {index === 0 ? null : (
-                        <View
-                          style={[
-                            styles.separator,
-                            { backgroundColor: colors.separator },
-                          ]}
-                        />
-                      )}
-                      <Pressable
-                        accessibilityLabel={
-                          destination.current
-                            ? destination.name
-                            : t('gmailActions.moveTo', {
-                                label: destination.name,
-                              })
-                        }
-                        accessibilityRole="button"
-                        accessibilityState={{
-                          disabled: destination.current,
-                          selected: destination.current,
-                        }}
-                        disabled={destination.current}
-                        focusable
-                        onBlur={() => {
-                          setFocused(undefined);
-                        }}
-                        onFocus={() => {
-                          setFocused(destination.id);
-                        }}
-                        onPress={() => {
-                          onMove(destination.id);
-                        }}
-                        style={({ pressed }) => [
-                          styles.row,
-                          {
-                            backgroundColor: pressed
-                              ? colors.accentSelectionSubtle
-                              : 'transparent',
-                            borderColor:
-                              focused === destination.id
-                                ? colors.accentInk
-                                : 'transparent',
-                          },
-                        ]}>
-                        <View style={styles.rowIcon}>
-                          <SFSymbol
-                            name={destination.icon}
-                            size={18}
-                            color={
-                              destination.current
-                                ? colors.textSecondary
-                                : colors.textPrimary
-                            }
-                          />
-                        </View>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.rowName,
-                            {
-                              color: destination.current
-                                ? colors.textSecondary
-                                : colors.textPrimary,
-                            },
-                          ]}>
-                          {destination.name}
-                        </Text>
-                        {destination.current ? (
-                          <SFSymbol
-                            name="checkmark"
-                            color={colors.accentInk}
-                          />
-                        ) : null}
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              )}
-              {shown.length > 0 && destinations.every(({ current }) => current)
-                ? note(t('gmailActions.noFolders'))
-                : null}
-              {limited === undefined
-                ? null
-                : note(
-                    t('gmailActions.foldersLimited', {
-                      count: limited,
-                    }),
-                  )}
-            </View>
-          </ScrollView>
         </Animated.View>
       </View>
     </Modal>

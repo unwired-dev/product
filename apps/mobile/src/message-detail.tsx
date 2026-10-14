@@ -498,7 +498,7 @@ function ResponseActions({
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
   const responseOpen = compact && choosing !== undefined && choosing === source;
-  const motion = useMenuMotion(responseOpen, 'reply');
+  const motion = useMenuMotion(responseOpen, 'grow');
   const close = () => {
     setChoosing(undefined);
   };
