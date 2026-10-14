@@ -22,12 +22,12 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 
 import { GlassGroup, GlassPanel, SFSymbol, ToolbarButton } from './design.tsx';
@@ -39,6 +39,8 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
+
+const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   bar: {
@@ -178,7 +180,6 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
-  const compact = useWindowDimensions().width < 700;
   return (
     <>
       <View style={styles.toolbar}>

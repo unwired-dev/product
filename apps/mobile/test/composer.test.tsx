@@ -132,9 +132,10 @@ function scriptedDraftAssistance() {
   return { native, asked, cancelled };
 }
 
-// Capture queued native input at the same composite-fiber boundary used by fireEvent.
+// Capture queued native input at the same composite-fiber boundary used by fireEvent. With the
+// compact Reply picker open, its choice shares the toolbar button's label and renders last.
 const queuedPress = (label: string, event = 'onPress') => {
-  let fiber = screen.getByLabelText(label).unstable_fiber;
+  let fiber = screen.getAllByLabelText(label).at(-1)?.unstable_fiber ?? null;
   while (fiber !== null) {
     const handler = fiber.memoizedProps?.[event];
     if (typeof handler === 'function') {
@@ -254,6 +255,17 @@ function App({
 
 const press = async (name: string) => {
   const button = await screen.findByRole('button', { name });
+  await act(async () => {
+    await fireEvent.press(button);
+  });
+};
+
+// With the compact Reply picker open, its choice shares the toolbar button's name and renders last.
+const pressLast = async (name: string) => {
+  const button = screen.getAllByRole('button', { name }).at(-1);
+  if (button === undefined) {
+    throw new Error(`Expected a last button named ${name}`);
+  }
   await act(async () => {
     await fireEvent.press(button);
   });
@@ -3148,23 +3160,23 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
-  it('chooses Reply All from the compact sheet and ignores a choice after the reader closes', async () => {
+  it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {
     expect.hasAssertions();
-    const regular = Dimensions.get('window');
-    Dimensions.set({ window: { ...regular, width: 320, height: 568 } });
-    const registration = account(connected(['alex@example.invalid']));
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    const gmail = createSyntheticGmail({ messages: 0 });
-    const message = gmail.deliver({
-      subject: 'Compact plans',
-      content: { text: 'Meet on Friday?' },
-      headers: {
-        To: 'alex@example.invalid, Bob <bob@example.invalid>',
-        'Message-ID': '<compact@example.invalid>',
-      },
-    });
+    const window = Dimensions.get('window');
+    Dimensions.set({ window: { ...window, width: 844, height: 390 } });
     try {
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        subject: 'Compact plans',
+        content: { text: 'Meet on Friday?' },
+        headers: {
+          To: 'alex@example.invalid, Bob <bob@example.invalid>',
+          'Message-ID': '<compact@example.invalid>',
+        },
+      });
       const app = await render(
         <ReaderApp
           drafts={drafts}
@@ -3173,8 +3185,25 @@ describe('replying to and forwarding from the reader', () => {
           registration={registration}
         />,
       );
+      await screen.findByRole('button', { name: 'Reply' });
+      expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
+      // Organizer panels must open above this bottom toolbar in landscape too.
+      await press('Labels');
+      const panel = screen.getByText(
+        'This Gmail mailbox has no labels of its own yet.',
+      ).parent?.parent?.parent?.parent?.parent;
+      expect(panel).not.toHaveStyle({ position: 'absolute' });
+      await press('Hide labels');
       await press('Reply');
+      expect(screen.getAllByRole('button', { name: 'Reply' })[0]).toHaveProp(
+        'accessibilityState',
+        { disabled: false, expanded: true },
+      );
       await press('Cancel');
+      expect(screen.getByRole('button', { name: 'Reply' })).toHaveProp(
+        'accessibilityState',
+        { disabled: false, expanded: false },
+      );
       expect(screen.queryByLabelText('Subject')).toBeNull();
       await press('Reply');
       await press('Reply All');
@@ -3199,14 +3228,14 @@ describe('replying to and forwarding from the reader', () => {
       });
       expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
     } finally {
-      Dimensions.set({ window: regular });
+      await act(() => {
+        Dimensions.set({ window });
+      });
     }
   });
 
   it('uses a sending mailbox in the compact reader Profile and does not open after the reader closes during creation', async () => {
     expect.hasAssertions();
-    const regular = Dimensions.get('window');
-    Dimensions.set({ window: { ...regular, width: 390, height: 844 } });
     const initial = connected([
       'other@example.invalid',
       'alex@example.invalid',
@@ -3303,7 +3332,6 @@ describe('replying to and forwarding from the reader', () => {
       expect(onCompose).not.toHaveBeenCalled();
     } finally {
       storage.release();
-      Dimensions.set({ window: regular });
     }
   });
 
@@ -3335,7 +3363,9 @@ describe('replying to and forwarding from the reader', () => {
     await expect(
       screen.findByText('Shall we meet on Friday?'),
     ).resolves.toBeOnTheScreen();
+    // The compact reader's Reply opens its picker first; its Reply choice renders last.
     await press('Reply');
+    await pressLast('Reply');
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
       'Re: Archived plans',
@@ -3369,6 +3399,7 @@ describe('replying to and forwarding from the reader', () => {
         registration={registration}
       />,
     );
+    await press('Reply');
     await press('Reply All');
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
@@ -3435,6 +3466,7 @@ describe('replying to and forwarding from the reader', () => {
         />
       </AssistanceContext>,
     );
+    await press('Reply');
     await press('Reply All');
     await screen.findByLabelText('Subject');
     const [draft] = draftsOf(drafts.getSnapshot());
@@ -3553,6 +3585,8 @@ describe('replying to and forwarding from the reader', () => {
         registration={registration}
       />,
     );
+    // The compact reader's Reply opens its picker, where every response is a choice.
+    await press('Reply');
     await screen.findByRole('button', { name: 'Forward' });
     const forward = queuedPress('Forward');
     const reply = queuedPress('Reply');

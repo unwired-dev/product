@@ -97,6 +97,10 @@ describe('thread view', () => {
     await act(store.load);
 
     await expect(screen.findByText('See you then.')).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
+      'selectable',
+      true,
+    );
     await expect(
       screen.findByText('Can we meet on Tuesday?'),
     ).resolves.toBeVisible();
@@ -223,6 +227,10 @@ describe('thread view', () => {
     await act(store.load);
 
     await expect(screen.findByText('Alex Rivera')).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
+      'selectable',
+      true,
+    );
     expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
   });
 
@@ -244,14 +252,14 @@ describe('thread view', () => {
     ).resolves.toBeVisible();
   });
 
-  it('shows the compact header with Back, the cached unread count and the subject', async () => {
+  it('keeps Back, the cached unread count and the truncated subject on a landscape iPhone', async () => {
     expect.hasAssertions();
-    const regular = Dimensions.get('window');
-    Dimensions.set({ window: { ...regular, width: 390, height: 844 } });
-    const { native, middle } = threadMailbox();
-    const store = createGmailInbox(native);
-    const onClose = jest.fn();
+    const window = Dimensions.get('window');
+    Dimensions.set({ window: { ...window, width: 844, height: 390 } });
     try {
+      const { native, middle } = threadMailbox();
+      const store = createGmailInbox(native);
+      const onClose = jest.fn();
       await render(
         <InboxProvider mailboxes={singleMailbox(store, alex)}>
           <ThreadView
@@ -265,6 +273,10 @@ describe('thread view', () => {
       await expect(
         screen.findByRole('header', { name: 'Re: Planning' }),
       ).resolves.toBeVisible();
+      expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
+        'numberOfLines',
+        1,
+      );
       expect(screen.getByText('3 Messages')).toBeVisible();
       // Every delivered message is unread, including the one outside the Thread.
       await fireEvent.press(
@@ -273,7 +285,7 @@ describe('thread view', () => {
       // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce.
       expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
-      Dimensions.set({ window: regular });
+      Dimensions.set({ window });
     }
   });
 });

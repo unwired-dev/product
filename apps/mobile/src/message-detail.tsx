@@ -18,11 +18,11 @@ import {
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   ScrollView,
   Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -59,9 +59,9 @@ import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
-// Below this width the reader is a pushed iPhone screen with its own header and bottom toolbar;
-// at or above it (iPad, regular width) the toolbar sits at the top like the Mac's.
-const compactWidth = 700;
+// On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
+// orientation; on iPad the toolbar sits at the top like the Mac's.
+const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -364,7 +364,6 @@ function ResponseActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
-  const compact = useWindowDimensions().width < compactWidth;
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
@@ -444,6 +443,7 @@ function ResponseActions({
           icon="arrowshape.turn.up.left"
           label={t('message.reply')}
           disabled={pending !== undefined}
+          expanded={choosing === source}
           onPress={() => {
             setChoosing(source);
           }}
@@ -793,7 +793,6 @@ function MailboxMessage({
   const account = use(AccountContext);
   const colors = usePalette();
   const { t } = useLocalization();
-  const compact = useWindowDimensions().width < compactWidth;
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
   const folderMessage = useSyncExternalStore(actions.subscribe, () =>
     'openFolder' in actions ? actions.message(id) : undefined,
@@ -843,6 +842,9 @@ function MailboxMessage({
     );
   }
 
+  // The compact header carries the subject and Back; without a way back the subject stays in
+  // the content.
+  const header = compact && onClose !== undefined;
   const toolbar = (
     <MessageToolbar
       message={message}
@@ -857,7 +859,7 @@ function MailboxMessage({
       <LinkConfirmationProvider
         inbox={actions}
         ids={[message.id]}>
-        {compact && onClose !== undefined ? (
+        {header ? (
           <ReaderHeader
             subject={message.subject}
             onClose={onClose}
@@ -869,7 +871,7 @@ function MailboxMessage({
             styles.content,
             compact ? styles.compactContent : null,
           ]}>
-          {compact ? null : (
+          {header ? null : (
             <Text
               accessibilityRole="header"
               selectable
@@ -946,7 +948,6 @@ function ThreadMessages({
   const inbox = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
-  const compact = useWindowDimensions().width < compactWidth;
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -974,6 +975,7 @@ function ThreadMessages({
   ) {
     return <EmptyDetail id={id} />;
   }
+  const header = compact && onClose !== undefined;
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
@@ -982,7 +984,7 @@ function ThreadMessages({
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
-          {compact && onClose !== undefined ? (
+          {header ? (
             <ReaderHeader
               subject={opened.subject}
               onClose={onClose}
@@ -991,7 +993,7 @@ function ThreadMessages({
           <ReaderScrollView
             contentContainerStyle={styles.content}
             maintainVisibleContentPosition={keepVisibleMessage}>
-            {compact ? null : (
+            {header ? null : (
               <Text
                 accessibilityRole="header"
                 selectable

@@ -42,6 +42,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `apps/mobile/src/message-detail.tsx` or collaborating reader chrome choosing
+  iPhone-only controls from window width alone. Keep the iPhone Back header,
+  bottom toolbar and Reply picker in landscape too, and preserve the iPad's
+  documented toolbar behavior at narrow widths. Trace `organize.tsx.Toolbar`
+  panel anchoring against that same device choice; otherwise Labels and More
+  can open below the bottom toolbar, outside the viewport. Exercise a wide
+  iPhone and a narrow iPad through the real reader stores, and retain native
+  orientation and multitasking qualification separately from component evidence.
+
 - `message-detail.tsx` displaying a conversation count from a constant or only
   the opened message. Trace ordinary Inbox selections through the single-message
   route with a cached multi-message Thread: omit the count there or derive it
