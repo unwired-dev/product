@@ -19,6 +19,7 @@ import {
 import type { useInboxFilter } from './inbox-filters.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 
+import { usePaletteHeader } from './command-palette.tsx';
 import {
   BarButton,
   BarSpacer,
@@ -29,7 +30,7 @@ import {
 } from './inbox-bar.tsx';
 import { InboxFilterButton } from './inbox-filters.tsx';
 import { SearchScope } from './inbox-heading.tsx';
-import { styles } from './inbox-styles.ts';
+import { ipad, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useGmailSearch } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
@@ -143,6 +144,7 @@ export function InboxBar({
   readonly scope: string | undefined;
 }) {
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   const inWindow = use(WindowBarContext) !== undefined;
   const compact = filter.on && !searching && !inWindow;
   let trailing = null;
@@ -177,13 +179,17 @@ export function InboxBar({
           onPress={open}
         />
       ) : (
-        <SearchField
-          onFocus={focused}
-          onQuery={setQuery}
-          query={query}
-          ready={ready}
-          search={field}
-        />
+        <View
+          style={styles.searchField}
+          {...(!ipad && searching ? header.swipe : {})}>
+          <SearchField
+            onFocus={focused}
+            onQuery={setQuery}
+            query={query}
+            ready={ready || searching}
+            search={field}
+          />
+        </View>
       )}
     </FloatingBar>
   );

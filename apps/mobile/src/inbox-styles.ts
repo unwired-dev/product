@@ -19,6 +19,7 @@ const subheadline = ipad
 // iPad keeps the scaled Mac list recipe in both orientations; iPhone uses its touch layout.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
+  searchField: { flex: 1, flexDirection: 'row' },
   heading: {
     flexDirection: 'row',
     alignItems: 'flex-start',

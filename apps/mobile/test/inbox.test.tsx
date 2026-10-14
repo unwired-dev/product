@@ -1618,7 +1618,7 @@ const listedMessage = (
 };
 
 describe('command palette', () => {
-  it('opens from the search field while search replaces the Inbox heading', async () => {
+  it('opens by swipe and accessibility action while search replaces the Inbox heading', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({
@@ -1632,9 +1632,43 @@ describe('command palette', () => {
       await fireEvent(field, 'focus');
     });
     expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    await fireEvent(field, 'touchStart', {
+      nativeEvent: { pageX: 10, pageY: 10 },
+    });
+    await expect(
+      fireEvent(field, 'moveShouldSetResponder', {
+        nativeEvent: { pageX: 14, pageY: 60 },
+      }),
+    ).resolves.toBe(true);
+    await fireEvent(field, 'responderGrant');
+    expect(
+      openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Cancel' }),
+    );
     await openPalette(field);
     expect(
       openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+  });
+
+  it('keeps the search field palette action when private storage locks', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const field = await screen.findByLabelText('Search senders and subjects');
+    await act(async () => {
+      await fireEvent(field, 'focus');
+    });
+    gmail.failOpen('locked');
+    await act(async () => {
+      await connected.store().load();
+    });
+    await openPalette(screen.getByLabelText('Search senders and subjects'));
+    expect(
+      openedPalette().getByRole('button', { name: 'Cancel' }),
     ).toBeVisible();
   });
 

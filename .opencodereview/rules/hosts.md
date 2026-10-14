@@ -836,9 +836,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   full-size wrapper `View` and the action on an `accessible` element.
   Check modes that replace the ready heading too, such as
   `inbox-search.tsx.SearchHeading`: move the action to a focused accessible
-  replacement, such as `inbox-bar.tsx.SearchField`, while retaining the header
-  swipe; otherwise entering search removes the documented assistive entry until
-  the user closes it, despite ordinary Inbox and loading states passing.
+  replacement, such as `inbox-bar.tsx.SearchField`, while retaining a reachable
+  swipe carrier, using the search field when the approved layout removes the
+  heading. Keep both entries when mailbox readiness changes during open search;
+  otherwise search removes command entry until Close, despite ordinary Inbox,
+  initial loading and accessibility-only search tests passing.
 - A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
   `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
   every other screen the host mounts for the same state, such as

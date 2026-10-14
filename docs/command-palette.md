@@ -83,7 +83,9 @@ results never appear in the palette. The vocabulary lives in the
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command
   Palette accessibility action for VoiceOver and other assistive controls; while
-  search replaces the Inbox heading, the search field carries it instead. A
+  search replaces the Inbox heading, the search field carries it instead and
+  accepts the downward swipe. Both entries remain available if private storage
+  locks while search is open. A
   reader, Thread or composer that is loading, cannot open its storage or has
   no message or Draft to show keeps the same swipe and action, on its title or
   its loading indicator, since it still covers the Inbox.
