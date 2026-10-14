@@ -36,7 +36,10 @@ work and the stages left undone. After all required
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
 threads. Implementation edits made while babysitting require another pinned
-review by every required reviewer before they are pushed. Each pass ends once it has
+review by every required reviewer before they are pushed. OCR uses the
+[incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints);
+the thermo-nuclear and applicable design reviews retain the full task diff. Each
+pass ends once it has
 handled the feedback and gate state available now. Babysitting as a whole ends
 when the PR is merged or closed; [automatic merge](#automatic-merge) performs
 the merge. Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
