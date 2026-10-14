@@ -45,6 +45,54 @@ export const failedFolders = (
     (name) => name !== inboxFolder && imapFolderFailed(inbox.folder(name)),
   );
 
+type ViewInputs<C> = Readonly<{
+  mailboxes: ReadonlyArray<Readonly<{ id: string }>>;
+  // The window's Profile's connections.
+  connections: readonly C[];
+  view: Readonly<{ mailbox?: string | undefined }>;
+}>;
+
+// The chosen connection while it waits for provider authorization: it has no Inbox store but
+// stays chosen, so New Message cannot fall back to another sender.
+export const waitingChoice = <
+  C extends Pick<MailboxConnection, 'id' | 'state'>,
+>({
+  mailboxes,
+  connections,
+  view,
+}: ViewInputs<C>) =>
+  connections.find(
+    ({ id, state }) =>
+      id === view.mailbox &&
+      state === 'authorization' &&
+      !mailboxes.some((mailbox) => mailbox.id === id),
+  );
+
+// Whether a window's chosen mailbox is still shown; a removed mailbox's view falls back to every
+// mailbox.
+export const keepsChoice = (
+  inputs: ViewInputs<Pick<MailboxConnection, 'id' | 'state'>>,
+) =>
+  waitingChoice(inputs) !== undefined ||
+  inputs.mailboxes.some(({ id }) => id === inputs.view.mailbox);
+
+// The authorization notices a view shows: every waiting connection under every mailbox, the chosen
+// one when it waits, and none for a listed mailbox.
+export const authorizationWaiting = <
+  C extends Pick<MailboxConnection, 'id' | 'state'>,
+>(
+  connections: readonly C[],
+  {
+    scope,
+    chosen,
+  }: Readonly<{ scope: string | undefined; chosen: C | undefined }>,
+) =>
+  chosen === undefined
+    ? connections.filter(
+        ({ state }) => scope === undefined && state === 'authorization',
+      )
+    : [chosen];
+
 // The sidebar projects already-decoded stores; hosts retain rendering and navigation callbacks.
 export function mailboxSidebar<
   L extends Readonly<{
@@ -86,20 +134,23 @@ export function mailboxSidebar<
       })),
     };
   });
+  // Waiting connections have no store until authorization succeeds; never duplicate a store row.
+  const waiting = profileMailboxes(connections, profile).filter(
+    ({ id, state }) =>
+      state === 'authorization' &&
+      !mailboxes.some((mailbox) => mailbox.id === id),
+  );
+  // A chosen connection stays chosen while it waits for authorization; only a removed one falls
+  // back to every mailbox.
+  const waitingChosen = waiting.some(({ id }) => id === view.mailbox);
   return {
     unread: sections.reduce((sum, section) => sum + section.unread, 0),
-    allSelected: chosen === undefined,
+    allSelected: chosen === undefined && !waitingChosen,
     sections,
-    // Waiting connections have no store until authorization succeeds; never duplicate a store row.
-    waiting: profileMailboxes(connections, profile)
-      .filter(
-        ({ id, state }) =>
-          state === 'authorization' &&
-          !mailboxes.some((mailbox) => mailbox.id === id),
-      )
-      .map((connection) => ({
-        connection,
-        recovery: connection.provider === 'imap' ? 'account' : 'authorization',
-      })),
+    waiting: waiting.map((connection) => ({
+      connection,
+      recovery: connection.provider === 'imap' ? 'account' : 'authorization',
+      selected: connection.id === view.mailbox,
+    })),
   };
 }

@@ -39,7 +39,10 @@ export type { MailboxProblem } from './mailbox-views.ts';
 export {
   failedFolders,
   mailboxSidebar,
+  authorizationWaiting,
+  keepsChoice,
   profileMailboxes,
+  waitingChoice,
 } from './mailbox-views.ts';
 
 type Scope = Readonly<{

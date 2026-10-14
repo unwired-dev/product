@@ -356,7 +356,7 @@ export function Mailboxes({
               </Fragment>
             );
           })}
-          {sidebar.waiting.map(({ connection, recovery }) => {
+          {sidebar.waiting.map(({ connection, recovery, selected }) => {
             const provider = t(`mailProviders.${connection.provider}`);
             const imap = recovery === 'account';
             return (
@@ -381,6 +381,7 @@ export function Mailboxes({
                         ? t('mailboxes.states.imap-authorization')
                         : t('mailboxes.states.authorization', { provider })
                     }
+                    selected={selected}
                     onPress={() => {
                       // IMAP needs its password entered again on the account page.
                       if (imap) {

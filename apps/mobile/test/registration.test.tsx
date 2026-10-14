@@ -1241,6 +1241,20 @@ describe('product registration', () => {
     await press('Inbox. In alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
     expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
+    // A chosen mailbox stays chosen while its grant lapses, so nothing else is shown or sent from.
+    await press('Inbox. In alex@example.invalid');
+    session.expire('alex@example.invalid');
+    await act(store.resume);
+    expect([
+      alexRow().props.accessibilityState?.selected,
+      screen.getByRole('button', { name: 'All inboxes' }).props
+        .accessibilityState?.selected,
+      screen.queryByText('Only for Other'),
+    ]).toStrictEqual([true, false, null]);
+    await press('Allow Gmail access for alex@example.invalid');
+    await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
+    expect(alexRow().props.accessibilityState?.selected).toBe(true);
+    await press('All inboxes');
 
     // Removal asks first, then removes only that mailbox's mail from this device.
     await openAccount();

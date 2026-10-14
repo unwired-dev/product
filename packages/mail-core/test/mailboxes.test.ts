@@ -7,11 +7,14 @@ import { gmailAction } from '../src/gmail-actions.ts';
 import {
   createGmailSearch,
   createMailboxes,
+  authorizationWaiting,
   inboxMessages,
+  keepsChoice,
   mailboxSidebar,
   messageDateSections,
   searchGmail,
   searchMessages,
+  waitingChoice,
 } from '../src/mailboxes.ts';
 import {
   createRegistration,
@@ -1071,6 +1074,93 @@ describe('mailbox sidebar projection', () => {
       project({}).allSelected,
       project({ mailbox: 'removed' }).allSelected,
     ]).toStrictEqual([true, true]);
+  });
+
+  it('keeps a chosen connection chosen while it waits for authorization, and drops a removed one', () => {
+    expect.hasAssertions();
+    const connections: ReadonlyArray<
+      Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>
+    > = [
+      {
+        id: 'open',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'connected',
+      },
+      {
+        id: 'lapsed',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'other',
+        profile: defaultProfile,
+        provider: 'microsoft-graph',
+        state: 'authorization',
+      },
+    ];
+    const mailboxes = [{ id: 'open', state: { kind: 'loading' } as const }];
+    const decide = (mailbox: string | undefined) => {
+      const view = { mailbox };
+      const sidebar = mailboxSidebar({
+        mailboxes,
+        connections,
+        profile: defaultProfile,
+        view,
+      });
+      return {
+        kept: keepsChoice({ mailboxes, connections, view }),
+        waiting: waitingChoice({ mailboxes, connections, view })?.id,
+        allSelected: sidebar.allSelected,
+        selectedWaiting: sidebar.waiting
+          .filter(({ selected }) => selected)
+          .map(({ connection }) => connection.id),
+      };
+    };
+    expect([
+      decide('lapsed'),
+      decide('open'),
+      decide('removed'),
+      decide(undefined),
+    ]).toStrictEqual([
+      {
+        kept: true,
+        waiting: 'lapsed',
+        allSelected: false,
+        selectedWaiting: ['lapsed'],
+      },
+      {
+        kept: true,
+        waiting: undefined,
+        allSelected: false,
+        selectedWaiting: [],
+      },
+      {
+        kept: false,
+        waiting: undefined,
+        allSelected: true,
+        selectedWaiting: [],
+      },
+      {
+        kept: false,
+        waiting: undefined,
+        allSelected: true,
+        selectedWaiting: [],
+      },
+    ]);
+    const [, lapsed] = connections;
+    // The chosen waiting connection shows its own notice; every mailbox shows all; a listed one none.
+    expect(
+      [
+        authorizationWaiting(connections, { scope: 'lapsed', chosen: lapsed }),
+        authorizationWaiting(connections, {
+          scope: undefined,
+          chosen: undefined,
+        }),
+        authorizationWaiting(connections, { scope: 'open', chosen: undefined }),
+      ].map((notices) => notices.map(({ id }) => id)),
+    ).toStrictEqual([['lapsed'], ['lapsed', 'other'], []]);
   });
 
   it('keeps selectable IMAP names distinct and missing-store recovery inside its Profile', () => {

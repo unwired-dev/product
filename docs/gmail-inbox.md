@@ -39,7 +39,9 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   row, and the reader, names its mailbox (`In alex@example.com`), and VoiceOver
   reads it with the row. Choosing a mailbox's Inbox in the Mailboxes sidebar shows
   only that mailbox; **All inboxes** returns. Each window chooses on its own. A
-  removed mailbox's view falls back to **All inboxes**.
+  removed mailbox's view falls back to **All inboxes**. A chosen mailbox whose
+  provider authorization lapsed stays chosen: its Inbox shows the authorization notice and
+  **New Message** stays unavailable until access is allowed again.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are

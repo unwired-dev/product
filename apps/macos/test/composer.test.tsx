@@ -310,6 +310,51 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
   });
 
+  it('does not substitute a sender while the selected mailbox waits for authorization', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('Inbox. In alex@example.invalid');
+    const lapse = async (state: 'authorization' | 'connected') => {
+      await act(() => {
+        registration.change({
+          ...initial,
+          mailboxes: JSON.stringify([
+            { id: alex, address: 'alex@example.invalid', state },
+            { id: other, address: 'other@example.invalid', state: 'connected' },
+          ]),
+        });
+      });
+    };
+    await lapse('authorization');
+    expect(
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+    ).toBeSelected();
+    expect(
+      screen.getByText('alex@example.invalid · No unread messages'),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await lapse('connected');
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
   // Cold CI runs need extra time for the suite's first React Native render.
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();

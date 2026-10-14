@@ -18,6 +18,9 @@ import {
   profileMailboxes,
   resultKey,
   searchMessages,
+  authorizationWaiting,
+  keepsChoice,
+  waitingChoice,
 } from '@private-email/mail-core/mailboxes';
 import {
   use,
@@ -451,8 +454,20 @@ function OnlineHeading({
 function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
-  { several, gmail }: Readonly<{ several: boolean; gmail: boolean }>,
+  {
+    several,
+    gmail,
+    waiting,
+  }: Readonly<{
+    several: boolean;
+    gmail: boolean;
+    // The chosen connection while it waits for authorization, which has no Inbox to show.
+    waiting: Readonly<{ address: string }> | undefined;
+  }>,
 ) {
+  if (waiting !== undefined) {
+    return waiting.address;
+  }
   const [only] = shown;
   if (shown.length === 1 && only?.address !== undefined) {
     return only.address;
@@ -619,20 +634,20 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
-  // A removed mailbox's view falls back to every mailbox of the Profile.
-  const scope = mailboxes.some(({ id }) => id === view.mailbox)
+  const connections = profileMailboxes(account?.mailboxes ?? [], profile);
+  const waitingChosen = waitingChoice({ mailboxes, connections, view });
+  const scope = keepsChoice({ mailboxes, connections, view })
     ? view.mailbox
     : undefined;
   const scoped = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
-  const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
-  const waiting =
-    scope === undefined
-      ? connections.filter(({ state }) => state === 'authorization')
-      : [];
+  const waiting = authorizationWaiting(connections, {
+    scope,
+    chosen: waitingChosen,
+  });
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
@@ -679,7 +694,11 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
-  const scopeName = scopeOf(t, shown, { several, gmail });
+  const scopeName = scopeOf(t, shown, {
+    several,
+    gmail,
+    waiting: waitingChosen,
+  });
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),

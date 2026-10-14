@@ -48,6 +48,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   SMTP keeps New Message disabled. Exercise a receive-only selection beside a
   usable sender, then All inboxes, through the real Draft store. Otherwise a new
   Draft silently starts from an identity the person did not choose.
+  The same applies when `inbox.tsx.Inbox` normalizes the window's view: a chosen
+  connection whose Inbox store closes while it waits for authorization stays
+  chosen (`mailboxes.ts.keepsChoice`); only a removed connection falls back to
+  All inboxes. Exercise a lapse of the chosen mailbox beside a usable sender and
+  check New Message, the heading and the sidebar selection; otherwise the view
+  silently widens to All inboxes and New Message picks another sender.
 
 - `sidebar.tsx.Mailboxes` deriving its entire connection list from open Inbox
   stores. Connections needing authorization can have no store; retain those
