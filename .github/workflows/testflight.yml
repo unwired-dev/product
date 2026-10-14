@@ -58,36 +58,42 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
   certificates:
-    name: Revoke stale development certificates
+    name: Prepare reusable development certificate
     needs: convex
     # A skipped deploy (another branch) still uploads; a failed one stops the upload.
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     environment: testflight
     timeout-minutes: 10
+    outputs:
+      certificate: ${{ steps.signing.outputs.certificate }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Housekeeping belongs to this workflow revision, including for older build refs.
+          # Signing belongs to this workflow revision, including for older build refs.
           ref: ${{ github.sha }}
           persist-credentials: false
-      # Each archive creates a development certificate on its ephemeral runner; the
-      # queue keeps other CI runs from archiving during cleanup, and a grace period
-      # protects local uploads outside it.
-      - name: Revoke certificates created by earlier runners
+      # Prepare once before the parallel hosts, under the shared workflow queue.
+      - name: Reuse or renew the development certificate
+        id: signing
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          TESTFLIGHT_SIGNING_KEY: ${{ secrets.TESTFLIGHT_SIGNING_KEY }}
+          APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          export TESTFLIGHT_SIGNING_KEY_PATH="$RUNNER_TEMP/signing.pem"
           umask 077
-          trap 'rm -f "$ASC_KEY_PATH"' EXIT
-          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
-          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
+          trap 'rm -f "$ASC_KEY_PATH" "$TESTFLIGHT_SIGNING_KEY_PATH"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$ASC_KEY_PATH"
-          unset ASC_PRIVATE_KEY
-          ruby scripts/testflight-certificates.rb
+          printf '%s\n' "$TESTFLIGHT_SIGNING_KEY" > "$TESTFLIGHT_SIGNING_KEY_PATH"
+          unset ASC_PRIVATE_KEY TESTFLIGHT_SIGNING_KEY
+          printf 'certificate=' >> "$GITHUB_OUTPUT"
+          ruby scripts/testflight-certificates.rb >> "$GITHUB_OUTPUT"
 
   upload:
     name: Upload ${{ matrix.host }}
@@ -136,6 +142,12 @@ jobs:
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
       - name: Check release runner contracts without credentials
         run: node --test scripts/testflight.test.mjs
+      - name: Check out signing tools from the workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: artifacts/testflight/signing-tools
+          persist-credentials: false
       - name: Archive and upload
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
@@ -146,6 +158,8 @@ jobs:
           UNWIRED_GMAIL_PUBSUB_TOPIC: ${{ secrets.GMAIL_PUBSUB_TOPIC }}
           UNWIRED_GOOGLE_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}
           UNWIRED_MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_GRAPH_CLIENT_ID }}
+          TESTFLIGHT_SIGNING_KEY: ${{ secrets.TESTFLIGHT_SIGNING_KEY }}
+          TESTFLIGHT_CERTIFICATE: ${{ needs.certificates.outputs.certificate }}
           HOST: ${{ matrix.host }}
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
@@ -155,7 +169,7 @@ jobs:
           trap 'rm -f "$ASC_KEY_PATH"' EXIT
           trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
           trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
-          zsh scripts/testflight.zsh "$HOST"
+          zsh artifacts/testflight/signing-tools/scripts/testflight-signing.zsh zsh scripts/testflight.zsh "$HOST"
       - name: Upload build status
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
