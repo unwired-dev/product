@@ -95,8 +95,8 @@ const styles = StyleSheet.create({
   // shortcut: a fixed home-indicator inset, as Move to… uses; read the safe area if a sheet ever opens without one.
   sheet: {
     flex: 1,
-    gap: spacing.l,
-    paddingTop: spacing.m,
+    gap: ipad ? spacing.l : 10,
+    paddingTop: ipad ? spacing.m : 14,
     paddingHorizontal: ipad ? spacing.m * 2 : spacing.l,
     paddingBottom: 34,
     borderTopLeftRadius: radius.sheet,
@@ -132,12 +132,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   list: { flexGrow: 0 },
-  sections: { gap: ipad ? spacing.s : spacing.l },
-  section: { gap: ipad ? spacing.s : 6 },
+  sections: { gap: ipad ? spacing.s : 10 },
+  section: { gap: ipad ? spacing.s : 10 },
   sectionHeader: {
     ...(ipad ? typography.ipadList.body : textStyles.footnote),
     fontWeight: '600',
-    paddingTop: ipad ? spacing.s : 0,
+    paddingTop: ipad ? spacing.s : 14,
     paddingHorizontal: ipad ? 14 : spacing.l,
   },
   group: {
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     gap: spacing.m,
     minHeight: 48,
     paddingHorizontal: ipad ? 14 : spacing.l,
-    paddingVertical: ipad ? spacing.m : spacing.s,
+    paddingVertical: ipad ? spacing.m : 13,
   },
   rowIcon: { width: 22, alignItems: 'center' },
   rowName: {
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
       : textStyles.body),
     flex: 1,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: ipad ? 0 : 50 },
+  separator: { height: StyleSheet.hairlineWidth },
 });
 
 function RowLabel({
