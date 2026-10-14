@@ -3,7 +3,7 @@ import type { InboxFilter } from '@private-email/mail-core/mailboxes';
 import type { ReactNode } from 'react';
 
 import { filterMessages } from '@private-email/mail-core/mailboxes';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { Fragment, useMemo, useState } from 'react';
 import {
   Modal,
@@ -17,6 +17,7 @@ import {
 
 import { Glass, SFSymbol } from './design.tsx';
 import { FilterControl } from './inbox-bar.tsx';
+import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -80,7 +81,7 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
     gap: spacing.l,
     paddingTop: spacing.m,
-    paddingHorizontal: spacing.l,
+    paddingHorizontal: ipad ? spacing.m * 2 : spacing.l,
     paddingBottom: 34,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
@@ -92,7 +93,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...textStyles.headline },
+  title: {
+    ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
+  },
   confirm: {
     position: 'absolute',
     right: 0,
@@ -105,10 +108,14 @@ const styles = StyleSheet.create({
   list: { flexGrow: 0 },
   sections: { gap: spacing.l },
   section: { gap: 6 },
-  sectionHeader: { ...textStyles.footnote, paddingHorizontal: spacing.l },
+  sectionHeader: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+    fontWeight: '600',
+    paddingHorizontal: spacing.l,
+  },
   group: {
     overflow: 'hidden',
-    borderRadius: radius.insetGroup,
+    borderRadius: ipad ? radius.card : radius.insetGroup,
     borderCurve: 'continuous',
   },
   row: {
@@ -120,7 +127,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
   },
   rowIcon: { width: 22, alignItems: 'center' },
-  rowName: { ...textStyles.body, flex: 1 },
+  rowName: {
+    ...(ipad ? typography.ipadList.body : textStyles.body),
+    flex: 1,
+  },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
 });
 

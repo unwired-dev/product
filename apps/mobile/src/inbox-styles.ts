@@ -66,9 +66,11 @@ export const styles = StyleSheet.create({
     paddingHorizontal: spacing.m,
     borderRadius: 18,
   },
-  segmentLabel: { ...textStyles.footnote },
+  segmentLabel: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.subheadline),
+  },
   resultsHeader: {
-    ...textStyles.footnote,
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
     fontWeight: '600',
     paddingTop: spacing.s,
     paddingBottom: spacing.xs,
