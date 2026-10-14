@@ -46,6 +46,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     paddingBottom: spacing.m,
+    marginBottom: spacing.m,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   messageText: { flex: 1 },
@@ -245,24 +246,24 @@ export function MoveSheet({
               />
             </Pressable>
           </View>
-          <View style={[styles.message, { borderColor: colors.separator }]}>
-            <Monogram name={message.sender} />
-            <View style={styles.messageText}>
-              <Text
-                numberOfLines={1}
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[styles.subject, { color: colors.textSecondary }]}>
-                {message.subject}
-              </Text>
-            </View>
-          </View>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             style={styles.sheetList}>
+            <View style={[styles.message, { borderColor: colors.separator }]}>
+              <Monogram name={message.sender} />
+              <View style={styles.messageText}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.sender, { color: colors.textPrimary }]}>
+                  {message.sender}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.subject, { color: colors.textSecondary }]}>
+                  {message.subject}
+                </Text>
+              </View>
+            </View>
             {shown.length === 0
               ? note(
                   t(
