@@ -118,6 +118,7 @@ function MailShell() {
   }, [detail]);
 
   function selectMessage(selection: Selection) {
+    reader.current = { ...selection, profile: shownProfile };
     router.replace({
       pathname: '/message/[id]',
       params: { ...selection, profileId: shownProfile },

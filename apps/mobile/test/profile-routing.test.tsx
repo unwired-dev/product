@@ -338,6 +338,26 @@ describe('profile-scoped mobile routes', () => {
       await waitFor(() => {
         expect(inboxNewMessage()).toBeEnabled();
       });
+      // Native route rendering can follow a row press after New Message has already opened.
+      const replace = jest
+        .spyOn(route.router, 'replace')
+        .mockReturnValueOnce(undefined);
+      try {
+        await fireEvent.press(
+          screen.getByRole('button', { name: /River plan/u }),
+        );
+        await fireEvent.press(inboxNewMessage());
+        await screen.findByLabelText('Message body');
+        await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+        await expect(
+          screen.findByText('Synthetic river body.'),
+        ).resolves.toBeVisible();
+      } finally {
+        replace.mockRestore();
+      }
+      await fireEvent.press(
+        screen.getByRole('button', { name: /Garden plan/u }),
+      );
       await fireEvent.press(inboxNewMessage());
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       await fireEvent(
