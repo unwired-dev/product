@@ -2,6 +2,7 @@ import { ok } from 'node:assert/strict';
 
 // @vitest-environment happy-dom
 import type {
+  Asset,
   Block,
   BlockKind,
   Mark,
@@ -14,12 +15,12 @@ import {
   replaceSelection,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
+import { Slice } from '@tiptap/pm/model';
 
 import type { Command, Update } from '../src/messages.ts';
 
 import { pageHtml } from '../build.cjs';
-import { supported } from '../src/conversion.ts';
-import { decodeUpdate } from '../src/messages.ts';
+import { decodeMessage } from '../src/messages.ts';
 
 const kinds: readonly BlockKind[] = [
   'paragraph',
@@ -58,6 +59,21 @@ const everyCombination: SemanticDocument = [
   { kind: 'paragraph', spans: [] },
 ];
 
+const photo: Asset = {
+  id: 'photo0001',
+  name: 'Photo.png',
+  type: 'image/png',
+  state: 'complete',
+  size: 4,
+  digest: 'a'.repeat(64),
+};
+const plan: Asset = {
+  id: 'plan00001',
+  name: 'Plan.pdf',
+  type: 'application/pdf',
+  state: 'importing',
+};
+
 const paragraph = (text: string): Block => ({
   kind: 'paragraph',
   spans: text === '' ? [] : [{ text }],
@@ -70,23 +86,37 @@ const paragraphs = (first: string, ...rest: string[]): SemanticDocument => [
 type Page = Readonly<{
   editor: Editor;
   posted: Update[];
+  // Pastes the page asked the host to read from the pasteboard.
+  pastes: () => number;
   command: (command: Command) => void;
   // Each character arrives as text input does in WebKit.
   type: (text: string) => void;
 }>;
 
-// Loads a fresh page with `body`, as the host does.
-async function open(body: SemanticDocument): Promise<Page> {
+// Loads a fresh page with `body` and `attachments`, as the host does.
+async function open(
+  body: SemanticDocument,
+  attachments: readonly Asset[] = [],
+): Promise<Page> {
   vi.resetModules();
   const posted: Update[] = [];
+  let pastes = 0;
   globalThis.ReactNativeWebView = {
     postMessage: (message) => {
-      const update = decodeUpdate(message);
-      ok(update, `Expected a valid page message: ${message}`);
-      posted.push(update);
+      const decoded = decodeMessage(message);
+      ok(decoded, `Expected a valid page message: ${message}`);
+      if (decoded.type === 'paste') {
+        pastes += 1;
+      } else {
+        posted.push(decoded);
+      }
     },
   };
-  globalThis.draftEditor = { document: body, label: 'Message body' };
+  globalThis.draftEditor = {
+    document: body,
+    attachments,
+    label: 'Message body',
+  };
   document.body.innerHTML = '<div id="editor"></div>';
   await import('../src/editor.ts');
   const view = document.querySelector<HTMLElement & { editor: Editor }>(
@@ -105,6 +135,7 @@ async function open(body: SemanticDocument): Promise<Page> {
   return {
     editor,
     posted,
+    pastes: () => pastes,
     command: draftCommand,
     type: (text) => {
       for (const character of text) {
@@ -126,9 +157,11 @@ const press = ({ editor }: Page, key: string) =>
     handle(editor.view, new KeyboardEvent('keydown', { key })),
   );
 
-// The body the page last posted.
+// The body and Attachments the page last posted.
 const bodyOf = ({ posted }: Page) =>
   posted.findLast(({ document: body }) => body !== undefined)?.document;
+const attachmentsOf = ({ posted }: Page) =>
+  posted.findLast(({ attachments }) => attachments !== undefined)?.attachments;
 const kindsOf = (page: Page) => bodyOf(page)?.map(({ kind }) => kind);
 
 // Every textblock's editor range and text, in reading order.
@@ -169,7 +202,7 @@ describe('the Tiptap evaluation page', () => {
     expect.hasAssertions();
     const page = pageHtml();
     expect(page).toContain(
-      `content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"`,
+      `content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:"`,
     );
     expect(page).not.toMatch(
       /<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)=/iu,
@@ -468,26 +501,194 @@ describe('the Tiptap evaluation page', () => {
     });
   });
 
-  it('opens only bodies it can show without loss', () => {
+  it('keeps Inline Images through typing, deletion, moving, Undo and Redo', async () => {
     expect.hasAssertions();
-    expect(supported(everyCombination)).toBe(true);
-    expect(
-      supported([
+    const opened: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Hello ' },
+          { text: '￼', image: photo, marks: ['bold'] },
+          { text: ' world' },
+        ],
+      },
+      {
+        kind: 'bulleted',
+        spans: [{ text: 'item ' }, { text: '￼', image: photo }],
+      },
+    ];
+    const page = await open(opened, [plan]);
+    // The image is one display character, as in the current composer.
+    const offsets = [selectionOf(page, 8, 8), selectionOf(page, 23, 23)];
+    page.editor.commands.setTextSelection(1);
+    page.type('A');
+    const typed = [bodyOf(page), attachmentsOf(page)];
+    // Deleting the image, as WebKit's Backspace does, and Undo restores the same asset in place.
+    page.editor.commands.deleteRange({ from: 8, to: 9 });
+    const deleted = bodyOf(page)?.[0];
+    page.command({ type: 'undo' });
+    const undone = bodyOf(page);
+    page.command({ type: 'redo' });
+    page.command({ type: 'undo' });
+    // Cut and pasted back, the image moves with its asset; an image the page was never given is
+    // dropped, as is any other pasted image.
+    page.editor.commands.setTextSelection(15);
+    page.editor.view.pasteHTML(
+      '<p><img data-draft-asset="photo0001" alt="x"><img data-draft-asset="unknown01"><img src="data:image/png;base64,AAAA"></p>',
+    );
+    const typedBody: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'AHello ' },
+          { text: '￼', image: photo, marks: ['bold'] },
+          { text: ' world' },
+        ],
+      },
+      {
+        kind: 'bulleted',
+        spans: [{ text: 'item ' }, { text: '￼', image: photo }],
+      },
+    ];
+    expect({
+      offsets,
+      typed,
+      deleted,
+      undone,
+      pasted: bodyOf(page)?.[0]?.spans,
+    }).toStrictEqual({
+      offsets: [
+        { start: 7, end: 7 },
+        { start: 21, end: 21 },
+      ],
+      typed: [typedBody, [plan]],
+      deleted: paragraph('AHello  world'),
+      undone: typedBody,
+      pasted: [
+        { text: 'AHello ' },
+        { text: '￼', image: photo, marks: ['bold'] },
+        { text: ' world' },
+        { text: '￼', image: photo },
+      ],
+    });
+  });
+
+  it('adds, removes and converts Inline Images and Attachments as one undoable edit each', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('ab'));
+    const state = () => [bodyOf(page), attachmentsOf(page)];
+    const steps: Array<ReturnType<typeof state>> = [];
+    const step = (command: Command) => {
+      page.command(command);
+      steps.push(state());
+    };
+    page.editor.commands.setTextSelection(2);
+    step({ type: 'add', images: [photo], attachments: [plan] });
+    step({ type: 'undo' });
+    step({ type: 'redo' });
+    // The Inline Image becomes an Attachment, keeping its asset; Undo puts it back in place.
+    step({ type: 'convert', id: photo.id });
+    step({ type: 'undo' });
+    step({ type: 'redo' });
+    // An image Attachment goes inline at the selection; a file that is not an image stays attached.
+    page.editor.commands.setTextSelection(1);
+    step({ type: 'convert', id: photo.id });
+    step({ type: 'convert', id: plan.id });
+    step({ type: 'remove', id: plan.id });
+    step({ type: 'remove', id: photo.id });
+    step({ type: 'undo' });
+    step({ type: 'undo' });
+    const added = [
+      [
         {
           kind: 'paragraph',
-          spans: [
-            {
-              text: '￼',
-              image: {
-                id: 'abcdefgh',
-                name: 'a.png',
-                type: 'image/png',
-                state: 'importing',
-              },
-            },
-          ],
+          spans: [{ text: 'a' }, { text: '￼', image: photo }, { text: 'b' }],
         },
-      ]),
-    ).toBe(false);
+      ],
+      [plan],
+    ];
+    const attached = [paragraphs('ab'), [plan, photo]];
+    const inline = [
+      [
+        {
+          kind: 'paragraph',
+          spans: [{ text: '￼', image: photo }, { text: 'ab' }],
+        },
+      ],
+      [plan],
+    ];
+    const empty = [paragraphs('ab'), []];
+    expect(steps).toStrictEqual([
+      added,
+      empty,
+      added,
+      attached,
+      added,
+      attached,
+      inline,
+      inline,
+      [inline[0], []],
+      empty,
+      [inline[0], []],
+      inline,
+    ]);
+  });
+
+  it('shows only native thumbnails, and never reads pasted or dropped files', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'paragraph', spans: [{ text: '￼', image: photo }] },
+    ]);
+    const shown = () =>
+      document
+        .querySelector('img[data-draft-asset="photo0001"]')
+        ?.getAttribute('src');
+    const before = shown();
+    const thumbnail = 'data:image/png;base64,iVBORw0KGgo=';
+    page.command({ type: 'previews', previews: { [photo.id]: thumbnail } });
+    const after = shown();
+    // An image Undo recreates shows the thumbnail too.
+    page.command({ type: 'remove', id: photo.id });
+    page.command({ type: 'undo' });
+    const restored = shown();
+    const { view } = page.editor;
+    const files = { types: ['Files', 'image/png'] };
+    const paste = new ClipboardEvent('paste', { cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: files });
+    const drop = new DragEvent('drop', { cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: files });
+    const move = new DragEvent('drop', { cancelable: true });
+    Object.defineProperty(move, 'dataTransfer', { value: files });
+    const handled = [
+      view.someProp('handlePaste', (handle) =>
+        handle(view, paste, Slice.empty),
+      ),
+      view.someProp('handleDrop', (handle) =>
+        handle(view, drop, Slice.empty, false),
+      ),
+      // Moving content within the page stays ProseMirror's own.
+      view.someProp('handleDrop', (handle) =>
+        handle(view, move, Slice.empty, true),
+      ),
+    ];
+    expect({
+      before,
+      after,
+      restored,
+      handled,
+      prevented: [paste, drop, move].map(
+        ({ defaultPrevented }) => defaultPrevented,
+      ),
+      pastes: page.pastes(),
+      body: bodyOf(page),
+    }).toStrictEqual({
+      before: null,
+      after: thumbnail,
+      restored: thumbnail,
+      handled: [true, true, undefined],
+      prevented: [true, true, false],
+      pastes: 1,
+      body: [{ kind: 'paragraph', spans: [{ text: '￼', image: photo }] }],
+    });
   });
 });

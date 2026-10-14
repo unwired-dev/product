@@ -747,6 +747,10 @@
       "cancelLabel": "Cancel adding {{name}}",
       "remove": "Remove",
       "removeLabel": "Remove {{name}}",
+      "toAttachment": "Attach Instead",
+      "toAttachmentLabel": "Attach {{name}} instead of showing it inline",
+      "toInline": "Show Inline",
+      "toInlineLabel": "Show {{name}} inline at the cursor",
       "pastedImage": "Pasted image",
       "status": {
         "adding": "Adding…",
@@ -775,7 +779,6 @@
     "evaluation": {
       "title": "Evaluation editor",
       "saveBlocked": "This Draft could not be saved, so it stays open. Try again once storage is available.",
-      "unsupported": "The evaluation editor does not open Drafts with inline images yet, so this Draft stays unchanged. Close it to return to the Inbox.",
       "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
     }
   },

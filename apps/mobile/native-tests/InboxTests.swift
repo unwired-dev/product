@@ -471,7 +471,13 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
-    app.buttons["Account"].tap()
+    // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
+    let account = app.buttons["Account"]
+    if !account.waitForExistence(timeout: 5) || !account.isHittable {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
     openSettings("Privacy & Data", in: app)
     let assistance = app.switches["Mail Assistance"]
     XCTAssertTrue(assistance.waitForExistence(timeout: 15))
@@ -543,6 +549,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Close"].tap()
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
     replyJourney(app)
+    inlineImageJourney(app)
   }
 
   private func webText(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -607,8 +614,13 @@ final class InboxTests: XCTestCase {
       let translate = app.buttons["Translate the selected text"]
       selectWord(app) { translate.isEnabled }
       translate.tap()
-      app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
-        .firstMatch.tap()
+      // On a loaded iPad the first tap on a language can be lost; choose it again until it applies.
+      let german = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@", "Translate into German")).firstMatch
+      for _ in 0..<3 where !app.staticTexts["Synthetic translation of local mail."].exists {
+        german.tap()
+        _ = app.staticTexts["Synthetic translation of local mail."].waitForExistence(timeout: 10)
+      }
     }
     let accepted = XCTAttachment(screenshot: app.screenshot())
     accepted.name = "Evaluation editor after rewrite and translation"
@@ -701,8 +713,11 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(message.waitForExistence(timeout: 15))
     message.tap()
     app.buttons["Reply"].tap()
+    // Reply opens a menu of responses; its Reply item is the one that is not the expanded button.
     if app.buttons["Reply All"].waitForExistence(timeout: 2) {
-      app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
+      app.buttons.matching(
+        NSPredicate(format: "label == %@ AND NOT (value == %@)", "Reply", "expanded")
+      ).firstMatch.tap()
     }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.
@@ -720,6 +735,82 @@ final class InboxTests: XCTestCase {
     add(reply)
     app.buttons["Close"].tap()
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
+  }
+
+  // #820: a photo from the system picker goes inline through native import. Typing around it, turning it
+  // into an Attachment and back with Undo and Redo, and reopening after relaunch keep its Draft
+  // Asset; the page shows the native thumbnail once its bytes verify.
+  private func inlineImageJourney(_ app: XCUIApplication) {
+    let newMessage = app.buttons["New Message"]
+    let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
+    if !newMessage.waitForExistence(timeout: 5), back.exists {
+      back.tap()
+    }
+    XCTAssertTrue(newMessage.waitForExistence(timeout: 15))
+    newMessage.tap()
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 30))
+    let body = app.webViews.textViews["Message body"]
+    let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 24, dy: 24))
+    for _ in 0..<3 where !app.keyboards.firstMatch.exists {
+      firstParagraph.tap()
+      _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+    }
+    body.typeText("Before ")
+    XCTAssertTrue(webText("Before", in: app).waitForExistence(timeout: 20))
+    // The runner adds a 600 × 400 photo to the Simulator's library; any library photo is wider
+    // than the page's placeholder once its 256-point thumbnail shows. Insert Image places it at
+    // the page's selection.
+    app.buttons["Insert Image"].tap()
+    let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
+    XCTAssertTrue(photo.waitForExistence(timeout: 30))
+    photo.tap()
+    let addPhoto = app.buttons["Add"]
+    if addPhoto.waitForExistence(timeout: 5) {
+      addPhoto.tap()
+    }
+    let image = app.webViews.images.firstMatch
+    XCTAssertTrue(image.waitForExistence(timeout: 30))
+    waitUntil { image.frame.width > 60 }
+    body.typeText(" after")
+    XCTAssertTrue(webText("after", in: app).waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 15))
+    let inserted = XCTAttachment(screenshot: app.screenshot())
+    inserted.name = "Evaluation editor inline image"
+    inserted.lifetime = .keepAlways
+    add(inserted)
+    // The Inline Image becomes an Attachment and back, each one edit Undo and Redo step through.
+    let toAttachment = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "instead of showing it inline")).firstMatch
+    XCTAssertTrue(toAttachment.waitForExistence(timeout: 15))
+    toAttachment.tap()
+    waitUntil { app.webViews.images.count == 0 }
+    let toInline = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "inline at the cursor")).firstMatch
+    XCTAssertTrue(toInline.waitForExistence(timeout: 15))
+    let attached = XCTAttachment(screenshot: app.screenshot())
+    attached.name = "Evaluation editor image as Attachment"
+    attached.lifetime = .keepAlways
+    add(attached)
+    app.buttons["Undo"].tap()
+    waitUntil { app.webViews.images.count == 1 }
+    app.buttons["Redo"].tap()
+    waitUntil { app.webViews.images.count == 0 }
+    app.buttons["Undo"].tap()
+    waitUntil { app.webViews.images.count == 1 }
+    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 15))
+    let typed = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
+    // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
+    reopenDraft(app)
+    waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == typed }
+    let reopened = app.webViews.images.firstMatch
+    XCTAssertTrue(reopened.waitForExistence(timeout: 30))
+    waitUntil { reopened.frame.width > 60 }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Evaluation Draft with inline image after relaunch"
+    shot.lifetime = .keepAlways
+    add(shot)
+    app.buttons["Close"].tap()
+    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
+    XCTAssertEqual(app.webViews.count, 0)
   }
 
   func testSelectAndReplaceMessage() throws {

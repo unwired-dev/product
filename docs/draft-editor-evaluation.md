@@ -28,9 +28,10 @@ Drafts in the current composer.
 In an evaluation build, **New Message**, Draft rows and **Reply** open the
 **Evaluation editor** in place of the composer, in the same place on each host. It
 shows **Close**, the sending mailbox, the save status, the
-[formatting toolbar](#formatting-and-history) and the body. Recipients, subject,
-quoted correspondence, files and Send stay with the current composer; no edit in the
-page changes them.
+[formatting toolbar](#formatting-and-history), the Draft's
+[files and Inline Images](#files-and-inline-images) and the body. Recipients,
+subject, quoted correspondence and Send stay with the current composer; no edit in
+the page changes them.
 
 - **Saving.** Every change is saved through the Draft store, as in the current
   composer, and the status shows **Saved on this device**, **Saving…**, or why the
@@ -39,9 +40,6 @@ page changes them.
   stays open with **Try again**. Closing an empty Draft discards it.
 - **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
   first saves the Draft, as the current composer does.
-- **Unsupported bodies.** A Draft with an Inline Image is not opened until
-  [#820](https://github.com/unwired-dev/product/issues/820). The editor says so and
-  leaves the Draft unchanged.
 - **Failures.** If the page stops, the editor says so, clears assistance previews and
   keeps saved changes. Callbacks from a stopped or closed page cannot submit edits
   or accept results. Close the Draft and reopen it to resume editing.
@@ -104,14 +102,60 @@ Return in code always starts another code line; use **Code block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
 for inline code and Command-Option-1 for a heading, also work in the page.
 
+## Files and Inline Images
+
+[#820](https://github.com/unwired-dev/product/issues/820) opens Drafts with files and
+Inline Images. The page shows Inline Images in the body. Under the toolbar, the
+editor lists the Draft's Attachments and Inline Images with the current composer's
+rows: name, size or state, **Cancel** while adding, **Try again** when a check can
+run again, and **Remove**.
+
+- **Adding.** **Attach File**, **Attach Photo**, **Insert Image** and **Paste Image**
+  on iPhone and iPad, and **Attach Files…** and **Insert Image…** on Mac, use the
+  current composer's system pickers and native import. Images placed inline go at
+  the page's selection, replacing any selected text; other files become Attachments.
+  Each pick is one edit in the page.
+- **Pasting and dropping.** On iPhone and iPad, pasting images into the page imports
+  them from the pasteboard through native code, as **Paste Image** does. The page
+  never reads pasted or dropped file data: on Mac a paste carrying images adds
+  nothing, and files dropped on the page are refused on every host. Text and
+  supported formatting paste as before. A copied or cut Inline Image pastes back
+  within the page with the same asset; other pasted images are dropped.
+- **Editing.** An Inline Image is one character of the text, as in the current
+  composer. Typing around it, deleting it, moving it by cut and paste or by dragging,
+  **Undo** and **Redo** keep its Draft Asset.
+- **Converting.** **Attach Instead** turns an Inline Image into an Attachment,
+  removing each place it appears; **Show Inline** places an image Attachment at the
+  page's selection. Each is one edit that one **Undo** reverts and **Redo** restores.
+  The current composer does not offer conversion yet.
+- **Imports.** While native code imports a file, its row shows **Adding…**. Editing
+  continues, and an import that completes meanwhile neither loses the edit nor
+  creates a conflicting copy. A cancelled, failed or interrupted import stays listed
+  as not added. An import still running when the Draft closes completes into the
+  stored Draft. While the editor is open, **Undo** can restore any asset the page was
+  given, with its stored bytes.
+- **Pictures.** Native code checks an image's bytes against its digest and returns a
+  thumbnail at most 256 pixels on its longest side. Only that thumbnail reaches the
+  page, which shows a dashed placeholder until then and for damaged, missing or
+  locked bytes; the rows say why, as in the current composer.
+- **Identity.** The page names images and Attachments by asset identifier. The host
+  accepts only assets it gave the page, keeps their latest native state, and saves
+  the Semantic Message Document with them. A thumbnail never becomes part of the
+  Draft.
+
+Quoted correspondence and its images stay as the Draft has them.
+
 ## Isolation
 
 The editor must load its code and styles locally, refuse networking and navigation,
 and use a non-persistent, cache-free WebKit data store. No cloud collaboration,
 vendor AI, remote asset service, browser persistence or paid editor service is enabled.
-Only the opened body crosses into the page; encryption keys, account identifiers
-and other Drafts stay outside it. The host validates page messages before saving.
-Malformed messages and callbacks from a closed editor change nothing.
+Only the opened body, the names and types of its files, and thumbnails of verified
+image bytes cross into the page; file bytes, encryption keys, account identifiers
+and other Drafts stay outside it. The page's Content Security Policy admits only
+`data:` images. The host validates page messages before saving. Malformed messages,
+assets the host never gave the page, and callbacks from a closed editor change
+nothing.
 
 Drafts keep the Semantic Message Document as their durable contract. Tiptap JSON,
 HTML and Markdown are never stored. The object replacement character that marks
@@ -185,8 +229,13 @@ accepts selected-text and whole-body rewrites, selected-text translation, and a
 reply suggestion. Each operation checks the complete visible authored text after
 one **Undo** and **Redo**, and relaunches to reopen both its undone and accepted
 states. The Mac journey also uses Command-B, Command-Z and Shift-Command-Z. The
-mobile journey attaches screenshots to the XCTest results; the Mac journey records
-its assertions when signing permits execution.
+iPhone and iPad journey then starts another **New Message**, types, places a photo
+with **Insert Image** from the system Photos picker, types after it, turns it into an
+Attachment and steps **Undo**, **Redo** and **Undo** back to the Inline Image, then
+relaunches and reopens the Draft with the image and its thumbnail in place. The
+runner adds `native-tests/photo.png` to each fresh Simulator's photo library for it. The mobile journey
+attaches screenshots to the XCTest results; the Mac journey records its assertions
+when signing permits execution.
 
 Shared and component checks:
 
@@ -318,10 +367,77 @@ reopening) type-checks; it was not run, for the signing reason above.
 Outstanding before any adoption decision: the Mac native journey with a signed
 mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
-inspection of website data after teardown and account removal
-([#820](https://github.com/unwired-dev/product/issues/820)); and save ordering under
-delayed page messages ([#821](https://github.com/unwired-dev/product/issues/821)).
+the Inline Image checks [below](#inline-images-820) leaves outstanding; and save
+ordering under delayed page messages ([#821](https://github.com/unwired-dev/product/issues/821)).
 Simulator runs do not qualify devices.
+
+### Inline Images (#820)
+
+Page tests run the real Tiptap configuration in `happy-dom`. An Inline Image keeps its
+Draft Asset through typing, deletion, Undo and Redo, and through a cut and paste
+within the page; it counts as one display offset. A pasted image the page was never
+given, and any other pasted image, are dropped. Adding images and Attachments,
+removing them and converting in both directions are each one edit that one Undo
+reverts and Redo restores. The page shows only the thumbnails the host sends, also on
+an image Undo recreates. A paste carrying files is refused unread and asks the host to
+read the pasteboard; a drop carrying files is refused; moving content within the page
+is unaffected. The Content Security Policy admits only `data:` images.
+
+Component journeys on both hosts pick files through the synthetic native pickers and
+import them through the real Draft store with synthetic storage. They check that one
+pick sends one page edit, that an import completing while the page keeps typing
+neither loses the edit nor creates a conflicting copy, and that the page's older copy
+of an asset cannot undo its completion. They also check the thumbnail sent after the
+bytes verify, Attachments, conversion and removal, that an asset the page was never
+given is not saved, and that reopening gives the page the same asset identities.
+Cancelling an import, an import completing after **Close** into the stored Draft, and
+damaged bytes listed as damaged with no thumbnail sent are covered too. On iPhone and
+iPad a paste request from the page runs the native pasteboard import; on Mac it adds
+nothing. The saved body uses the same Inline Image spans as the current composer, so
+the existing outgoing-format boundary applies unchanged; this evaluation sends nothing.
+These are not native evidence.
+
+Native execution on 2026-10-14, same Mac mini and toolchain as above (macOS 27.0.1,
+Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
+build with Hermes. The iPhone 18 Pro journey passed (`Executed 1 test, with 0
+failures`) in `artifacts/expo-bootstrap/native-ChW7DX/`, after an earlier pass in
+`artifacts/expo-bootstrap/native-cr5TK0/`. After the existing #818 and #819 steps,
+it placed a photo with **Insert Image** from the system Photos picker between typed
+text, showed its native thumbnail, turned it into an Attachment and back with
+**Undo**, **Redo** and **Undo**, then relaunched and reopened the Draft with the
+image and thumbnail in place. Screenshots are in the result bundles.
+The journey's later retry of a lost language tap in the translation step was added
+after these runs.
+
+The iPad Pro 11-inch (M5) journey did not pass. The host's load average reached about
+800 from other jobs. One attempt reached the new steps and failed choosing the photo,
+because its first match was the picker's sidebar icon; the journey now chooses a
+photo in the grid. Five later attempts failed in existing steps, or before any test
+ran, before reaching the new steps: a lost language tap in the translation step
+(twice), a lost character in the Recovery Key entry, the first typed paragraph after
+long idle waits, and a test runner that crashed while starting. Those runs are in
+`artifacts/expo-bootstrap/native-*` and are not evidence.
+
+Before reaching the new steps, the journey needed repairs for changes since #819:
+the Gmail registration heading now reads **Gmail connected**, **Account** is in the
+Mailboxes column, and **Reply** opens a menu of responses. Earlier failed runs in
+`artifacts/expo-bootstrap/native-*` are not evidence. A first attempt placed an
+image from the Simulator pasteboard with **Paste Image**; a pasteboard written by the
+XCUITest runner reached the app empty, with no paste prompt, so the journey uses the
+Photos picker instead.
+
+During the runs, a watcher sampled the app's data container on each Simulator every
+five seconds for WebKit website data (local storage, IndexedDB, cache storage,
+cookies and other WebKit stores). No sample found any, through typing, imports,
+**Close**, relaunch and reopening, on iPhone and on the iPad attempts.
+
+Outstanding for #820: the Mac native journey, which needs a signed mock profile;
+pasting image data into the page on Mac, and dropping files on the page on every
+host, which need native interception in the web view (the page refuses both unread);
+the iPad journey through the new steps;
+**Paste Image** and in-page paste on a device; website data after account removal,
+which this journey does not exercise; a network capture of the journey beyond the
+page's refusal of networking and navigation; and physical iPhone and iPad runs.
 
 ## Finding
 
@@ -341,3 +457,10 @@ above. Link editing remains deferred to #878, Mac native formatting remains
 unproven, and iPhone/iPad simulator text, history and the exercised post-assistance
 formatting assertions have passing evidence. This does not approve adoption; #823
 owns that decision.
+
+**#820 finding.** Inline Images and Attachments keep their Draft Asset identity
+through page editing, conversion, Undo, Redo, saving and reopening on iPhone and iPad
+simulators, and the page receives only native thumbnails. Image paste and drop into
+the page need native web-view work before they match the current composer on Mac,
+and drops on every host. The current composer does not offer conversion yet. This
+does not approve adoption; #823 owns that decision.

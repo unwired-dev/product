@@ -955,6 +955,7 @@ function AssetRow({
   running,
   onRemove,
   onCancel,
+  onConvert,
 }: {
   readonly asset: Asset;
   readonly inline: boolean;
@@ -962,6 +963,7 @@ function AssetRow({
   readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
+  readonly onConvert?: ((id: string) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -1020,6 +1022,24 @@ function AssetRow({
           onPress={retry}
         />
       ) : null}
+      {onConvert !== undefined &&
+      (inline || asset.type.startsWith('image/')) ? (
+        <Action
+          disabled={!editable}
+          accessibilityLabel={t(
+            inline
+              ? 'drafts.assets.toAttachmentLabel'
+              : 'drafts.assets.toInlineLabel',
+            { name: asset.name },
+          )}
+          label={t(
+            inline ? 'drafts.assets.toAttachment' : 'drafts.assets.toInline',
+          )}
+          onPress={() => {
+            onConvert(asset.id);
+          }}
+        />
+      ) : null}
       {running ? (
         <Action
           disabled={!editable}
@@ -1044,17 +1064,20 @@ function AssetRow({
   );
 }
 
-// A Draft's attachments and inline images, with what can still be done to each.
-function DraftAssets({
+// A Draft's attachments and inline images, with what can still be done to each. An editor that
+// converts between the two offers that too.
+export function DraftAssets({
   draft,
   editable,
   onRemove,
   onCancel,
+  onConvert,
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
+  readonly onConvert?: ((id: string) => void) | undefined;
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
@@ -1079,6 +1102,7 @@ function DraftAssets({
         editable={editable}
         inline={inline}
         onCancel={onCancel}
+        onConvert={onConvert}
         onRemove={onRemove}
         running={running.has(asset.id)}
       />

@@ -1,11 +1,11 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
-import type { Draft } from '@private-email/mail-core/drafts';
+import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 
-import { supported } from '@private-email/draft-editor/conversion';
 import {
   commandScript,
-  decodeUpdate,
+  decodeMessage,
+  knownAssets,
 } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import {
@@ -15,8 +15,13 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
-import { draftOf, isEmptyDraft } from '@private-email/mail-core/drafts';
 import {
+  draftOf,
+  isEmptyDraft,
+  withAsset,
+} from '@private-email/mail-core/drafts';
+import {
+  imagesOf,
   replaceSelection,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
@@ -25,7 +30,14 @@ import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -34,6 +46,7 @@ import {
   Action,
   CapturedAssistance,
   Composer,
+  DraftAssets,
   Notice,
   retires,
   rewriteLabel,
@@ -75,20 +88,29 @@ const styles = StyleSheet.create({
   body: { flex: 1 },
 });
 
-type PageState = Omit<Update, 'type' | 'document'>;
+type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
 
-// The current composer's formatting, history and assistance controls, acting on the page. Each
-// press is one page command; the page reports the formatting at its selection.
+// The current composer's file controls, through the system open panel. Native code reads the
+// chosen files.
+const pickers = [
+  ['drafts.assets.attachFilesPanel', 'files', false],
+  ['drafts.assets.insertImagePanel', 'photos', true],
+] as const;
+
+// The current composer's formatting, history, assistance and file controls, acting on the page.
+// Each press is one page command; the page reports the formatting at its selection.
 function Toolbar({
   page,
   draft,
   run,
   capture,
+  add,
 }: {
   readonly page: PageState;
   readonly draft: Draft;
   readonly run: (command: Command) => void;
   readonly capture: (purpose: CapturedDraftText['purpose']) => void;
+  readonly add: (source: PickSource, inline: boolean) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -187,6 +209,15 @@ function Toolbar({
           }}
         />
       ) : null}
+      {pickers.map(([label, source, inline]) => (
+        <Action
+          key={label}
+          label={t(label)}
+          onPress={() => {
+            add(source, inline);
+          }}
+        />
+      ))}
     </View>
   );
 }
@@ -263,11 +294,98 @@ function EvaluationEditor({
     forget();
     setStopped(true);
   };
-  const run = (command: Command) => {
+  const run = useCallback((command: Command) => {
     if (mounted.current && !pageStopped.current) {
       view.current?.injectJavaScript(commandScript(command));
     }
+  }, []);
+  // Every asset this editor gave its page, as native code last settled it. The page reports only
+  // these, and Undo in the page can restore any of them.
+  const known = useRef(
+    new Map(
+      [...imagesOf(initial.body), ...(initial.attachments ?? [])].map(
+        (asset) => [asset.id, asset],
+      ),
+    ),
+  );
+  // An import settles in this editor before the store changes, so the next edit here is not taken
+  // for a conflicting one, and the store keeps every asset the page can restore.
+  useLayoutEffect(
+    () =>
+      store.onSettle((id, next) => {
+        const asset = known.current.get(id);
+        if (asset !== undefined) {
+          known.current.set(id, next(asset));
+        }
+        authored.current = withAsset(authored.current, id, next);
+        if (mounted.current) {
+          setDraft(authored.current);
+        }
+        return [
+          authored.current,
+          { ...authored.current, attachments: [...known.current.values()] },
+        ];
+      }),
+    [store],
+  );
+  // Files the person chose become Attachments, and images placed inline go at the page's
+  // selection, as one edit in the page; native code then imports their bytes.
+  const add = async (from: PickSource, inline: boolean) => {
+    const files = await store.pick(
+      from,
+      () => mounted.current && !pageStopped.current,
+    );
+    const imports = files.map((file) => ({ file, asset: store.prepare(file) }));
+    for (const { asset } of imports) {
+      known.current.set(asset.id, asset);
+    }
+    const inlined = imports.filter(
+      ({ file }) => inline && file.type.startsWith('image/'),
+    );
+    if (imports.length > 0) {
+      run({
+        type: 'add',
+        images: inlined.map(({ asset }) => asset),
+        attachments: imports
+          .filter((each) => !inlined.includes(each))
+          .map(({ asset }) => asset),
+      });
+    }
+    for (const { asset, file } of imports) {
+      void store.importAsset(asset, file.source);
+    }
   };
+  const removeAsset = (id: string) => {
+    void store.cancelImport(id);
+    run({ type: 'remove', id });
+  };
+  // Thumbnails of the body's complete images, read once each from verified bytes once the page
+  // can show them. A check refused while storage was locked is tried again after the next edit.
+  const requested = useRef(new Map<string, string>());
+  const ready = pageState !== undefined;
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const unread = imagesOf(draft.body).flatMap((image) =>
+      image.state === 'complete' &&
+      requested.current.get(image.id) !== image.digest
+        ? [image]
+        : [],
+    );
+    for (const image of unread) {
+      requested.current.set(image.id, image.digest);
+      const read = async () => {
+        const preview = await store.readAsset(image);
+        if (preview.kind === 'ready') {
+          run({ type: 'previews', previews: { [image.id]: preview.uri } });
+        } else if (preview.kind === 'locked' || preview.kind === 'incomplete') {
+          requested.current.delete(image.id);
+        }
+      };
+      void read();
+    }
+  }, [draft.body, ready, run, store]);
   const capture = (purpose: CapturedDraftText['purpose']) => {
     const reported = pageNow.current;
     if (!mounted.current || !assistanceEnabled() || reported === undefined) {
@@ -314,7 +432,7 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: initial.body, label: t('drafts.body') })}; true;`,
+      `window.draftEditor = ${JSON.stringify({ document: initial.body, attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
   const close = useCallback(async () => {
     if (!mounted.current) {
@@ -346,6 +464,8 @@ function EvaluationEditor({
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const save = state.kind === 'ready' ? state.save : 'failed';
+  // Quoted correspondence and its images stay as the Draft has them.
+  const { quoted: _quoted, ...owned } = draft;
   return (
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
@@ -400,8 +520,22 @@ function EvaluationEditor({
             draft={draft}
             run={run}
             capture={capture}
+            add={(from, inline) => {
+              void add(from, inline);
+            }}
           />
         )}
+        <DraftAssets
+          draft={owned}
+          editable={!stopped && pageState !== undefined}
+          onCancel={(id) => {
+            void store.cancelImport(id);
+          }}
+          onConvert={(id) => {
+            run({ type: 'convert', id });
+          }}
+          onRemove={removeAsset}
+        />
         {captured === undefined ? null : (
           <CapturedAssistance
             key={captured.id}
@@ -430,14 +564,21 @@ function EvaluationEditor({
             if (!mounted.current || pageStopped.current) {
               return;
             }
-            const update = decodeUpdate(nativeEvent.data);
-            if (update === undefined) {
+            const message = decodeMessage(nativeEvent.data);
+            // The page refused a paste carrying files; the Mac has no native pasteboard import
+            // for the page, so pasted images are not added here.
+            if (message === undefined || message.type === 'paste') {
               return;
             }
-            const { document: body, type: _, ...next } = update;
+            const {
+              document: reported,
+              attachments: attached = [],
+              type: _,
+              ...next
+            } = message;
             pageNow.current = next;
             setPageState(next);
-            if (body === undefined) {
+            if (reported === undefined) {
               return;
             }
             // Editing again replaces a failed Close's notice, as in the current composer, and
@@ -445,7 +586,17 @@ function EvaluationEditor({
             setClosing(undefined);
             forget();
             const previous = authored.current;
-            authored.current = { ...previous, body };
+            const { body, attachments } = knownAssets(known.current, {
+              document: reported,
+              attachments: attached,
+            });
+            authored.current = {
+              ...previous,
+              body,
+              ...(attachments.length === 0 && previous.attachments === undefined
+                ? {}
+                : { attachments }),
+            };
             setDraft(authored.current);
             void store.update(authored.current, previous, rebind);
           }}
@@ -481,8 +632,6 @@ function EvaluationComposer({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
-  const colors = usePalette();
-  const { t } = useLocalization();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
   const [editor, setEditor] = useState({ key: id, followed: id });
   if (editor.followed !== id) {
@@ -505,23 +654,6 @@ function EvaluationComposer({
         onExpand={onExpand}
         onRebind={onRebind}
       />
-    );
-  }
-  if (!supported(draft.body)) {
-    return (
-      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.content}>
-          <Notice
-            alert
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.unsupported')}
-          </Notice>
-          <Action
-            label={t('drafts.close')}
-            onPress={onClose}
-          />
-        </View>
-      </View>
     );
   }
   return (

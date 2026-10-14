@@ -3,12 +3,19 @@ import { ok } from 'node:assert/strict';
 import type { Command } from '@private-email/draft-editor/messages';
 import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
+import type {
+  Asset,
+  SemanticDocument,
+} from '@private-email/mail-core/semantic-document';
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { mailboxesOf } from '@private-email/mail-core/registration';
+import {
+  AssetSchema,
+  imagesOf,
+} from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -28,6 +35,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
+import * as Schema from 'effect/Schema';
 import { useMemo, useState } from 'react';
 
 import { DraftComposer } from '../src/evaluation-composer.tsx';
@@ -116,6 +124,7 @@ function simulatedPage() {
   const report = async (
     state: Readonly<{
       document?: SemanticDocument;
+      attachments?: readonly Asset[];
       selection?: Readonly<{ start: number; end: number }>;
       marks?: readonly string[];
       kind?: string;
@@ -148,6 +157,33 @@ function simulatedPage() {
 }
 // The command the host last sent its page.
 const lastCommand = () => injectedScripts.at(-1);
+// That command as the page receives it.
+const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
+const Previews = Schema.optionalKey(
+  Schema.Record(Schema.String, Schema.String),
+);
+const SentSchema = Schema.fromJsonString(
+  Schema.Struct({
+    type: Schema.String,
+    id: Schema.optionalKey(Schema.String),
+    images: Assets,
+    attachments: Assets,
+    previews: Previews,
+  }),
+);
+const lastSent = () => {
+  const [, json] =
+    /^globalThis\.draftCommand\?\.\((?<json>.*)\); true;$/su.exec(
+      lastCommand() ?? '',
+    ) ?? [];
+  return json === undefined ? undefined : Schema.decodeSync(SentSchema)(json);
+};
+// The assets the host last asked the page to add.
+const lastAdded = () => {
+  const sent = lastSent();
+  ok(sent?.type === 'add', 'Expected the page to add assets');
+  return { images: sent.images ?? [], attachments: sent.attachments ?? [] };
+};
 
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
@@ -185,7 +221,7 @@ describe('the Tiptap evaluation composer', () => {
       }),
     ]).toStrictEqual([false]);
     expect(page.props.injectedJavaScriptBeforeContentLoaded).toBe(
-      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"label":"Message body"}; true;',
+      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"attachments":[],"label":"Message body"}; true;',
     );
 
     await typed('Hello from Tiptap');
@@ -491,45 +527,201 @@ describe('the Tiptap evaluation composer', () => {
     });
   });
 
-  it('leaves a Draft with an Inline Image unchanged instead of opening it', async () => {
+  it('adds, converts and removes Inline Images and Attachments through native imports', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
-    await render(<App drafts={drafts} />);
+    const first = await render(<App drafts={drafts} />);
     await press('New Message');
-    const [draft] = draftsOf(drafts.getSnapshot());
-    ok(draft, 'Expected a Draft');
-    const withImage = {
-      ...draft,
-      body: [
+    const { report } = simulatedPage();
+    await report({});
+    // The photo goes inline at the page's selection; native code imports it meanwhile.
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    const body = (...spans: SemanticDocument[number]['spans']) =>
+      [{ kind: 'paragraph', spans }] as const;
+    await report({
+      document: body({ text: 'Hi ' }, { text: '￼', image: chart }),
+      attachments: [],
+    });
+    await screen.findByLabelText('chart.png, Adding…');
+    // Typing while the import completes neither loses the edit nor makes a conflicting copy, and
+    // the page's older copy of the asset cannot undo its completion.
+    await report({
+      document: body(
+        { text: 'Hi ' },
+        { text: '￼', image: chart },
+        { text: ' there' },
+      ),
+      attachments: [],
+    });
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await report({
+      document: body(
+        { text: 'Hi ' },
+        { text: '￼', image: chart },
+        { text: ' there!' },
+      ),
+      attachments: [],
+    });
+    await waitFor(() => {
+      expect(drafts.getSnapshot()).toMatchObject({ save: 'saved' });
+    });
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    const [complete] = imagesOf(saved.body);
+    ok(complete?.state === 'complete', 'Expected the completed photo');
+    // The page receives only the native thumbnail of verified bytes.
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+    // A file from the Files picker is attached; converting and removing are page edits.
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await press('Attach Files…');
+    const attached = lastAdded();
+    const [plan] = attached.attachments;
+    ok(plan, 'Expected the attached file');
+    await press('Attach chart.png instead of showing it inline');
+    const converted = lastSent();
+    // The page refused a paste carrying images; the Mac adds nothing for it yet.
+    await act(async () => {
+      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+        nativeEvent: { data: '{"type":"paste"}' },
+      });
+    });
+    const pasted = lastSent();
+    // The page can name only assets the host gave it.
+    const forged = {
+      id: 'forged000001',
+      name: 'forged.png',
+      type: 'image/png',
+      state: 'complete',
+      size: 1,
+      digest: 'f'.repeat(64),
+    } as const;
+    await report({
+      document: body({ text: 'Hi ' }, { text: '￼', image: forged }),
+      attachments: [plan, chart, forged],
+    });
+    await press('Remove plan.pdf');
+    expect({
+      attached: attached.images,
+      converted,
+      pasted,
+      removed: lastSent(),
+      stored: draftsOf(drafts.getSnapshot())[0],
+    }).toMatchObject({
+      attached: [],
+      converted: { type: 'convert', id: chart.id },
+      pasted: converted,
+      removed: { type: 'remove', id: plan.id },
+      stored: {
+        body: body({ text: 'Hi ' }),
+        attachments: [
+          { name: 'plan.pdf', state: 'complete' },
+          { id: chart.id, state: 'complete' },
+        ],
+      },
+    });
+    await press('Close');
+    await first.unmount();
+    // Reopening gives the page the stored body and Attachments, with the same asset identities.
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    await render(<App drafts={reopened} />);
+    await press(/^Draft\./u);
+    const injected = String(
+      screen.getByTestId('message-webview').props
+        .injectedJavaScriptBeforeContentLoaded,
+    );
+    expect(injected).toContain(`"id":"${chart.id}"`);
+  });
+
+  it('cancels imports, shows damaged bytes and completes an import after Close', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    const insert = async (name: string) => {
+      storage.addFile(`file:///${name}`, name);
+      storage.pickNext('photos', [
+        { uri: `file:///${name}`, name, type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      const [image] = lastAdded().images;
+      ok(image, 'Expected the photo');
+      return image;
+    };
+    storage.holdImports();
+    const cancelled = await insert('cancelled.png');
+    await report({
+      document: [
+        {
+          kind: 'paragraph',
+          spans: [{ text: '￼', image: cancelled }],
+        },
+      ],
+      attachments: [],
+    });
+    await press('Cancel adding cancelled.png');
+    await screen.findByLabelText('cancelled.png, Not added: cancelled');
+    const late = await insert('late.png');
+    await report({
+      document: [
         {
           kind: 'paragraph',
           spans: [
-            {
-              text: '\uFFFC',
-              image: {
-                id: 'abcdefgh',
-                name: 'a.png',
-                type: 'image/png',
-                state: 'importing',
-              },
-            },
+            { text: '￼', image: cancelled },
+            { text: '￼', image: late },
           ],
         },
-      ] as const,
-    };
-    await act(async () => {
-      await drafts.update(withImage, draft);
+      ],
+      attachments: [],
     });
-    await expect(
-      screen.findByText(
-        'The evaluation editor does not open Drafts with inline images yet, so this Draft stays unchanged. Close it to return to the Inbox.',
-      ),
-    ).resolves.toBeOnTheScreen();
-    expect(screen.queryByTestId('message-webview')).not.toBeOnTheScreen();
-    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
-      withImage.body,
-    );
+    // Closing waits only for the save; the import completes into the stored Draft.
+    await press('Close');
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      const [stored] = draftsOf(drafts.getSnapshot());
+      ok(stored, 'Expected the stored Draft');
+      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
+        'cancelled',
+        'complete',
+      ]);
+    });
+    await first.unmount();
+    // Bytes that no longer verify are listed as damaged, and the page gets no thumbnail.
+    storage.damage(late.id);
+    injectedScripts.length = 0;
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    await render(<App drafts={reopened} />);
+    await press(/^Draft\./u);
+    await simulatedPage().report({});
+    await screen.findByLabelText('late.png, 8 bytes · Damaged on this device');
+    expect(
+      injectedScripts.filter((script) => script.includes('"previews"')),
+    ).toStrictEqual([]);
   });
 });

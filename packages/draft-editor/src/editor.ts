@@ -1,7 +1,8 @@
-// The page's script: Tiptap over the Semantic Message Document's blocks and marks, posting each
-// edit and selection change to the host. The host injects `draftEditor` before this script runs
-// and sends commands through `draftCommand`.
+// The page's script: Tiptap over the Semantic Message Document's blocks, marks and Inline Images,
+// and the Draft's Attachments, posting each edit and selection change to the host. The host
+// injects `draftEditor` before this script runs and sends commands through `draftCommand`.
 import type {
+  Asset,
   BlockKind,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
@@ -27,7 +28,7 @@ import Text from '@tiptap/extension-text';
 import Underline from '@tiptap/extension-underline';
 import { UndoRedo } from '@tiptap/extensions';
 import { closeHistory } from '@tiptap/pm/history';
-import { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Fragment, Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 
 import type { Command, Update } from './messages.ts';
@@ -45,7 +46,11 @@ import {
 
 declare global {
   var draftEditor:
-    | Readonly<{ document: SemanticDocument; label: string }>
+    | Readonly<{
+        document: SemanticDocument;
+        attachments: readonly Asset[];
+        label: string;
+      }>
     | undefined;
   var draftCommand: ((command: Command) => void) | undefined;
   var ReactNativeWebView:
@@ -53,12 +58,67 @@ declare global {
     | undefined;
 }
 
+// The assets the host gave this page, by identifier, and the thumbnails native code made from their
+// verified bytes. The page never receives an asset's bytes.
+const assets = new Map<string, Asset>();
+const previews = new Map<string, string>();
+const learn = (given: readonly Asset[]) => {
+  for (const asset of given) {
+    assets.set(asset.id, asset);
+  }
+};
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM image is mutable by design.
+const show = (image: HTMLImageElement) => {
+  const preview = previews.get(image.dataset.draftAsset ?? '');
+  if (preview === undefined) {
+    image.removeAttribute('src');
+  } else {
+    image.src = preview;
+  }
+};
+
+// An Inline Image: one position of the text, showing its asset's thumbnail when native code has
+// verified the bytes. Only an image this page shows parses back from a paste, as when it is cut
+// and pasted to move it; other pasted images are dropped.
+const InlineImage = Node.create({
+  name: 'inlineImage',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  draggable: true,
+  addAttributes: () => ({ id: { default: '', rendered: false } }),
+  parseHTML: () => [
+    {
+      tag: 'img[data-draft-asset]',
+      getAttrs: (element) => {
+        const id = element.dataset.draftAsset ?? '';
+        return assets.has(id) ? { id } : false;
+      },
+    },
+  ],
+  renderHTML: ({ node }) => {
+    const id = String(node.attrs.id);
+    return ['img', { 'data-draft-asset': id, alt: assets.get(id)?.name }];
+  },
+  addNodeView:
+    () =>
+    ({ node }) => {
+      const id = String(node.attrs.id);
+      const dom = document.createElement('img');
+      dom.dataset.draftAsset = id;
+      dom.alt = assets.get(id)?.name ?? '';
+      show(dom);
+      return { dom };
+    },
+});
+
 // One code line per textblock, as the Semantic Message Document stores code; consecutive lines
 // show as one block. A pasted multi-line block splits into lines.
 const CodeLine = Node.create({
   name: 'codeLine',
   group: 'block',
-  content: 'text*',
+  content: 'inline*',
   marks: '_',
   code: true,
   defining: true,
@@ -119,6 +179,12 @@ const shortcuts = new Map<string, BlockKind>([
 
 const typing = 'draftTyping';
 const imageCharacter = '\uFFFC';
+
+// Whether a paste or drop carries files or image data, which only native code may read.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
+const carriesFiles = (data: DataTransfer | null) =>
+  data !== null &&
+  [...data.types].some((type) => type === 'Files' || type.startsWith('image/'));
 
 // The fixes an edit needs before the document can be stored: an Inline Image's character is
 // removed, a line break splits a code line (from Return or a paste) and is a space elsewhere, and
@@ -212,6 +278,26 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
     return [
       new Plugin({
         props: {
+          // A pasted image is read from the pasteboard by native code, where it can; the page
+          // never reads the data, and a dropped file is refused.
+          handlePaste: (_view, event) => {
+            if (!carriesFiles(event.clipboardData)) {
+              return false;
+            }
+            event.preventDefault();
+            globalThis.ReactNativeWebView?.postMessage(
+              JSON.stringify({ type: 'paste' }),
+            );
+            return true;
+          },
+          // oxlint-disable-next-line max-params -- ProseMirror's handleDrop signature.
+          handleDrop: (_view, event, _slice, moved) => {
+            if (moved || !carriesFiles(event.dataTransfer)) {
+              return false;
+            }
+            event.preventDefault();
+            return true;
+          },
           // oxlint-disable-next-line max-params -- ProseMirror's handleTextInput signature.
           handleTextInput: (view, from, to, text, deflt) => {
             const $from = view.state.doc.resolve(from);
@@ -258,9 +344,20 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
   addStorage: () => ({ typing: false }),
 });
 
+// The identifiers of the document's Attachments.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state and transaction are classes; this only reads them.
+const attachmentsOf = ({ doc }: EditorState | Transaction): string[] => {
+  const ids: unknown = doc.attrs.attachments;
+  return Array.isArray(ids) ? ids.map(String) : [];
+};
+
 const { draftEditor, ReactNativeWebView } = globalThis;
 const element = document.querySelector('#editor');
 if (draftEditor !== undefined && element !== null) {
+  learn(draftEditor.attachments);
+  for (const { spans } of draftEditor.document) {
+    learn(spans.flatMap((span) => ('image' in span ? [span.image] : [])));
+  }
   let revision = 0;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor and transaction are classes; this only reads them.
   const post = (editor: TiptapEditor, transaction: Transaction) => {
@@ -273,7 +370,13 @@ if (draftEditor !== undefined && element !== null) {
       type: 'update',
       revision,
       ...(transaction.docChanged
-        ? { document: fromEditor(editor.getJSON()) }
+        ? {
+            document: fromEditor(editor.getJSON(), assets),
+            attachments: attachmentsOf(editor.state).flatMap((id) => {
+              const asset = assets.get(id);
+              return asset === undefined ? [] : [asset];
+            }),
+          }
         : {}),
       selection: {
         start: displayOffset(lines, from),
@@ -290,7 +393,12 @@ if (draftEditor !== undefined && element !== null) {
   const editor = new Editor({
     element,
     extensions: [
-      Document,
+      // The Draft's Attachments, so one edit and one Undo step can change them with the body.
+      Document.extend({
+        addAttributes: () => ({
+          attachments: { default: [], rendered: false },
+        }),
+      }),
       // A pasted heading or code inside a quote or list item keeps its text as that line.
       Paragraph.extend({
         parseHTML: () => [
@@ -322,6 +430,7 @@ if (draftEditor !== undefined && element !== null) {
       ListKeymap,
       Blockquote.extend({ content: 'paragraph+' }),
       CodeLine,
+      InlineImage,
       Bold,
       Italic,
       Underline,
@@ -333,7 +442,7 @@ if (draftEditor !== undefined && element !== null) {
     ],
     enableInputRules: false,
     enablePasteRules: false,
-    content: toEditor(draftEditor.document),
+    content: toEditor(draftEditor.document, draftEditor.attachments),
     editorProps: {
       attributes: {
         'aria-label': draftEditor.label,
@@ -371,8 +480,83 @@ if (draftEditor !== undefined && element !== null) {
       ),
     );
   };
+  // Removes every use of asset `id`: its Inline Images, from the last, and its Attachment.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is mutable by design.
+  const remove = (tr: Transaction, id: string) => {
+    const positions: number[] = [];
+    tr.doc.descendants((node, position) => {
+      if (node.type.name === 'inlineImage' && node.attrs.id === id) {
+        positions.push(position);
+      }
+    });
+    for (const position of positions.toReversed()) {
+      tr.delete(position, position + 1);
+    }
+    const attachments = attachmentsOf(tr);
+    if (attachments.includes(id)) {
+      tr.setDocAttribute(
+        'attachments',
+        attachments.filter((each) => each !== id),
+      );
+    }
+    return positions.length > 0;
+  };
+  // An Inline Image becomes an Attachment; an image Attachment goes inline at the selection.
+  const convert = (id: string) => {
+    const { tr } = editor.state;
+    const image = assets.get(id);
+    if (image === undefined) {
+      return;
+    }
+    if (attachmentsOf(tr).includes(id)) {
+      if (!image.type.startsWith('image/')) {
+        return;
+      }
+      remove(tr, id);
+      tr.replaceSelectionWith(editor.schema.node('inlineImage', { id }), false);
+    } else if (remove(tr, id)) {
+      tr.setDocAttribute('attachments', [...attachmentsOf(tr), id]);
+    }
+    editor.view.dispatch(tr);
+  };
   globalThis.draftCommand = (command) => {
-    if (command.type === 'mark') {
+    if (command.type === 'add') {
+      learn([...command.images, ...command.attachments]);
+      const { tr } = editor.state;
+      if (command.images.length > 0) {
+        tr.replaceSelection(
+          new Slice(
+            Fragment.from(
+              command.images.map(({ id }) =>
+                editor.schema.node('inlineImage', { id }),
+              ),
+            ),
+            0,
+            0,
+          ),
+        );
+      }
+      if (command.attachments.length > 0) {
+        tr.setDocAttribute('attachments', [
+          ...attachmentsOf(tr),
+          ...command.attachments.map(({ id }) => id),
+        ]);
+      }
+      editor.view.dispatch(tr);
+    } else if (command.type === 'remove') {
+      const { tr } = editor.state;
+      remove(tr, command.id);
+      editor.view.dispatch(tr);
+    } else if (command.type === 'convert') {
+      convert(command.id);
+    } else if (command.type === 'previews') {
+      for (const [id, preview] of Object.entries(command.previews)) {
+        previews.set(id, preview);
+      }
+      for (const image of element.querySelectorAll('img')) {
+        show(image);
+      }
+    } else if (command.type === 'mark') {
       editor.commands.toggleMark(tiptapMarks[command.mark]);
     } else if (command.type === 'block') {
       // As in the current composer: when every selected block has the kind, they become paragraphs.

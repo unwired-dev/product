@@ -1,4 +1,5 @@
 import type {
+  Asset,
   Block,
   BlockKind,
   Mark,
@@ -11,7 +12,9 @@ import type { Node, ResolvedPos } from '@tiptap/pm/model';
 // Draft stores only the Semantic Message Document; editor JSON never leaves the page.
 // Consecutive list items and quote lines share one Tiptap container, as they share one in
 // outgoing mail, and split back into one block each. Each code line is a textblock of its own.
-// shortcut: Inline Images are not shown yet; they join with #820.
+// An Inline Image is an inline node naming its Draft Asset, and the Draft's Attachments are an
+// attribute of the editor document naming theirs, so one edit and one Undo step can change both.
+// The page keeps the assets it was given by identifier.
 
 // The character an Inline Image occupies; typed or pasted text never stores it.
 const imageCharacter = '￼';
@@ -54,25 +57,19 @@ const headingKind: Readonly<Record<number, BlockKind | undefined>> = {
   3: 'heading3',
 };
 
-// Whether the evaluation editor can show `document` without losing anything.
-export const supported = (document: SemanticDocument) =>
-  document.every(({ spans }) => spans.every((span) => !('image' in span)));
+type Span = Block['spans'][number];
+
+const inlineOf = (span: Span): JSONContent => ({
+  ...('image' in span
+    ? { type: 'inlineImage', attrs: { id: span.image.id } }
+    : { type: 'text', text: span.text }),
+  ...(span.marks === undefined
+    ? {}
+    : { marks: span.marks.map((mark) => ({ type: tiptapMarks[mark] })) }),
+});
 
 const textblock = (type: string, { spans }: Block): JSONContent =>
-  spans.length === 0
-    ? { type }
-    : {
-        type,
-        content: spans.map(({ text, marks }) =>
-          marks === undefined
-            ? { type: 'text', text }
-            : {
-                type: 'text',
-                text,
-                marks: marks.map((mark) => ({ type: tiptapMarks[mark] })),
-              },
-        ),
-      };
+  spans.length === 0 ? { type } : { type, content: spans.map(inlineOf) };
 
 // One Tiptap node for a run of blocks of one kind; only lists and quotes have runs longer than one.
 const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
@@ -95,7 +92,10 @@ const nodeOf = (run: readonly [Block, ...Block[]]): JSONContent => {
   };
 };
 
-export const toEditor = (document: SemanticDocument): JSONContent => {
+export const toEditor = (
+  document: SemanticDocument,
+  attachments: readonly Asset[] = [],
+): JSONContent => {
   const runs: Array<[Block, ...Block[]]> = [];
   for (const block of document) {
     const run = runs.at(-1);
@@ -109,25 +109,41 @@ export const toEditor = (document: SemanticDocument): JSONContent => {
       runs.push([block]);
     }
   }
-  return { type: 'doc', content: runs.map(nodeOf) };
+  return {
+    type: 'doc',
+    attrs: { attachments: attachments.map(({ id }) => id) },
+    content: runs.map(nodeOf),
+  };
 };
 
-type Span = Block['spans'][number];
+type Assets = ReadonlyMap<string, Asset>;
 
-// Text spans with their marks in document order; adjacent spans with the same marks merge.
+// Text spans with their marks in document order; adjacent text spans with the same marks merge,
+// and each Inline Image is a span of its own.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
-const spansOf = (nodes: readonly JSONContent[]) => {
+const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
   const spans: Span[] = [];
   for (const node of nodes) {
-    const text = (node.text ?? '').replaceAll(imageCharacter, '');
     const names = new Set(node.marks?.map(({ type }) => type));
     const [first, ...rest] = markOrder.filter((mark) =>
       names.has(tiptapMarks[mark]),
     );
-    const span: Span =
-      first === undefined ? { text } : { text, marks: [first, ...rest] };
+    const marks =
+      first === undefined ? {} : { marks: [first, ...rest] as const };
+    const image =
+      node.type === 'inlineImage'
+        ? assets.get(String(node.attrs?.id))
+        : undefined;
+    const text = (node.text ?? '').replaceAll(imageCharacter, '');
+    const span: Span = { text, ...marks };
     const last = spans.at(-1);
-    if (last !== undefined && last.marks?.join(',') === span.marks?.join(',')) {
+    if (image !== undefined) {
+      spans.push({ text: imageCharacter, image, ...marks });
+    } else if (
+      last !== undefined &&
+      !('image' in last) &&
+      last.marks?.join(',') === span.marks?.join(',')
+    ) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
     } else if (text !== '') {
       spans.push(span);
@@ -138,12 +154,18 @@ const spansOf = (nodes: readonly JSONContent[]) => {
 
 // Every block a node holds, in reading order. The schema admits no nesting: a list item or quote
 // holds only paragraphs.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
-const blocksOf = (node: JSONContent, kind: BlockKind): Block[] => {
+const blocksOf = (
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+  node: JSONContent,
+  kind: BlockKind,
+  assets: Assets,
+): Block[] => {
   const { type = '', content = [], attrs } = node;
   const contained = containedKind[type];
   if (contained !== undefined || type === 'listItem') {
-    return content.flatMap((child) => blocksOf(child, contained ?? kind));
+    return content.flatMap((child) =>
+      blocksOf(child, contained ?? kind, assets),
+    );
   }
   let own = kind;
   if (type === 'heading') {
@@ -151,14 +173,17 @@ const blocksOf = (node: JSONContent, kind: BlockKind): Block[] => {
   } else if (type === 'codeLine') {
     own = 'code';
   }
-  return [{ kind: own, spans: spansOf(content) }];
+  return [{ kind: own, spans: spansOf(content, assets) }];
 };
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
-export const fromEditor = (editor: JSONContent): SemanticDocument => {
+export const fromEditor = (
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+  editor: JSONContent,
+  assets: Assets,
+): SemanticDocument => {
   const [first = { kind: 'paragraph', spans: [] }, ...rest] = (
     editor.content ?? []
-  ).flatMap((node) => blocksOf(node, 'paragraph'));
+  ).flatMap((node) => blocksOf(node, 'paragraph', assets));
   return [first, ...rest];
 };
 
@@ -184,7 +209,7 @@ export const kindAt = ($position: ResolvedPos): BlockKind => {
 // Where each semantic line starts in the editor and in the composer's display text, and its text
 // length. The display text joins blocks with line breaks and shows list items after their marker
 // (`displayOf` in mail-core): consecutive numbered items count from one. Offsets inside a
-// textblock count code units, as the schema has no inline leaves.
+// textblock count code units, and an Inline Image counts one, as its character does.
 export type Line = Readonly<{
   editor: number;
   start: number;
@@ -211,7 +236,7 @@ export const linesOfDocument = (doc: Node): Line[] => {
     const kind = kindAt(doc.resolve(position + 1));
     number = kind === 'numbered' ? number + 1 : 0;
     const marker = markerLength(kind, number);
-    const { length } = node.textContent;
+    const length = node.content.size;
     lines.push({ editor: position + 1, start, marker, length });
     start += marker + length + 1;
     return false;
