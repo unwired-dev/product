@@ -570,6 +570,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   journey green. Attach the action to the header's accessible element (the title
   `Text` or an `accessible` wrapper) and keep gesture responders on the wider
   container; otherwise the documented assistive entry point does not exist.
+  `ActivityIndicator` is no carrier either: it gives `style` to an outer wrapper
+  but forwards touch and accessibility props to a spinner-sized native view that
+  is not an accessibility element unless `accessible`. Put the swipe on a
+  full-size wrapper `View` and the action on an `accessible` element.
 - A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
   `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
   every other screen the host mounts for the same state, such as
@@ -577,6 +581,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `apps/mobile/app` and the Mac window's panes and check each screen the
   requirement names (Inbox, message reading, composer, Settings); otherwise a
   route-specific reader has no palette while the documentation says it does.
+  Within each screen, check every early-return state branch too (loading,
+  `StorageProblem`, `EmptyDetail` and unavailable), on every route that renders
+  it: on iPhone each covers the Inbox heading, so a palette entry only in the
+  ready branch leaves no way to open the palette.
+- A reader control rendered for one store kind, such as the preview Inbox's
+  Mark as read or unread in `organize.tsx.PreviewMessageActions`, without a
+  `RegisterCommands` in the same component offering the same action list and
+  handler as its buttons. Check each `organize.tsx.MessageActions` branch
+  (preview, IMAP, Gmail and Microsoft) against the commands the palette names;
+  otherwise the palette shows the command disabled beside a working button.
 - `CommandPaletteProvider` or another cross-cutting provider placed relative to
   `registration-gate.tsx.RegistrationGate`, which replaces its children with the
   account page or the setup and locked pages. A provider below the gate leaves

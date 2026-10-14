@@ -3,6 +3,7 @@ import type {
   ImapAction,
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
+import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
 
 import {
   commandTarget,
@@ -50,6 +51,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   toolbar: { marginBottom: spacing.xl },
+  control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
   button: {
     minHeight: 28,
     flexDirection: 'row',
@@ -124,6 +126,14 @@ export function MessageActions({
   readonly onClose?: (() => void) | undefined;
 }) {
   const store = useInboxActions();
+  if ('setUnread' in store) {
+    return (
+      <PreviewMessageActions
+        id={id}
+        inbox={store}
+      />
+    );
+  }
   return 'openFolder' in store ? (
     <ImapMessageActions
       id={id}
@@ -135,6 +145,61 @@ export function MessageActions({
       id={id}
       onClose={onClose}
     />
+  );
+}
+
+// The preview Inbox's read state, the one action its fixture can change.
+function PreviewMessageActions({
+  inbox,
+  id,
+}: {
+  readonly inbox: PersistentInbox;
+  readonly id: string;
+}) {
+  const state = useInbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const mailbox = useMailbox();
+  const message =
+    state.kind === 'ready'
+      ? state.messages.find((item) => item.id === id)
+      : undefined;
+  if (message === undefined) {
+    return null;
+  }
+  const read = message.unread
+    ? ({ name: 'read', label: t('message.markRead'), action: false } as const)
+    : ({
+        name: 'unread',
+        label: t('message.markUnread'),
+        action: true,
+      } as const);
+  const act = (unread: boolean) => {
+    void inbox.setUnread(message.id, unread);
+  };
+  return (
+    <>
+      <RegisterCommands
+        offer={() =>
+          organizeCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            actions: [read],
+            act,
+            destinations: [],
+          })
+        }
+      />
+      <Pressable
+        style={styles.control}
+        accessibilityRole="button"
+        onPress={() => {
+          act(read.action);
+        }}>
+        <Text style={[styles.secondary, { color: colors.accentInk }]}>
+          {read.label}
+        </Text>
+      </Pressable>
+    </>
   );
 }
 

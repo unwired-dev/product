@@ -1394,5 +1394,33 @@ describe('command palette', () => {
       }),
     ).toBeDisabled();
   });
+
+  it('opens the palette from a reader whose storage is still opening', async () => {
+    expect.hasAssertions();
+    const opening = Promise.withResolvers<[]>();
+    const inbox = createPersistentInbox(
+      makeMockInboxStorage(),
+      () => opening.promise,
+    );
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, preview)}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            id="opening"
+            mailbox={preview}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    const loading = screen.getByLabelText('Loading message');
+    // VoiceOver offers the action only on an accessibility element; the spinner is not one by default.
+    expect(loading).toHaveProp('accessible', true);
+    await openPalette(loading);
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Reply. Select a conversation',
+      }),
+    ).toBeDisabled();
+  });
   /* oxlint-enable vitest/max-expects */
 });

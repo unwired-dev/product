@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import {
   commandTarget,
   expectedCommands,
-  organizeCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
@@ -578,51 +577,10 @@ function MailboxMessage({
             }
           />
           <ReaderScrollView contentContainerStyle={styles.content}>
-            {'setUnread' in actions ? (
-              <>
-                <RegisterCommands
-                  offer={() =>
-                    organizeCommands(t, {
-                      target: commandTarget(mailbox?.id, message),
-                      actions: [
-                        message.unread
-                          ? {
-                              name: 'read',
-                              label: t('message.markRead'),
-                              action: false,
-                            }
-                          : {
-                              name: 'unread',
-                              label: t('message.markUnread'),
-                              action: true,
-                            },
-                      ],
-                      act: (unread) => {
-                        void actions.setUnread(message.id, unread);
-                      },
-                      destinations: [],
-                    })
-                  }
-                />
-                <Pressable
-                  style={styles.control}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    void actions.setUnread(message.id, !message.unread);
-                  }}>
-                  <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                    {message.unread
-                      ? t('message.markRead')
-                      : t('message.markUnread')}
-                  </Text>
-                </Pressable>
-              </>
-            ) : (
-              <MessageActions
-                id={message.id}
-                onClose={onClose}
-              />
-            )}
+            <MessageActions
+              id={message.id}
+              onClose={onClose}
+            />
             <Text
               accessibilityRole="header"
               selectable

@@ -5,7 +5,6 @@ import type { ReactNode } from 'react';
 import {
   commandTarget,
   expectedCommands,
-  organizeCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
@@ -491,6 +490,26 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
   );
 }
 
+// The scoped mailbox's storage is still opening. ActivityIndicator sizes its native view to the
+// spinner and leaves it out of the accessibility tree unless `accessible`, so the swipe goes on a
+// full-size wrapper and the action on the now accessible spinner.
+function ReaderLoading() {
+  const { t } = useLocalization();
+  const header = usePaletteHeader();
+  return (
+    <View
+      style={styles.fill}
+      {...header.swipe}>
+      <ActivityIndicator
+        accessible
+        accessibilityLabel={t('message.loading')}
+        style={styles.fill}
+        {...header.action}
+      />
+    </View>
+  );
+}
+
 // The reader for the message's store: an IMAP or Gmail body, or the preview fixture's text.
 function ReaderBody({
   inbox,
@@ -600,8 +619,6 @@ function MailboxMessage({
   const state = useInbox();
   const actions = useInboxActions();
   const mailbox = useMailbox();
-  // Every state the reader shows on iPhone, where it covers the Inbox, keeps a palette entry.
-  const header = usePaletteHeader();
   const address = mailbox?.address;
   const colors = usePalette();
   const { t } = useLocalization();
@@ -622,137 +639,71 @@ function MailboxMessage({
       : [];
 
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-        {...header.swipe}
-        {...header.action}
-      />
-    );
+    return <ReaderLoading />;
   }
 
   if (state.kind === 'locked' || state.kind === 'failed') {
     return <StorageProblem kind={state.kind} />;
   }
 
+  if (message === undefined) {
+    return <EmptyDetail id={id} />;
+  }
+
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {message === undefined ? (
-        <View
-          style={styles.empty}
-          {...header.swipe}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.textPrimary }]}
-            {...header.action}>
-            {t('message.unavailable')}
-          </Text>
-          <Text
-            style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-            {t('message.chooseAnother')}
-          </Text>
-        </View>
-      ) : (
-        <LinkConfirmationProvider
-          inbox={actions}
-          ids={[message.id]}>
-          <ReaderHeader message={message} />
-          <ReaderScrollView contentContainerStyle={styles.content}>
-            {'setUnread' in actions ? (
-              <>
-                <RegisterCommands
-                  offer={() =>
-                    organizeCommands(t, {
-                      target: commandTarget(mailbox?.id, message),
-                      actions: [
-                        message.unread
-                          ? {
-                              name: 'read',
-                              label: t('message.markRead'),
-                              action: false,
-                            }
-                          : {
-                              name: 'unread',
-                              label: t('message.markUnread'),
-                              action: true,
-                            },
-                      ],
-                      act: (unread) => {
-                        void actions.setUnread(message.id, unread);
-                      },
-                      destinations: [],
-                    })
-                  }
-                />
-                <Pressable
-                  style={styles.control}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    void actions.setUnread(message.id, !message.unread);
-                  }}>
-                  <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                    {message.unread
-                      ? t('message.markRead')
-                      : t('message.markUnread')}
-                  </Text>
-                </Pressable>
-              </>
-            ) : (
-              <MessageActions
-                id={message.id}
-                onClose={onClose}
-              />
-            )}
-            <View
-              style={[
-                styles.metadata,
-                { borderBottomColor: colors.separator },
-              ]}>
-              <Text
-                selectable
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                selectable
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {message.address}
-              </Text>
+      <LinkConfirmationProvider
+        inbox={actions}
+        ids={[message.id]}>
+        <ReaderHeader message={message} />
+        <ReaderScrollView contentContainerStyle={styles.content}>
+          <MessageActions
+            id={message.id}
+            onClose={onClose}
+          />
+          <View
+            style={[styles.metadata, { borderBottomColor: colors.separator }]}>
+            <Text
+              selectable
+              style={[styles.sender, { color: colors.textPrimary }]}>
+              {message.sender}
+            </Text>
+            <Text
+              selectable
+              style={[styles.secondary, { color: colors.textSecondary }]}>
+              {message.address}
+            </Text>
+            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+              {t('message.received', {
+                date: dateFormat.format(new Date(message.receivedAt)),
+              })}
+            </Text>
+            {address === undefined ? null : (
               <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('message.received', {
-                  date: dateFormat.format(new Date(message.receivedAt)),
-                })}
+                {t('inbox.inMailbox', { mailbox: address })}
               </Text>
-              {address === undefined ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('inbox.inMailbox', { mailbox: address })}
-                </Text>
-              )}
-              {labelNames.length === 0 ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('message.labels', { labels: labelNames.join(', ') })}
-                </Text>
-              )}
-            </View>
-            <ResponseActions
-              key={`${address}:${message.id}`}
-              message={message}
-              onCompose={onCompose}
-            />
-            <ReaderBody
-              key={message.id}
-              inbox={actions}
-              message={message}
-              connection={mailbox?.id}
-            />
-          </ReaderScrollView>
-        </LinkConfirmationProvider>
-      )}
+            )}
+            {labelNames.length === 0 ? null : (
+              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+                {t('message.labels', { labels: labelNames.join(', ') })}
+              </Text>
+            )}
+          </View>
+          <ResponseActions
+            key={`${address}:${message.id}`}
+            message={message}
+            onCompose={onCompose}
+          />
+          <ReaderBody
+            key={message.id}
+            inbox={actions}
+            message={message}
+            connection={mailbox?.id}
+          />
+        </ReaderScrollView>
+      </LinkConfirmationProvider>
     </SafeAreaView>
   );
 }
@@ -789,7 +740,6 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const state = useInbox();
   const inbox = useInboxActions();
   const colors = usePalette();
-  const { t } = useLocalization();
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -798,12 +748,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
     [state, id],
   );
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
-    );
+    return <ReaderLoading />;
   }
   if (state.kind === 'locked' || state.kind === 'failed') {
     return <StorageProblem kind={state.kind} />;
