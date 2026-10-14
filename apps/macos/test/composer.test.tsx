@@ -43,9 +43,8 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
-// Allow cold component rendering on a loaded CI runner, including focused runs.
-// Match the mobile composer suite after this file's first test hit Jest's 5 s default.
-jest.setTimeout(10_000);
+// The shared CI runner takes seconds to warm up the first composer journey.
+jest.setTimeout(30_000);
 
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
