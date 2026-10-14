@@ -4,6 +4,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native journey locator such as `WindowTests.key(groups:in:)` retaining a
+  text pattern after its host changes displayed grouping, whitespace, copy or
+  accessibility exposure. Compare every affected locator and caller with the
+  rendered producer, including `registration-gate.tsx.PrivateSync`, and the
+  native element type and label-versus-value contract. Preserve matching for
+  other formats sharing the helper, such as hyphenated Recovery Keys beside
+  space-separated Enrollment Codes; otherwise the packaged journey cannot find
+  its target despite passing component tests. Record unavailable native
+  execution separately from static or predicate-only evidence.
+
 - A Draft editor keyboard regression in `packages/draft-editor/test/editor.test.ts` invoking a command that replays only document steps while the real key handler dispatches a caret change. Exercise the page's keydown handlers and subsequent typing as well as its posted semantic body; otherwise a passing document-only assertion can hide text entering the previous or wrong block. Page key-handler evidence remains distinct from native WebKit keyboard interaction.
 
 - A native test mirror such as `RegistrationFlowSupport.swift` classifying failures
