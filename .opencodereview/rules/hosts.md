@@ -790,6 +790,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   as To. Explicit role words must retain meaning when punctuation is omitted;
   component label assertions do not qualify native VoiceOver pronunciation.
 
+- `organize.tsx.Toolbar` projecting provider actions into the iPhone Reply sheet
+  in their More-menu order instead of the approved sheet order. Check tiles and
+  grouped rows against the approved frames after provider eligibility filtering;
+  otherwise Trash and Spam can swap places despite every action being present.
+  Preserve the existing More ordering when correcting the sheet projection.
 - Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet`,
   `composer-controls.tsx.PopUp` or another foreground presentation relying only on
   native glass to obscure the content underneath. Check settled native captures in

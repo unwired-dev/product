@@ -290,8 +290,10 @@ function Toolbar({
               run: folders.toggle,
             },
           ]),
-      ...more.actions
-        .filter(({ name }) => name === 'trash' || name === 'spam')
+      ...['spam', 'trash']
+        .flatMap((name) =>
+          more.actions.filter((action) => action.name === name),
+        )
         .map(({ name, label, run }) => ({
           name,
           label,

@@ -3489,6 +3489,11 @@ describe('replying to and forwarding from the reader', () => {
         'Report spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
     ).toHaveLength(8);
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Report spam|Move to Trash)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Report spam', 'Move to Trash']);
     // Choosing an action runs it and closes the sheet.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
