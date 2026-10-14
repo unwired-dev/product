@@ -70,11 +70,7 @@ const formStyles = StyleSheet.create({
 // The form's text fields; SMTP security is chosen separately.
 type TextField = Exclude<keyof ImapFields, 'smtpSecurity'>;
 
-type Button = (
-  label: string,
-  action: () => Promise<void>,
-  fill?: 'accent',
-) => ReactNode;
+type Button = (label: string, action: () => Promise<void>) => ReactNode;
 
 // A text field's row: its short visible label and the field, whose accessibility label names it
 // in full.
@@ -179,6 +175,7 @@ function FormGroup({
 export function ImapForm({
   store,
   button,
+  primaryButton = button,
   provider,
   repair,
   onCancel,
@@ -186,6 +183,8 @@ export function ImapForm({
 }: {
   readonly store: Registration;
   readonly button: Button;
+  // Connect, where the form is the step's primary action.
+  readonly primaryButton?: Button;
   readonly provider: ImapProvider;
   readonly repair: MailboxConnection | undefined;
   readonly onCancel: () => void;
@@ -313,17 +312,13 @@ export function ImapForm({
         })}
         {setup === undefined
           ? null
-          : button(
-              t('imap.connect'),
-              async () => {
-                forgetPassword();
-                await store.connectImap(setup);
-                if (store.getSnapshot().imapFailure === undefined) {
-                  onConnected?.();
-                }
-              },
-              'accent',
-            )}
+          : primaryButton(t('imap.connect'), async () => {
+              forgetPassword();
+              await store.connectImap(setup);
+              if (store.getSnapshot().imapFailure === undefined) {
+                onConnected?.();
+              }
+            })}
       </View>
     </View>
   );

@@ -27,7 +27,7 @@ each opening its own setup:
 Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
 after sign-in; an IMAP password is only ever entered again on the account page. Once
-any mailbox is connected, the account page's **Mailboxes** section also offers **Add an
+any mailbox is connected, Settings' **Email Accounts** also offers **Add an
 IMAP mailbox**.
 
 ## Endpoints and passwords
@@ -104,10 +104,11 @@ reason survives relaunch:
 Adding another IMAP mailbox beside existing ones reports the failure in the form and
 changes nothing. Every launch logs in to each IMAP connection again. A refused password
 marks it **The mail server needs your password again**. **Enter password again**
-opens the account page, where the connection can be repaired immediately without
-relaunching. Password entry is also available for an IMAP connection awaiting a
+opens Settings on **Email Accounts**, where the connection can be repaired
+immediately without relaunching, including when **Open Inbox** has deferred
+Recovery Key setup. Password entry is also available for an IMAP connection awaiting a
 password on this device. Other failures keep its saved Inbox open from this device;
-the account page labels it as saved mail awaiting another server check.
+Email Accounts labels it as saved mail awaiting another server check.
 
 ## Synchronization
 

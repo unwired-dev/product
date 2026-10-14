@@ -160,6 +160,34 @@
     "signInInstead": "Sign in with {{provider}} instead",
     "chooseMailbox": "Choose another Google mailbox"
   },
+  "settings": {
+    "title": "Settings",
+    "back": "Back to Settings",
+    "sections": {
+      "accounts": "Accounts",
+      "application": "Application"
+    },
+    "destinations": {
+      "account": "Account & Devices",
+      "mailboxes": "Email Accounts",
+      "language": "Language",
+      "privacy": "Privacy & Data"
+    },
+    "productAccount": "Product Account",
+    "mailboxConnections": "Mailbox Connections",
+    "signIn": "Allow…",
+    "enterPassword": "Enter the Password…",
+    "remove": "Remove…",
+    "signOut": "Sign Out on This Device",
+    "signOutButton": "Sign Out…",
+    "delete": "Delete Product Account…",
+    "remoteContent": "Remote Message Content",
+    "trackingPixels": "Known Tracking Pixels",
+    "trackingPixelsDetail": "Known Tracking Pixels stay blocked for every remote-content policy.",
+    "alwaysBlocked": "Always Blocked",
+    "onDevice": "On device",
+    "availability": "Availability"
+  },
   "signInMethods": {
     "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
     "only": "Only {{current}} opens this Product Account. Linking {{other}} adds another way to sign in. First verify {{current}}, then sign in with {{other}}. It does not connect a mailbox.",
@@ -178,9 +206,9 @@
   "accountRemoval": {
     "title": "This device and your account",
     "signOut": "Sign out of this device",
-    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail in Gmail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
+    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
     "delete": "Delete Product Account",
-    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays in Gmail, and authorization you gave Google is not revoked. You sign in again to confirm.",
+    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays with your mail providers, and their authorizations are not revoked. You sign in again to confirm.",
     "deletePermanently": "Delete permanently",
     "cancel": "Cancel",
     "sign-out": "Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.",
@@ -212,7 +240,7 @@
     "unread_other": "{{count}} unread"
   },
   "remoteContent": {
-    "title": "Remote images",
+    "title": "Remote Content",
     "description": "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
     "device": "On this device",
     "mailbox": "Remote images for {{address}}",
@@ -227,7 +255,7 @@
     "clearFailed": "Remote content could not be removed. Try again."
   },
   "mailAssistance": {
-    "title": "On-device assistance",
+    "title": "Mail Assistance",
     "description": "Summaries, rewrites, reply suggestions and translations use Apple's on-device models, and run only when you ask. This choice applies to this device and this account only. Signing out turns it off.",
     "on": "On-device assistance is on.",
     "off": "On-device assistance is off.",
@@ -305,7 +333,7 @@
     "device": "device"
   },
   "revocation": {
-    "title": "Trusted devices",
+    "title": "Trusted Devices",
     "description": "These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.",
     "added": "Added {{date}}",
     "remove": "Remove {{name}}",

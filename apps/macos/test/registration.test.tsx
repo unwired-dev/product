@@ -42,6 +42,7 @@ import {
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
 import {
+  Alert,
   AppState,
   DeviceEventEmitter,
   Pressable,
@@ -239,6 +240,14 @@ const openAccount = async () => {
   });
 };
 
+// Opens a destination from the account page's Settings sidebar.
+const settings = async (destination: string) => {
+  const item = await screen.findByRole('button', { name: destination });
+  await act(async () => {
+    await fireEvent.press(item);
+  });
+};
+
 // Hosts without another device of the account never enroll, approve or recover one.
 const noEnrollment = {
   recoverWithRecoveryKey: () =>
@@ -288,6 +297,7 @@ describe('product registration', () => {
     };
     try {
       await openAccount();
+      await settings('Email Accounts');
       await press('Add an IMAP mailbox');
       await press('Add another Gmail mailbox');
       await press('iCloud Mail');
@@ -315,6 +325,8 @@ describe('product registration', () => {
       smtpPassword: '',
       sendingPassword: {},
       canConnect: false,
+      setup: {},
+      inboxActions: [],
     },
     {
       host: 'imap.fastmail.com',
@@ -329,6 +341,8 @@ describe('product registration', () => {
       smtpPassword: 'separate-smtp-password',
       sendingPassword: { password: 'separate-smtp-password' },
       canConnect: true,
+      setup: { recoveryKey: syntheticRecoveryKey },
+      inboxActions: ['Open Inbox'],
     },
   ])(
     'repairs $host from its Inbox refusal, retaining separate SMTP setup',
@@ -338,6 +352,8 @@ describe('product registration', () => {
       smtpPassword,
       sendingPassword,
       canConnect: expectedConnect,
+      setup,
+      inboxActions,
     }) => {
       expect.hasAssertions();
       const imap = createSyntheticImap();
@@ -361,6 +377,7 @@ describe('product registration', () => {
           },
         ]),
         privateSync: 'ready',
+        ...setup,
       } as const;
       const setups: unknown[] = [];
       const store = createRegistration({
@@ -392,6 +409,12 @@ describe('product registration', () => {
           </InboxProvider>
         </RegistrationGate>,
       );
+      // The Inbox remains usable with setup deferred; repair must still open Email Accounts.
+      for (const name of inboxActions) {
+        await act(async () => {
+          await fireEvent.press(await screen.findByRole('button', { name }));
+        });
+      }
       await expect(
         screen.findByText('Saved IMAP message'),
       ).resolves.toBeVisible();
@@ -425,6 +448,8 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
+      // The Inbox's repair opens Settings on Email Accounts, where its form is.
+      await screen.findByRole('header', { name: 'Email Accounts' });
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
@@ -542,6 +567,7 @@ describe('product registration', () => {
       }),
     ).toHaveLength(1);
     await openAccount();
+    await settings('Email Accounts');
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', {
@@ -951,7 +977,9 @@ describe('product registration', () => {
     });
     await openAccount();
     expect(
-      screen.getByRole('header', { name: 'Saved Gmail Inbox' }),
+      screen.getByText(
+        /could not be verified\. Mail saved on this device is available/u,
+      ),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
@@ -973,6 +1001,7 @@ describe('product registration', () => {
     }).toStrictEqual({ snapshot: connected, problem: '2 unread' });
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey proves the palette bar, Settings navigation and the way back. */
   it('keeps the Command Palette bar on the account page and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
@@ -1013,9 +1042,28 @@ describe('product registration', () => {
         screen.findByText('Synthetic message 1'),
       ).resolves.toBeVisible();
       await openAccount();
-      expect(
-        screen.getByRole('header', { name: 'Gmail connected' }),
-      ).toBeVisible();
+      const selected = () =>
+        screen
+          .getAllByRole('button', { selected: true })
+          .map(({ props }) => props.accessibilityLabel);
+      // Settings opens on Account & Devices; another sidebar destination selects itself and shows
+      // only its title and groups, beneath the same Command Palette bar.
+      expect(selected()).toStrictEqual(['Account & Devices']);
+      await settings('Email Accounts');
+      expect({
+        selected: selected(),
+        headers: screen
+          .getAllByRole('header')
+          .map(({ props }) => props.accessibilityLabel),
+      }).toStrictEqual({
+        selected: ['Email Accounts'],
+        headers: [
+          'Accounts',
+          'Application',
+          'Email Accounts',
+          'Mailbox Connections',
+        ],
+      });
       expect(
         screen.getByRole('button', { name: 'Open Command Palette' }),
       ).toBeVisible();
@@ -1031,6 +1079,7 @@ describe('product registration', () => {
       menu.restore();
     }
   });
+  /* oxlint-enable vitest/max-expects */
 
   it("asks AppKit to keep the window's focused control on opening and restore it on closing", async () => {
     expect.hasAssertions();
@@ -1217,7 +1266,7 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
     expect(
-      screen.queryByRole('header', { name: 'Gmail connected' }),
+      screen.queryByRole('header', { name: 'Account & Devices' }),
     ).toBeNull();
     // A build that cannot authorize Microsoft mail never offers it.
     expect(
@@ -1239,7 +1288,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText('other@example.invalid is connected on this device.'),
@@ -1286,7 +1335,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
   });
 
@@ -1340,6 +1389,7 @@ describe('product registration', () => {
     await expect(
       screen.findByText('other@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
+    await settings('Email Accounts');
     expect(
       screen.getByRole('button', { name: 'Add another Gmail mailbox' }),
     ).toBeVisible();
@@ -1388,14 +1438,13 @@ describe('product registration', () => {
     expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
     await press('Microsoft 365 and Outlook');
     await expect(
-      screen.findByRole('header', { name: 'Mail connected' }),
+      screen.findByText('casey@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
-    expect(
-      screen.getByText('casey@example.invalid is connected on this device.'),
-    ).toBeVisible();
+    await settings('Email Accounts');
     expect(
       screen.getByRole('button', { name: 'Add a Microsoft mailbox' }),
     ).toBeVisible();
+    await settings('Account & Devices');
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
@@ -1440,6 +1489,7 @@ describe('product registration', () => {
     await press('Continue');
     await press('Sign in with Apple');
     await press('Choose another Google mailbox');
+    await settings('Privacy & Data');
     const choice = (name: string) => screen.getByRole('radio', { name });
     expect(choice('On this device: Ask')).toBeChecked();
     expect(
@@ -1516,7 +1566,9 @@ describe('product registration', () => {
       screen.findByRole('button', { name: 'Unread. Maya Chen. Only for Alex' }),
     ).resolves.toBeVisible();
     await openAccount();
+    await settings('Email Accounts');
     await press('Add another Gmail mailbox');
+    await settings('Account & Devices');
     expect(
       screen.getByText(
         'alex@example.invalid, other@example.invalid are connected on this device.',
@@ -1524,6 +1576,7 @@ describe('product registration', () => {
     ).toBeVisible();
     // Adding a mailbox that is already connected authorizes it again; nothing is duplicated.
     session.choose('alex@example.invalid');
+    await settings('Email Accounts');
     await press('Add another Gmail mailbox');
     expect(screen.getAllByText('alex@example.invalid')).toHaveLength(1);
     await press('Open Inbox');
@@ -1588,6 +1641,7 @@ describe('product registration', () => {
 
     // Removal asks first, then removes only that mailbox's mail from this device.
     await openAccount();
+    await settings('Email Accounts');
     await press('Remove other@example.invalid');
     expect(
       screen.getByText(
@@ -1729,6 +1783,7 @@ describe('product registration', () => {
     });
     await press('Confirm Recovery Key');
     await openAccount();
+    await settings('Email Accounts');
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
     // A result searched while prefetch is still downloading its body becomes saved once the body
@@ -1842,6 +1897,7 @@ describe('product registration', () => {
 
     // A removed mailbox's mail leaves the results.
     await openAccount();
+    await settings('Email Accounts');
     await press('Remove other@example.invalid');
     await press('Remove other@example.invalid');
     await press('Open Inbox');
@@ -1952,6 +2008,7 @@ describe('product registration', () => {
     });
     await press('Confirm Recovery Key');
     await openAccount();
+    await settings('Email Accounts');
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
 
@@ -2120,7 +2177,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
     // The Gmail grant is a Mailbox Connection, not a Linked Sign-In.
     expect(
@@ -2349,7 +2406,7 @@ describe('product registration', () => {
     });
     await openAccount();
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(store.getSnapshot().snapshot).toMatchObject({
@@ -2693,6 +2750,46 @@ describe('product registration', () => {
     );
   });
 
+  it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    await session.native.signIn('google');
+    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    await session.native.addMailbox('gmail', false);
+    let current = session.native;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => current.restore(),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await settings('Email Accounts');
+    expect(
+      screen.getByRole('header', { name: 'Email Accounts' }),
+    ).toBeVisible();
+    // Foreground verification discovers another Product Account with an unconfirmed key.
+    const replacement = createMockRegistrationSession('registration-success');
+    await replacement.native.signIn('apple');
+    await replacement.native.addMailbox('gmail', false);
+    current = replacement.native;
+    await act(async () => {
+      await store.resume();
+    });
+    expect(
+      screen.getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    expect(screen.getByTestId('recovery-key')).toHaveTextContent(
+      syntheticRecoveryKey,
+    );
+    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+  });
+
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
@@ -2731,7 +2828,7 @@ describe('product registration', () => {
       await Promise.resolve();
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
     restore = () =>
       Promise.resolve({
@@ -2752,123 +2849,170 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
     expect(
-      screen.queryByRole('header', { name: 'Gmail connected' }),
+      screen.queryByText('alex@example.invalid is connected on this device.'),
     ).toBeNull();
   });
 
   // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and
   // activation; native and Convex evidence of the protocol is separate.
   /* oxlint-disable vitest/max-expects -- One journey proves the explanation, cancellation, renewal and removal. */
+  it('retires a native device-removal confirmation when its account view closes', async () => {
+    expect.hasAssertions();
+    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      const session = createMockRegistrationSession('registration-revocation');
+      await session.native.signIn('google');
+      await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+      const store = createRegistration(session.native);
+      const view = await render(
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      const remove = english('revocation.remove', {
+        name: syntheticTrustedDevice.name,
+      });
+      await expect(
+        screen.findByRole('button', { name: remove }),
+      ).resolves.toBeVisible();
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
+      });
+      const confirm = nativeAlert.mock.lastCall?.[2]?.find(
+        ({ style }) => style === 'destructive',
+      )?.onPress;
+      expect(confirm).toBeDefined();
+      const before = store.getSnapshot();
+      await view.unmount();
+      await act(async () => {
+        confirm?.();
+      });
+      expect(store.getSnapshot()).toBe(before);
+    } finally {
+      nativeAlert.mockRestore();
+    }
+  });
+
   it('removes another trusted device only after its replacement Recovery Key is confirmed', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-revocation');
-    await render(
-      <RegistrationGate
-        store={createRegistration(session.native)}
-        preview={false}>
-        {null}
-      </RegistrationGate>,
-    );
-    await continueToSignIn();
-    await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Google' }),
+    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      const session = createMockRegistrationSession('registration-revocation');
+      await render(
+        <RegistrationGate
+          store={createRegistration(session.native)}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
       );
-    });
-    expect(screen.queryByRole('button', { name: 'Remove iPad' })).toBeNull();
-    await act(async () => {
-      await fireEvent.changeText(
-        screen.getByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
-      );
-    });
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
-      );
-    });
-    await expect(
-      screen.findByRole('header', { name: english('revocation.title') }),
-    ).resolves.toBeVisible();
-    const added = english('revocation.added', {
-      date: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(
-        syntheticTrustedDevice.registeredAt,
-      ),
-    });
-    expect(screen.getByText(added)).toBeVisible();
-    const { name } = syntheticTrustedDevice;
-    const remove = english('revocation.remove', { name });
-    const entry = english('revocation.label');
-    const proposal = english('revocation.proposal', { name });
-    const prepare = async () => {
-      // The first press only explains what removal does and cannot do.
+      await continueToSignIn();
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
+        await fireEvent.press(
+          await screen.findByRole('button', { name: 'Sign in with Google' }),
+        );
       });
+      expect(screen.queryByRole('button', { name: 'Remove iPad' })).toBeNull();
+      await act(async () => {
+        await fireEvent.changeText(
+          screen.getByLabelText('Last four characters'),
+          syntheticRecoveryKey.slice(-4),
+        );
+      });
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+        );
+      });
+      await expect(
+        screen.findByRole('header', { name: english('revocation.title') }),
+      ).resolves.toBeVisible();
+      const added = english('revocation.added', {
+        date: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(
+          syntheticTrustedDevice.registeredAt,
+        ),
+      });
+      expect(screen.getByText(added)).toBeVisible();
+      const { name } = syntheticTrustedDevice;
+      const remove = english('revocation.remove', { name });
+      const entry = english('revocation.label');
+      const proposal = english('revocation.proposal', { name });
+      const prepare = async () => {
+        // The first press only explains what removal does and cannot do.
+        await act(async () => {
+          await fireEvent.press(screen.getByRole('button', { name: remove }));
+        });
+        expect(nativeAlert.mock.lastCall?.[0]).toBe(remove);
+        expect(nativeAlert.mock.lastCall?.[1]).toMatch(
+          /only then is iPad removed.*cannot be erased remotely/u,
+        );
+        const choices = nativeAlert.mock.lastCall?.[2];
+        expect(choices?.find(({ style }) => style === 'cancel')?.text).toBe(
+          english('revocation.cancel'),
+        );
+        await act(async () => {
+          choices?.find(({ style }) => style === 'destructive')?.onPress?.();
+        });
+      };
+      const confirm = async (text: string) => {
+        await act(async () => {
+          await fireEvent.changeText(screen.getByLabelText(entry), text);
+        });
+        await act(async () => {
+          await fireEvent.press(screen.getByRole('button', { name: remove }));
+        });
+      };
+      await prepare();
+      // Prepared, not removed: the replacement key waits for confirmation instead of the list.
+      expect(screen.getByRole('header', { name: proposal })).toBeVisible();
+      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+        syntheticReplacementRecoveryKey,
+      );
+      expect(screen.queryByText(added)).toBeNull();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: english('revocation.cancel') }),
+        );
+      });
+      // Cancellation changes nothing: the device stays listed and no key is offered.
+      expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+      expect(screen.getByText(added)).toBeVisible();
       expect(
-        screen.getByText(english('revocation.confirm', { name })),
-      ).toHaveTextContent(
-        /only then is iPad removed.*cannot be erased remotely/u,
+        screen.queryByText(english('revocation.confirm', { name })),
+      ).toBeNull();
+      await prepare();
+      await confirm(syntheticRecoveryKey.slice(-4));
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        english('revocation.mismatch'),
       );
-      await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
-      });
-    };
-    const confirm = async (text: string) => {
-      await act(async () => {
-        await fireEvent.changeText(screen.getByLabelText(entry), text);
-      });
-      await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
-      });
-    };
-    await prepare();
-    // Prepared, not removed: the replacement key waits for confirmation instead of the list.
-    expect(screen.getByRole('header', { name: proposal })).toBeVisible();
-    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-      syntheticReplacementRecoveryKey,
-    );
-    expect(screen.queryByText(added)).toBeNull();
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: english('revocation.cancel') }),
+      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+        syntheticReplacementRecoveryKey,
       );
-    });
-    // Cancellation changes nothing: the device stays listed and no key is offered.
-    expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
-    expect(screen.getByText(added)).toBeVisible();
-    expect(
-      screen.queryByText(english('revocation.confirm', { name })),
-    ).toBeNull();
-    await prepare();
-    await confirm(syntheticRecoveryKey.slice(-4));
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      english('revocation.mismatch'),
-    );
-    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-      syntheticReplacementRecoveryKey,
-    );
-    // Another device changed the account: a fresh key must be saved and confirmed again.
-    session.changeAccount();
-    await confirm(syntheticReplacementRecoveryKey.slice(-4));
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      english('revocation.renewed'),
-    );
-    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-      syntheticRenewedRecoveryKey,
-    );
-    expect(screen.getByLabelText(entry)).toHaveProp('value', '');
-    await confirm(syntheticRenewedRecoveryKey.slice(-4));
-    await expect(
-      screen.findByText(english('revocation.removed')),
-    ).resolves.toBeVisible();
-    expect(screen.queryByText(added)).toBeNull();
-    expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
-    // The replacement key was confirmed before removal, so nothing else waits for it.
-    expect(screen.queryByTestId('recovery-key')).toBeNull();
-    expect(
-      screen.getByRole('header', { name: 'Private sync is on' }),
-    ).toBeVisible();
+      // Another device changed the account: a fresh key must be saved and confirmed again.
+      session.changeAccount();
+      await confirm(syntheticReplacementRecoveryKey.slice(-4));
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        english('revocation.renewed'),
+      );
+      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+        syntheticRenewedRecoveryKey,
+      );
+      expect(screen.getByLabelText(entry)).toHaveProp('value', '');
+      await confirm(syntheticRenewedRecoveryKey.slice(-4));
+      await expect(
+        screen.findByText(english('revocation.removed')),
+      ).resolves.toBeVisible();
+      expect(screen.queryByText(added)).toBeNull();
+      expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+      // The replacement key was confirmed before removal, so nothing else waits for it.
+      expect(screen.queryByTestId('recovery-key')).toBeNull();
+      expect(
+        screen.getByRole('header', { name: 'Private sync is on' }),
+      ).toBeVisible();
+    } finally {
+      nativeAlert.mockRestore();
+    }
   });
 
   /* oxlint-enable vitest/max-expects */
@@ -2877,99 +3021,109 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey covers successive removals, relaunch and lost-key recovery. */
   it('continues through successive removals and requires fresh enrollment after losing this device key', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-revocation');
-    await session.native.signIn('google');
-    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-    session.addSecondTrustedDevice();
-    const store = createRegistration(session.native);
-    const show = () =>
-      render(
-        <RegistrationGate
-          store={store}
-          preview={false}>
-          {null}
-        </RegistrationGate>,
-      );
-    let view = await show();
-    await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
-    ).resolves.toBeVisible();
-    const removals = [
-      [syntheticTrustedDevice.name, syntheticReplacementRecoveryKey],
-      [syntheticSecondTrustedDevice.name, syntheticRenewedRecoveryKey],
-    ] as const;
-    for (const [name, key] of removals) {
-      const remove = english('revocation.remove', { name });
-      for (let press = 0; press < 2; press += 1) {
+    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      const session = createMockRegistrationSession('registration-revocation');
+      await session.native.signIn('google');
+      await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+      session.addSecondTrustedDevice();
+      const store = createRegistration(session.native);
+      const show = () =>
+        render(
+          <RegistrationGate
+            store={store}
+            preview={false}>
+            {null}
+          </RegistrationGate>,
+        );
+      let view = await show();
+      await expect(
+        screen.findByRole('header', { name: 'Private sync is on' }),
+      ).resolves.toBeVisible();
+      const removals = [
+        [syntheticTrustedDevice.name, syntheticReplacementRecoveryKey],
+        [syntheticSecondTrustedDevice.name, syntheticRenewedRecoveryKey],
+      ] as const;
+      for (const [name, key] of removals) {
+        const remove = english('revocation.remove', { name });
         await act(async () => {
           await fireEvent.press(screen.getByRole('button', { name: remove }));
         });
+        await act(async () => {
+          nativeAlert.mock.lastCall?.[2]
+            ?.find(({ style }) => style === 'destructive')
+            ?.onPress?.();
+        });
+        expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+          key,
+        );
+        await act(async () => {
+          await fireEvent.changeText(
+            screen.getByLabelText(english('revocation.label')),
+            key.slice(-4),
+          );
+        });
+        await act(async () => {
+          await fireEvent.press(screen.getByRole('button', { name: remove }));
+        });
+        expect(screen.getByText(english('revocation.removed'))).toBeVisible();
+        expect(screen.queryByRole('button', { name: remove })).toBeNull();
       }
-      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        key,
+      // A native restore that already adopted the complete latest ring needs no Recovery Key screen.
+      await view.unmount();
+      view = await show();
+      await expect(
+        screen.findByRole('header', { name: 'Private sync is on' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByLabelText('Recovery Key')).toBeNull();
+      session.loseDeviceKey();
+      await act(async () => {
+        await store.resume();
+      });
+      await expect(
+        screen.findByTestId('enrollment-code'),
+      ).resolves.toHaveTextContent(
+        syntheticEnrollmentCode.replaceAll('-', ' '),
       );
+      expect(
+        screen.getByRole('header', { name: 'Approve this device' }),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole('header', { name: 'Private sync is on' }),
+      ).toBeNull();
       await act(async () => {
         await fireEvent.changeText(
-          screen.getByLabelText(english('revocation.label')),
-          key.slice(-4),
+          screen.getByLabelText('Recovery Key'),
+          syntheticRecoveryKey,
         );
       });
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
+        );
       });
-      expect(screen.getByText(english('revocation.removed'))).toBeVisible();
-      expect(screen.queryByRole('button', { name: remove })).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /does not unlock this Product Account/u,
+      );
+      await act(async () => {
+        await fireEvent.changeText(
+          screen.getByLabelText('Recovery Key'),
+          syntheticRenewedRecoveryKey,
+        );
+      });
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
+        );
+      });
+      await expect(
+        screen.findByRole('header', { name: 'Private sync is on' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByTestId('enrollment-code')).toBeNull();
+      await view.unmount();
+    } finally {
+      nativeAlert.mockRestore();
     }
-    // A native restore that already adopted the complete latest ring needs no Recovery Key screen.
-    await view.unmount();
-    view = await show();
-    await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
-    ).resolves.toBeVisible();
-    expect(screen.queryByLabelText('Recovery Key')).toBeNull();
-    session.loseDeviceKey();
-    await act(async () => {
-      await store.resume();
-    });
-    await expect(
-      screen.findByTestId('enrollment-code'),
-    ).resolves.toHaveTextContent(syntheticEnrollmentCode.replaceAll('-', ' '));
-    expect(
-      screen.getByRole('header', { name: 'Approve this device' }),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Private sync is on' }),
-    ).toBeNull();
-    await act(async () => {
-      await fireEvent.changeText(
-        screen.getByLabelText('Recovery Key'),
-        syntheticRecoveryKey,
-      );
-    });
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
-      );
-    });
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      /does not unlock this Product Account/u,
-    );
-    await act(async () => {
-      await fireEvent.changeText(
-        screen.getByLabelText('Recovery Key'),
-        syntheticRenewedRecoveryKey,
-      );
-    });
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
-      );
-    });
-    await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
-    ).resolves.toBeVisible();
-    expect(screen.queryByTestId('enrollment-code')).toBeNull();
-    await view.unmount();
   });
   /* oxlint-enable vitest/max-expects */
 

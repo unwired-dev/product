@@ -1,10 +1,10 @@
 import type {
   PrivateSync as PrivateSyncState,
   Registration,
+  RegistrationSnapshot,
   RevocationFailure,
   TrustedDevice,
 } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
 
 import {
   approvesDevices,
@@ -13,13 +13,160 @@ import {
   revocationProposal,
   trustedDevicesOf,
 } from '@private-email/mail-core/registration';
-import { useMemo, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+import type { SettingsButton } from './settings.tsx';
 
 import { useLocalization } from './localization.ts';
-import { TrustCard } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { usePalette } from './theme.ts';
+import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import { textStyles, usePalette } from './theme.ts';
+
+const confirmationStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '80%',
+    padding: spacing.xl,
+    gap: spacing.m,
+    borderRadius: radius.alertTouch,
+  },
+  body: { flexGrow: 0, flexShrink: 1 },
+  choice: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.control,
+  },
+});
+
+// The full safety explanation uses AA text on an opaque native modal rather than system gray.
+function DeviceConfirmation({
+  name,
+  onCancel,
+  onConfirm,
+}: {
+  readonly name: string;
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const title = useRef<Text>(null);
+  return (
+    <Modal
+      visible
+      transparent
+      onRequestClose={onCancel}
+      supportedOrientations={[
+        'portrait',
+        'portrait-upside-down',
+        'landscape-left',
+        'landscape-right',
+      ]}
+      onShow={() => {
+        if (title.current !== null) {
+          AccessibilityInfo.sendAccessibilityEvent(title.current, 'focus');
+        }
+      }}>
+      <View
+        style={[
+          confirmationStyles.backdrop,
+          { backgroundColor: colors.scrimTouch },
+        ]}>
+        <Pressable
+          accessible={false}
+          onPress={onCancel}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          accessibilityViewIsModal
+          onAccessibilityEscape={onCancel}
+          testID="device-removal-confirmation"
+          style={[
+            confirmationStyles.card,
+            {
+              backgroundColor: colors.surfaceContent,
+              boxShadow: colors.menuShadow,
+            },
+          ]}>
+          <ScrollView
+            style={confirmationStyles.body}
+            contentContainerStyle={{ gap: spacing.m }}>
+            <Text
+              ref={title}
+              accessibilityRole="header"
+              style={[
+                textStyles.headline,
+                { color: colors.textPrimary, textAlign: 'center' },
+              ]}>
+              {t('revocation.remove', { name })}
+            </Text>
+            <Text
+              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+              {t('revocation.confirm', { name })}
+            </Text>
+          </ScrollView>
+          <Pressable
+            accessibilityLabel={t('revocation.remove', { name })}
+            accessibilityRole="button"
+            onPress={onConfirm}
+            style={[
+              confirmationStyles.choice,
+              { backgroundColor: colors.fillQuiet },
+            ]}>
+            <Text
+              style={[textStyles.body, { color: colors.statusDestructive }]}>
+              {t('revocation.remove', { name })}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel={t('revocation.cancel')}
+            accessibilityRole="button"
+            onPress={onCancel}
+            style={[
+              confirmationStyles.choice,
+              { backgroundColor: colors.fillQuiet },
+            ]}>
+            <Text style={[textStyles.body, { color: colors.textPrimary }]}>
+              {t('revocation.cancel')}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// A native confirmation callback may arrive after its account view closes.
+function useConfirmationLifetime() {
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return useCallback(() => mounted.current, []);
+}
 
 // A prepared removal happens only after its replacement Recovery Key is confirmed as saved.
 function RevocationProposal({
@@ -29,11 +176,7 @@ function RevocationProposal({
   recoveryKey,
   store,
 }: {
-  readonly button: (
-    label: string,
-    action: () => Promise<void>,
-    fill?: 'destructive',
-  ) => ReactNode;
+  readonly button: SettingsButton;
   readonly failure: RevocationFailure | undefined;
   readonly name: string;
   readonly recoveryKey: string;
@@ -43,7 +186,7 @@ function RevocationProposal({
   const { t } = useLocalization();
   const [entry, setEntry] = useState('');
   return (
-    <View style={styles.device}>
+    <SettingsBlock>
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.textPrimary }]}>
@@ -81,13 +224,11 @@ function RevocationProposal({
           {t('revocation.mismatch')}
         </Text>
       ) : null}
-      {button(
-        t('revocation.remove', { name }),
-        () => store.confirmRevocation(entry),
-        'destructive',
+      {button(t('revocation.remove', { name }), () =>
+        store.confirmRevocation(entry),
       )}
       {button(t('revocation.cancel'), store.cancelRevocation)}
-    </View>
+    </SettingsBlock>
   );
 }
 
@@ -106,21 +247,30 @@ export function TrustedDevices({
     revocationRecoveryKey?: string;
     revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
   }>;
-  readonly button: (
-    label: string,
-    action: () => Promise<void>,
-    fill?: 'destructive',
-  ) => ReactNode;
+  readonly button: SettingsButton;
   readonly failure: RevocationFailure | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
+  const [confirming, setConfirming] = useState<
+    Readonly<{
+      device: TrustedDevice;
+      owner: RegistrationSnapshot;
+    }>
+  >();
   const added = useMemo(
     () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
     [settings.locale],
   );
-  const [confirming, setConfirming] = useState<TrustedDevice['id']>();
+  const isCurrent = useConfirmationLifetime();
+  // A changed snapshot retires an open confirmation, so an identical later one cannot reopen it.
+  if (
+    confirming !== undefined &&
+    confirming.owner !== store.getSnapshot().snapshot
+  ) {
+    setConfirming(undefined);
+  }
   const proposal = revocationProposal(t, account);
   // A retained proposal stays confirmable after this device loses its encryption key, when it
   // can no longer approve devices but may still need to repeat the exact removal it sent.
@@ -137,18 +287,17 @@ export function TrustedDevices({
     return null;
   }
   return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('revocation.title')}
-      </Text>
+    <SettingsGroup
+      title={t('revocation.title')}
+      footer={devices.length === 0 ? undefined : t('revocation.description')}>
       {notice === undefined ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
-          {notice}
-        </Text>
+        <SettingsBlock>
+          <Text
+            accessibilityRole="alert"
+            style={[styles.text, { color: colors.textPrimary }]}>
+            {notice}
+          </Text>
+        </SettingsBlock>
       )}
       {proposal === undefined ? null : (
         <RevocationProposal
@@ -161,45 +310,40 @@ export function TrustedDevices({
           store={store}
         />
       )}
-      {devices.length === 0 ? null : (
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {t('revocation.description')}
-        </Text>
-      )}
       {devices.map((device) => (
-        <View
+        <SettingsRow
           key={device.id}
-          style={styles.device}>
-          <Text style={[styles.text, { color: colors.textPrimary }]}>
-            {device.name}
-          </Text>
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {t('revocation.added', { date: added.format(device.registeredAt) })}
-          </Text>
-          {confirming === device.id ? (
-            <TrustCard
-              icon="laptopcomputer.and.iphone"
-              title={t('revocation.confirmTitle', { name: device.name })}
-              description={t('revocation.confirm', { name: device.name })}>
-              {button(
-                t('revocation.remove', { name: device.name }),
-                async () => {
-                  setConfirming(undefined);
-                  await store.revokeTrustedDevice(device.id);
-                },
-                'destructive',
-              )}
-              {button(t('revocation.cancel'), async () => {
-                setConfirming(undefined);
-              })}
-            </TrustCard>
-          ) : (
-            button(t('revocation.remove', { name: device.name }), async () => {
-              setConfirming(device.id);
-            })
+          title={device.name}
+          subtitle={t('revocation.added', {
+            date: added.format(device.registeredAt),
+          })}>
+          {button(
+            t('revocation.remove', { name: device.name }),
+            async () => {
+              setConfirming({ device, owner: store.getSnapshot().snapshot });
+            },
+            { title: t('settings.remove') },
           )}
-        </View>
+        </SettingsRow>
       ))}
-    </>
+      {confirming === undefined ||
+      store.getSnapshot().snapshot !== confirming.owner ? null : (
+        <DeviceConfirmation
+          name={confirming.device.name}
+          onCancel={() => {
+            setConfirming(undefined);
+          }}
+          onConfirm={() => {
+            if (
+              isCurrent() &&
+              store.getSnapshot().snapshot === confirming.owner
+            ) {
+              setConfirming(undefined);
+              void store.revokeTrustedDevice(confirming.device.id);
+            }
+          }}
+        />
+      )}
+    </SettingsGroup>
   );
 }

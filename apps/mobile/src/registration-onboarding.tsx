@@ -1,6 +1,6 @@
 import type { ImapProvider } from '@private-email/mail-core/imap-setup';
 import type { Registration } from '@private-email/mail-core/registration';
-import type { ComponentProps } from 'react';
+import type { ReactNode } from 'react';
 
 import {
   providerName,
@@ -107,7 +107,11 @@ export function FirstMailbox({
   microsoft,
   store,
 }: {
-  readonly button: ComponentProps<typeof ImapForm>['button'];
+  readonly button: (
+    label: string,
+    action: () => Promise<void>,
+    fill?: 'accent',
+  ) => ReactNode;
   readonly busy: boolean;
   readonly microsoft: boolean;
   readonly store: Registration;
@@ -118,6 +122,7 @@ export function FirstMailbox({
     return (
       <ImapForm
         button={button}
+        primaryButton={(label, action) => button(label, action, 'accent')}
         onCancel={() => {
           setImap(undefined);
         }}

@@ -289,7 +289,7 @@ prototype schemas are rejected.
 ## Removing a Trusted Device
 
 A device that holds the account keys lists the account's other Trusted Devices
-and offers to remove each one. The host first explains the consequences: the
+and offers to remove each one. A confirmation dialog first explains the consequences: the
 removed device is blocked immediately and the other devices switch to new keys.
 Anything a device that stays offline or is compromised already holds cannot be
 erased remotely. Confirming starts an interactive Product Sign-In with the
