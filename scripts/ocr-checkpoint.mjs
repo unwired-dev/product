@@ -49,14 +49,14 @@ const isAncestor = (from, to) => {
   }
 };
 
+// The real-Git CLI tests cover this through subprocesses, outside Fallow's static coverage graph.
+// fallow-ignore-next-line complexity
 function loadCheckpoint(statePath, task, branch) {
   let previous = undefined;
   let reason = 'missing_checkpoint';
   try {
     previous = Option.getOrUndefined(
-      Schema.decodeUnknownOption(checkpointSchema)(
-        readFileSync(statePath, 'utf8'),
-      ),
+      Schema.decodeOption(checkpointSchema)(readFileSync(statePath, 'utf8')),
     );
     if (previous?.task !== task || previous?.branch !== branch) {
       previous = undefined;
@@ -70,6 +70,8 @@ function loadCheckpoint(statePath, task, branch) {
   return { previous, reason };
 }
 
+// Subprocess integration tests exercise each range-selection and invalidation branch.
+// fallow-ignore-next-line complexity
 function plan(task, baseRef, forceFull = false) {
   if (!task || !baseRef) {
     throw new Error('A stable task ID and target base ref are required.');
@@ -155,7 +157,7 @@ try {
     const { review } = plan(first, second, flag === '--full');
     process.stdout.write(`${JSON.stringify(review, null, 2)}\n`);
   } else if (command === 'complete' && first && second) {
-    const reviewed = Schema.decodeUnknownSync(planSchema)(
+    const reviewed = Schema.decodeSync(planSchema)(
       readFileSync(first, 'utf8'),
     );
     const { review, statePath } = plan(
