@@ -213,6 +213,14 @@ unavailable or misses an item. Inference is not required to use the commitment l
   Profile. Mixed-source commitments require the user to choose one owning Profile
   and review affected links. Preserve one record, without cross-Profile source
   access or silent copies.
+- When a commitment changes owning Profile, preserve its configured reminder
+  time and reassign reminder work to the new Profile's notification-owning Trusted
+  Device. Reconcile known obsolete source-Profile alerts before admitting target
+  delivery, which uses the target Profile's Return-to-Attention, Quiet State,
+  Quiet Hours, Profile Lock and other reminder controls. This applies to both
+  sole-source moves and reviewed mixed-source ownership changes; a cancelled move
+  retains its prior reminder ownership and schedule. Devices reconcile when they
+  observe the move, subject to the existing offline reminder limitation.
 - When a move takes effect, retire every unaccepted proposal involving the moving
   connection, including mixed-source proposals. Fence its old-Profile scans and
   reject late results; do not transfer model output to the target queue.
@@ -222,7 +230,8 @@ unavailable or misses an item. Inference is not required to use the commitment l
   source links or authored content. Preserve authoritative deletion fences and
   the reviewed accepted-record ownership; suppression never exposes a commitment
   retained in another Profile.
-- Publish ownership, queue invalidation and decision reassignment as one move
+- Publish ownership, queue invalidation, decision reassignment and reminder
+  ownership/schedule reconciliation as one move
   outcome before admitting target scans or proposal acceptance. Each device
   applies that outcome when it observes the move; interruption, retry or stale
   work cannot expose old-Profile sources, lose suppression or resurrect deleted
@@ -266,6 +275,12 @@ Representative acceptance scenarios:
   retained authored state and how to delete it, while protected content remains
   hidden under Profile Lock; completed removal preserves the disclosed records
   and makes their source links unavailable.
+- Move a commitment with a configured reminder between Profiles with different
+  notification owners and privacy controls. Observing devices retire obsolete
+  source-Profile alerts and reconcile target delivery under its controls, retaining
+  the chosen reminder time. Repeat for a reviewed mixed-source move, cancelled
+  move, offline owner, retry and interruption; taps use current available ownership
+  without duplicate known alerts or protected-content exposure.
 - A Tuesday message saying "tomorrow" scanned on Friday proposes Wednesday in
   the reviewed source zone. "Next week" shows its ambiguity. Accepted dates remain
   fixed after relaunch or travel.

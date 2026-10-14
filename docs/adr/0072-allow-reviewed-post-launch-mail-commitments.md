@@ -72,7 +72,9 @@ purge of records and decisions. The disclosure respects Profile Lock without
 revealing protected content. This makes the retention trade-off visible at the
 removal decision and adds no bulk-delete action.
 
-Optional reminders reuse the Profile's notification owner and privacy controls.
+Optional reminders reuse the current owning Profile's notification owner and
+privacy controls. The canonical Profile-move outcome also reconciles existing
+reminder ownership and schedules; record reassignment alone is insufficient.
 An offline owner can show an alert made stale by an unsynchronized completion;
 opening it cannot reopen the commitment. No scan, acceptance or reminder sends
 mail or changes provider mail state. Full real native, model and Private Sync

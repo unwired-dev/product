@@ -44,6 +44,13 @@ also requires disclosure before confirmation, including retained authored state
 and existing deletion choices without revealing locked content. Retention alone
 does not satisfy that requirement.
 
+Profile moves must also apply the canonical move outcome to reminder work already
+scheduled, rather than only reparenting the accepted record. The
+[source-removal and move contract](../../product/mail-commitments.md#source-removal-and-profile-moves)
+owns reminder reassignment and reconciliation, including current target controls,
+cancelled moves and delayed offline observation. This selects no scheduler or
+remote-cancellation protocol.
+
 ## Qualification
 
 The [canonical scenarios](../../product/mail-commitments.md#delivery-and-qualification)
