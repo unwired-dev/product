@@ -25,14 +25,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  AppState,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, AppState, ScrollView, View } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
 

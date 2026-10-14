@@ -196,22 +196,24 @@ function Mailboxes({
 // destructive text for declining, all disabled while registration is busy.
 function useCardButton(store: Registration) {
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return (
+  return function cardButton(
     label: string,
     action: () => Promise<void>,
     fill?: 'accent' | 'destructive',
-  ) => (
-    <Button
-      key={label}
-      destructive={fill === 'destructive'}
-      disabled={busy}
-      fill={fill === 'accent' ? 'accent' : 'quiet'}
-      label={label}
-      onPress={() => {
-        void action();
-      }}
-    />
-  );
+  ) {
+    return (
+      <Button
+        key={label}
+        destructive={fill === 'destructive'}
+        disabled={busy}
+        fill={fill === 'accent' ? 'accent' : 'quiet'}
+        label={label}
+        onPress={() => {
+          void action();
+        }}
+      />
+    );
+  };
 }
 
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.

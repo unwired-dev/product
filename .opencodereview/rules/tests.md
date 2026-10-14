@@ -7,7 +7,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native journey locator such as `WindowTests.key(groups:in:)` retaining a
   text pattern after its host changes displayed grouping, whitespace, copy or
   accessibility exposure. Compare every affected locator and caller with the
-  rendered producer, including `registration-gate.tsx.PrivateSync`, and the
+  rendered producer, including `account-settings.tsx.PrivateSync`, and the
   native element type and label-versus-value contract. Preserve matching for
   other formats sharing the helper, such as hyphenated Recovery Keys beside
   space-separated Enrollment Codes; otherwise the packaged journey cannot find
