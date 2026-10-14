@@ -659,6 +659,7 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
+    await press('More');
     await press('Mark as read');
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);

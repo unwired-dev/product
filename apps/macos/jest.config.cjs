@@ -1,9 +1,9 @@
 module.exports = {
   preset: 'react-native-macos',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
-  // The shared CI runner takes seconds to warm up the first composer journey.
-  testTimeout: 30_000,
   moduleNameMapper: {
+    '^@react-native-clipboard/clipboard$':
+      '@react-native-clipboard/clipboard/jest/clipboard-mock.js',
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
     '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
     '^react-native$': 'react-native-macos',

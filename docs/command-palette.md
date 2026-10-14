@@ -70,6 +70,8 @@ results never appear in the palette. The vocabulary lives in the
   picker; the footer names these keys. The bar shows the Command-P shortcut.
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
+  While a link confirmation is open, dismiss it before opening the palette in
+  that window; command entry in other windows remains available.
 - **iPhone:** a downward swipe that starts on a screen header (the Inbox heading,
   the Mailboxes title, the reader's subject line, the composer's top bar or the
   Account page's title,

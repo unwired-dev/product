@@ -40,9 +40,7 @@ function MailShell() {
   const [view, setView] = useState<MailboxView>({});
 
   useEffect(() => {
-    if (detail) {
-      splitView.current?.show('secondary');
-    }
+    splitView.current?.show(detail ? 'secondary' : 'primary');
   }, [detail]);
 
   function selectMessage(selection: Selection) {

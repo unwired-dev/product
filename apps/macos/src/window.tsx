@@ -11,7 +11,8 @@ import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
-import { InboxProvider, ProfileScope } from './mailbox.tsx';
+import { InboxProvider, ProfileScope, useMailboxes } from './mailbox.tsx';
+import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate } from './registration-gate.tsx';
 import { Mailboxes } from './sidebar.tsx';
@@ -21,6 +22,7 @@ import { usePalette } from './theme.ts';
 const narrowWindow = 900;
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   window: { flex: 1 },
   panes: { flex: 1, flexDirection: 'row' },
   // The floating glass sidebar, inset from the window edges.
@@ -129,6 +131,9 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
   // The sidebar follows the window width until the toggle chooses for it.
   const [sidebar, setSidebar] = useState<boolean>();
   const sidebarShown = sidebar ?? (width === undefined || width > narrowWindow);
+  const inbox = useMailboxes().find(
+    (mailbox) => mailbox.id === selected?.mailbox,
+  )?.inbox;
   const colors = usePalette();
   // Opening a Draft from either pane replaces the reader with the window's composer.
   const compose = (id: string) => {
@@ -145,67 +150,80 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
       onLayout={({ nativeEvent }) => {
         setWidth(nativeEvent.layout.width);
       }}
-      style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
-      <CommandBar />
-      <View style={styles.panes}>
-        {sidebarShown ? (
-          <GlassGroup
-            style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
-            <Mailboxes
-              view={view}
-              onView={setView}
-            />
-          </GlassGroup>
-        ) : null}
+      style={styles.fill}>
+      <LinkConfirmationProvider
+        inbox={inbox}
+        id={selected?.id}>
         <View
-          style={[
-            styles.list,
-            {
-              backgroundColor: colors.surfaceContent,
-              borderRightColor: colors.separator,
-            },
-          ]}>
-          <Inbox
-            composing={composing}
-            leading={
-              <SidebarToggle
-                shown={sidebarShown}
-                onPress={() => {
-                  setSidebar(!sidebarShown);
+          style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
+          <CommandBar />
+          <View style={styles.panes}>
+            {sidebarShown ? (
+              <GlassGroup
+                style={[
+                  styles.sidebar,
+                  { boxShadow: colors.largeGlassShadow },
+                ]}>
+                <Mailboxes
+                  view={view}
+                  onView={setView}
+                />
+              </GlassGroup>
+            ) : null}
+            <View
+              style={[
+                styles.list,
+                {
+                  backgroundColor: colors.surfaceContent,
+                  borderRightColor: colors.separator,
+                },
+              ]}>
+              <Inbox
+                composing={composing}
+                leading={
+                  <SidebarToggle
+                    shown={sidebarShown}
+                    onPress={() => {
+                      setSidebar(!sidebarShown);
+                    }}
+                  />
+                }
+                selected={selected}
+                onClose={close}
+                onCompose={compose}
+                onSelect={(selection) => {
+                  setComposing(undefined);
+                  setSelected(selection);
                 }}
+                onView={setView}
+                view={view}
               />
-            }
-            selected={selected}
-            onClose={close}
-            onCompose={compose}
-            onSelect={(selection) => {
-              setComposing(undefined);
-              setSelected(selection);
-            }}
-            onView={setView}
-            view={view}
-          />
+            </View>
+            <View
+              style={[
+                styles.detail,
+                { backgroundColor: colors.surfaceContent },
+              ]}>
+              {composing === undefined ? (
+                <MessageDetail
+                  id={selected?.id}
+                  mailbox={selected?.mailbox}
+                  onClose={close}
+                  onCompose={compose}
+                />
+              ) : (
+                <DraftComposer
+                  id={composing}
+                  onClose={() => {
+                    setComposing(undefined);
+                  }}
+                  onRebind={setComposing}
+                />
+              )}
+            </View>
+          </View>
         </View>
-        <View
-          style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
-          {composing === undefined ? (
-            <MessageDetail
-              id={selected?.id}
-              mailbox={selected?.mailbox}
-              onClose={close}
-              onCompose={compose}
-            />
-          ) : (
-            <DraftComposer
-              id={composing}
-              onClose={() => {
-                setComposing(undefined);
-              }}
-              onRebind={setComposing}
-            />
-          )}
-        </View>
-      </View>
+      </LinkConfirmationProvider>
     </View>
   );
 }

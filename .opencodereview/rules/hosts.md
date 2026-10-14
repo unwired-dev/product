@@ -78,6 +78,35 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   must preserve every admitted folder name, including embedded separators, without
   marking healthy siblings. Otherwise a connection appears healthy despite unreadable
   folders, or one folder's failure is attributed to another.
+- `organize.tsx.GmailMessageActions` returning saved-only explanations or other
+  persistent notices inside the reader's fixed-height toolbar or iPhone capsule.
+  Trace every capability branch with replies available and organizing disabled:
+  keep response controls in the toolbar and render status through the quiet-fill
+  `Notice` in scrollable reader content. Otherwise offline or pending provider
+  checks clip the explanation or permanently cover message headings and bodies.
+  Opened Labels/More popovers retain their deliberate floating placement.
+
+- `message-detail.tsx.ResponseActions` rendering response preparation or failure
+  text inside the fixed-height toolbar or iPhone capsule. Keep the buttons there
+  and report status in scrolling reader content for its owning message, preserving
+  live-region and failure-alert semantics. Trace progress, rejection and retry
+  on both hosts; otherwise the toolbar clips feedback or its capsule grows over
+  the message while a response is being prepared.
+
+- `apps/mobile/src/message-detail.tsx` or collaborating reader chrome choosing
+  iPhone-only controls from window width alone. Keep the iPhone Back header,
+  bottom toolbar and Reply picker in landscape too, and preserve the iPad's
+  documented toolbar behavior at narrow widths. Trace `organize.tsx.Toolbar`
+  panel anchoring against that same device choice; otherwise Labels and More
+  can open below the bottom toolbar, outside the viewport. Exercise a wide
+  iPhone and a narrow iPad through the real reader stores, and retain native
+  orientation and multitasking qualification separately from component evidence.
+
+- `message-detail.tsx` displaying a conversation count from a constant or only
+  the opened message. Trace ordinary Inbox selections through the single-message
+  route with a cached multi-message Thread: omit the count there or derive it
+  from the mailbox-scoped Thread projection. `ThreadMessages` must count that
+  same projection, or the reader mislabels multi-message conversations.
 
 - `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
   Inbox state while an explicit online search reports an `offline` failure.
@@ -317,6 +346,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   while guarded navigation refuses silently with the same stuck editor.
 
 - `inbox-bar.tsx.NewMessageButton` guarding only `useLeaveComposer.leave` rather than the
+- `message-detail.tsx.MailboxMessage` offering compact New Message only when the
+  opened mailbox can send. Use the eligible senders in that reader's Mail Profile,
+  preferring the opened mailbox and otherwise the same first sender as the Inbox.
+  Exercise a read-only IMAP mailbox beside an eligible sender, with an earlier
+  sender in another Profile; otherwise the compact reader hides a supported
+  action or creates a Draft in the wrong Profile. Preserve unavailable Draft
+  storage and retired-reader creation fences.
+
+- `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
   until refusal or completion releases it. A second press after leaving settles
@@ -547,6 +585,47 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- Mac `command-palette.tsx.CommandBar` opening from its native Command-P listener
+  while `message-body.tsx.LinkConfirmationProvider` covers that window. The
+  background's accessibility suppression does not disable native menu events:
+  check the window's shown confirmation before saving focus or mounting the query,
+  and retain entry in other windows and after dismissal. Otherwise the hidden
+  palette takes keyboard focus from the alert despite its full-window scrim.
+
+- Mac `message-body.tsx.LinkConfirmation` leaving keyboard focus in the covered
+  reader or allowing Tab traversal outside its choices. Background accessibility
+  suppression does not remove AppKit key responders. Trace initial focus, forward
+  and reverse Tab, Escape and activation through the installed view focus command,
+  native responder chain and JavaScript key wrapper; otherwise a keyboard action
+  can change mail behind the alert or dismiss it without an available choice.
+  Include focus lost to selectable alert text: with no choice focused, Tab must
+  enter at the first choice and Shift-Tab at the last, for both ordinary and
+  caution alerts. A modular step from a missing-index sentinel can skip a choice.
+  Keep native keyboard qualification distinct from rendered callback evidence.
+
+- `apps/macos/src/message-body.tsx.LinkConfirmationProvider` or another Mac
+  view using a React Native component whose native host is absent on macOS.
+  Inspect the installed renderer's platform guards before relying on mobile
+  component APIs: react-native-macos 0.81.9 excludes both legacy and Fabric
+  Modal hosts. Use supported host views while preserving bounded content,
+  dismissal and reader ownership; otherwise the confirmation has no native
+  presentation even though types, bundles and rendered host tests pass.
+- Mac link confirmation mounted inside `message-detail.tsx.MailboxMessage`
+  instead of `window.tsx.WindowContents`. The window's selected mailbox store
+  and message must gate its overlay; cover both columns and hide their
+  background accessibility while it is open. Check independent windows and
+  queued input after selection changes, or the alert leaves the list usable
+  beneath a partial scrim and can escape its reader's ownership.
+  Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
+  excluded by the Mac renderer; preserve the AppKit background wrapper's
+  accessibility-children and hit-test suppression rather than relying on props
+  that rendered tests recognize but the native host ignores.
+- `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
+  expanded. Trace its `organize.tsx` callers through opening and closing the
+  panel, preserving the visual open state and omitting disclosure state for
+  ordinary actions; otherwise assistive technology reports selection without
+  communicating whether the controlled panel is open.
+
 - `design.tsx.Notice`, `label.tsx.Label` or another shared notice component
   dropping live-region, accessible-label or alert semantics during extraction.
   Compare every migrated asynchronous sync/authorization notice with its previous
@@ -691,7 +770,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   cannot identify the opened message. Check the cue against both palettes and
   the section's padding/radius, and retain increased-contrast native qualification
   as deferred when unavailable; component style assertions do not prove it.
-- A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
+- A component library, navigation library or native module added to either host without checking its owning host's accepted scope. Mobile uses Router's split view and React Native `StyleSheet`; native module additions must update that host's `scripts/verify-native.ts` allowlist and preserve its `scripts/verify-bundle.ts` renderer boundary. Otherwise a dependency can join the native graph without review or bring an incompatible renderer into the shipped bundle.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - `command-palette.tsx.CommandBar` or another Mac overlay that takes focus
   and hands it back on dismissal through `TextInput.State.currentlyFocusedInput`
@@ -713,6 +792,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `scrollTo` through a later `onScroll`, so a repeated key must not read the
   previous offset.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
+- Mobile `app/thread/[id].tsx` or another deep-linkable reader calling
+  `router.back()` unconditionally from its Back control. Check cold entry without
+  history as well as pushed entry: return through history when available and
+  otherwise replace with the Inbox retaining the decoded `profileId`. Exercise
+  the actual route and visible destination with real reading stores; otherwise
+  a cold-opened reader strands the person or falls into another Profile.
 - A mobile Profile selector whose parameter name disagrees with ADR 0050’s
   `profileId` route contract. Trace targeted entry, in-app message selection,
   composing and reader/composer close through the layout’s decoded selector;

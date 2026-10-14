@@ -190,9 +190,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: spacing.m,
-    borderRadius: 18,
+    borderRadius: 22,
     borderCurve: 'continuous',
   },
   pillText: { ...textStyles.subheadline },
@@ -608,7 +608,7 @@ export function CommandInput({
       accessibilityRole="button"
       onPress={open}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
-      <Glass cornerRadius={18} />
+      <Glass cornerRadius={22} />
       <SFSymbol
         name="command"
         color={colors.textSecondary}

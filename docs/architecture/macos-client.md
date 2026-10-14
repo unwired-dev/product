@@ -17,9 +17,9 @@ Metro redirects React and React Native imports, including subpaths, to this
 host's packages. Its startup module also comes from React Native macOS. The
 production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host admits `react-native-webview` as its only additional native module
-for the isolated message reader. Adding another requires an explicit update to
-that check.
+autolinking. The host admits `@react-native-clipboard/clipboard` for Copy link and
+`react-native-webview` for the isolated message reader. Adding another requires
+an explicit update to `apps/macos/scripts/verify-native.ts`.
 
 AppKit owns stable window identities and menu routing. One React factory and one
 JavaScript mailbox runtime live for the application process. Each window mounts
@@ -43,6 +43,11 @@ managers from `native/design`. Host components consume them through Fabric's
 legacy-view interop. This adds no autolinked package and preserves the existing
 third-party module allowlist. Native visual and accessibility qualification is
 separate from compilation and JavaScript bundle verification.
+
+Link confirmations belong to the window above both columns, while its selected
+mailbox store and message retain presentation ownership. The first-party
+`UnwiredModalBackground` view suppresses the covered accessibility subtree in
+AppKit because React Native macOS omits its core modal accessibility properties.
 
 The native build phase exports and verifies the bundle before
 copying it into the app.

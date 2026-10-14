@@ -9,11 +9,11 @@ import {
   screen,
   within,
 } from '@testing-library/react-native';
-import { ScrollView } from 'react-native';
+import { Dimensions, ScrollView } from 'react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
-import { ThreadView } from '../src/message-detail.tsx';
+import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -69,9 +69,13 @@ function threadMailbox() {
   return { native: gmail.native, middle };
 }
 
-// A Thread message's section, found by its sender header.
+// A Thread message's section, found by its sender header: the nearest ancestor that reports
+// its layout for scrolling.
 const messageBy = (sender: string) => {
-  const section = screen.getByText(sender).parent;
+  let section = screen.getByText(sender).parent;
+  while (section !== null && section.props.onLayout === undefined) {
+    section = section.parent;
+  }
   if (section === null) {
     throw new Error(`Expected the message from ${sender}`);
   }
@@ -99,6 +103,9 @@ describe('thread view', () => {
     await act(store.load);
 
     await expect(screen.findByText('See you then.')).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
+    // The subject text itself stays selectable inside the accessible header.
+    expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     await expect(
       screen.findByText('Can we meet on Tuesday?'),
     ).resolves.toBeVisible();
@@ -210,38 +217,69 @@ describe('thread view', () => {
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
   });
 
-  it('opens the Command Palette from the thread header for the opened message', async () => {
+  it('omits the conversation count when opening one message from a cached thread', async () => {
     expect.hasAssertions();
     const { native, middle } = threadMailbox();
     const store = createGmailInbox(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
-        <CommandPaletteProvider>
-          <ThreadView
-            id={middle}
-            mailbox={alex}
-          />
-        </CommandPaletteProvider>
+        <MessageDetail
+          id={middle}
+          mailbox={alex}
+        />
       </InboxProvider>,
     );
     await act(store.load);
-    await fireEvent(
-      await screen.findByRole('header', { name: 'Re: Planning' }),
-      'accessibilityAction',
-      { nativeEvent: { actionName: 'openCommandPalette' } },
-    );
-    const palette = within(screen.getByTestId('command-palette'));
-    expect(
-      palette.getByRole('header', {
-        name: 'Selected Message · Re: Planning',
-      }),
-    ).toBeVisible();
-    expect(
-      palette.getByRole('button', {
-        name: 'Reply. Not available for this message',
-      }),
-    ).toBeDisabled();
+
+    await expect(screen.findByText('Alex Rivera')).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
+    // The subject text itself stays selectable inside the accessible header.
+    expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
+    expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
   });
+
+  it.each([
+    { back: false, onClose: undefined },
+    { back: true, onClose: () => undefined },
+  ])(
+    'opens the Command Palette from the thread header with Back $back',
+    async ({ back, onClose }) => {
+      expect.hasAssertions();
+      const { native, middle } = threadMailbox();
+      const store = createGmailInbox(native);
+      await render(
+        <InboxProvider mailboxes={singleMailbox(store, alex)}>
+          <CommandPaletteProvider>
+            <ThreadView
+              id={middle}
+              mailbox={alex}
+              onClose={onClose}
+            />
+          </CommandPaletteProvider>
+        </InboxProvider>,
+      );
+      await act(store.load);
+      expect(screen.queryByRole('button', { name: /^Back/u }) !== null).toBe(
+        back,
+      );
+      await fireEvent(
+        await screen.findByRole('header', { name: 'Re: Planning' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      const palette = within(screen.getByTestId('command-palette'));
+      expect(
+        palette.getByRole('header', {
+          name: 'Selected Message · Re: Planning',
+        }),
+      ).toBeVisible();
+      expect(
+        palette.getByRole('button', {
+          name: 'Reply. Not available for this message',
+        }),
+      ).toBeDisabled();
+    },
+  );
 
   it('shows the message as unavailable when it is not cached', async () => {
     expect.hasAssertions();
@@ -259,5 +297,42 @@ describe('thread view', () => {
     await expect(
       screen.findByText('Message unavailable'),
     ).resolves.toBeVisible();
+  });
+
+  it('keeps Back, the cached unread count and the truncated subject on a landscape iPhone', async () => {
+    expect.hasAssertions();
+    const window = Dimensions.get('window');
+    Dimensions.set({ window: { ...window, width: 844, height: 390 } });
+    try {
+      const { native, middle } = threadMailbox();
+      const store = createGmailInbox(native);
+      const onClose = jest.fn();
+      await render(
+        <InboxProvider mailboxes={singleMailbox(store, alex)}>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+            onClose={onClose}
+          />
+        </InboxProvider>,
+      );
+      await act(store.load);
+      await expect(
+        screen.findByRole('header', { name: 'Re: Planning' }),
+      ).resolves.toBeVisible();
+      expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
+        'numberOfLines',
+        1,
+      );
+      expect(screen.getByText('3 Messages')).toBeVisible();
+      // Every delivered message is unread, including the one outside the Thread.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Back, 4 unread' }),
+      );
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce.
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      Dimensions.set({ window });
+    }
   });
 });

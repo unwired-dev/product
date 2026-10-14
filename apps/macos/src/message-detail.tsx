@@ -1,5 +1,5 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import {
   commandTarget,
@@ -10,6 +10,7 @@ import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import {
+  createContext,
   use,
   useLayoutEffect,
   useRef,
@@ -28,6 +29,7 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { RegisterCommands } from './command-palette.tsx';
+import { GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -44,41 +46,48 @@ import {
 import {
   AttachContext,
   GmailMessageBody,
-  LinkConfirmationProvider,
   ReaderScrollView,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions } from './organize.tsx';
+import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them.
+  toolbar: {
+    height: 36 + spacing.m,
+    zIndex: 1,
+    alignItems: 'flex-end',
+    paddingTop: spacing.m,
+    paddingHorizontal: spacing.l,
+    gap: spacing.s,
+  },
   content: {
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    padding: spacing.xl,
+    paddingHorizontal: 40,
+    paddingTop: spacing.xl,
+    paddingBottom: 40,
+    gap: spacing.l,
   },
   subject: { ...textStyles.reading.subject },
   metadata: {
-    gap: 5,
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    gap: 2,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
+  fromText: { flex: 1 },
   sender: { ...textStyles.bodyEmphasized },
+  address: { ...textStyles.body },
   control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
-  responses: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xl,
-    marginTop: spacing.xl,
-  },
-  secondary: { ...textStyles.body },
-  body: { ...textStyles.reading.body, marginTop: spacing.xl },
+  secondary: { ...textStyles.subheadline },
+  body: { ...textStyles.reading.body },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -287,6 +296,50 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// The response controls live in the fixed toolbar; their progress and failure show in the
+// reader's scrolling content, for the message they belong to.
+type ResponseStatus =
+  | Readonly<{ id: string; kind: 'preparingForward' | 'failed' }>
+  | undefined;
+const ResponseStatusContext = createContext<
+  Dispatch<SetStateAction<ResponseStatus>> | undefined
+>(undefined);
+
+function ResponseStatusNotice({
+  status,
+  id,
+}: {
+  readonly status: ResponseStatus;
+  // The shown message; a status reported for another one stays hidden.
+  readonly id: string;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (status === undefined || status.id !== id) {
+    return null;
+  }
+  return status.kind === 'failed' ? (
+    <View
+      accessible
+      accessibilityLabel={t('message.respondFailed')}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert">
+      <Text style={[styles.secondary, { color: colors.textPrimary }]}>
+        {t('message.respondFailed')}
+      </Text>
+    </View>
+  ) : (
+    <View
+      accessible
+      accessibilityLabel={t('message.preparingForward')}
+      accessibilityLiveRegion="polite">
+      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+        {t('message.preparingForward')}
+      </Text>
+    </View>
+  );
+}
+
 // Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
 // response always sends from the reader's own mailbox; one that cannot send offers none.
 function ResponseActions({
@@ -302,13 +355,12 @@ function ResponseActions({
   const navigation = useComposerNavigation();
   const account = use(AccountContext);
   const mailbox = useMailbox();
-  const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
-  const [failed, setFailed] = useState(false);
+  const report = use(ResponseStatusContext);
   const source = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
@@ -346,7 +398,11 @@ function ResponseActions({
     }
     starting.current = true;
     setPending(kind);
-    setFailed(false);
+    report?.(
+      kind === 'forward'
+        ? { id: message.id, kind: 'preparingForward' }
+        : undefined,
+    );
     try {
       const draft = await startResponse(
         { navigation, drafts: store, inbox },
@@ -366,22 +422,27 @@ function ResponseActions({
     } catch {
       // The reader stays usable when an unexpected host operation rejects, and says so.
       if (mounted.current) {
-        setFailed(true);
+        report?.({ id: message.id, kind: 'failed' });
       }
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
     starting.current = false;
     if (mounted.current) {
       setPending(undefined);
+      report?.((status) =>
+        status?.id === message.id && status.kind === 'preparingForward'
+          ? undefined
+          : status,
+      );
     }
   };
   const actions = [
-    ['reply', t('message.reply')],
-    ['replyAll', t('message.replyAll')],
-    ['forward', t('message.forward')],
+    ['reply', 'arrowshape.turn.up.left', t('message.reply')],
+    ['replyAll', 'arrowshape.turn.up.left.2', t('message.replyAll')],
+    ['forward', 'arrowshape.turn.up.right', t('message.forward')],
   ] as const;
   return (
-    <View>
+    <>
       <RegisterCommands
         offer={() =>
           responseCommands(t, commandTarget(mailbox?.id, message), {
@@ -390,46 +451,20 @@ function ResponseActions({
           })
         }
       />
-      <View style={styles.responses}>
-        {actions.map(([kind, label]) => (
-          <Pressable
-            style={styles.control}
+      <GlassGroup>
+        {actions.map(([kind, icon, label]) => (
+          <ToolbarButton
             key={kind}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: pending !== undefined }}
+            icon={icon}
+            label={label}
             disabled={pending !== undefined}
             onPress={() => {
               void start(kind);
-            }}>
-            <Text style={[styles.secondary, { color: colors.accentInk }]}>
-              {label}
-            </Text>
-          </Pressable>
+            }}
+          />
         ))}
-      </View>
-      {pending === 'forward' ? (
-        <View
-          accessible
-          accessibilityLabel={t('message.preparingForward')}
-          accessibilityLiveRegion="polite">
-          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-            {t('message.preparingForward')}
-          </Text>
-        </View>
-      ) : null}
-      {failed ? (
-        <View
-          accessible
-          accessibilityLabel={t('message.respondFailed')}
-          accessibilityLiveRegion="polite"
-          accessibilityRole="alert">
-          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
-            {t('message.respondFailed')}
-          </Text>
-        </View>
-      ) : null}
-    </View>
+      </GlassGroup>
+    </>
   );
 }
 
@@ -500,6 +535,7 @@ function MailboxMessage({
   const actions = useInboxActions();
   const mailbox = useMailbox();
   const address = mailbox?.address;
+  const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
@@ -550,93 +586,106 @@ function MailboxMessage({
   }
 
   return (
-    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {message === undefined ? (
-        <View
-          accessible
-          accessibilityRole="text"
-          accessibilityLabel={t('message.unavailableLabel')}
-          style={styles.empty}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-            {t('message.unavailable')}
-          </Text>
-          <Text
-            style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-            {t('message.chooseAnother')}
-          </Text>
-        </View>
-      ) : (
-        <LinkConfirmationProvider
-          inbox={actions}
-          id={message.id}>
-          <RegisterCommands
-            offer={() =>
-              expectedCommands(t, {
-                target: commandTarget(mailbox?.id, message),
-                disabled: t('commands.unavailable'),
-              })
-            }
-          />
-          <ReaderScrollView contentContainerStyle={styles.content}>
-            <MessageActions
-              id={message.id}
-              onClose={onClose}
-            />
+    <ResponseStatusContext value={setResponseStatus}>
+      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+        {message === undefined ? (
+          <View
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={t('message.unavailableLabel')}
+            style={styles.empty}>
             <Text
               accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {message.subject}
+              style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+              {t('message.unavailable')}
             </Text>
-            <View
+            <Text
               style={[
-                styles.metadata,
-                { borderBottomColor: colors.separator },
+                styles.emptyDescription,
+                { color: colors.textSecondary },
               ]}>
-              <Text
-                selectable
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                selectable
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {message.address}
-              </Text>
-              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('message.received', {
-                  date: dateFormat.format(new Date(message.receivedAt)),
-                })}
-              </Text>
-              {address === undefined ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('inbox.inMailbox', { mailbox: address })}
-                </Text>
-              )}
-              {labelNames.length === 0 ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('message.labels', { labels: labelNames.join(', ') })}
-                </Text>
-              )}
+              {t('message.chooseAnother')}
+            </Text>
+          </View>
+        ) : (
+          <>
+            <RegisterCommands
+              offer={() =>
+                expectedCommands(t, {
+                  target: commandTarget(mailbox?.id, message),
+                  disabled: t('commands.unavailable'),
+                })
+              }
+            />
+            <View style={styles.toolbar}>
+              <MessageActions
+                id={message.id}
+                onClose={onClose}>
+                <ResponseActions
+                  key={`${address}:${message.id}`}
+                  message={message}
+                  onCompose={onCompose}
+                />
+              </MessageActions>
             </View>
-            <ResponseActions
-              key={`${address}:${message.id}`}
-              message={message}
-              onCompose={onCompose}
-            />
-            <ReaderBody
-              key={message.id}
-              inbox={actions}
-              message={message}
-              connection={mailbox?.id}
-            />
-          </ReaderScrollView>
-        </LinkConfirmationProvider>
-      )}
-    </View>
+            <ReaderScrollView contentContainerStyle={styles.content}>
+              <Text
+                accessibilityRole="header"
+                selectable
+                style={[styles.subject, { color: colors.textPrimary }]}>
+                {message.subject}
+              </Text>
+              <View
+                style={[
+                  styles.metadata,
+                  { borderBottomColor: colors.separator },
+                ]}>
+                <View style={styles.from}>
+                  <Text
+                    selectable
+                    style={[styles.fromText, { color: colors.textSecondary }]}>
+                    <Text
+                      style={[styles.sender, { color: colors.textPrimary }]}>
+                      {message.sender}
+                    </Text>
+                    <Text style={styles.address}>{`  ${message.address}`}</Text>
+                  </Text>
+                  <Text
+                    selectable
+                    style={[styles.secondary, { color: colors.textSecondary }]}>
+                    {t('message.received', {
+                      date: dateFormat.format(new Date(message.receivedAt)),
+                    })}
+                  </Text>
+                </View>
+                {address === undefined ? null : (
+                  <Text
+                    style={[styles.secondary, { color: colors.textSecondary }]}>
+                    {t('inbox.inMailbox', { mailbox: address })}
+                  </Text>
+                )}
+                {labelNames.length === 0 ? null : (
+                  <Text
+                    style={[styles.secondary, { color: colors.textSecondary }]}>
+                    {t('message.labels', { labels: labelNames.join(', ') })}
+                  </Text>
+                )}
+              </View>
+              <MessageActionsNotice id={message.id} />
+              <ResponseStatusNotice
+                status={responseStatus}
+                id={message.id}
+              />
+              <ReaderBody
+                key={message.id}
+                inbox={actions}
+                message={message}
+                connection={mailbox?.id}
+              />
+            </ReaderScrollView>
+          </>
+        )}
+      </View>
+    </ResponseStatusContext>
   );
 }
