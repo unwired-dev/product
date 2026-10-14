@@ -48,6 +48,18 @@ send mail, communicate agreement to a sender, or change provider mail state.
 - Independent edits from different devices combine. Competing edits to the same
   value are preserved and surfaced for review; a stale device or scan cannot
   silently reopen a completed commitment.
+- If offline devices accept the same matching creation proposal before learning
+  each other's decisions, synchronization converges deterministically to one
+  logical commitment within its owning Profile, regardless of delivery order or
+  retries. Combine independent authored edits and preserve competing values for
+  review; do not silently discard either device's work. Existing routes resolve
+  to that logical item, and completion and deletion authority remain intact.
+  Distinct obligations, fresh update proposals and separately authored manual
+  commitments do not coalesce merely because they share correspondence.
+  Routes and reminder references created before convergence use the logical
+  item's current state and owning Profile. Reconcile known obsolete reminders;
+  convergence cannot silently reopen Done/Cancelled state or keep a duplicate
+  or conflict copy alive after explicit Delete.
 - Done and Cancelled retain history. Explicit Delete removes the record's content
   and reminders across trusted devices through synchronization. Deletion wins
   over concurrent or stale edits to that record: edits, scans and retries cannot
@@ -189,6 +201,13 @@ unavailable or misses an item. Inference is not required to use the commitment l
   links. Suggestions and cached source content belonging to the removed
   connection are purged. Mailbox removal alone therefore does not erase accepted
   commitment text.
+- Before confirming Mailbox Connection removal, disclose that any reviewed
+  commitment title, state, dates and configured reminders remain in the mail app
+  and Private Sync, while the connection's suggestions and cached source content
+  are purged and its source links become unavailable. Use wording that honors
+  Profile Lock without revealing protected titles or other retained content. Explain the existing
+  explicit Delete action for commitment content/reminders and its minimal retained
+  review decision; owning Profile/account deletion also removes review decisions.
 - Removing the owning Mail Profile or Product Account deletes its commitments.
 - Commitments belonging solely to a moving connection follow it to the target
   Profile. Mixed-source commitments require the user to choose one owning Profile
@@ -236,6 +255,17 @@ Representative acceptance scenarios:
   dismissal or deletion on one device retires the other's matching queue entry
   when its decision arrives, including during an open review or pending scan;
   delayed accepted-record delivery never makes the stale proposal actionable.
+- Accept the same matching creation proposal on two offline devices and edit each
+  resulting record. Reconnect in either order and retry synchronization: retain
+  one logical commitment, combine independent changes, preserve competing values
+  for review, and retain completion/deletion authority and stable routing.
+  Repeat with one record Done, Cancelled or deleted before reconnect, and with
+  old reminder/route references; enforce current state, ownership and deletion
+  without duplicate interruptions or resurrection.
+- Remove a Mailbox Connection with accepted commitments. The confirmation explains
+  retained authored state and how to delete it, while protected content remains
+  hidden under Profile Lock; completed removal preserves the disclosed records
+  and makes their source links unavailable.
 - A Tuesday message saying "tomorrow" scanned on Friday proposes Wednesday in
   the reviewed source zone. "Next week" shows its ambiguity. Accepted dates remain
   fixed after relaunch or travel.

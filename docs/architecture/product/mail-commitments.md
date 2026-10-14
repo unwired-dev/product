@@ -32,6 +32,18 @@ Matching respects the reviewed obligation/proposal, source identities and target
 without treating an entire Thread, message or commitment as one suppressed item.
 This clarification selects no matching algorithm or new source-decision schema.
 
+Retiring queues does not settle independent offline acceptances that already
+created records. Apply the [record lifecycle contract](../../product/mail-commitments.md#record-and-lifecycle)
+to their one-logical-record convergence, including conflicting authored values,
+completion, deletion and references retained before reconciliation. Current
+Profile ownership and source isolation still govern routes and reminders. This
+adds no broader manual-record merge policy or identity/storage algorithm.
+
+The [source-removal contract](../../product/mail-commitments.md#source-removal-and-profile-moves)
+also requires disclosure before confirmation, including retained authored state
+and existing deletion choices without revealing locked content. Retention alone
+does not satisfy that requirement.
+
 ## Qualification
 
 The [canonical scenarios](../../product/mail-commitments.md#delivery-and-qualification)

@@ -47,6 +47,15 @@ does not authorize a duplicate or a link into another Profile. Apply the product
 contract's reviewed-proposal scope without suppressing distinct obligations or
 fresh reviewed updates. An offline device applies remote decisions when observed.
 
+The 2026-10-14 decision panel chose deterministic convergence when offline
+devices have already accepted the same matching creation proposal within one
+Profile. Synchronization leaves one logical commitment, combines independent
+authored edits and preserves competing values for the existing review. Preserve
+current routing, reminder references and completion/deletion authority after
+convergence. Distinct obligations, fresh updates and separately authored manual
+records do not merge merely because they share correspondence. This selects no
+identity, matching, storage or wire algorithm and adds no merge interaction.
+
 Authored commitments survive source-message deletion and Mailbox Connection
 removal. Retain reviewed title, state and dates with unavailable source links;
 purge source content and connection-owned proposals. Profile/account deletion
@@ -54,6 +63,14 @@ removes commitments and review decisions. Connection moves preserve one owning
 Profile and require review for mixed-source records, without cross-Profile source
 access or silent copies. The existing lifecycle safety and authorization fences
 remain in force.
+
+Before connection removal is confirmed, disclose retained reviewed title, state,
+dates and configured reminders in the app and Private Sync, purged source content and proposals, and
+unavailable source links. Explain the existing Delete behavior for authored
+content/reminders and its minimal retained decision, and the Profile/account
+purge of records and decisions. The disclosure respects Profile Lock without
+revealing protected content. This makes the retention trade-off visible at the
+removal decision and adds no bulk-delete action.
 
 Optional reminders reuse the Profile's notification owner and privacy controls.
 An offline owner can show an alert made stale by an unsynchronized completion;
