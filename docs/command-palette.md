@@ -91,6 +91,13 @@ results never appear in the palette. The vocabulary lives in the
 - On iPhone and iPad the palette is a panel attached to the top of the screen
   with the input focused, the software keyboard shown when needed, and the
   commands beneath; any command can be tapped without typing.
+- The [Tiptap evaluation editor](draft-editor-evaluation.md), only in
+  `registration-draft-editor` Mock Mail Session builds, adds no entry of its
+  own; entries outside it, such as the Mac window's command bar, still open
+  the palette. Production and TestFlight builds open Drafts in the current
+  composer, with the entries above; if the adoption decision
+  ([#823](https://github.com/unwired-dev/product/issues/823)) replaces that
+  composer, that work carries them over.
 
 ## Validate
 
