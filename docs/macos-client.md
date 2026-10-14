@@ -52,6 +52,11 @@ toggles the sidebar; a window at most 900pt wide starts without it.
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.
+A window's one composer overlays the reader as described in
+[composing](drafts.md#composing); opening a Draft keeps the selected message
+behind it, selecting another message updates that reader without closing the
+Draft, and Expand takes the composer over the window's panes beneath its
+command bar.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |
@@ -211,7 +216,13 @@ delivery, accessibility and distribution still require their own checks.
 
 ## Interface language
 
-The Inbox, welcome and account pages offer System default and a saved English
+The Inbox, the welcome page and Settings' **Language** offer System default and a saved English
 override, which also titles the native menus and windows. See
 [interface translations](localization.md) for catalogs, adding languages, native
 menu behavior, and language verification.
+
+## Settings
+
+Settings' Mail Assistance switch follows the Mac's system accent. Its graphite
+tint from the design remains a native-host deviation for design capture and
+qualification.

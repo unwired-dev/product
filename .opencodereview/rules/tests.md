@@ -4,6 +4,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native journey locator such as `WindowTests.key(groups:in:)` retaining a
+  text pattern after its host changes displayed grouping, whitespace, copy or
+  accessibility exposure. Compare every affected locator and caller with the
+  rendered producer, including `account-settings.tsx.PrivateSync`, and the
+  native element type and label-versus-value contract. Preserve matching for
+  other formats sharing the helper, such as hyphenated Recovery Keys beside
+  space-separated Enrollment Codes; otherwise the packaged journey cannot find
+  its target despite passing component tests. Record unavailable native
+  execution separately from static or predicate-only evidence.
+
 - A Draft editor keyboard regression in `packages/draft-editor/test/editor.test.ts` invoking a command that replays only document steps while the real key handler dispatches a caret change. Exercise the page's keydown handlers and subsequent typing as well as its posted semantic body; otherwise a passing document-only assertion can hide text entering the previous or wrong block. Page key-handler evidence remains distinct from native WebKit keyboard interaction.
 
 - A native test mirror such as `RegistrationFlowSupport.swift` classifying failures
@@ -132,6 +142,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Evidence is labelled honestly
 
+- `scripts/testflight-signing.test.rb` validating imported signing material only
+  with Ruby OpenSSL while substituting macOS `security`. That proves preparation
+  and orchestration, not Apple's native importer or key-access compatibility.
+  Require the credential-free native preflight before production signing setup
+  and keep trusted identity selection and archive evidence separate; otherwise a
+  passing mock importer can hide a deployment failure in the platform importer.
 - A rendered component test, a Mock Mail Session journey, a runner contract test with tool stubs, or a Hermes export described as native E2E, provider, persistence or device evidence. Each proves only what it exercised.
 - A native runner that reports success with zero selected tests, reuses a shared Simulator by name, or leaves owned devices, DerivedData or temporary directories behind on failure, cancellation or timeout.
 - A mock scenario that accepts anything but a fixed scenario name, or test-only code reachable from a production build.

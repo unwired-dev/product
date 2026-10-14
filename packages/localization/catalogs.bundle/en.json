@@ -158,9 +158,35 @@
     "signInWith": "Sign in with {{provider}}",
     "signInAgain": "Sign in again with {{provider}}",
     "signInInstead": "Sign in with {{provider}} instead",
-    "authorizeGmail": "Authorize Gmail",
-    "chooseMailbox": "Choose another Google mailbox",
-    "connectMicrosoft": "Connect Microsoft mail"
+    "chooseMailbox": "Choose another Google mailbox"
+  },
+  "settings": {
+    "title": "Settings",
+    "back": "Back to Settings",
+    "sections": {
+      "accounts": "Accounts",
+      "application": "Application"
+    },
+    "destinations": {
+      "account": "Account & Devices",
+      "mailboxes": "Email Accounts",
+      "language": "Language",
+      "privacy": "Privacy & Data"
+    },
+    "productAccount": "Product Account",
+    "mailboxConnections": "Mailbox Connections",
+    "signIn": "Allow…",
+    "enterPassword": "Enter the Password…",
+    "remove": "Remove…",
+    "signOut": "Sign Out on This Device",
+    "signOutButton": "Sign Out…",
+    "delete": "Delete Product Account…",
+    "remoteContent": "Remote Message Content",
+    "trackingPixels": "Known Tracking Pixels",
+    "trackingPixelsDetail": "Known Tracking Pixels stay blocked for every remote-content policy.",
+    "alwaysBlocked": "Always Blocked",
+    "onDevice": "On device",
+    "availability": "Availability"
   },
   "signInMethods": {
     "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
@@ -180,9 +206,9 @@
   "accountRemoval": {
     "title": "This device and your account",
     "signOut": "Sign out of this device",
-    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail in Gmail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
+    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
     "delete": "Delete Product Account",
-    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays in Gmail, and authorization you gave Google is not revoked. You sign in again to confirm.",
+    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays with your mail providers, and their authorizations are not revoked. You sign in again to confirm.",
     "deletePermanently": "Delete permanently",
     "cancel": "Cancel",
     "sign-out": "Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.",
@@ -214,7 +240,7 @@
     "unread_other": "{{count}} unread"
   },
   "remoteContent": {
-    "title": "Remote images",
+    "title": "Remote Content",
     "description": "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
     "device": "On this device",
     "mailbox": "Remote images for {{address}}",
@@ -229,7 +255,7 @@
     "clearFailed": "Remote content could not be removed. Try again."
   },
   "mailAssistance": {
-    "title": "On-device assistance",
+    "title": "Mail Assistance",
     "description": "Summaries, rewrites, reply suggestions and translations use Apple's on-device models, and run only when you ask. This choice applies to this device and this account only. Signing out turns it off.",
     "on": "On-device assistance is on.",
     "off": "On-device assistance is off.",
@@ -307,7 +333,7 @@
     "device": "device"
   },
   "revocation": {
-    "title": "Trusted devices",
+    "title": "Trusted Devices",
     "description": "These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.",
     "added": "Added {{date}}",
     "remove": "Remove {{name}}",
@@ -322,7 +348,8 @@
     "renewed": "Your Product Account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",
     "unconfirmed": "The removal could not be confirmed. Keep the new Recovery Key shown here, and confirm again when you are online to finish.",
     "superseded": "The selected device was removed. The Recovery Key prepared here is not your current Recovery Key; keep the Recovery Key confirmed for the latest removal.",
-    "failed": "The device could not be removed. Try again."
+    "failed": "The device could not be removed. Try again.",
+    "confirmTitle": "Remove “{{name}}”?"
   },
   "gmailSync": {
     "syncing": "Checking {{provider}}…",
@@ -675,6 +702,10 @@
     "invalidRecipients": "Correct or remove the invalid address to close this Draft.",
     "discardConfirm": "Discard this Draft? It is deleted from this device.",
     "showCcBcc": "Show Cc and Bcc",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "textStyle": "Text style",
+    "actions": "Compose actions",
     "ccBcc": "Cc/Bcc",
     "subject": "Subject",
     "formatting": "Formatting",
@@ -688,6 +719,7 @@
       "code": "Inline code"
     },
     "blocks": {
+      "body": "Body",
       "heading1": "Heading 1",
       "heading2": "Heading 2",
       "heading3": "Heading 3",
@@ -815,9 +847,8 @@
     "providers": {
       "icloud": "iCloud Mail",
       "fastmail": "Fastmail",
-      "other": "Another IMAP server"
+      "other": "Other IMAP Account"
     },
-    "choose": "Connect {{provider}}",
     "description": "Mail is read with IMAP and sent with SMTP.",
     "address": "Email address",
     "username": "User name",
@@ -825,6 +856,7 @@
     "appPassword": "{{provider}} requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
     "host": "IMAP server",
     "port": "Port",
+    "server": "Server",
     "outgoing": "Outgoing (SMTP)",
     "smtpHost": "SMTP server",
     "smtpPort": "SMTP port",
@@ -853,7 +885,11 @@
     },
     "folders": "Folders",
     "folder": "{{folder}}",
-    "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached."
+    "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached.",
+    "incoming": "Incoming (IMAP)",
+    "securityLabel": "Security",
+    "sameAsIncoming": "Same as incoming",
+    "sameAsIncomingIfBlank": "Same as incoming if blank."
   },
   "imapSync": {
     "syncing": "Checking the mail server…",
@@ -914,5 +950,64 @@
       "inbox": "home mail messages back",
       "account": "settings preferences profile mailboxes"
     }
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Your mail,\non your devices.",
+      "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
+      "assistance": "Assistance runs on this device.",
+      "privateSync": "Private Sync keeps your devices in step.",
+      "continue": "Continue"
+    },
+    "brand": {
+      "name": "Unwired Mail",
+      "tagline": "Calm, private, precise."
+    },
+    "signIn": {
+      "title": "Sign in to Unwired",
+      "description": "Use the account you already use on your other devices.",
+      "finePrint": "Signing in starts Private Sync setup. A new Product Account creates its Recovery Key on this device."
+    },
+    "back": "Back",
+    "providers": {
+      "gmail": {
+        "name": "Gmail",
+        "detail": "Google Workspace and personal Gmail"
+      },
+      "icloud": {
+        "name": "iCloud Mail",
+        "detail": "Uses an app-specific password"
+      },
+      "microsoft": {
+        "name": "Microsoft 365 and Outlook",
+        "detail": "Work, school and Outlook.com accounts"
+      },
+      "fastmail": {
+        "name": "Fastmail",
+        "detail": "Uses an app-specific password"
+      },
+      "other": {
+        "name": "Other IMAP Account",
+        "detail": "Compatible IMAP and SMTP providers"
+      }
+    }
+  },
+  "contextMenu": {
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "archive": "Archive",
+    "trash": "Delete",
+    "trashMessage": "Delete Message",
+    "star": "Flag",
+    "unstar": "Unflag",
+    "read": "Mark as Read",
+    "unread": "Mark as Unread",
+    "moveMessage": "Move Message",
+    "openLink": "Open Link",
+    "copyLink": "Copy Link",
+    "quickLook": "Quick Look",
+    "share": "Share…",
+    "copyAddress": "Copy Address"
   }
 }

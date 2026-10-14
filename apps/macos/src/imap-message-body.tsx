@@ -1,5 +1,6 @@
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   use,
   useEffect,
@@ -117,6 +118,11 @@ export function ImapMessageBody({
         </Text>
       ) : null}
       <Presentation
+        onCopy={(link) => {
+          if (current()) {
+            Clipboard.setString(link.href);
+          }
+        }}
         presentation={body.presentation}
         onNear={() => undefined}
         onLoadImages={undefined}

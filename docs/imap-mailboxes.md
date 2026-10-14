@@ -14,33 +14,35 @@ server offers it; certification against real iCloud Mail and Fastmail mailboxes 
 ## First mailbox and provider choice
 
 After Google or Apple Product Sign-In and device admission, the account page starts
-no mailbox authorization on its own. **Connect your mail** offers:
+no mailbox authorization on its own. **Connect your mail** lists the providers as rows,
+each opening its own setup:
 
-- **Authorize Gmail**, which suggests the Google sign-in account, and **Choose another
-  Google mailbox**;
-- **Connect Microsoft mail** when this build is configured for
-  [Microsoft mail](microsoft-mail.md);
-- **Connect iCloud Mail**, **Connect Fastmail** and **Connect Another IMAP server**.
+- **Gmail**, which suggests the Google sign-in account, and below the list **Choose
+  another Google mailbox**;
+- **iCloud Mail**, **Fastmail** and **Other IMAP Account**, whose IMAP form opens in
+  place, with **Cancel** returning to the list;
+- **Microsoft 365 and Outlook** when this build is configured for
+  [Microsoft mail](microsoft-mail.md).
 
 Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
 after sign-in; an IMAP password is only ever entered again on the account page. Once
-any mailbox is connected, the account page's **Mailboxes** section also offers **Add an
+any mailbox is connected, Settings' **Email Accounts** also offers **Add an
 IMAP mailbox**.
 
 ## Endpoints and passwords
 
-| Provider            | IMAP server           | Port    | User name                          |
-| ------------------- | --------------------- | ------- | ---------------------------------- |
-| iCloud Mail         | `imap.mail.me.com`    | 993     | The name part of the address       |
-| Fastmail            | `imap.fastmail.com`   | 993     | The full address                   |
-| Another IMAP server | Entered by the person | Entered | Entered, or the address when blank |
+| Provider           | IMAP server           | Port    | User name                          |
+| ------------------ | --------------------- | ------- | ---------------------------------- |
+| iCloud Mail        | `imap.mail.me.com`    | 993     | The name part of the address       |
+| Fastmail           | `imap.fastmail.com`   | 993     | The full address                   |
+| Other IMAP Account | Entered by the person | Entered | Entered, or the address when blank |
 
-| Provider            | SMTP server           | Port and security                        | User name                               |
-| ------------------- | --------------------- | ---------------------------------------- | --------------------------------------- |
-| iCloud Mail         | `smtp.mail.me.com`    | 587, STARTTLS                            | The full address                        |
-| Fastmail            | `smtp.fastmail.com`   | 465, SSL/TLS                             | The full address                        |
-| Another IMAP server | Entered by the person | Entered; SSL/TLS on 465, else STARTTLS\* | Entered, or the IMAP user name if blank |
+| Provider           | SMTP server           | Port and security                        | User name                               |
+| ------------------ | --------------------- | ---------------------------------------- | --------------------------------------- |
+| iCloud Mail        | `smtp.mail.me.com`    | 587, STARTTLS                            | The full address                        |
+| Fastmail           | `smtp.fastmail.com`   | 465, SSL/TLS                             | The full address                        |
+| Other IMAP Account | Entered by the person | Entered; SSL/TLS on 465, else STARTTLS\* | Entered, or the IMAP user name if blank |
 
 \* The form's **SSL/TLS** or **STARTTLS** choice follows the port until the person
 chooses one.
@@ -52,9 +54,11 @@ address, an unreachable server or a TLS failure is not retried this way.
 
 The form shows both endpoints it will contact before **Connect**. iCloud Mail and
 Fastmail require an app-specific password, which signs in to both IMAP and SMTP; the
-form says so. Another IMAP server's form adds an **Outgoing (SMTP)** group: server,
+form says so. The Other IMAP Account form adds an **Incoming (IMAP)** group for the
+user name, server and port, and an **Outgoing (SMTP)** group: server,
 port, **SSL/TLS** or **STARTTLS**, and optionally an SMTP user name and password when
-they differ from the incoming ones. Every connection uses **Secure Mail Transport**:
+they differ from the incoming ones. Wrapping guidance beside each SMTP credential
+field explains the incoming default even after a value is entered. Every connection uses **Secure Mail Transport**:
 TLS 1.2 or newer and certificate verification against the system's trusted roots with
 no override. IMAP uses TLS from the first byte (implicit TLS); STARTTLS and plaintext
 IMAP ports are not offered. SMTP uses implicit TLS, or STARTTLS that the server must
@@ -100,10 +104,11 @@ reason survives relaunch:
 Adding another IMAP mailbox beside existing ones reports the failure in the form and
 changes nothing. Every launch logs in to each IMAP connection again. A refused password
 marks it **The mail server needs your password again**. **Enter password again**
-opens the account page, where the connection can be repaired immediately without
-relaunching. Password entry is also available for an IMAP connection awaiting a
+opens Settings on **Email Accounts**, where the connection can be repaired
+immediately without relaunching, including when **Open Inbox** has deferred
+Recovery Key setup. Password entry is also available for an IMAP connection awaiting a
 password on this device. Other failures keep its saved Inbox open from this device;
-the account page labels it as saved mail awaiting another server check.
+Email Accounts labels it as saved mail awaiting another server check.
 
 ## Synchronization
 
@@ -192,7 +197,8 @@ unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**
 to** any other selectable folder, including the Inbox. IMAP has no labels or star.
 Archive, Trash and Spam move the message to the folder the server declares with the
 `\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
-not offered, and no folder is guessed by name.
+not offered, and no folder is guessed by name. The row and reader
+[context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus.
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers

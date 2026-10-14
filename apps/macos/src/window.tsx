@@ -20,6 +20,16 @@ import { usePalette } from './theme.ts';
 
 // A window narrower than this hides the sidebar until it is shown again.
 const narrowWindow = 900;
+const sidebarWidth = 236;
+const listWidth = 340;
+// The composer overlays the reading pane with 12pt insets at 70% of the panes' height,
+// clamped from 420 to 720pt; expanded, it takes over the panes beneath the command bar.
+const composerInset = spacing.m;
+const composerHeight = (panesHeight: number) =>
+  Math.min(
+    Math.max(0, panesHeight - 2 * composerInset),
+    Math.min(720, Math.max(420, panesHeight * 0.7)),
+  );
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -28,15 +38,26 @@ const styles = StyleSheet.create({
   // The floating glass sidebar, inset from the window edges.
   sidebar: {
     alignSelf: 'stretch',
-    width: 236,
+    width: sidebarWidth,
     margin: spacing.s,
     padding: 0,
     borderRadius: radius.window,
     borderCurve: 'continuous',
     backgroundColor: 'transparent',
   },
-  list: { width: 340, borderRightWidth: StyleSheet.hairlineWidth },
+  list: { width: listWidth, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
+  composer: {
+    position: 'absolute',
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  composerOverlay: {
+    right: composerInset,
+    bottom: composerInset,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
   toggle: {
     margin: spacing.m,
     marginRight: 0,
@@ -129,8 +150,10 @@ function SidebarToggle({
 
 function WindowContents({ windowId }: { readonly windowId: string }) {
   const [selected, setSelected] = useState<Selection>();
-  // The window's one composer replaces the reader while it is open.
+  // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
+  const [expanded, setExpanded] = useState(false);
+  const [height, setHeight] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   const [width, setWidth] = useState<number>();
   // The sidebar follows the window width until the toggle chooses for it.
@@ -140,9 +163,8 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
     (mailbox) => mailbox.id === selected?.mailbox,
   )?.inbox;
   const colors = usePalette();
-  // Opening a Draft from either pane replaces the reader with the window's composer.
+  // Opening a Draft from either pane shows it in the window's composer, over the reader.
   const compose = (id: string) => {
-    setSelected(undefined);
     setComposing(id);
   };
   // Either pane closes the reader when its message leaves the Inbox.
@@ -162,8 +184,14 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
         <View
           style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
           <CommandBar />
-          <View style={styles.panes}>
-            {sidebarShown ? (
+          <View
+            testID={`window-panes-${windowId}`}
+            onLayout={({ nativeEvent }) => {
+              setHeight(nativeEvent.layout.height);
+            }}
+            style={styles.panes}>
+            {/* The expanded composer covers the panes, so the glass sidebar steps aside. */}
+            {sidebarShown && !expanded ? (
               <GlassGroup
                 style={[
                   styles.sidebar,
@@ -176,6 +204,8 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
               </GlassGroup>
             ) : null}
             <View
+              pointerEvents={expanded ? 'none' : 'auto'}
+              accessibilityElementsHidden={expanded}
               style={[
                 styles.list,
                 {
@@ -195,7 +225,13 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
                 }
                 selected={selected}
                 onClose={close}
+                onReveal={() => {
+                  setExpanded(false);
+                }}
                 onCompose={compose}
+                onSelectBehindComposer={
+                  composing === undefined ? undefined : setSelected
+                }
                 onSelect={(selection) => {
                   setComposing(undefined);
                   setSelected(selection);
@@ -205,27 +241,56 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
               />
             </View>
             <View
+              // The covered reader waits; the sidebar and list stay interactive beneath the overlay.
+              pointerEvents={composing === undefined ? 'auto' : 'none'}
+              accessibilityElementsHidden={composing !== undefined}
               style={[
                 styles.detail,
                 { backgroundColor: colors.surfaceContent },
               ]}>
-              {composing === undefined ? (
-                <MessageDetail
-                  id={selected?.id}
-                  mailbox={selected?.mailbox}
-                  onClose={close}
-                  onCompose={compose}
-                />
-              ) : (
+              <MessageDetail
+                id={selected?.id}
+                mailbox={selected?.mailbox}
+                onClose={close}
+                onCompose={compose}
+              />
+            </View>
+            {composing === undefined ? null : (
+              <View
+                testID="composer-overlay"
+                style={[
+                  styles.composer,
+                  expanded
+                    ? StyleSheet.absoluteFill
+                    : [
+                        styles.composerOverlay,
+                        {
+                          left:
+                            (sidebarShown ? sidebarWidth + 2 * spacing.s : 0) +
+                            listWidth +
+                            composerInset,
+                          height: composerHeight(height),
+                        },
+                      ],
+                  {
+                    borderColor: colors.separator,
+                    boxShadow: colors.menuShadow,
+                  },
+                ]}>
                 <DraftComposer
                   id={composing}
+                  expanded={expanded}
                   onClose={() => {
                     setComposing(undefined);
+                    setExpanded(false);
+                  }}
+                  onExpand={() => {
+                    setExpanded((current) => !current);
                   }}
                   onRebind={setComposing}
                 />
-              )}
-            </View>
+              </View>
+            )}
           </View>
         </View>
       </LinkConfirmationProvider>

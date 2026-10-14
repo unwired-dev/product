@@ -24,7 +24,7 @@ unregisters this Trusted Device and its push routes, or drops this Pending
 Device, then removes the account from this device. Save and confirm any Recovery Key shown before signing out;
 an unconfirmed key keeps its backup screen and prevents sign-out. A Pending
 Device has no account keys to confirm and can sign out from its enrollment gate. The screen
-returns to **Welcome to Unwired Mail**. Google
+returns to Welcome (**Your mail, on your devices.**). Google
 renews its Product Sign-In silently for this. Sign in with Apple cannot, so an
 Apple device asks to sign in with Apple again, and that must be the same Apple
 ID. To use the device again, sign in and approve it from a Trusted Device or

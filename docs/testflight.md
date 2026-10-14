@@ -30,9 +30,8 @@ gh run watch
 `platform` is `ios`, `macos` or `both`. `--ref` selects the workflow revision;
 the optional `ref` input builds another branch, tag or commit with that revision.
 Each host uploads from its own job, so one can be rerun without the other. A
-single-host retry does not repeat certificate cleanup. If it reaches the
-certificate limit, rerun all jobs to repeat cleanup before uploading. Build
-status evidence is attached to the run for seven days. Raw build and upload
+single-host retry reuses the prepared certificate. If it has expired, rerun all
+jobs to renew it before uploading. Build status evidence is attached to the run for seven days. Raw build and upload
 logs stay on the runner because Xcode diagnostics may contain signing tokens.
 
 The workflow deliberately has no approval gate. Write access and the selected
@@ -103,21 +102,38 @@ scripts/testflight.zsh ios|macos|both
   wait for processing and record the commit in TestFlight What to Test notes
 ```
 
-No certificate or provisioning profile is stored. Xcode requests development
-signing for the archive and cloud-managed distribution signing for the export
-through the App Store Connect API key. Each archive on an ephemeral runner
-therefore creates an `Apple Development: Created via API` certificate, and the
-team's certificate limit would stop every archive within days. Before its
-uploads, the workflow's `certificates` job runs
-`scripts/testflight-certificates.rb` from the workflow revision, even when the
-build targets an older ref. It requires a complete certificate listing and
-revokes every `DEVELOPMENT` certificate whose display name is `Created via API`
-and whose expiration date, one year after creation, shows it is more than two
-hours old. That name identifies API creation, not CI ownership: the grace period
-lets a local upload that is running at the same time keep the certificate it
-just created, while the workflow queue serializes CI runs, including release
-uploads. Runs dispatched within two hours of each other keep their certificates
-until a later run, so a burst of uploads can still reach the limit.
+CI stores one RSA private key in the `testflight` environment secret
+`TESTFLIGHT_SIGNING_KEY`. Before either host archives, the `certificates` job
+lists Apple's development certificates and selects the newest valid certificate
+whose public key matches that private key and whose team matches
+`APPLE_DEVELOPMENT_TEAM`. It reuses that certificate until fewer than two hours
+remain, enough for the upload jobs to finish. When no usable match exists
+(including first use, expiry or manual revocation), it requests a replacement
+with the same private key and uses the newly issued development certificate. The
+shared workflow queue serializes this preparation before the parallel hosts.
+The private key is not rotated on certificate renewal.
+
+Only the public certificate crosses jobs as an output. Each upload imports the
+identity into a temporary keychain, limits the user keychain search list to that
+keychain for the build, and restores the original list and deletes the keychain
+on exit. The private key and certificate are imported directly; the loose
+private-key file is removed before the build starts.
+The prepared identity must be valid for code signing before the build starts.
+Native signing setup failures report a fixed operation name and exit code;
+cleanup failures identify search-list restoration or keychain deletion. Raw
+`security` diagnostics remain suppressed because they can contain private data.
+The wrapper refuses certificates with less than an hour remaining; rerun all
+jobs to prepare a fresh certificate if retrying an old run. Signing helpers come
+from the workflow revision even when building an older ref. Local invocations
+continue using the developer's existing Xcode signing identity.
+
+Provisioning remains automatic. Xcode uses development signing for the archive
+and cloud-managed distribution signing for export through the App Store Connect
+API key. No provisioning profile is stored. We no longer revoke certificates by
+display name or age: neither personal certificates nor earlier API-created
+certificates are changed. If Apple's certificate quota is already exhausted,
+remove verified obsolete identities in the developer portal before retrying;
+the workflow fails rather than revoking another identity automatically.
 
 Release hosts embed the production JavaScript bundle. The mobile archive
 produces a source map and runs `verify:bundle` against that map. The Mac archive
@@ -220,7 +236,14 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
    gh secret set ASC_ISSUER_ID --env testflight --body '<issuer ID>'
    gh secret set ASC_PRIVATE_KEY --env testflight < AuthKey_<key ID>.p8
    gh variable set APPLE_DEVELOPMENT_TEAM --env testflight --body '<team ID>'
+   # Run once; keep this same private key across certificate renewals.
+   openssl genrsa 2048 | gh secret set TESTFLIGHT_SIGNING_KEY --env testflight
    ```
+
+   Do not rerun key generation during ordinary releases. Replacing the secret
+   changes the signing identity; the next run creates its certificate. If the
+   private key is compromised, revoke its certificate in Apple Developer and
+   replace this secret. Never put it in workflow artifacts or the repository.
 
    The workflow also reads the repository secrets `CONVEX_URL` and
    `GMAIL_OAUTH_CLIENT_ID` as the hosts' public backend configuration, and the
@@ -235,9 +258,51 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
 
 [CI run 38431867551](https://github.com/unwired-dev/product/actions/runs/38431867551)
 successfully uploaded both hosts after revoking stale development certificates.
-That run predates the two-hour grace period. The current cleanup and runner
-contracts have credential-free local checks; fresh CI archive and upload evidence
-for the corrected implementation remains deferred. Uploaded-artifact inspection,
-inspection of processed builds and their TestFlight notes, and installation from
+That run used the previous certificate-per-run setup. Reuse, automatic renewal,
+API failures, identity preparation and keychain cleanup have credential-free local
+contracts. [Run 38550446299](https://github.com/unwired-dev/product/actions/runs/38550446299)
+issued a matching Apple development certificate, but both hosts failed during
+native signing setup before archiving. [Run 38552085152](https://github.com/unwired-dev/product/actions/runs/38552085152)
+reused the same certificate on both hosts and isolated the failure to PKCS#12
+import. The wrapper now imports the key and certificate directly. A native CI
+preflight uses a synthetic self-signed identity to verify import and cleanup
+before production credentials are supplied; it expects Apple's trust check to
+reject that fixture. Protected validation of the direct import and consecutive CI
+archives using the same certificate remain deferred for the reusable identity
+implementation.
+Uploaded-artifact inspection, inspection of processed builds and their TestFlight notes, and installation from
 TestFlight on an iPhone and a Mac also remain deferred. They are required before
 claiming #724's release evidence or the qualified beta in #628.
+
+### Protected signing validation
+
+Run these checks with the protected `testflight` environment and a runner with
+Xcode 27. Local contracts substitute Apple HTTP and `security`; they do not prove
+Xcode selects the imported identity or that Apple accepts the CSR.
+
+1. Record the team's development certificate IDs and public SHA-1 fingerprints
+   in Apple Developer. Dispatch both hosts, then dispatch both again after the
+   first run finishes. Both hosts in both runs must log the same `Prepared
+TestFlight identity` fingerprint, and the second run must create no additional
+   development certificate.
+2. On the protected runner, inspect each retained development-signed `.xcarchive`,
+   rather than the distribution-signed export.
+   Run `codesign -d --extract-certificates "$RUNNER_TEMP/archive-cert-" "$app"`
+   with `$app` set to its archived `.app`, then
+   `openssl x509 -inform DER -in "$RUNNER_TEMP/archive-cert-0" -noout -fingerprint -sha1`.
+   Its fingerprint must match the prepared identity. Inspect only public
+   certificate data; raw signing logs and private material remain on the runner.
+3. At the next natural renewal, confirm a new matching certificate is issued
+   and reused by the following run, without changing the stored key or deleting
+   another certificate. Missing or revoked identity renewal needs an isolated
+   test team or a deliberately retired CI identity; never revoke an active
+   personal or CI identity merely to exercise this check. Quota refusal must fail
+   preparation without deleting any certificate.
+4. After success and an interrupted upload, confirm the runner's original
+   keychain search list is restored and no `testflight-signing.*` keychain or
+   loose signing key remains in `RUNNER_TEMP`. Download status artifacts and
+   confirm they contain only the documented status files. Check both processed
+   builds and TestFlight notes, then install on iPhone and Mac.
+
+Keep the run links, public fingerprints and cleanup results with the release
+evidence. These checks remain deferred until recorded.

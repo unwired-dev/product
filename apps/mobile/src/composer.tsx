@@ -25,7 +25,8 @@ import type {
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { StyleProp, TextInputChangeEvent, TextStyle } from 'react-native';
+import type { ComponentProps, ReactNode } from 'react';
+import type { TextInputChangeEvent, TextStyle } from 'react-native';
 
 import {
   canRewrite,
@@ -75,6 +76,7 @@ import {
   translationInputLimit,
 } from '@private-email/mail-core/translation';
 import {
+  createContext,
   memo,
   use,
   useCallback,
@@ -89,6 +91,7 @@ import {
   ActivityIndicator,
   AppState,
   Image,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -98,11 +101,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
-  CommandInput,
-  CommandInputRow,
-  usePaletteHeader,
-} from './command-palette.tsx';
+  ComposerActions,
+  FormatBar,
+  MenuItem,
+  PopUp,
+} from './composer-controls.tsx';
+import {
+  Notice as Banner,
+  Button,
+  NativeGlass,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -124,64 +136,142 @@ type BodyChangeEvent = TextInputChangeEvent & {
   readonly nativeEvent: { readonly selection?: Selection };
 };
 
+// The native split host owns compact presentation, including landscape iPhone and narrow windows.
+// A window-filling composer avoids the keyboard below its `top` inset; the regular-width
+// overlay is instead raised above the keyboard by its layout.
+export const ComposerLayoutContext = createContext<{
+  readonly size: 'compact' | 'regular';
+  readonly avoidKeyboard: boolean;
+  readonly top: number;
+}>({ size: 'compact', avoidKeyboard: true, top: 0 });
+
+// The body and fields sit 20pt in, with an 80pt right-aligned label column.
+const inset = 20;
+const fieldInset = 16;
+const fieldLabelWidth = 80;
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    padding: spacing.xl,
-    gap: spacing.l,
+  grow: { flex: 1 },
+  // Open menus stack header over From over the format bar, whose layout-only rows Fabric
+  // flattens into this column, so each menu opens over the rows that follow it.
+  header: {
+    zIndex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.l,
   },
+  title: { ...textStyles.headline, textAlign: 'center' },
+  circle: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
+  fromRow: { zIndex: 2, paddingHorizontal: inset, paddingBottom: spacing.xs },
+  status: {
+    ...textStyles.footnote,
+    paddingHorizontal: inset,
+    paddingBottom: spacing.xs,
+  },
+  alerts: {
+    gap: spacing.s,
+    paddingHorizontal: fieldInset,
+    paddingBottom: spacing.s,
+  },
+  divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  content: { paddingBottom: spacing.s },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.s,
   },
-  top: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-  },
-  grow: { flex: 1 },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   actionText: { ...textStyles.body },
-  status: { ...textStyles.footnote },
-  label: { ...textStyles.footnote, fontWeight: '600' },
-  field: {
-    gap: 6,
-    paddingBottom: spacing.s,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  input: { ...textStyles.body, minHeight: 44, paddingVertical: 8 },
-  tokens: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  token: {
-    minHeight: 32,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    borderRadius: radius.chip,
-  },
   notice: { ...textStyles.subheadline },
-  quoted: { ...textStyles.reading.body, paddingVertical: 8 },
-  choice: {
+  review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
+  body: {
+    ...textStyles.body,
+    minHeight: 160,
+    paddingHorizontal: inset,
+    paddingTop: spacing.m,
+    paddingBottom: spacing.m,
+  },
+  quoted: { marginHorizontal: inset, marginBottom: spacing.m, gap: spacing.xs },
+  quotedText: {
+    ...textStyles.subheadline,
+    paddingLeft: spacing.m,
+    borderLeftWidth: 2,
+  },
+  assets: { paddingHorizontal: inset, paddingBottom: 10, gap: spacing.s },
+  assetChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  assetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    maxWidth: '100%',
+    paddingLeft: spacing.m,
+    paddingRight: 6,
+    paddingVertical: 6,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  assetMeta: { flexShrink: 1 },
+  assetName: { ...textStyles.subheadline, fontWeight: '600' },
+  assetStatus: { ...textStyles.footnote },
+  thumbnail: { width: 32, height: 32, borderRadius: radius.control },
+  fields: { paddingHorizontal: fieldInset },
+  field: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    gap: spacing.s,
     minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderWidth: 2,
+    paddingVertical: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  // Recipients and the entry wrap within the value column, beside the label.
+  entries: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  // Centred on the first 44pt line, so a wrapped recipient row keeps its label at the top.
+  fieldLabel: {
+    ...textStyles.body,
+    width: fieldLabelWidth,
+    paddingVertical: 11,
+    textAlign: 'right',
+  },
+  fieldNotice: {
+    paddingLeft: fieldLabelWidth + spacing.s,
+    paddingBottom: spacing.xs,
+  },
+  input: {
+    ...textStyles.body,
+    flex: 1,
+    minWidth: 140,
+    minHeight: 44,
+    paddingVertical: 0,
+  },
+  // The whole 44pt row height removes the recipient; its chip stays compact.
+  token: { minHeight: 44, justifyContent: 'center' },
+  tokenFill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.s,
+    paddingVertical: 4,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  format: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  body: { ...textStyles.reading.body, minHeight: 240, paddingVertical: 8 },
+  tokenText: { ...textStyles.subheadline },
   section: {
     ...textStyles.footnote,
     fontWeight: '600',
@@ -201,14 +291,6 @@ const styles = StyleSheet.create({
   rowSubject: { ...textStyles.subheadline, flex: 1 },
   rowDetail: { ...textStyles.footnote },
   footer: { ...textStyles.footnote, paddingHorizontal: spacing.xl },
-  asset: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
-    paddingVertical: 4,
-  },
-  thumbnail: { width: 64, height: 64, borderRadius: radius.control },
 });
 
 const kindStyles: Record<BlockKind, TextStyle> = {
@@ -248,40 +330,34 @@ const markStyle = (marks: readonly Mark[] = []): TextStyle => {
   };
 };
 
-type MarkName = `drafts.marks.${Mark}`;
-type BlockName = `drafts.blocks.${Exclude<BlockKind, 'paragraph'>}`;
+// What keeps the composer from closing, or asks before it does.
+type Closing =
+  | 'saving'
+  | 'blocked'
+  | 'discard-blocked'
+  | 'discard'
+  | 'recipients';
 
-export const markControls: ReadonlyArray<
-  readonly [Mark, string, MarkName, StyleProp<TextStyle>]
-> = [
-  ['bold', 'B', 'drafts.marks.bold', { fontWeight: '700' }],
-  ['italic', 'I', 'drafts.marks.italic', { fontStyle: 'italic' }],
-  [
-    'underline',
-    'U',
-    'drafts.marks.underline',
-    { textDecorationLine: 'underline' },
-  ],
-  [
-    'strikethrough',
-    'S',
-    'drafts.marks.strikethrough',
-    { textDecorationLine: 'line-through' },
-  ],
-  ['code', '</>', 'drafts.marks.code', { fontFamily: 'Menlo' }],
-];
-
-export const blockControls: ReadonlyArray<
-  readonly [BlockKind, string, BlockName]
-> = [
-  ['heading1', 'H1', 'drafts.blocks.heading1'],
-  ['heading2', 'H2', 'drafts.blocks.heading2'],
-  ['heading3', 'H3', 'drafts.blocks.heading3'],
-  ['bulleted', '•', 'drafts.blocks.bulleted'],
-  ['numbered', '1.', 'drafts.blocks.numbered'],
-  ['quote', '❝', 'drafts.blocks.quote'],
-  ['code', '{ }', 'drafts.blocks.code'],
-];
+// A quiet banner beside the content it explains, with its actions under the message.
+function Alert({
+  message,
+  actions,
+  children,
+}: {
+  readonly message: string;
+  readonly actions?: ComponentProps<typeof Banner>['messageActions'];
+  readonly children?: ReactNode;
+}) {
+  return (
+    <Banner
+      icon="exclamationmark.triangle"
+      message={message}
+      messageRole="alert"
+      messageActions={actions}>
+      {children}
+    </Banner>
+  );
+}
 
 export function Action({
   label,
@@ -480,6 +556,8 @@ export function DraftHeading() {
   );
 }
 
+// The From pop-up: the retained sending mailbox, with the Draft's Profile's other senders in
+// its menu. Why it cannot send, if it cannot, is explained by SendingNotice.
 function SendingMailbox({
   draft,
   onChange,
@@ -490,83 +568,78 @@ function SendingMailbox({
   readonly onChange: (mailbox: MailboxConnection) => void;
 }) {
   const account = use(AccountContext);
-  const colors = usePalette();
   const { t } = useLocalization();
+  const [open, setOpen] = useState(false);
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
-  const microsoft =
-    mailboxes.find(({ id }) => id === draft.connection)?.provider ===
-    'microsoft-graph';
   // Only the Draft's own Mail Profile can send it.
   const senders = sendingMailboxes(
     mailboxes,
     profileOf(draft.connection, mailboxes),
   );
   const from = clip(draft.from);
+  const shortened = from.length < draft.from.length;
+  let label = t(shortened ? 'drafts.sendFromShortened' : 'drafts.sendFrom', {
+    address: from,
+  });
+  if (state !== 'available') {
+    label = t(shortened ? 'drafts.cannotSendShortened' : 'drafts.cannotSend', {
+      from,
+    });
+  }
   return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.textSecondary }]}>
-        {t('drafts.fromLabel')}
-      </Text>
-      <View style={styles.bar}>
-        {state === 'available' ? null : (
-          <View
-            accessible
+    <PopUp
+      quiet
+      accessibilityLabel={label}
+      disabled={!editable}
+      label={from}
+      open={open}
+      prefix={t('drafts.fromLabel')}
+      selected={state === 'available'}
+      onToggle={() => {
+        setOpen((current) => !current);
+      }}>
+      {senders.map((mailbox) => {
+        const address = clip(mailbox.address);
+        return (
+          <MenuItem
+            key={mailbox.id}
+            disabled={!editable}
             accessibilityLabel={t(
-              from.length < draft.from.length
-                ? 'drafts.cannotSendShortened'
-                : 'drafts.cannotSend',
-              { from },
+              address.length < mailbox.address.length
+                ? 'drafts.sendFromShortened'
+                : 'drafts.sendFrom',
+              { address },
             )}
-            style={[styles.choice, { borderColor: colors.separator }]}>
-            <Text style={{ color: colors.textSecondary }}>{from}</Text>
-          </View>
-        )}
-        {senders.map((mailbox) => {
-          const address = clip(mailbox.address);
-          const selected =
-            state === 'available' && mailbox.id === draft.connection;
-          return (
-            <Pressable
-              key={mailbox.id}
-              accessibilityLabel={t(
-                address.length < mailbox.address.length
-                  ? 'drafts.sendFromShortened'
-                  : 'drafts.sendFrom',
-                { address },
-              )}
-              accessibilityRole="button"
-              accessibilityState={{ selected, disabled: !editable }}
-              disabled={!editable}
-              onPress={() => {
-                onChange(mailbox);
-              }}
-              style={[
-                styles.choice,
-                {
-                  backgroundColor: selected
-                    ? colors.accentSelectionSubtle
-                    : colors.surfaceSidebar,
-                  borderColor: selected ? colors.accentInk : 'transparent',
-                },
-              ]}>
-              <Text style={{ color: colors.textPrimary }}>{address}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {state === 'available' ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.notice, { color: colors.textPrimary }]}>
-          {t(
-            state === 'authorization' && microsoft
-              ? 'drafts.sending.authorization_microsoft'
-              : `drafts.sending.${state}`,
-          )}
-        </Text>
+            label={address}
+            selected={state === 'available' && mailbox.id === draft.connection}
+            onPress={() => {
+              setOpen(false);
+              onChange(mailbox);
+            }}
+          />
+        );
+      })}
+    </PopUp>
+  );
+}
+
+function SendingNotice({ draft }: { readonly draft: Draft }) {
+  const account = use(AccountContext);
+  const { t } = useLocalization();
+  const mailboxes = account?.mailboxes ?? [];
+  const state = sendingStateOf(draft, mailboxes);
+  const microsoft =
+    mailboxes.find(({ id }) => id === draft.connection)?.provider ===
+    'microsoft-graph';
+  return state === 'available' ? null : (
+    <Alert
+      message={t(
+        state === 'authorization' && microsoft
+          ? 'drafts.sending.authorization_microsoft'
+          : `drafts.sending.${state}`,
       )}
-    </View>
+    />
   );
 }
 
@@ -577,6 +650,7 @@ function Recipients({
   onChange,
   onCaretMove,
   editable,
+  trailing,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
@@ -585,6 +659,8 @@ function Recipients({
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
+  // A control at the row's trailing edge, such as the one revealing Cc and Bcc.
+  readonly trailing?: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -608,87 +684,103 @@ function Recipients({
     setNotice(result.notice);
   };
   return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.textSecondary }]}>
-        {name}
-      </Text>
-      <View style={styles.tokens}>
-        {draft[field].map((recipient) => (
-          <Pressable
-            key={recipient.address}
-            accessibilityHint={t('drafts.removeRecipient')}
-            accessibilityLabel={t('drafts.recipientLabel', {
-              field: name,
-              recipient: recipientLabel(recipient),
-            })}
-            accessibilityRole="button"
+    <View>
+      <View style={[styles.field, { borderTopColor: colors.separator }]}>
+        <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+          {`${name}:`}
+        </Text>
+        <View style={styles.entries}>
+          {draft[field].map((recipient) => (
+            <Pressable
+              key={recipient.address}
+              accessibilityHint={t('drafts.removeRecipient')}
+              accessibilityLabel={t('drafts.recipientLabel', {
+                field: name,
+                recipient: recipientLabel(recipient),
+              })}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !editable }}
+              disabled={!editable}
+              onPress={() => {
+                const current = getDraft();
+                onChange(
+                  {
+                    ...current,
+                    [field]: current[field].filter(
+                      (each) => each.address !== recipient.address,
+                    ),
+                  },
+                  false,
+                  field,
+                );
+              }}
+              style={styles.token}>
+              <View
+                style={[
+                  styles.tokenFill,
+                  { backgroundColor: colors.fillQuiet },
+                ]}>
+                <Text style={[styles.tokenText, { color: colors.textPrimary }]}>
+                  {recipient.name ?? recipient.address}
+                </Text>
+                <SFSymbol
+                  name="xmark"
+                  size={10}
+                  color={colors.textSecondary}
+                />
+              </View>
+            </Pressable>
+          ))}
+          <TextInput
+            accessibilityLabel={name}
+            editable={editable}
             accessibilityState={{ disabled: !editable }}
-            disabled={!editable}
-            onPress={() => {
-              const current = getDraft();
-              onChange(
-                {
-                  ...current,
-                  [field]: current[field].filter(
-                    (each) => each.address !== recipient.address,
-                  ),
-                },
-                false,
-                field,
-              );
+            autoCapitalize="none"
+            autoComplete="email"
+            autoCorrect={false}
+            submitBehavior="submit"
+            inputMode="email"
+            onBlur={() => {
+              add(entryOf(getDraft(), field), true);
             }}
-            style={[
-              styles.token,
-              { backgroundColor: colors.accentSelectionSubtle },
-            ]}>
-            <Text style={{ color: colors.textPrimary }}>
-              {`${recipient.name ?? recipient.address} ×`}
-            </Text>
-          </Pressable>
-        ))}
+            onChangeText={(value) => {
+              const text = entryOf(getDraft(), field);
+              caret.current =
+                selection.current.end + value.length - text.length;
+              const word =
+                value.length === text.length + 1 &&
+                !/\s/u.test(value[selection.current.start] ?? ' ');
+              add(value, false, word);
+            }}
+            onSelectionChange={({ nativeEvent }) => {
+              const next = nativeEvent.selection;
+              if (next.start !== next.end || next.start !== caret.current) {
+                onCaretMove();
+              }
+              caret.current = undefined;
+              selection.current = next;
+            }}
+            onSubmitEditing={() => {
+              add(entryOf(getDraft(), field), true);
+            }}
+            placeholder={t('drafts.recipientPlaceholder')}
+            placeholderTextColor={colors.textSecondary}
+            returnKeyType="next"
+            style={[styles.input, { color: colors.textPrimary }]}
+            textContentType="emailAddress"
+            value={entryOf(draft, field)}
+          />
+        </View>
+        {trailing}
       </View>
-      <TextInput
-        accessibilityLabel={name}
-        editable={editable}
-        accessibilityState={{ disabled: !editable }}
-        autoCapitalize="none"
-        autoComplete="email"
-        autoCorrect={false}
-        submitBehavior="submit"
-        inputMode="email"
-        onBlur={() => {
-          add(entryOf(getDraft(), field), true);
-        }}
-        onChangeText={(value) => {
-          const text = entryOf(getDraft(), field);
-          caret.current = selection.current.end + value.length - text.length;
-          const word =
-            value.length === text.length + 1 &&
-            !/\s/u.test(value[selection.current.start] ?? ' ');
-          add(value, false, word);
-        }}
-        onSelectionChange={({ nativeEvent }) => {
-          const next = nativeEvent.selection;
-          if (next.start !== next.end || next.start !== caret.current) {
-            onCaretMove();
-          }
-          caret.current = undefined;
-          selection.current = next;
-        }}
-        onSubmitEditing={() => {
-          add(entryOf(getDraft(), field), true);
-        }}
-        placeholder={t('drafts.recipientPlaceholder')}
-        placeholderTextColor={colors.textSecondary}
-        returnKeyType="next"
-        style={[styles.input, { color: colors.textPrimary }]}
-        textContentType="emailAddress"
-        value={entryOf(draft, field)}
-      />
       {notice === undefined ? null : (
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.notice, { color: colors.textPrimary }]}>
+          style={[
+            styles.notice,
+            styles.fieldNotice,
+            { color: colors.textSecondary },
+          ]}>
           {t(`drafts.recipient.${notice}`)}
         </Text>
       )}
@@ -831,7 +923,7 @@ function AssetRow({
     preview,
   });
   return (
-    <View style={styles.asset}>
+    <View style={[styles.assetChip, { backgroundColor: colors.fillQuiet }]}>
       {preview?.kind === 'ready' ? (
         <Image
           accessibilityIgnoresInvertColors
@@ -841,16 +933,27 @@ function AssetRow({
           source={{ uri: preview.uri }}
           style={styles.thumbnail}
         />
-      ) : null}
+      ) : (
+        <SFSymbol
+          name={inline ? 'photo' : 'doc'}
+          color={colors.textSecondary}
+        />
+      )}
       <View
         accessible
         accessibilityLabel={t('drafts.assets.row', {
           name: asset.name,
           status,
         })}
-        style={styles.grow}>
-        <Text style={{ color: colors.textPrimary }}>{asset.name}</Text>
-        <Text style={[styles.status, { color: colors.textSecondary }]}>
+        style={styles.assetMeta}>
+        <Text
+          numberOfLines={1}
+          style={[styles.assetName, { color: colors.textPrimary }]}>
+          {asset.name}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.assetStatus, { color: colors.textSecondary }]}>
           {status}
         </Text>
       </View>
@@ -876,12 +979,10 @@ function AssetRow({
           }}
         />
       ) : null}
-      <Action
+      <ToolbarButton
         disabled={!editable}
-        accessibilityLabel={t('drafts.assets.removeLabel', {
-          name: asset.name,
-        })}
-        label={t('drafts.assets.remove')}
+        icon="xmark"
+        label={t('drafts.assets.removeLabel', { name: asset.name })}
         onPress={() => {
           onRemove(asset.id);
         }}
@@ -903,7 +1004,6 @@ function DraftAssets({
   readonly onCancel: (id: string) => void;
 }) {
   const store = useDraftStore();
-  const colors = usePalette();
   const { t } = useLocalization();
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const attachments = draft.attachments ?? [];
@@ -931,30 +1031,17 @@ function DraftAssets({
       />
     ));
   return (
-    <View>
+    <View style={styles.assets}>
       {unsendableAssets(draft).length > 0 ? (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.notice, { color: colors.textPrimary }]}>
-          {t('drafts.assets.unsendable')}
-        </Text>
+        <Alert message={t('drafts.assets.unsendable')} />
       ) : null}
-      {attachments.length > 0 ? (
-        <Text
-          accessibilityRole="header"
-          style={[styles.label, { color: colors.textSecondary }]}>
-          {t('drafts.assets.attachments')}
-        </Text>
-      ) : null}
-      {rows(attachments, false)}
-      {images.length > 0 ? (
-        <Text
-          accessibilityRole="header"
-          style={[styles.label, { color: colors.textSecondary }]}>
-          {t('drafts.assets.inlineImages')}
-        </Text>
-      ) : null}
-      {rows(images, true)}
+      <View
+        accessibilityLabel={t('drafts.assets.attachments')}
+        accessibilityRole="list"
+        style={styles.assetChips}>
+        {rows(attachments, false)}
+        {rows(images, true)}
+      </View>
     </View>
   );
 }
@@ -965,13 +1052,14 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   const { t } = useLocalization();
   const [shown, setShown] = useState(false);
   return (
-    <View>
+    <View style={styles.quoted}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: shown }}
         onPress={() => {
           setShown((current) => !current);
-        }}>
+        }}
+        style={styles.action}>
         <Text style={[styles.notice, { color: colors.accentInk }]}>
           {shown
             ? t('drafts.response.hideQuoted')
@@ -981,7 +1069,10 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
       {shown ? (
         <Text
           selectable
-          style={[styles.quoted, { color: colors.textSecondary }]}>
+          style={[
+            styles.quotedText,
+            { color: colors.textSecondary, borderLeftColor: colors.separator },
+          ]}>
           {displayOf(quoted).text.replaceAll(imageCharacter, '')}
         </Text>
       ) : null}
@@ -1008,21 +1099,18 @@ function SendRefusalNotice({
   readonly refused: SendRefusal | undefined;
   readonly connection: string;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
   return refused === undefined ? null : (
-    <Text
-      accessibilityRole="alert"
-      style={[styles.notice, { color: colors.textPrimary }]}>
-      {t(
+    <Alert
+      message={t(
         refused === 'too-large'
           ? tooLarge[provider ?? 'gmail']
           : `drafts.sendRefused.${refused}`,
       )}
-    </Text>
+    />
   );
 }
 
@@ -1078,15 +1166,84 @@ export function CapturedAssistance({
   );
 }
 
+// Why the composer stays open, or what it asks before discarding, above the format bar.
+function ComposerNotices({
+  closing,
+  draft,
+  refused,
+  onClose,
+  onDiscard,
+  onKeepEditing,
+}: {
+  readonly closing: Closing | undefined;
+  readonly draft: Draft;
+  readonly refused: SendRefusal | undefined;
+  readonly onClose: () => void;
+  readonly onDiscard: () => void;
+  readonly onKeepEditing: () => void;
+}) {
+  const { t } = useLocalization();
+  return (
+    <View style={styles.alerts}>
+      {closing === 'blocked' || closing === 'discard-blocked' ? (
+        <Alert
+          message={
+            closing === 'discard-blocked'
+              ? t('drafts.discardBlocked')
+              : t('drafts.saveBlocked')
+          }>
+          <Button
+            size="compact"
+            label={t('common.retry')}
+            onPress={closing === 'discard-blocked' ? onDiscard : onClose}
+          />
+        </Alert>
+      ) : null}
+      {closing === 'recipients' ? (
+        <Alert message={t('drafts.invalidRecipients')} />
+      ) : null}
+      <SendRefusalNotice
+        connection={draft.connection}
+        refused={refused}
+      />
+      <SendingNotice draft={draft} />
+      {closing === 'discard' ? (
+        <Alert message={t('drafts.discardConfirm')}>
+          <Button
+            size="compact"
+            destructive
+            label={t('drafts.discardDraft')}
+            onPress={onDiscard}
+          />
+          <Button
+            size="compact"
+            label={t('drafts.keepEditing')}
+            onPress={onKeepEditing}
+          />
+        </Alert>
+      ) : null}
+    </View>
+  );
+}
+
 function Editor({
   initial,
   onClose,
+  onClosedAfterRemoval,
   onRebind,
+  expanded = false,
+  onExpand,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
+  // Closing an empty Draft or discarding one removes it, which unmounts this editor before it can
+  // call `onClose`; the composer closes in its place while it still shows Draft `id`.
+  readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
   readonly onRebind: (id: string) => void;
+  // Whether the composer takes over the window, and the control that toggles it when offered.
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -1188,11 +1345,12 @@ function Editor({
     typingNow.current = next;
     setTyping(next);
   };
-  const [closing, setClosing] = useState<
-    'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
-  >();
+  const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
+  // iPad keeps the format bar at the top; iPhone keeps it above the keyboard.
+  const layout = use(ComposerLayoutContext);
+  const regular = layout.size === 'regular';
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
@@ -1260,7 +1418,7 @@ function Editor({
       ),
     );
     typingField.current = word ? field : undefined;
-    if (!discarded.current) {
+    if (!discarded.current && lifetime.current.finishing === 0) {
       setClosing(undefined);
     }
     update(next);
@@ -1475,7 +1633,7 @@ function Editor({
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return false;
     }
     // Entries still being typed become recipients; invalid text keeps the Draft open.
@@ -1511,6 +1669,9 @@ function Editor({
     }
     finishOperation();
     if (!lifetime.current.mounted) {
+      if (closed) {
+        onClosedAfterRemoval(authored.current.id);
+      }
       return closed;
     }
     if (closed) {
@@ -1519,12 +1680,20 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
+  }, [
+    commitHistory,
+    finishOperation,
+    keepIdentity,
+    onClose,
+    onClosedAfterRemoval,
+    store,
+    update,
+  ]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const paletteHeader = usePaletteHeader();
   const discard = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const previous = authored.current;
@@ -1560,11 +1729,13 @@ function Editor({
       } else {
         setClosing('discard-blocked');
       }
+    } else if (removed) {
+      onClosedAfterRemoval(authored.current.id);
     }
   };
   // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
   const send = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const latest = authored.current;
@@ -1630,445 +1801,414 @@ function Editor({
       : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
+  const copiesShown =
+    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
 
+  // The key keeps its menu mounted when adaptation moves the bar above or below the editor.
+  const formatBar = (
+    <FormatBar
+      key="format-bar"
+      active={active}
+      kind={kind}
+      disabled={sending}
+      above={!regular}
+      onBlock={block}
+      onMark={format}>
+      <View style={[styles.divider, { backgroundColor: colors.separator }]} />
+      <ToolbarButton
+        disabled={lockedUnless(history.past.length > 0)}
+        icon="arrow.uturn.backward"
+        label={t('drafts.undo')}
+        onPress={() => {
+          travel(undo);
+        }}
+      />
+      <ToolbarButton
+        disabled={lockedUnless(history.future.length > 0)}
+        icon="arrow.uturn.forward"
+        label={t('drafts.redo')}
+        onPress={() => {
+          travel(redo);
+        }}
+      />
+      <View style={styles.grow} />
+      {translation === undefined ? null : (
+        <Button
+          size="compact"
+          disabled={lockedUnless(
+            hasTranslatableText(
+              selectedText(draft.body, selection, translationInputLimit + 1),
+            ),
+          )}
+          label={t('translation.translate')}
+          accessibilityLabel={t('translation.translateSelectionLabel')}
+          onPress={() => {
+            const at = selectionNow.current;
+            const { body } = authored.current;
+            const text = selectedText(body, at, translationInputLimit + 1);
+            if (
+              sendingNow.current ||
+              !lifetime.current.mounted ||
+              !hasTranslatableText(text)
+            ) {
+              return;
+            }
+            capture('translate', at);
+          }}
+        />
+      )}
+      {assistance === undefined ? null : (
+        <>
+          <Button
+            size="compact"
+            disabled={lockedUnless(canRewrite(draft.body, selection))}
+            label={t('assistance.rewrite')}
+            accessibilityLabel={t(rewriteLabel(selection))}
+            onPress={() => {
+              const at = selectionNow.current;
+              if (
+                lifetime.current.mounted &&
+                canRewrite(authored.current.body, at)
+              ) {
+                capture('rewrite', at);
+              }
+            }}
+          />
+          {canSuggestReply(draft) ? (
+            <Button
+              size="compact"
+              disabled={sending}
+              label={t('assistance.suggestReply')}
+              accessibilityLabel={t('assistance.suggestReplyLabel')}
+              onPress={() => {
+                if (lifetime.current.mounted) {
+                  capture('reply', selectionNow.current);
+                }
+              }}
+            />
+          ) : null}
+        </>
+      )}
+      <View style={[styles.divider, { backgroundColor: colors.separator }]} />
+      <ToolbarButton
+        disabled={sending}
+        icon="paperclip"
+        label={t('drafts.assets.attachFile')}
+        onPress={() => {
+          void choose('files', false);
+        }}
+      />
+      <ToolbarButton
+        disabled={sending}
+        icon="photo"
+        label={t('drafts.assets.attachPhoto')}
+        onPress={() => {
+          void choose('photos', false);
+        }}
+      />
+      <ToolbarButton
+        disabled={sending}
+        icon="photo.on.rectangle"
+        label={t('drafts.assets.insertImage')}
+        onPress={() => {
+          void choose('photos', true);
+        }}
+      />
+      <ToolbarButton
+        disabled={sending}
+        icon="doc.on.clipboard"
+        label={t('drafts.assets.pasteImage')}
+        onPress={() => {
+          void choose('paste', true);
+        }}
+      />
+    </FormatBar>
+  );
+
+  const [topBar, bottomBar] = regular ? [formatBar, null] : [null, formatBar];
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {/* The bar stays put while the body scrolls: it is the screen's header, which opens the
-          Command Palette by a downward swipe. */}
-      <View style={styles.top}>
+      <KeyboardAvoidingView
+        behavior="padding"
+        enabled={layout.avoidKeyboard}
+        keyboardVerticalOffset={layout.top}
+        style={styles.fill}>
+        {/* The header opens the Command Palette by a downward swipe, as other screens' do. */}
         <View
-          style={styles.bar}
+          style={styles.header}
           {...paletteHeader.swipe}>
-          <Action
+          <Pressable
+            accessibilityLabel={t('drafts.close')}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: closing === 'saving' }}
             disabled={closing === 'saving'}
-            label={t('drafts.close')}
             onPress={() => {
               void close();
             }}
-          />
+            style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
+            <NativeGlass
+              cornerRadius={22}
+              style={StyleSheet.absoluteFill}
+            />
+            <SFSymbol
+              name="xmark"
+              color={colors.textPrimary}
+            />
+          </Pressable>
           <Text
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
             numberOfLines={1}
-            style={[
-              styles.grow,
-              styles.actionText,
-              { color: colors.textPrimary, fontWeight: '600' },
-            ]}
+            style={[styles.grow, styles.title, { color: colors.textPrimary }]}
             {...paletteHeader.action}>
             {title}
           </Text>
           <CommandInput />
-          <Action
-            disabled={lockedUnless(history.past.length > 0)}
-            label={t('drafts.undo')}
-            onPress={() => {
-              travel(undo);
-            }}
-          />
-          <Action
-            disabled={lockedUnless(history.future.length > 0)}
-            label={t('drafts.redo')}
-            onPress={() => {
-              travel(redo);
-            }}
-          />
-          <Action
-            destructive
-            disabled={sending}
-            label={t('drafts.discard')}
-            onPress={() => {
-              if (!sendingNow.current) {
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              icon={
+                expanded
+                  ? 'arrow.down.right.and.arrow.up.left'
+                  : 'arrow.up.left.and.arrow.down.right'
+              }
+              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+              onPress={onExpand}
+            />
+          )}
+          <ComposerActions
+            disabled={lockedUnless(closing !== 'saving')}
+            onDiscard={() => {
+              if (!sendingNow.current && lifetime.current.finishing === 0) {
                 setClosing('discard');
               }
             }}
           />
-          <Action
+          <Pressable
+            accessibilityLabel={t('drafts.send')}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: closing === 'saving' }}
             disabled={closing === 'saving'}
-            label={t('drafts.send')}
             onPress={() => {
               void send();
             }}
-          />
+            style={[styles.circle, { backgroundColor: colors.accentFill }]}>
+            <SFSymbol
+              name="arrow.up"
+              color={colors.accentOnFill}
+            />
+          </Pressable>
         </View>
-      </View>
-      <ScrollView
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled">
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-        </Text>
-        {closing === 'blocked' || closing === 'discard-blocked' ? (
+        <View style={styles.fromRow}>
           <View style={styles.bar}>
-            <Text
-              accessibilityRole="alert"
-              style={[
-                styles.notice,
-                styles.grow,
-                { color: colors.textPrimary },
-              ]}>
-              {closing === 'discard-blocked'
-                ? t('drafts.discardBlocked')
-                : t('drafts.saveBlocked')}
-            </Text>
-            <Action
-              label={t('common.retry')}
-              onPress={() => {
-                void (closing === 'discard-blocked' ? discard() : close());
+            <SendingMailbox
+              draft={draft}
+              editable={!sending}
+              onChange={(mailbox) => {
+                change(withSender(authored.current, mailbox));
               }}
             />
           </View>
-        ) : null}
-        {closing === 'recipients' ? (
+        </View>
+        {topBar}
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled">
           <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {t('drafts.invalidRecipients')}
+            accessibilityLiveRegion="polite"
+            style={[styles.status, { color: colors.textSecondary }]}>
+            {t('drafts.status', { status: t(`drafts.save.${save}`) })}
           </Text>
-        ) : null}
-        <SendRefusalNotice
-          connection={draft.connection}
-          refused={refused}
-        />
-        {closing === 'discard' ? (
-          <View style={styles.bar}>
-            <Text
-              accessibilityRole="alert"
-              style={[
-                styles.notice,
-                styles.grow,
-                { color: colors.textPrimary },
-              ]}>
-              {t('drafts.discardConfirm')}
-            </Text>
-            <Action
-              destructive
-              label={t('drafts.discardDraft')}
-              onPress={() => {
-                void discard();
-              }}
-            />
-            <Action
-              label={t('drafts.keepEditing')}
-              onPress={() => {
-                setClosing(undefined);
-              }}
-            />
-          </View>
-        ) : null}
-        <SendingMailbox
-          draft={draft}
-          editable={!sending}
-          onChange={(mailbox) => {
-            change(withSender(authored.current, mailbox));
-          }}
-        />
-        <Recipients
-          draft={draft}
-          getDraft={getDraft}
-          editable={!sending}
-          field="to"
-          onChange={change}
-          onCaretMove={breakTyping}
-        />
-        {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
-          <>
-            <Recipients
-              draft={draft}
-              getDraft={getDraft}
-              editable={!sending}
-              field="cc"
-              onChange={change}
-              onCaretMove={breakTyping}
-            />
-            <Recipients
-              draft={draft}
-              getDraft={getDraft}
-              editable={!sending}
-              field="bcc"
-              onChange={change}
-              onCaretMove={breakTyping}
-            />
-          </>
-        ) : (
-          <Action
-            disabled={sending}
-            accessibilityLabel={t('drafts.showCcBcc')}
-            label={t('drafts.ccBcc')}
-            onPress={() => {
-              change({ ...authored.current, copies: true });
+          <ComposerNotices
+            closing={closing}
+            draft={draft}
+            refused={refused}
+            onClose={() => {
+              void close();
+            }}
+            onDiscard={() => {
+              void discard();
+            }}
+            onKeepEditing={() => {
+              setClosing(undefined);
             }}
           />
-        )}
-        <View style={styles.field}>
+          {captured === undefined ? null : (
+            <View style={styles.review}>
+              <CapturedAssistance
+                key={captured.id}
+                captured={captured}
+                assistance={assistance}
+                translation={translation}
+                onApply={applyCaptured}
+                onClose={closeCaptured}
+              />
+            </View>
+          )}
           <TextInput
-            accessibilityLabel={t('drafts.subject')}
+            accessibilityLabel={t('drafts.body')}
             editable={!sending}
             accessibilityState={{ disabled: sending }}
-            onChangeText={(subject) => {
-              const previous = authored.current.subject;
-              subjectCaret.current =
-                subjectSelection.current.end + subject.length - previous.length;
-              // One character added at the caret continues a typing step until a word ends.
-              const added =
-                subjectSelection.current.start ===
-                  subjectSelection.current.end &&
-                subject.length === previous.length + 1;
-              const typed = subject[subjectSelection.current.start] ?? ' ';
-              change(
-                { ...authored.current, subject },
-                added && !/\s/u.test(typed),
-                'subject',
-              );
+            multiline
+            onChange={({ nativeEvent }: BodyChangeEvent) => {
+              changedSelection.current = nativeEvent.selection;
             }}
+            onChangeText={edit}
             onSelectionChange={({ nativeEvent }) => {
               const next = nativeEvent.selection;
-              if (
-                next.start !== next.end ||
-                next.start !== subjectCaret.current
-              ) {
+              // Moving the caret anywhere but past typed text ends marks toggled for typing.
+              if (next.start !== next.end || next.start !== caret.current) {
+                placeTyping(undefined);
                 commitHistory((current) => ({ ...current, typing: false }));
               }
-              subjectCaret.current = undefined;
-              subjectSelection.current = next;
+              caret.current = undefined;
+              setPlaced(undefined);
+              selectionNow.current = next;
+              setSelection(next);
             }}
-            placeholder={t('drafts.subject')}
+            placeholder={t('drafts.bodyPlaceholder')}
             placeholderTextColor={colors.textSecondary}
-            style={[styles.input, { color: colors.textPrimary }]}
-            value={draft.subject}
-          />
-        </View>
-        <View
-          accessibilityLabel={t('drafts.formatting')}
-          accessibilityRole="toolbar"
-          style={styles.bar}>
-          {markControls.map(([mark, label, name, style]) => (
-            <Pressable
-              key={mark}
-              accessibilityLabel={t(name)}
-              accessibilityRole="button"
-              accessibilityState={{
-                selected: active.includes(mark),
-                disabled: sending,
-              }}
-              disabled={sending}
-              onPress={() => {
-                format(mark);
-              }}
-              style={[
-                styles.format,
-                {
-                  backgroundColor: active.includes(mark)
-                    ? colors.accentSelectionSubtle
-                    : 'transparent',
-                },
-              ]}>
-              <Text style={[{ color: colors.textPrimary }, style]}>
-                {label}
+            scrollEnabled={false}
+            selection={placed}
+            style={[styles.body, { color: colors.textPrimary }]}
+            textAlignVertical="top">
+            {display.lines.map((line, index) => (
+              <Text
+                // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+                key={index}
+                style={[
+                  kindStyles[line.kind],
+                  line.kind === 'quote'
+                    ? { color: colors.textSecondary }
+                    : null,
+                ]}>
+                {line.marker}
+                {line.spans.map((span, at) => (
+                  <Text
+                    // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                    key={at}
+                    style={markStyle(span.marks)}>
+                    {span.text}
+                  </Text>
+                ))}
+                {index < display.lines.length - 1 ? '\n' : ''}
               </Text>
-            </Pressable>
-          ))}
-          {blockControls.map(([value, label, name]) => (
-            <Pressable
-              key={value}
-              accessibilityLabel={t(name)}
-              accessibilityRole="button"
-              accessibilityState={{
-                selected: kind === value,
-                disabled: sending,
-              }}
-              disabled={sending}
-              onPress={() => {
-                block(value);
-              }}
-              style={[
-                styles.format,
-                {
-                  backgroundColor:
-                    kind === value
-                      ? colors.accentSelectionSubtle
-                      : 'transparent',
-                },
-              ]}>
-              <Text style={{ color: colors.textPrimary }}>{label}</Text>
-            </Pressable>
-          ))}
-          {translation === undefined ? null : (
-            <Action
-              disabled={lockedUnless(
-                hasTranslatableText(
-                  selectedText(
-                    draft.body,
-                    selection,
-                    translationInputLimit + 1,
-                  ),
-                ),
-              )}
-              label={t('translation.translate')}
-              accessibilityLabel={t('translation.translateSelectionLabel')}
-              onPress={() => {
-                const at = selectionNow.current;
-                const { body } = authored.current;
-                const text = selectedText(body, at, translationInputLimit + 1);
-                if (
-                  sendingNow.current ||
-                  !lifetime.current.mounted ||
-                  !hasTranslatableText(text)
-                ) {
-                  return;
-                }
-                capture('translate', at);
-              }}
-            />
+            ))}
+          </TextInput>
+          {draft.quoted === undefined ? null : (
+            <QuotedText quoted={draft.quoted} />
           )}
-          {assistance === undefined ? null : (
-            <>
-              <Action
-                disabled={lockedUnless(canRewrite(draft.body, selection))}
-                label={t('assistance.rewrite')}
-                accessibilityLabel={t(rewriteLabel(selection))}
-                onPress={() => {
-                  const at = selectionNow.current;
-                  if (
-                    lifetime.current.mounted &&
-                    canRewrite(authored.current.body, at)
-                  ) {
-                    capture('rewrite', at);
-                  }
+          <DraftAssets
+            draft={draft}
+            editable={!sending}
+            onCancel={(id) => {
+              if (!sendingNow.current) {
+                void store.cancelImport(id);
+              }
+            }}
+            onRemove={removeAsset}
+          />
+          <View style={styles.fields}>
+            <View style={[styles.field, { borderTopColor: colors.separator }]}>
+              <Text
+                style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                {`${t('drafts.subject')}:`}
+              </Text>
+              <TextInput
+                accessibilityLabel={t('drafts.subject')}
+                editable={!sending}
+                accessibilityState={{ disabled: sending }}
+                onChangeText={(subject) => {
+                  const previous = authored.current.subject;
+                  subjectCaret.current =
+                    subjectSelection.current.end +
+                    subject.length -
+                    previous.length;
+                  // One character added at the caret continues a typing step until a word ends.
+                  const added =
+                    subjectSelection.current.start ===
+                      subjectSelection.current.end &&
+                    subject.length === previous.length + 1;
+                  const typed = subject[subjectSelection.current.start] ?? ' ';
+                  change(
+                    { ...authored.current, subject },
+                    added && !/\s/u.test(typed),
+                    'subject',
+                  );
                 }}
+                onSelectionChange={({ nativeEvent }) => {
+                  const next = nativeEvent.selection;
+                  if (
+                    next.start !== next.end ||
+                    next.start !== subjectCaret.current
+                  ) {
+                    commitHistory((current) => ({
+                      ...current,
+                      typing: false,
+                    }));
+                  }
+                  subjectCaret.current = undefined;
+                  subjectSelection.current = next;
+                }}
+                placeholder={t('drafts.subject')}
+                placeholderTextColor={colors.textSecondary}
+                style={[styles.input, { color: colors.textPrimary }]}
+                value={draft.subject}
               />
-              {canSuggestReply(draft) ? (
-                <Action
-                  disabled={sending}
-                  label={t('assistance.suggestReply')}
-                  accessibilityLabel={t('assistance.suggestReplyLabel')}
-                  onPress={() => {
-                    if (lifetime.current.mounted) {
-                      capture('reply', selectionNow.current);
-                    }
-                  }}
+            </View>
+            <Recipients
+              draft={draft}
+              getDraft={getDraft}
+              editable={!sending}
+              field="to"
+              onChange={change}
+              onCaretMove={breakTyping}
+              trailing={
+                copiesShown ? undefined : (
+                  <Action
+                    disabled={sending}
+                    accessibilityLabel={t('drafts.showCcBcc')}
+                    label={t('drafts.ccBcc')}
+                    onPress={() => {
+                      change({ ...authored.current, copies: true });
+                    }}
+                  />
+                )
+              }
+            />
+            {copiesShown ? (
+              <>
+                <Recipients
+                  draft={draft}
+                  getDraft={getDraft}
+                  editable={!sending}
+                  field="cc"
+                  onChange={change}
+                  onCaretMove={breakTyping}
                 />
-              ) : null}
-            </>
-          )}
-        </View>
-        <View
-          accessibilityLabel={t('drafts.assets.toolbar')}
-          accessibilityRole="toolbar"
-          style={styles.bar}>
-          <Action
-            disabled={sending}
-            label={t('drafts.assets.attachFile')}
-            onPress={() => {
-              void choose('files', false);
-            }}
-          />
-          <Action
-            disabled={sending}
-            label={t('drafts.assets.attachPhoto')}
-            onPress={() => {
-              void choose('photos', false);
-            }}
-          />
-          <Action
-            disabled={sending}
-            label={t('drafts.assets.insertImage')}
-            onPress={() => {
-              void choose('photos', true);
-            }}
-          />
-          <Action
-            disabled={sending}
-            label={t('drafts.assets.pasteImage')}
-            onPress={() => {
-              void choose('paste', true);
-            }}
-          />
-        </View>
-        {captured === undefined ? null : (
-          <CapturedAssistance
-            key={captured.id}
-            captured={captured}
-            assistance={assistance}
-            translation={translation}
-            onApply={applyCaptured}
-            onClose={closeCaptured}
-          />
-        )}
-        <TextInput
-          accessibilityLabel={t('drafts.body')}
-          editable={!sending}
-          accessibilityState={{ disabled: sending }}
-          multiline
-          onChange={({ nativeEvent }: BodyChangeEvent) => {
-            changedSelection.current = nativeEvent.selection;
-          }}
-          onChangeText={edit}
-          onSelectionChange={({ nativeEvent }) => {
-            const next = nativeEvent.selection;
-            // Moving the caret anywhere but past typed text ends marks toggled for typing.
-            if (next.start !== next.end || next.start !== caret.current) {
-              placeTyping(undefined);
-              commitHistory((current) => ({ ...current, typing: false }));
-            }
-            caret.current = undefined;
-            setPlaced(undefined);
-            selectionNow.current = next;
-            setSelection(next);
-          }}
-          placeholder={t('drafts.bodyPlaceholder')}
-          placeholderTextColor={colors.textSecondary}
-          scrollEnabled={false}
-          selection={placed}
-          style={[styles.body, { color: colors.textPrimary }]}
-          textAlignVertical="top">
-          {display.lines.map((line, index) => (
-            <Text
-              // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-              key={index}
-              style={[
-                kindStyles[line.kind],
-                line.kind === 'quote' ? { color: colors.textSecondary } : null,
-              ]}>
-              {line.marker}
-              {line.spans.map((span, at) => (
-                <Text
-                  // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-                  key={at}
-                  style={markStyle(span.marks)}>
-                  {span.text}
-                </Text>
-              ))}
-              {index < display.lines.length - 1 ? '\n' : ''}
-            </Text>
-          ))}
-        </TextInput>
-        {draft.quoted === undefined ? null : (
-          <QuotedText quoted={draft.quoted} />
-        )}
-        <DraftAssets
-          draft={draft}
-          editable={!sending}
-          onCancel={(id) => {
-            if (!sendingNow.current) {
-              void store.cancelImport(id);
-            }
-          }}
-          onRemove={removeAsset}
-        />
-      </ScrollView>
+                <Recipients
+                  draft={draft}
+                  getDraft={getDraft}
+                  editable={!sending}
+                  field="bcc"
+                  onChange={change}
+                  onCaretMove={breakTyping}
+                />
+              </>
+            ) : null}
+          </View>
+        </ScrollView>
+        {bottomBar}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 // A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
-// keeps the palette entry the editor's top bar has.
+// keeps the palette entry the editor's header has.
 function ComposerFallback({
   kind,
   onClose,
@@ -2084,10 +2224,27 @@ function ComposerFallback({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <CommandInputRow />
       <View
-        style={styles.content}
+        style={styles.header}
         {...paletteHeader.swipe}>
+        <Pressable
+          accessibilityLabel={t('drafts.close')}
+          accessibilityRole="button"
+          onPress={onClose}
+          style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
+          <NativeGlass
+            cornerRadius={22}
+            style={StyleSheet.absoluteFill}
+          />
+          <SFSymbol
+            name="xmark"
+            color={colors.textPrimary}
+          />
+        </Pressable>
+        <View style={styles.grow} />
+        <CommandInput />
+      </View>
+      <View style={styles.alerts}>
         {kind === 'loading' ? (
           <ActivityIndicator
             accessible
@@ -2095,28 +2252,23 @@ function ComposerFallback({
             {...paletteHeader.action}
           />
         ) : (
-          <>
-            <Text
-              accessibilityRole="header"
-              style={[styles.actionText, { color: colors.textPrimary }]}
-              {...paletteHeader.action}>
-              {kind === 'locked'
+          <Alert
+            message={
+              kind === 'locked'
                 ? t('drafts.listLocked')
-                : t('drafts.unavailable')}
-            </Text>
+                : t('drafts.unavailable')
+            }
+            actions={paletteHeader.action}>
             {kind === 'locked' || kind === 'failed' ? (
-              <Action
+              <Button
+                size="compact"
                 label={t('common.retry')}
                 onPress={() => {
                   void store.load();
                 }}
               />
             ) : null}
-            <Action
-              label={t('drafts.close')}
-              onPress={onClose}
-            />
-          </>
+          </Alert>
         )}
       </View>
     </SafeAreaView>
@@ -2128,11 +2280,15 @@ export function Composer({
   id,
   onClose,
   onRebind,
+  expanded,
+  onExpand,
 }: {
   readonly id: string;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
@@ -2147,13 +2303,34 @@ export function Composer({
     },
     [onRebind],
   );
+  // The Draft this composer shows while it is mounted. An editor that finishes closing after its
+  // Draft was removed closes the composer only if it still shows that Draft, so leaving it or
+  // opening another Draft meanwhile stays as it is.
+  const shown = useRef<string | undefined>(id);
+  useLayoutEffect(() => {
+    shown.current = id;
+    return () => {
+      shown.current = undefined;
+    };
+  }, [id]);
+  const closedAfterRemoval = useCallback(
+    (closed: string) => {
+      if (shown.current === closed) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
   const draft = draftOf(state, id);
   if (draft !== undefined) {
     return (
       <Editor
         key={editor.key}
         initial={draft}
+        expanded={expanded}
         onClose={onClose}
+        onClosedAfterRemoval={closedAfterRemoval}
+        onExpand={onExpand}
         onRebind={rebind}
       />
     );

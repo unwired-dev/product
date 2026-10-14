@@ -464,6 +464,50 @@ function holdingListing(
   };
 }
 
+// The native context menu around a rendered control, and what choosing an item sends back.
+type MenuNode = ReturnType<typeof screen.getByText>;
+interface RenderedMenuItem {
+  readonly id: string;
+  readonly title: string;
+  readonly items?: readonly RenderedMenuItem[];
+}
+const contextMenuOf = (element: MenuNode) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected a context menu');
+  }
+  return node;
+};
+const menuSections = (menu: MenuNode) => {
+  const sections: ReadonlyArray<{ items: readonly RenderedMenuItem[] }> =
+    menu.props.sections;
+  const titles = ({ title, items }: RenderedMenuItem) =>
+    items === undefined ? title : [title, items.map((each) => each.title)];
+  return sections.map(({ items }) => items.map(titles));
+};
+const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
+  const sections: ReadonlyArray<{ items: readonly RenderedMenuItem[] }> =
+    menu.props.sections;
+  let items: readonly RenderedMenuItem[] = sections.flatMap(
+    (section) => section.items,
+  );
+  let chosen: RenderedMenuItem | undefined = undefined;
+  for (const title of path) {
+    chosen = items.find((item) => item.title === title);
+    items = chosen?.items ?? [];
+  }
+  if (chosen === undefined) {
+    throw new Error(`Expected ${path.join(' › ')} in the menu`);
+  }
+  const { id } = chosen;
+  await act(async () => {
+    await fireEvent(menu, 'select', { nativeEvent: { id } });
+  });
+};
+
 describe('connected Gmail Inbox', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
@@ -1004,6 +1048,19 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(keyboardLink);
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    // Its context menu opens the same confirmation, or copies the destination.
+    const linkMenu = contextMenuOf(keyboardLink);
+    expect(menuSections(linkMenu)).toStrictEqual([['Open Link', 'Copy Link']]);
+    await chooseFromMenu(linkMenu, 'Copy Link');
+    expect(setStringAsync).toHaveBeenLastCalledWith(
+      'https://example.invalid/plan',
+    );
+    await chooseFromMenu(linkMenu, 'Open Link');
+    expect(screen.getByText('Open this link in your browser?')).toBeVisible();
+    expect(openURL.mock.calls).toStrictEqual([
+      ['https://example.invalid/plan'],
+    ]);
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
     // A WebKit failure falls back to the readable text, never to unsanitized HTML.
     await act(async () => {
       fireEvent(webview, 'error', { nativeEvent: {} });
@@ -1302,7 +1359,7 @@ describe('command palette', () => {
     expect(screen.getByRole('search')).toBeVisible();
   });
 
-  it('keeps the palette on the account page and returns to the Inbox from it', async () => {
+  it('navigates Settings from the account page, keeps the palette there and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({
@@ -1314,12 +1371,46 @@ describe('command palette', () => {
     await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
-    });
-    await openPalette(
-      await screen.findByRole('header', { name: 'Gmail connected' }),
-    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name }));
+      });
+    };
+    const destinations = [
+      'Account & Devices',
+      'Email Accounts',
+      'Language',
+      'Privacy & Data',
+    ];
+    // The account page opens on the list of Settings destinations.
+    await press('Account');
+    await expect(
+      screen.findByRole('header', { name: 'Settings' }),
+    ).resolves.toBeVisible();
+    for (const name of destinations) {
+      expect(screen.getByRole('button', { name })).toBeVisible();
+    }
+    expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
+    // A destination pushes over the list, and the way back returns to it.
+    await press('Account & Devices');
+    expect(
+      screen.getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText('alex@example.invalid is connected on this device.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Email Accounts' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
+    await press('Back to Settings');
+    expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Account & Devices' }),
+    ).toBeNull();
+    await press('Email Accounts');
+    expect(
+      screen.getByRole('header', { name: 'Mailbox Connections' }),
+    ).toBeVisible();
+    await openPalette(screen.getByRole('header', { name: 'Email Accounts' }));
     expect(
       openedPalette().getByRole('button', {
         name: 'Reply. Select a conversation',
@@ -1331,9 +1422,7 @@ describe('command palette', () => {
       );
     });
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-    expect(
-      screen.queryByRole('header', { name: 'Gmail connected' }),
-    ).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
     await expect(
       screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -1361,7 +1450,7 @@ describe('command palette', () => {
       await Promise.resolve();
     });
     await expect(
-      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
   });
@@ -1482,7 +1571,7 @@ describe('command palette', () => {
       </InboxProvider>,
     );
     await openPalette(
-      await screen.findByRole('header', {
+      await screen.findByRole('alert', {
         name: 'This Draft is not available.',
       }),
     );
@@ -1493,4 +1582,74 @@ describe('command palette', () => {
     ).toBeDisabled();
   });
   /* oxlint-enable vitest/max-expects */
+});
+
+describe('context menus', () => {
+  it("offers a row's, the open message's and its sender's actions in their design order", async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const oliver = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const row = () =>
+      screen.getByRole('button', { name: /Oliver Park\. Saturday/u });
+    await screen.findByRole('button', { name: /Oliver Park\. Saturday/u });
+
+    // A row offers its provider's actions, Delete last; Report Spam stays a row action only.
+    await waitFor(() => {
+      const listed = contextMenuOf(row());
+      expect(menuSections(listed)).toStrictEqual([
+        ['Archive'],
+        ['Flag', 'Mark as Read'],
+        ['Delete'],
+      ]);
+    });
+    await chooseFromMenu(contextMenuOf(row()), 'Flag');
+    const rowActions: ReadonlyArray<{ name: string }> =
+      row().props.accessibilityActions;
+    const flagged = contextMenuOf(row());
+    expect({
+      starred: gmail.labelsOf(oliver).includes('STARRED'),
+      menu: menuSections(flagged)[1],
+      spam: rowActions.some(({ name }) => name === 'spam'),
+    }).toStrictEqual({
+      starred: true,
+      menu: ['Unflag', 'Mark as Read'],
+      spam: true,
+    });
+
+    // The open message's header offers its reader's actions; its sender offers Copy Address.
+    await fireEvent.press(row());
+    await screen.findByRole('button', { name: 'Labels' });
+    const sender = contextMenuOf(screen.getByText('oliver@example.invalid'));
+    const message = contextMenuOf(sender);
+    expect({
+      sender: menuSections(sender),
+      message: menuSections(message),
+    }).toStrictEqual({
+      sender: [['Copy Address']],
+      message: [
+        ['Mark as Read', 'Unflag'],
+        [['Move Message', ['Travel']], 'Delete Message'],
+      ],
+    });
+    await chooseFromMenu(sender, 'Copy Address');
+    expect(setStringAsync).toHaveBeenLastCalledWith('oliver@example.invalid');
+    jest.mocked(setStringAsync).mockClear();
+    await fireEvent(
+      within(sender).getByText('Oliver Park'),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'copy' } },
+    );
+    expect(setStringAsync).toHaveBeenCalledWith('oliver@example.invalid');
+    await chooseFromMenu(message, 'Move Message', 'Travel');
+    expect({
+      labels: gmail.labelsOf(oliver),
+      shown: screen.queryByText('Saturday, by the river?') !== null,
+    }).toStrictEqual({ labels: ['UNREAD', 'STARRED', travel], shown: false });
+  });
 });

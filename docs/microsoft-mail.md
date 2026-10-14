@@ -15,11 +15,11 @@ Shared and delegated mailboxes are outside the [launch scope](product/power-user
 
 After Google or Apple Product Sign-In and any [device admission](private-product-sync.md),
 nothing asks a provider for mail. The account page shows **Connect your mail** with
-**Authorize Gmail**, **Choose another Google mailbox** and, when Microsoft mail is
-configured for this build, **Connect Microsoft mail**.
+the **Gmail** provider row, **Choose another Google mailbox** and, when Microsoft mail
+is configured for this build, the **Microsoft 365 and Outlook** row.
 A Google sign-in only suggests its own account to Gmail; it is never a Microsoft hint.
 
-**Connect Microsoft mail** opens Microsoft's sign-in page in the system web
+**Microsoft 365 and Outlook** opens Microsoft's sign-in page in the system web
 authentication session and asks for `offline_access User.Read Mail.ReadWrite Mail.Send`,
 so it can read, organize and send mail. The connection is shown only after Graph reads the
 account and its Inbox:
@@ -32,7 +32,7 @@ account and its Inbox:
 | Network or Microsoft service failure                              | **Mailbox authorization was interrupted**; retry resumes           |
 
 Each outcome keeps the Product Account and offers retry or another provider,
-including after relaunch. Once connected, the account page's **Mailboxes** section
+including after relaunch. Once connected, Settings' **Email Accounts**
 lists Gmail and Microsoft connections together and offers **Add a Microsoft mailbox**.
 That action also requires Microsoft mail to be configured for this build.
 A connection whose grant Microsoft refuses later shows **Microsoft needs your
@@ -89,7 +89,8 @@ path, such as **Inbox / Projects**, so folders with equal names stay apart. A ma
 lists up to 250 folders, stopping at each folder's first provider page, and says
 when some folders were left out. **Undo** moves a message back to
 the Inbox. A Microsoft message lives in one folder, so Gmail's labels and star are
-not offered for it. Archive, Trash and Spam actions are offered only after their
+not offered for it. The row and reader [context menus](gmail-inbox.md#organizing-mail)
+offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus. Archive, Trash and Spam actions are offered only after their
 folder roles are known and present in the mailbox.
 
 Each change shows at once, is saved on this device and is sent to Microsoft in
@@ -164,8 +165,8 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
   mise exec -- pnpm native:generate
 ```
 
-The variable is optional: without it the hosts offer neither **Connect Microsoft
-mail** nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
+The variable is optional: without it the hosts offer neither the **Microsoft 365
+and Outlook** row nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
 read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository secret.
 
 ## Deterministic evidence

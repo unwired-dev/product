@@ -2,9 +2,7 @@ import type {
   PrivateSync as PrivateSyncState,
   Registration,
   RevocationFailure,
-  TrustedDevice,
 } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
 
 import {
   approvesDevices,
@@ -13,13 +11,28 @@ import {
   revocationProposal,
   trustedDevicesOf,
 } from '@private-email/mail-core/registration';
-import { useMemo, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Text, TextInput } from 'react-native';
+
+import type { SettingsButton } from './settings.tsx';
 
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
+import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
+
+// A native confirmation callback may arrive after its account view closes.
+function useConfirmationLifetime() {
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return useCallback(() => mounted.current, []);
+}
 
 // A prepared removal happens only after its replacement Recovery Key is confirmed as saved.
 function RevocationProposal({
@@ -29,7 +42,7 @@ function RevocationProposal({
   recoveryKey,
   store,
 }: {
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: SettingsButton;
   readonly failure: RevocationFailure | undefined;
   readonly name: string;
   readonly recoveryKey: string;
@@ -39,7 +52,7 @@ function RevocationProposal({
   const { t } = useLocalization();
   const [entry, setEntry] = useState('');
   return (
-    <View style={styles.device}>
+    <SettingsBlock>
       <Label
         accessibilityRole="header"
         style={[styles.heading, { color: colors.textPrimary }]}>
@@ -81,7 +94,7 @@ function RevocationProposal({
         store.confirmRevocation(entry),
       )}
       {button(t('revocation.cancel'), store.cancelRevocation)}
-    </View>
+    </SettingsBlock>
   );
 }
 
@@ -100,7 +113,7 @@ export function TrustedDevices({
     revocationRecoveryKey?: string;
     revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
   }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: SettingsButton;
   readonly failure: RevocationFailure | undefined;
   readonly store: Registration;
 }) {
@@ -110,7 +123,7 @@ export function TrustedDevices({
     () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
     [settings.locale],
   );
-  const [confirming, setConfirming] = useState<TrustedDevice['id']>();
+  const isCurrent = useConfirmationLifetime();
   const proposal = revocationProposal(t, account);
   // A retained proposal stays confirmable after this device loses its encryption key, when it
   // can no longer approve devices but may still need to repeat the exact removal it sent.
@@ -127,18 +140,17 @@ export function TrustedDevices({
     return null;
   }
   return (
-    <>
-      <Label
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('revocation.title')}
-      </Label>
+    <SettingsGroup
+      title={t('revocation.title')}
+      footer={devices.length === 0 ? undefined : t('revocation.description')}>
       {notice === undefined ? null : (
-        <Label
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
-          {notice}
-        </Label>
+        <SettingsBlock>
+          <Label
+            accessibilityRole="alert"
+            style={[styles.text, { color: colors.textPrimary }]}>
+            {notice}
+          </Label>
+        </SettingsBlock>
       )}
       {proposal === undefined ? null : (
         <RevocationProposal
@@ -151,44 +163,41 @@ export function TrustedDevices({
           store={store}
         />
       )}
-      {devices.length === 0 ? null : (
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
-          {t('revocation.description')}
-        </Label>
-      )}
       {devices.map((device) => (
-        <View
+        <SettingsRow
           key={device.id}
-          style={styles.device}>
-          <Label style={[styles.text, { color: colors.textPrimary }]}>
-            {device.name}
-          </Label>
-          <Label style={[styles.text, { color: colors.textSecondary }]}>
-            {t('revocation.added', { date: added.format(device.registeredAt) })}
-          </Label>
-          {confirming === device.id ? (
-            <>
-              <Label style={[styles.text, { color: colors.textPrimary }]}>
-                {t('revocation.confirm', { name: device.name })}
-              </Label>
-              {button(
-                t('revocation.remove', { name: device.name }),
-                async () => {
-                  setConfirming(undefined);
-                  await store.revokeTrustedDevice(device.id);
-                },
-              )}
-              {button(t('revocation.cancel'), async () => {
-                setConfirming(undefined);
-              })}
-            </>
-          ) : (
-            button(t('revocation.remove', { name: device.name }), async () => {
-              setConfirming(device.id);
-            })
+          title={device.name}
+          subtitle={t('revocation.added', {
+            date: added.format(device.registeredAt),
+          })}>
+          {button(
+            t('revocation.remove', { name: device.name }),
+            async () => {
+              const owner = store.getSnapshot().snapshot;
+              Alert.alert(
+                t('revocation.confirmTitle', { name: device.name }),
+                t('revocation.confirm', { name: device.name }),
+                [
+                  { text: t('revocation.cancel'), style: 'cancel' },
+                  {
+                    text: t('revocation.remove', { name: device.name }),
+                    style: 'destructive',
+                    onPress: () => {
+                      if (
+                        isCurrent() &&
+                        store.getSnapshot().snapshot === owner
+                      ) {
+                        void store.revokeTrustedDevice(device.id);
+                      }
+                    },
+                  },
+                ],
+              );
+            },
+            { title: t('settings.remove') },
           )}
-        </View>
+        </SettingsRow>
       ))}
-    </>
+    </SettingsGroup>
   );
 }

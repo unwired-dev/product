@@ -1,7 +1,8 @@
 import type { ViewProps } from 'react-native';
 
 import { spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { setStringAsync } from 'expo-clipboard';
+import { createContext, useState } from 'react';
 import {
   Pressable,
   requireNativeComponent,
@@ -11,7 +12,7 @@ import {
 } from 'react-native';
 
 import { usePaletteHeader } from './command-palette.tsx';
-import { Glass, Monogram, SFSymbol } from './design.tsx';
+import { ContextMenu, Glass, Monogram, SFSymbol } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -19,6 +20,11 @@ import { textStyles, usePalette } from './theme.ts';
 const NativeReaderChrome = requireNativeComponent<ViewProps>(
   'UnwiredReaderChrome',
 );
+
+// The compose route reports the native reading column's width to its overlay owner.
+export const ReaderPaneWidthContext = createContext<
+  ((width: number) => void) | undefined
+>(undefined);
 
 const styles = StyleSheet.create({
   header: {
@@ -56,7 +62,7 @@ const styles = StyleSheet.create({
   },
   count: { ...textStyles.subheadline, flex: 1 },
   from: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fromText: { flex: 1 },
+  fromText: { flex: 1, minHeight: 44 },
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
 });
@@ -174,24 +180,46 @@ export function MessageHeader({
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat();
   const fullDateFormat = useMessageDateFormat(true);
+  const copyAddress = () => {
+    void setStringAsync(message.address);
+  };
   return (
     <View style={styles.from}>
       <Monogram name={message.sender} />
-      <View style={styles.fromText}>
+      <ContextMenu
+        style={styles.fromText}
+        sections={[
+          {
+            items: [
+              {
+                key: `copy\n${message.address}`,
+                title: t('contextMenu.copyAddress'),
+                symbol: 'doc.on.doc',
+                run: copyAddress,
+              },
+            ],
+          },
+        ]}>
         <Text
+          accessibilityActions={[
+            { name: 'copy', label: t('contextMenu.copyAddress') },
+          ]}
+          onAccessibilityAction={({ nativeEvent }) => {
+            if (nativeEvent.actionName === 'copy') {
+              copyAddress();
+            }
+          }}
           accessibilityState={highlighted ? { selected: true } : undefined}
           numberOfLines={1}
-          selectable
           style={[styles.sender, { color: colors.textPrimary }]}>
           {message.sender}
         </Text>
         <Text
           numberOfLines={1}
-          selectable
           style={[styles.secondary, { color: colors.textSecondary }]}>
           {message.address}
         </Text>
-      </View>
+      </ContextMenu>
       <Text
         accessibilityLabel={t('message.received', {
           date: fullDateFormat.format(new Date(message.receivedAt)),

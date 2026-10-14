@@ -19,6 +19,10 @@ colors:
   brand-on-seal: '#FFFFFF'
   brand-monogram: '#15171B'
   brand-monogram-dark: '#6A6E78'
+  apple-button: '#000000'
+  apple-button-dark: '#FFFFFF'
+  apple-on-button: '#FFFFFF'
+  apple-on-button-dark: '#000000'
   text-primary: 'rgba(0, 0, 0, 0.85)'
   text-primary-dark: 'rgba(255, 255, 255, 0.85)'
   text-secondary: 'rgba(0, 0, 0, 0.6)'
@@ -117,6 +121,7 @@ rounded:
   bubble: '20px'
   window: '16px'
   mailbox-group: '22px'
+  settings-detail: '16.923076629638672px'
 spacing:
   xs: '4px'
   s: '8px'
@@ -251,6 +256,8 @@ Graphite neutrals with a single warm seal.
 | Brand seal        | `brand/seal`              | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
 | On brand seal     | `brand/on-seal`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
 | Monogram          | `brand/monogram`          | `#15171B`     | `#6A6E78`     | Mail Profile and account monograms                            |
+| Apple button      | `apple/button`            | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
+| On Apple button   | `apple/on-button`         | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
 | Primary text      | `text/primary`            | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
 | Secondary text    | `text/secondary`          | black 60%     | white 55%     | Previews, timestamps, captions                                |
 | Content surface   | `surface/content`         | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
@@ -310,6 +317,10 @@ styles) so the file stays editable.
 
 ## Layout
 
+- **iPhone account setup:** the approved #907 adaptations use 24pt side margins
+  and 10pt content gaps. Scrollable setup content starts 62pt below the top safe
+  area and ends 26pt above the bottom safe area. Respect the horizontal safe area
+  when the phone rotates.
 - **macOS window:** 1280×800 reference, three columns. A floating glass sidebar
   236pt wide inset 8pt, a 340pt message list, and the reading pane. The reading
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt
@@ -334,7 +345,9 @@ styles) so the file stays editable.
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
-  under it behind a 72pt scroll edge fade. It hides while the composer is open.
+  under it behind a 72pt scroll edge fade. It hides while the composer is open;
+  on Mac, explicitly invoking Search Mail reveals it and collapses an expanded
+  composer while keeping the Draft open.
 - **Command Palette:** on the Mac a 36pt glass command input (command
   symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
@@ -371,7 +384,8 @@ styles) so the file stays editable.
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
   reading pane with 12pt outer insets and 70% of the available height, clamped
-  from 420 to 720pt. Expanding it takes over the whole app window with the same
+  from 420 to 720pt. Expanding it takes over the whole app window, beneath the
+  Mac's command bar, with the same
   Draft; there is no separate Compose window and no freeform resizing. Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
@@ -409,6 +423,9 @@ content.
 ## Shapes
 
 - Controls 6pt, message rows 7pt, cards and banners 10pt, windows 16pt.
+- iPhone Settings root groups and account cards use the 22pt inset-group token.
+  Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
+  matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - Monograms and avatars are circles. Message list rows show a real contact photo

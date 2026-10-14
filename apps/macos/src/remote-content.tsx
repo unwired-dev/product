@@ -4,7 +4,6 @@ import type {
   RemoteContentPolicy,
   RemoteContentSettingsStore,
 } from '@private-email/mail-core/remote-content';
-import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 
 import {
@@ -21,8 +20,11 @@ import {
   View,
 } from 'react-native';
 
+import type { SettingsButton } from './settings.tsx';
+
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
+import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 interface RemoteContentModule extends TurboModule, NativeRemoteContent {}
@@ -61,17 +63,20 @@ export function useRemoteContentPolicy(
 }
 
 const styles = StyleSheet.create({
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  choices: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+  },
   choice: {
-    minHeight: 44,
+    minHeight: 28,
     justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    borderWidth: 1,
+    paddingHorizontal: spacing.m,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
   label: { ...textStyles.body },
-  heading: { ...textStyles.title3Emphasized },
   text: { ...textStyles.body },
 });
 
@@ -108,8 +113,8 @@ export function PolicyChoice({
           style={[
             styles.choice,
             {
-              borderColor:
-                choice === selected ? colors.accentInk : colors.separator,
+              backgroundColor:
+                choice === selected ? colors.accentFill : colors.fillQuiet,
             },
           ]}>
           <Text
@@ -117,7 +122,10 @@ export function PolicyChoice({
               styles.label,
               {
                 color:
-                  choice === selected ? colors.accentInk : colors.textPrimary,
+                  choice === selected
+                    ? colors.accentOnFill
+                    : colors.textPrimary,
+                fontWeight: choice === selected ? '600' : '400',
               },
             ]}>
             {t(`remoteContent.policies.${choice}`)}
@@ -128,12 +136,13 @@ export function PolicyChoice({
   );
 }
 
-// The device's remote image policy and Clear Remote Content; each mailbox row offers its own
-// override.
+// The device's remote image policy, each mailbox's override and Clear Remote Content.
 export function RemoteContentSettings({
   button,
+  mailboxes,
 }: {
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: SettingsButton;
+  readonly mailboxes: readonly MailboxConnection[];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -147,43 +156,61 @@ export function RemoteContentSettings({
     return null;
   }
   return (
-    <>
-      <Label
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('remoteContent.title')}
-      </Label>
-      <Label style={[styles.text, { color: colors.textSecondary }]}>
-        {t('remoteContent.description')}
-      </Label>
-      <PolicyChoice
-        label={t('remoteContent.device')}
-        selected={settings.policy}
-        choices={['ask', 'never', 'always']}
-        onChoose={(choice) => {
-          if (choice !== 'device') {
-            void store.setPolicy(choice);
-          }
-        }}
-      />
-      {button(t('remoteContent.clear'), async () => {
-        setCleared(await store.clear());
-      })}
-      {cleared === undefined ? null : (
-        <Label
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textSecondary }]}>
-          {cleared
-            ? t('remoteContent.cleared')
-            : t('remoteContent.clearFailed')}
+    <SettingsGroup
+      title={t('remoteContent.title')}
+      footer={t('remoteContent.description')}>
+      <SettingsRow
+        icon="photo"
+        title={t('settings.remoteContent')}>
+        <PolicyChoice
+          label={t('remoteContent.device')}
+          selected={settings.policy}
+          choices={['ask', 'never', 'always']}
+          onChoose={(choice) => {
+            if (choice !== 'device') {
+              void store.setPolicy(choice);
+            }
+          }}
+        />
+      </SettingsRow>
+      {/* Remote Message Content never loads for IMAP mail yet. */}
+      {mailboxes
+        .filter(({ provider }) => provider !== 'imap')
+        .map((mailbox) => (
+          <SettingsRow
+            key={mailbox.id}
+            icon="at"
+            title={mailbox.address}>
+            <MailboxRemoteContent {...mailbox} />
+          </SettingsRow>
+        ))}
+      <SettingsRow
+        title={t('settings.trackingPixels')}
+        subtitle={t('settings.trackingPixelsDetail')}>
+        <Label style={[styles.label, { color: colors.textSecondary }]}>
+          {t('settings.alwaysBlocked')}
         </Label>
-      )}
-    </>
+      </SettingsRow>
+      <SettingsBlock>
+        {button(t('remoteContent.clear'), async () => {
+          setCleared(await store.clear());
+        })}
+        {cleared === undefined ? null : (
+          <Label
+            accessibilityRole="alert"
+            style={[styles.text, { color: colors.textSecondary }]}>
+            {cleared
+              ? t('remoteContent.cleared')
+              : t('remoteContent.clearFailed')}
+          </Label>
+        )}
+      </SettingsBlock>
+    </SettingsGroup>
   );
 }
 
 // One mailbox's remote image policy, or the device's.
-export function MailboxRemoteContent({ id, address }: MailboxConnection) {
+function MailboxRemoteContent({ id, address }: MailboxConnection) {
   const { t } = useLocalization();
   const store = use(RemoteContentContext);
   const override = useSyncExternalStore(

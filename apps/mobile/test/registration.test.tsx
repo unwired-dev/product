@@ -142,12 +142,32 @@ function Shell(props: Omit<Parameters<typeof Inbox>[0], 'view' | 'onView'>) {
   );
 }
 
+// Welcome comes first; its Continue opens Sign In and its sign-in actions.
+const continueToSignIn = async () => {
+  await act(async () => {
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Continue' }),
+    );
+  });
+};
+
 const openAccount = async () => {
   const account = await screen.findByRole('button', { name: 'Account' });
   await act(async () => {
     await fireEvent.press(account);
   });
 };
+
+// Pushes a Settings destination, such as Email Accounts, from the account page's list of them.
+const openSettings = async (destination: string) => {
+  const row = await screen.findByRole('button', { name: destination });
+  await act(async () => {
+    await fireEvent.press(row);
+  });
+};
+
+// Returns from a pushed Settings destination to the list of them.
+const backToSettings = () => openSettings('Back to Settings');
 
 // Hosts without another device of the account never enroll, approve or recover one.
 const noEnrollment = {
@@ -165,6 +185,60 @@ const noEnrollment = {
 };
 
 describe('product registration', () => {
+  it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: connectedTo('alex@example.invalid'),
+    } as const;
+    let finish: (snapshot: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold native authorization while trying the IMAP provider row.
+    const authorization = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    const store = createRegistration({
+      ...noEnrollment,
+      ...createMockRegistrationSession('registration-success').native,
+      restore: () => Promise.resolve(connected),
+      addMailbox: () => authorization,
+    });
+    const view = await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    try {
+      await openAccount();
+      await openSettings('Email Accounts');
+      await press('Add an IMAP mailbox');
+      await press('Add another Gmail mailbox');
+      await press('iCloud Mail');
+      expect(screen.queryByRole('header', { name: 'iCloud Mail' })).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'iCloud Mail' }),
+      ).toBeDisabled();
+      await act(async () => {
+        finish(connected);
+      });
+      await press('iCloud Mail');
+      expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    } finally {
+      await act(async () => {
+        finish(connected);
+      });
+      await view.unmount();
+    }
+  });
+
   it.each([
     {
       host: 'imap.example.invalid',
@@ -172,6 +246,8 @@ describe('product registration', () => {
       smtpPassword: '',
       sendingPassword: {},
       canConnect: false,
+      setup: {},
+      inboxActions: [],
     },
     {
       host: 'imap.fastmail.com',
@@ -186,6 +262,8 @@ describe('product registration', () => {
       smtpPassword: 'separate-smtp-password',
       sendingPassword: { password: 'separate-smtp-password' },
       canConnect: true,
+      setup: { recoveryKey: syntheticRecoveryKey },
+      inboxActions: ['Open Inbox'],
     },
   ])(
     'repairs $host from its Inbox refusal, retaining separate SMTP setup',
@@ -195,6 +273,8 @@ describe('product registration', () => {
       smtpPassword,
       sendingPassword,
       canConnect: expectedConnect,
+      setup,
+      inboxActions,
     }) => {
       expect.hasAssertions();
       const imap = createSyntheticImap();
@@ -218,6 +298,7 @@ describe('product registration', () => {
           },
         ]),
         privateSync: 'ready',
+        ...setup,
       } as const;
       const setups: unknown[] = [];
       const store = createRegistration({
@@ -249,6 +330,12 @@ describe('product registration', () => {
           </InboxProvider>
         </RegistrationGate>,
       );
+      // The Inbox remains usable with setup deferred; repair must still open Email Accounts.
+      for (const name of inboxActions) {
+        await act(async () => {
+          await fireEvent.press(await screen.findByRole('button', { name }));
+        });
+      }
       await expect(
         screen.findByText('Saved IMAP message'),
       ).resolves.toBeVisible();
@@ -282,6 +369,8 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
+      // The Inbox's repair opens Settings on Email Accounts, where its form is.
+      await screen.findByRole('header', { name: 'Email Accounts' });
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
@@ -300,17 +389,22 @@ describe('product registration', () => {
         screen.getByLabelText('SMTP password, same as incoming if blank'),
         smtpPassword,
       );
+      const credentialGuidance = screen.getAllByText(
+        'Same as incoming if blank.',
+      ).length;
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
       });
       expect({
         canConnect,
+        credentialGuidance,
         setups,
         failure: store.getSnapshot().imapFailure,
         password: screen.queryByLabelText('Password'),
         state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
       }).toStrictEqual({
         canConnect: expectedConnect,
+        credentialGuidance: 2,
         setups: [
           expect.objectContaining({
             password: 'replacement-password',
@@ -394,6 +488,7 @@ describe('product registration', () => {
       }),
     ).toHaveLength(1);
     await openAccount();
+    await openSettings('Email Accounts');
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', {
@@ -813,8 +908,11 @@ describe('product registration', () => {
       );
     });
     await openAccount();
+    await openSettings('Account & Devices');
     expect(
-      screen.getByRole('header', { name: 'Saved Gmail Inbox' }),
+      screen.getByText(
+        /could not be verified\. Mail saved on this device is available/u,
+      ),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
@@ -914,6 +1012,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -927,7 +1026,7 @@ describe('product registration', () => {
     ).toBeNull();
     // A build that cannot authorize Microsoft mail never offers it.
     expect(
-      screen.queryByRole('button', { name: 'Connect Microsoft mail' }),
+      screen.queryByRole('button', { name: 'Microsoft 365 and Outlook' }),
     ).toBeNull();
     await first.unmount();
     await render(
@@ -944,8 +1043,9 @@ describe('product registration', () => {
         }),
       );
     });
+    // Pending setup opens Settings on Account & Devices.
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText('other@example.invalid is connected on this device.'),
@@ -976,7 +1076,7 @@ describe('product registration', () => {
     );
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Authorize Gmail' }),
+        await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
     await act(async () => {
@@ -988,15 +1088,19 @@ describe('product registration', () => {
     });
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Authorize Gmail' }),
+        await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
+    expect(
+      screen.getByText('alex@example.invalid is connected on this device.'),
+    ).toBeVisible();
   });
 
   it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves Welcome, the provider choice and the Gmail grant. */
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-declined');
     await render(
@@ -1006,6 +1110,15 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
+    // Sign In returns to Welcome, which leads back to it.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
+    ).resolves.toBeVisible();
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Apple' }),
@@ -1022,6 +1135,17 @@ describe('product registration', () => {
         'Signed in with Apple. Contact email: relay@privaterelay.example.invalid.',
       ),
     ).toBeVisible();
+    // A provider row opens its IMAP form in place; Cancel returns to the providers.
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'iCloud Mail' }),
+      );
+    });
+    expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.queryByRole('header', { name: 'iCloud Mail' })).toBeNull();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', {
@@ -1033,10 +1157,11 @@ describe('product registration', () => {
     await expect(
       screen.findByText('other@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
+    await backToSettings();
+    await openSettings('Email Accounts');
     expect(
       screen.getByRole('button', { name: 'Add another Gmail mailbox' }),
     ).toBeVisible();
-    // oxlint-disable-next-line vitest/max-expects -- This journey also guards unavailable-provider actions.
     expect(
       screen.queryByRole('button', { name: 'Add a Microsoft mailbox' }),
     ).toBeNull();
@@ -1073,24 +1198,27 @@ describe('product registration', () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
       });
     };
+    await press('Continue');
     await press('Sign in with Apple');
     // Sign-in alone asks no provider for mail; the person chooses one.
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Authorize Gmail' }),
-    ).toBeVisible();
-    await press('Connect Microsoft mail');
+    expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
+    await press('Microsoft 365 and Outlook');
     await expect(
-      screen.findByRole('header', { name: 'Mail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText('casey@example.invalid is connected on this device.'),
     ).toBeVisible();
+    await backToSettings();
+    await openSettings('Email Accounts');
     expect(
       screen.getByRole('button', { name: 'Add a Microsoft mailbox' }),
     ).toBeVisible();
+    await backToSettings();
+    await openSettings('Account & Devices');
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
@@ -1132,8 +1260,11 @@ describe('product registration', () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
       });
     };
+    await press('Continue');
     await press('Sign in with Apple');
     await press('Choose another Google mailbox');
+    await backToSettings();
+    await openSettings('Privacy & Data');
     const choice = (name: string) => screen.getByRole('radio', { name });
     expect(choice('On this device: Ask')).toBeChecked();
     expect(
@@ -1195,8 +1326,9 @@ describe('product registration', () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
       });
     };
+    await press('Continue');
     await press('Sign in with Google');
-    await press('Authorize Gmail');
+    await press('Gmail');
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
@@ -1209,12 +1341,17 @@ describe('product registration', () => {
       screen.findByRole('button', { name: 'Unread. Maya Chen. Only for Alex' }),
     ).resolves.toBeVisible();
     await openAccount();
+    await openSettings('Email Accounts');
     await press('Add another Gmail mailbox');
+    await backToSettings();
+    await openSettings('Account & Devices');
     expect(
       screen.getByText(
         'alex@example.invalid, other@example.invalid are connected on this device.',
       ),
     ).toBeVisible();
+    await backToSettings();
+    await openSettings('Email Accounts');
     // Adding a mailbox that is already connected authorizes it again; nothing is duplicated.
     session.choose('alex@example.invalid');
     await press('Add another Gmail mailbox');
@@ -1275,6 +1412,7 @@ describe('product registration', () => {
 
     // Removal asks first, then removes only that mailbox's mail from this device.
     await openAccount();
+    await openSettings('Email Accounts');
     await press('Remove other@example.invalid');
     expect(
       screen.getByText(
@@ -1405,8 +1543,9 @@ describe('product registration', () => {
       screen
         .queryAllByRole('button', { name: /^Unread/u })
         .map((row) => row.props.accessibilityLabel);
+    await press('Continue');
     await press('Sign in with Google');
-    await press('Authorize Gmail');
+    await press('Gmail');
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
@@ -1415,6 +1554,7 @@ describe('product registration', () => {
     });
     await press('Confirm Recovery Key');
     await openAccount();
+    await openSettings('Email Accounts');
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
     // A result searched while prefetch is still downloading its body becomes saved once the body
@@ -1528,6 +1668,7 @@ describe('product registration', () => {
 
     // A removed mailbox's mail leaves the results.
     await openAccount();
+    await openSettings('Email Accounts');
     await press('Remove other@example.invalid');
     await press('Remove other@example.invalid');
     await press('Open Inbox');
@@ -1627,8 +1768,9 @@ describe('product registration', () => {
       screen
         .queryAllByRole('button', { name: /^Unread/u })
         .map((row) => row.props.accessibilityLabel);
+    await press('Continue');
     await press('Sign in with Google');
-    await press('Authorize Gmail');
+    await press('Gmail');
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
@@ -1637,6 +1779,7 @@ describe('product registration', () => {
     });
     await press('Confirm Recovery Key');
     await openAccount();
+    await openSettings('Email Accounts');
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
 
@@ -1793,6 +1936,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Apple' }),
@@ -1800,11 +1944,11 @@ describe('product registration', () => {
     });
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Authorize Gmail' }),
+        await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
     // The Gmail grant is a Mailbox Connection, not a Linked Sign-In.
     expect(
@@ -1842,6 +1986,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -1893,6 +2038,7 @@ describe('product registration', () => {
     await act(async () => {
       await store.signOut();
     });
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -2030,8 +2176,9 @@ describe('product registration', () => {
       );
     });
     await openAccount();
+    await openSettings('Account & Devices');
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(store.getSnapshot().snapshot).toMatchObject({
@@ -2051,6 +2198,7 @@ describe('product registration', () => {
         <ConnectedInbox />
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -2058,7 +2206,7 @@ describe('product registration', () => {
     });
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Authorize Gmail' }),
+        await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
     await expect(
@@ -2098,6 +2246,7 @@ describe('product registration', () => {
     // The heading's subtitle names the connected mailbox beside its unread count.
     expect(screen.getByText(/^alex@example\.invalid · /u)).toBeVisible();
     await openAccount();
+    await openSettings('Account & Devices');
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
@@ -2136,8 +2285,9 @@ describe('product registration', () => {
     };
     // The first device creates the account keys and synchronizes its mailbox.
     let view = await show(trusted);
+    await press('Continue');
     await press('Sign in with Google');
-    await press('Authorize Gmail');
+    await press('Gmail');
     await expect(
       screen.findByText('Encrypted mailbox list: alex@example.invalid.'),
     ).resolves.toBeVisible();
@@ -2145,6 +2295,7 @@ describe('product registration', () => {
 
     // Signing in on another device makes it a Pending Device: no private data, mailbox or links.
     view = await show(added);
+    await press('Continue');
     await press('Sign in with Google');
     await expect(
       screen.findByRole('header', { name: 'Add this device' }),
@@ -2153,6 +2304,10 @@ describe('product registration', () => {
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode.replaceAll('-', ' '),
+    );
+    expect(screen.getByTestId('enrollment-code')).toHaveProp(
+      'accessibilityLabel',
       syntheticEnrollmentCode,
     );
     for (const name of [
@@ -2209,9 +2364,7 @@ describe('product registration', () => {
     expect(
       screen.getByRole('header', { name: 'Connect your mail' }),
     ).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Authorize Gmail' }),
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
   });
 
   it('unlocks a new device with the Recovery Key after a wrong key changes nothing, and offers no reset', async () => {
@@ -2238,8 +2391,9 @@ describe('product registration', () => {
     };
     // The device that created the account keys and saved a mailbox is later lost.
     let view = await show(lost);
+    await press('Continue');
     await press('Sign in with Google');
-    await press('Authorize Gmail');
+    await press('Gmail');
     await expect(
       screen.findByText('Encrypted mailbox list: alex@example.invalid.'),
     ).resolves.toBeVisible();
@@ -2248,6 +2402,7 @@ describe('product registration', () => {
     // A new device offers the Recovery Key beside approval, and explains that losing both
     // leaves the encrypted data locked; nothing offers to reset it.
     view = await show(added);
+    await press('Continue');
     await press('Sign in with Google');
     await expect(
       screen.findByRole('header', { name: 'Use your Recovery Key' }),
@@ -2286,9 +2441,7 @@ describe('product registration', () => {
     expect(screen.queryByTestId('enrollment-code')).toBeNull();
     expect(screen.queryByLabelText('Recovery Key')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(
-      screen.getByRole('button', { name: 'Authorize Gmail' }),
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
     await view.unmount();
     await show(added);
     await expect(
@@ -2349,6 +2502,7 @@ describe('product registration', () => {
       </RegistrationGate>,
     );
     await openAccount();
+    await openSettings('Account & Devices');
     const press = async (name: string) => {
       await act(async () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
@@ -2368,6 +2522,46 @@ describe('product registration', () => {
       'value',
       '',
     );
+  });
+
+  it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    await session.native.signIn('google');
+    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    await session.native.addMailbox('gmail', false);
+    let current = session.native;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => current.restore(),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await openSettings('Email Accounts');
+    expect(
+      screen.getByRole('header', { name: 'Email Accounts' }),
+    ).toBeVisible();
+    // Foreground verification discovers another Product Account with an unconfirmed key.
+    const replacement = createMockRegistrationSession('registration-success');
+    await replacement.native.signIn('apple');
+    await replacement.native.addMailbox('gmail', false);
+    current = replacement.native;
+    await act(async () => {
+      await store.resume();
+    });
+    expect(
+      screen.getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    expect(screen.getByTestId('recovery-key')).toHaveTextContent(
+      syntheticRecoveryKey,
+    );
+    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
   });
 
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
@@ -2393,7 +2587,7 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Unlock your device' }),
     ).resolves.toBeVisible();
     expect([
-      screen.queryByText('Welcome to Unwired Mail'),
+      screen.queryByText('Your mail,\non your devices.'),
       screen.queryByRole('button'),
       screen.queryByRole('alert'),
     ]).toStrictEqual([null, null, null]);
@@ -2408,7 +2602,7 @@ describe('product registration', () => {
       await Promise.resolve();
     });
     await expect(
-      screen.findByRole('header', { name: 'Gmail connected' }),
+      screen.findByRole('header', { name: 'Account & Devices' }),
     ).resolves.toBeVisible();
     restore = () =>
       Promise.resolve({
@@ -2429,13 +2623,47 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
     expect(
-      screen.queryByRole('header', { name: 'Gmail connected' }),
+      screen.queryByRole('header', { name: 'Account & Devices' }),
     ).toBeNull();
   });
 
   // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and
   // activation; native and Convex evidence of the protocol is separate.
   /* oxlint-disable vitest/max-expects -- One journey proves the explanation, cancellation, renewal and removal. */
+  it('discards a device-removal confirmation when its registration snapshot changes', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-revocation');
+    await session.native.signIn('google');
+    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    const store = createRegistration(session.native);
+    const view = await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const remove = english('revocation.remove', {
+      name: syntheticTrustedDevice.name,
+    });
+    await expect(
+      screen.findByRole('button', { name: remove }),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: remove }));
+    });
+    expect(screen.getByTestId('device-removal-confirmation')).toBeVisible();
+    const before = store.getSnapshot();
+    await act(async () => {
+      await store.restore();
+    });
+    expect(store.getSnapshot()).not.toBe(before);
+    expect(screen.queryByTestId('device-removal-confirmation')).toBeNull();
+    expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+    expect(screen.getByRole('button', { name: remove })).toBeVisible();
+    await view.unmount();
+  });
+
   it('removes another trusted device only after its replacement Recovery Key is confirmed', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-revocation');
@@ -2446,6 +2674,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -2481,13 +2710,22 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: remove }));
       });
+      const dialog = within(screen.getByTestId('device-removal-confirmation'));
       expect(
-        screen.getByText(english('revocation.confirm', { name })),
+        dialog.getByRole('header', {
+          name: english('revocation.confirmTitle', { name }),
+        }),
+      ).toBeVisible();
+      expect(
+        dialog.getByText(english('revocation.confirm', { name })),
       ).toHaveTextContent(
         /only then is iPad removed.*cannot be erased remotely/u,
       );
+      expect(
+        dialog.getByRole('button', { name: english('revocation.cancel') }),
+      ).toBeVisible();
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
+        await fireEvent.press(dialog.getByRole('button', { name: remove }));
       });
     };
     const confirm = async (text: string) => {
@@ -2576,11 +2814,17 @@ describe('product registration', () => {
     ] as const;
     for (const [name, key] of removals) {
       const remove = english('revocation.remove', { name });
-      for (let press = 0; press < 2; press += 1) {
-        await act(async () => {
-          await fireEvent.press(screen.getByRole('button', { name: remove }));
-        });
-      }
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
+      });
+      await act(async () => {
+        await fireEvent.press(
+          within(screen.getByTestId('device-removal-confirmation')).getByRole(
+            'button',
+            { name: remove },
+          ),
+        );
+      });
       expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
         key,
       );
@@ -2609,7 +2853,7 @@ describe('product registration', () => {
     });
     await expect(
       screen.findByTestId('enrollment-code'),
-    ).resolves.toHaveTextContent(syntheticEnrollmentCode);
+    ).resolves.toHaveTextContent(syntheticEnrollmentCode.replaceAll('-', ' '));
     expect(
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
@@ -2726,7 +2970,9 @@ describe('product registration', () => {
       });
       await expect(
         screen.findByTestId('enrollment-code'),
-      ).resolves.toHaveTextContent(syntheticEnrollmentCode);
+      ).resolves.toHaveTextContent(
+        syntheticEnrollmentCode.replaceAll('-', ' '),
+      );
       expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     },
   );
@@ -2810,6 +3056,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -2836,11 +3083,13 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Add this device' }),
     ).resolves.toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode.replaceAll('-', ' '),
+    );
+    expect(screen.getByTestId('enrollment-code')).toHaveProp(
+      'accessibilityLabel',
       syntheticEnrollmentCode,
     );
-    expect(
-      screen.queryByRole('button', { name: 'Authorize Gmail' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Gmail' })).toBeNull();
     // Leaving the Pending Device returns to Welcome.
     const signOut = { name: english('accountRemoval.signOut') };
     await act(async () => {
@@ -2850,7 +3099,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', signOut));
     });
     await expect(
-      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
     expect(screen.queryByTestId('enrollment-code')).toBeNull();
   });
@@ -2868,6 +3117,7 @@ describe('product registration', () => {
         <ConnectedInbox />
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),
@@ -2875,7 +3125,7 @@ describe('product registration', () => {
     });
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Authorize Gmail' }),
+        await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
     await expect(
@@ -2893,6 +3143,7 @@ describe('product registration', () => {
       );
     });
     await openAccount();
+    await openSettings('Account & Devices');
     const signOut = { name: english('accountRemoval.signOut') };
     // The first press explains what sign-out removes; cancelling keeps the account.
     await act(async () => {
@@ -2920,7 +3171,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', signOut));
     });
     await expect(
-      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText('Signed in with Google.')).toBeNull();
     expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
@@ -2931,7 +3182,7 @@ describe('product registration', () => {
       removalPending: 'sign-out' as const,
       title: 'Finish signing out',
       action: english('accountRemoval.signOut'),
-      result: 'Welcome to Unwired Mail',
+      result: 'Your mail,\non your devices.',
     },
     {
       removalPending: 'deletion' as const,
@@ -2971,9 +3222,7 @@ describe('product registration', () => {
           name: title,
         }),
       ).resolves.toBeVisible();
-      expect(
-        screen.queryByRole('button', { name: 'Authorize Gmail' }),
-      ).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Gmail' })).toBeNull();
       expect(
         screen.queryByRole('button', { name: 'Sign in again with Google' }),
       ).toBeNull();
@@ -3012,6 +3261,7 @@ describe('product registration', () => {
         {null}
       </RegistrationGate>,
     );
+    await continueToSignIn();
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Google' }),

@@ -402,7 +402,7 @@ test('TestFlight notes authenticate and update the exact build without network a
   assert.match(result.stdout, /Passed TestFlight notes contracts/u);
 });
 
-test('Development certificate cleanup selects API-created ones without network access', () => {
+test('Development signing reuses and renews certificates without network access', () => {
   const result = spawnSync(
     'ruby',
     ['scripts/testflight-certificates.test.rb'],
@@ -429,7 +429,9 @@ function preflight(script, scenario) {
       `#!${process.execPath}
 import fs from 'node:fs';
 if (process.env.HOME !== process.env.RUNNER_TEMP) throw Error('Missing isolated home');
-if (process.env.ASC_PRIVATE_KEY) throw Error('Private key leaked to helper environment');
+if (process.env.ASC_PRIVATE_KEY || process.env.TESTFLIGHT_SIGNING_KEY) throw Error('Private key leaked to helper environment');
+if ((fs.statSync(process.env.TESTFLIGHT_SIGNING_KEY_PATH).mode & 0o077) !== 0) throw Error('Signing key permissions too broad');
+if (fs.readFileSync(process.env.TESTFLIGHT_SIGNING_KEY_PATH, 'utf8').trim() !== ${JSON.stringify(sentinel)}) throw Error('Signing key not written');
 if ((fs.statSync(process.env.ASC_KEY_PATH).mode & 0o077) !== 0) throw Error('Private key permissions too broad');
 if (fs.readFileSync(process.env.ASC_KEY_PATH, 'utf8').trim() !== ${JSON.stringify(sentinel)}) throw Error('Private key not written');
 if (${JSON.stringify(scenario)}.startsWith('SIG')) process.kill(process.ppid, ${JSON.stringify(scenario)});
@@ -458,6 +460,8 @@ process.exit(${scenario === 'failure' ? 1 : 0});
           PATH: `${bin}:${inheritedEnv.PATH}`,
           RUNNER_TEMP: directory,
           ASC_PRIVATE_KEY: sentinel,
+          TESTFLIGHT_SIGNING_KEY: sentinel,
+          GITHUB_OUTPUT: path.join(directory, 'outputs'),
         },
         encoding: 'utf8',
       },
@@ -465,14 +469,16 @@ process.exit(${scenario === 'failure' ? 1 : 0});
     return {
       status: result.status,
       output: result.stdout + result.stderr,
-      retained: existsSync(path.join(directory, 'AuthKey.p8')),
+      retained: ['AuthKey.p8', 'signing.pem'].some((file) =>
+        existsSync(path.join(directory, file)),
+      ),
     };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 }
 
-test('Certificate preflight uses the workflow revision and removes its private key on every exit', () => {
+test('Certificate preflight uses the workflow revision and removes both private keys on every exit', () => {
   const workflow = readFileSync(
     path.join(root, '.github/workflows/testflight.yml'),
     'utf8',
@@ -484,7 +490,7 @@ test('Certificate preflight uses the workflow revision and removes its private k
   assert.match(
     certificates,
     /ref: \$\{\{ github\.sha \}\}/u,
-    'Older build refs must not supply cleanup code',
+    'Older build refs must not supply signing code',
   );
   const [, script] = certificates.split('        run: |\n');
   assert.ok(script, 'Missing certificate preflight command');
@@ -507,4 +513,14 @@ test('Certificate preflight uses the workflow revision and removes its private k
       'Private key reached diagnostics',
     );
   }
+});
+
+test('Signing wrapper imports the reusable identity and cleans up on every exit', () => {
+  const result = spawnSync('ruby', ['scripts/testflight-signing.test.rb'], {
+    cwd: root,
+    env: { PATH: inheritedEnv.PATH },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Passed TestFlight keychain contracts/u);
 });

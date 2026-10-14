@@ -29,6 +29,11 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 - A native job that reuses a shared Simulator, DerivedData or result path, or that skips cleanup on failure or cancellation.
 - A cache keyed so a pull request can poison a cache that a privileged run restores, or a cache that stores credentials or signing material.
 - An artifact that can contain secrets, signing material or account data.
+- `testflight.yml` passing a public certificate as base64 DER through job outputs
+  while its RSA private key is a PEM secret. The shared public modulus can match
+  a full secret PEM line, so GitHub masks and drops the output. Use a public
+  certificate encoding or transport that avoids that overlap and retain a
+  credential-free contract for the job boundary.
 
 #### Toolchain
 

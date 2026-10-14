@@ -59,6 +59,13 @@ Product Account service rather than peer-device connectivity; and describe
 another device's retained claim without asserting it is currently sending.
 Otherwise the interface misstates when delivery can proceed, stop or retry.
 
+Provider-choice copy such as `onboarding.providers.other.detail` in
+`packages/localization/catalogs.bundle/` must match the supported transport and
+server capabilities in `docs/product/power-user-launch.md` and the owning provider
+guide. Offering manual IMAP/SMTP setup does not establish universal server
+compatibility; otherwise the chooser promises support for servers the native
+adapter must refuse.
+
 #### R7 — Assistance and notifications (conditional)
 
 For AI/translation or notifications, read ADRs 0052, 0053, 0063, 0068 and 0072 and docs/architecture/product/assistance.md and applicable privacy/sync companions. Assistance is on-device, takes bounded already-local untrusted input, has no provider/backend/network/tool dependency, and never mutates source. Except for planned Catch Up Background Message Summaries and post-launch Mail Commitment Suggestions, it is explicitly invoked and returns an ephemeral preview. For Catch Up, verify device-local default-off enablement and body-cache storage, quota and removal lifecycle against ADR 0068; summaries never synchronize or reach a server. For Mail Commitments, read its product/architecture companions and ADR 0072: verify the separate device/Profile scan switch, encrypted device-local queue, lock/disable/source-loss lifetimes, reviewed admission and authored-record retention exception. Unaccepted outputs never synchronize; accepted records and minimal review decisions use opaque Private Sync. Preserve one-Profile ownership, reviewed moves, explicit lifecycle actions, conflict preservation and stale-write fencing without expanding launch scope.

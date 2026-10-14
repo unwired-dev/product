@@ -153,6 +153,7 @@ function NewMessageButton({
 
 // The floating glass bar over the list: search on the mail saved on this device, and New Message.
 export function FloatingBar({
+  hidden = false,
   ready,
   query,
   onQuery,
@@ -160,6 +161,7 @@ export function FloatingBar({
   scope,
   search,
 }: {
+  readonly hidden?: boolean;
   // Search waits for a mailbox to be readable.
   readonly ready: boolean;
   readonly query: string;
@@ -177,6 +179,7 @@ export function FloatingBar({
         pointerEvents="none"
         style={[
           styles.scrollEdge,
+          { display: hidden ? 'none' : 'flex' },
           {
             experimental_backgroundImage: `linear-gradient(to bottom, ${colors.surfaceContent}00, ${colors.surfaceContent})`,
           },
@@ -184,7 +187,7 @@ export function FloatingBar({
       />
       <View
         pointerEvents="box-none"
-        style={styles.bottomBar}>
+        style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
         {ready ? (
           <GlassGroup style={styles.searchBar}>
             <SFSymbol

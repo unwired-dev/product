@@ -43,7 +43,7 @@ On-Device Mail Assistance action, **Summarize**, Draft
 
 - It is off by default on every device. While it is off, none of those actions
   appears and nothing reaches Apple's model or Translation.
-- **On-device assistance** on the account page turns it on or off for the
+- The **Mail Assistance** switch in Settings' **Privacy & Data** turns it on or off for the
   signed-in Product Account's Mail Profile on this device. Only the
   [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
   choice. Readers use their window’s Profile consent, while Account settings and
@@ -54,14 +54,14 @@ On-Device Mail Assistance action, **Summarize**, Draft
   device/Profile confirmation when earlier consent did not cover that scope.
 - While assistance is on, **Check Apple Intelligence availability** explicitly
   checks whether the system model can run, without generating text or prewarming
-  it. The account page reports eligibility, Apple Intelligence configuration,
+  it. Settings' **Privacy & Data** reports eligibility, Apple Intelligence configuration,
   model readiness or language support. Availability for Translation remains
   separate. Opening the page or changing enablement never runs this check.
 - A device choice that is still saving or could not be saved is shown as such,
   with an explicit retry for the failed save. Turning assistance off still closes
   its actions immediately, even when saving fails.
 - Turning it off, in any window, cancels that Profile’s in-flight assistance and
-  forgets its shown previews, including its account-page availability status. A captured Draft
+  forgets its shown previews, including its Privacy & Data availability status. A captured Draft
   request is retired, so turning it on again does not restart it.
 - It is stored only in this device's Keychain, never synchronized or restored to another device.
   A Pending Device, or an account whose sign-out or deletion is under way, has
@@ -129,8 +129,8 @@ allow-listed native code or decode path, never mail or summary text.
   `apps/mobile/test/mail-assistance.test.tsx` and
   `apps/macos/test/mail-assistance.test.tsx` drive the real registration gate and
   reader over the synthetic registration session: actions stay hidden and nothing
-  reaches either framework until the account page turns assistance on, turning it
-  off cancels an in-flight summary and drops its late result. Explicit account-page
+  reaches either framework until Settings' Privacy & Data turns assistance on, turning it
+  off cancels an in-flight summary and drops its late result. Explicit Privacy & Data
   availability checks report every model outcome without generation, fail closed
   on malformed or rejected replies, and forget late results after Off, account
   replacement or unmount. Failed preference saves keep assistance off and offer

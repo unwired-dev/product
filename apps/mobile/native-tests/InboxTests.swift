@@ -20,6 +20,7 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 
 final class InboxTests: XCTestCase {
   private func registrationJourney(_ app: XCUIApplication) throws {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
@@ -34,12 +35,13 @@ final class InboxTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    // Pending setup opens Settings on Account & Devices.
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
     let entry = app.textFields["Last four characters"]
-    enter(String(presented.suffix(4)), into: entry)
+    enter(String(presented.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
@@ -95,7 +97,8 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    openSettings("Account & Devices", in: app)
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
     XCTAssertTrue(
@@ -111,6 +114,7 @@ final class InboxTests: XCTestCase {
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
   // the first one, without Gmail; Gmail is added beside it with a Google grant.
   private func appleRegistrationJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Apple"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
@@ -121,16 +125,18 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
-    app.buttons["Connect Microsoft mail"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    app.buttons["Microsoft 365 and Outlook"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].exists)
+    openSettings("Email Accounts", in: app)
+    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    openSettings("Account & Devices", in: app)
     // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
     // beside Gmail's.
     let entry = app.textFields["Last four characters"]
-    enter(String(app.staticTexts["recovery-key"].label.suffix(4)), into: entry)
+    enter(String(app.staticTexts["recovery-key"].label.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
@@ -172,7 +178,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 20))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
     app.buttons["Open Inbox"].tap()
@@ -188,11 +194,12 @@ final class InboxTests: XCTestCase {
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Apple"].tap()
     // Sign-in connects no mailbox; Gmail is chosen explicitly.
-    XCTAssertTrue(app.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
-    app.buttons["Authorize Gmail"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Gmail"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(
         NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Product Account")
@@ -204,7 +211,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Gmail connected"].exists)
+    XCTAssertTrue(text("connected on this device", in: app).exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Linked Apple and Google sign-in"
     shot.lifetime = .keepAlways
@@ -214,13 +221,14 @@ final class InboxTests: XCTestCase {
   // A new device of an existing account waits until a trusted device approves it; signing in alone
   // admits nothing, so Gmail authorization appears only afterwards.
   private func enrollmentJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
     let code = app.staticTexts["enrollment-code"]
     XCTAssertTrue(code.exists)
     XCTAssertEqual(code.label.count, 69)
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
-    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(app.buttons["Gmail"].exists)
     XCTAssertFalse(app.buttons["Choose another Google mailbox"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
@@ -231,7 +239,7 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
     XCTAssertTrue(app.staticTexts["Connect your mail"].exists)
-    XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
+    XCTAssertTrue(app.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
@@ -245,21 +253,22 @@ final class InboxTests: XCTestCase {
 
   // Without a trusted device, the Recovery Key admits this device and unlocks the account's keys.
   private func recoveryJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
-    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(app.buttons["Gmail"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
-    enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry)
+    enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
     app.buttons["Unlock with Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
     // Gmail on this device still needs its own authorization.
-    XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
+    XCTAssertTrue(app.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
@@ -277,8 +286,9 @@ final class InboxTests: XCTestCase {
 
   // Types into a controlled field one character at a time, confirming each reached it before the
   // next: the software keyboard drops characters typed while the field re-renders.
-  private func enter(_ value: String, into field: XCUIElement) {
+  private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
     field.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     var confirmation = ""
     for character in value {
       field.typeText(String(character))
@@ -292,21 +302,36 @@ final class InboxTests: XCTestCase {
     field.typeText("\n")
   }
 
+  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
+  // destinations, then pushes it.
+  private func openSettings(_ destination: String, in app: XCUIApplication) {
+    let back = app.buttons["Back to Settings"]
+    if back.exists {
+      back.tap()
+    }
+    let item = app.buttons[destination]
+    XCTAssertTrue(item.waitForExistence(timeout: 15))
+    item.tap()
+  }
+
   // This device created the keys; removing the account's iPad first proposes a replacement
   // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let first = app.staticTexts["recovery-key"].label
     let initialEntry = app.textFields["Last four characters"]
-    enter(String(first.suffix(4)), into: initialEntry)
+    enter(String(first.suffix(4)), into: initialEntry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     let proposed = app.staticTexts["revocation-recovery-key"]
     func prepare() {
       XCTAssertTrue(app.buttons["Remove iPad"].waitForExistence(timeout: 15))
       app.buttons["Remove iPad"].tap()
-      XCTAssertTrue(text("cannot be erased remotely", in: app).waitForExistence(timeout: 15))
-      app.buttons["Remove iPad"].tap()
+      let dialog = app.otherElements["device-removal-confirmation"]
+      XCTAssertTrue(dialog.waitForExistence(timeout: 15))
+      XCTAssertTrue(text("cannot be erased remotely", in: app).exists)
+      dialog.buttons["Remove iPad"].tap()
       XCTAssertTrue(proposed.waitForExistence(timeout: 15))
     }
     prepare()
@@ -318,7 +343,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(replaced.count, 64)
     XCTAssertNotEqual(replaced, first)
     let entry = app.textFields["Last four characters of the new Recovery Key"]
-    enter(String(replaced.suffix(4)), into: entry)
+    enter(String(replaced.suffix(4)), into: entry, in: app)
     app.buttons["Remove iPad"].tap()
     XCTAssertTrue(text("The device was removed.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
@@ -336,6 +361,7 @@ final class InboxTests: XCTestCase {
 
   // Another device removed this one: the relaunch purges the account and explains it.
   private func revokedJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     app.terminate()
@@ -354,7 +380,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
     XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
     XCTAssertTrue(app.buttons["Check for approval"].exists)
-    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(app.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: app).exists)
     let gate = XCTAttachment(screenshot: app.screenshot())
     gate.name = "New device waiting for approval after a removal"
@@ -364,26 +390,28 @@ final class InboxTests: XCTestCase {
     app.buttons["Sign out of this device"].tap()
     XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()
-    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 15))
   }
 
   // Sign-out keeps nothing of the account on this device; deletion ends the account everywhere.
   private func removalJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let key = app.staticTexts["recovery-key"].label
     let entry = app.textFields["Last four characters"]
-    enter(String(key.suffix(4)), into: entry)
+    enter(String(key.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()
     XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()
-    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 20))
     // The keys left with the sign-out, so the account must approve this device again.
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
@@ -393,8 +421,9 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 20))
     // The deleted account cannot be reopened, and this device keeps nothing of it.
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
@@ -407,20 +436,24 @@ final class InboxTests: XCTestCase {
   // and edited with assistance, saved through the encrypted Draft store, and reopened after
   // relaunch. Focus, resize and teardown are recorded.
   private func draftEditorJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
-    enter(String(presented.suffix(4)), into: entry)
+    enter(String(presented.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
     app.buttons["Account"].tap()
-    app.buttons["Turn on on-device assistance"].tap()
+    openSettings("Privacy & Data", in: app)
+    let assistance = app.switches["Mail Assistance"]
+    XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+    assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
     // The disposable Draft belongs to this run's synthetic Product Account only.
@@ -676,7 +709,7 @@ final class InboxTests: XCTestCase {
     if ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-")
       == true
     {
-      XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+      XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 20))
       switch ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] {
       case "registration-apple": appleRegistrationJourney(app)
       case "registration-link": linkJourney(app)
