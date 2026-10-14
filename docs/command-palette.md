@@ -17,8 +17,8 @@ results never appear in the palette. The vocabulary lives in the
   Move to Trash and Report spam as the provider allows; and **Move to…**, which
   lists the connection's folders or labels. The preview Inbox's reader offers its
   Mark as read or unread. The palette never chooses a message on its own.
-- **App commands:** New Message (while a mailbox can send) and Search Mail,
-  which focuses the Inbox search field. On iPhone and iPad, where a reader or
+- **App commands:** New Message (while a mailbox can send and search is closed)
+  and Search Mail, which opens search and focuses the Inbox search field. On iPhone and iPad, where a reader or
   composer can cover the Inbox, Search Mail first leaves the open reader or
   composer through the same checks as closing them. Search Mail and Go To Inbox
   also bring the message list forward where Mailboxes covers it. On the Mac they

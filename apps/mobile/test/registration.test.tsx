@@ -1292,6 +1292,7 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  /* oxlint-disable vitest/max-expects -- One journey proves saved search, its scope, mailbox filters and stale answers. */
   it('searches saved senders and subjects across mailboxes, shows saved bodies, and keeps only the current answer', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
@@ -1489,7 +1490,7 @@ describe('product registration', () => {
       'Unread. Maya Chen. Invoice. In other@example.invalid. Saved on this device',
     ]);
 
-    // One mailbox's view searches only its own mail.
+    // One mailbox's view searches only its own mail, unless search is widened to every Inbox.
     await search('maya');
     await press('Inbox. In alex@example.invalid');
     await waitFor(() => {
@@ -1497,7 +1498,54 @@ describe('product registration', () => {
         'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
       ]);
     });
+    expect(screen.getByRole('tab', { name: 'Current Mailbox' })).toBeSelected();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('tab', { name: 'All Mailboxes' }));
+    });
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Invoice. In other@example.invalid. Saved on this device',
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
+      ]);
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('tab', { name: 'Current Mailbox' }),
+      );
+    });
     await press('All inboxes');
+    // All inboxes already searches every Inbox, so it offers no choice.
+    expect(screen.queryByRole('tab', { name: 'All Mailboxes' })).toBeNull();
+
+    // The unified Inbox's filter can leave a mailbox out; filtering off lists it again.
+    const toggleFilter = async () => {
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('togglebutton', { name: 'Filter' }),
+        );
+      });
+    };
+    await press('Close Search');
+    await toggleFilter();
+    await press('Filtered by Unread');
+    const filters = within(screen.getByTestId('filters-sheet'));
+    expect(filters.getByText('Include Mail From')).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        filters.getByRole('checkbox', { name: 'other@example.invalid' }),
+      );
+      await fireEvent.press(filters.getByRole('checkbox', { name: 'Unread' }));
+    });
+    await press('Apply Filters');
+    await expect(
+      screen.findByRole('button', { name: 'Filtered by alex@example.invalid' }),
+    ).resolves.toBeVisible();
+    expect(rows()).toStrictEqual([
+      'Unread. Maya Chen. Studio review. In alex@example.invalid',
+      'Unread. Oliver Park. Café on Saturday. In alex@example.invalid',
+    ]);
+    await toggleFilter();
+    expect(rows()).toHaveLength(3);
 
     // A result opens through the reader; once its body is saved, the result says so.
     await search('cafe');
@@ -1538,6 +1586,8 @@ describe('product registration', () => {
       ]);
     });
   });
+
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey proves asking, reading, failures and stale answers. */
   it('searches Gmail online when asked, opens a result, keeps saved results through an outage, and drops a stale answer', async () => {
@@ -1726,15 +1776,12 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(rows()).toHaveLength(3);
     });
-    // The header reports the unreachable server instead of a result count.
-    expect(screen.getByText(/ · Offline$/u)).toBeVisible();
     // Asking again searches every mailbox afresh.
     await press('Search mail servers again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });
     expect(screen.queryByText(/Gmail could not be reached/u)).toBeNull();
-    expect(screen.queryByText(/ · Offline$/u)).toBeNull();
 
     // A reply for a query that changed meanwhile is never shown.
     let release: () => void = () => undefined;

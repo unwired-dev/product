@@ -10,6 +10,7 @@ import {
   inboxChoice,
   inboxMessages,
   mailboxSidebar,
+  matchedRanges,
   messageDateSections,
   searchGmail,
   searchMessages,
@@ -380,6 +381,27 @@ describe('mailbox connections and the unified Inbox', () => {
     await expect(otherInbox.savedBodies([studio])).resolves.toStrictEqual(
       new Set(),
     );
+  });
+
+  it('marks the query words where search matched them, across accents, case and expanded letters', () => {
+    expect.hasAssertions();
+    const marked = (text: string, query: string) =>
+      matchedRanges(text, query).map(([start, end]) => text.slice(start, end));
+    expect(marked('Café on Saturday', 'cafe SAT')).toStrictEqual([
+      'Café',
+      'Sat',
+    ]);
+    // A decomposed accent stays with its letter, and one letter that folds to two matches whole.
+    expect(marked('Cafe\u0301 Straße', 'cafe strasse')).toStrictEqual([
+      'Cafe\u0301',
+      'Straße',
+    ]);
+    // Repeated and overlapping words merge into one mark.
+    expect(marked('review reviewers', 'review view')).toStrictEqual([
+      'review',
+      'review',
+    ]);
+    expect(matchedRanges('Studio', ' ')).toStrictEqual([]);
   });
 
   it('searches Gmail online across connections, pages and opens results without saving them, and keeps each failure its own', async () => {

@@ -81,11 +81,23 @@ leaves the device or reaches Convex. It covers the newest 200 Inbox messages eac
 mailbox keeps; older mail stays in Gmail, and [searching Gmail online](#searching-gmail-online)
 reaches it.
 
+- **Search mode.** On iPhone and iPad, focusing the field opens search: the Inbox's
+  heading and rows give way to an empty list until a query is typed, and **Close Search**
+  beside the field replaces Filter and New Message, which return with the Inbox when
+  Close clears the query. Editing or clearing the query keeps search open, so the list
+  never flashes back to the Inbox. When the Inbox is [filtered](#filtering-the-inbox),
+  the bar shows a Search button that opens the field.
 - **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
   searches only its own mail. A removed mailbox's mail leaves the results at once,
-  as it leaves the Inbox.
-- **Results.** Each result is an ordinary Inbox row that opens in the reader. While
+  as it leaves the Inbox. In a view narrower than every Inbox of the Profile (one
+  mailbox, or one of its folders), search shows **All Mailboxes** and **Current
+  Mailbox** at the top. Current Mailbox is chosen when search opens; All Mailboxes
+  searches, and asks the mail servers about, every Inbox of the Profile.
+- **Results.** Results are listed in that order under **Top Results**, whose spoken
+  label also gives the number of saved and online results and where they were found.
+  The words of the query are marked in each result's sender and subject with the
+  subtle selection fill, except on the selected row. Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
   opens without the server, or **Downloads from the mail server when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
@@ -95,6 +107,29 @@ reaches it.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
   search is discarded rather than shown.
+
+## Filtering the Inbox
+
+[#974](https://github.com/unwired-dev/product/issues/974) adds **Filter** at the
+leading edge of the floating bar on iPhone and iPad. Filtering starts off at each
+launch. Turning it on keeps unread mail; the bar then shows **Filtered by** with the
+filter's one criterion, or how many apply, and its **Search** and New Message
+buttons. Pressing the summary opens the **Filters** sheet:
+
+- **Include Mail From**, in **All inboxes** with more than one mailbox: each
+  mailbox, checked while its mail is listed. Other views list their own mailbox only.
+- **Include:** **Unread**.
+- **Only Mail from Today:** mail that arrived on the list's current UTC day, the
+  day its **Today** divider names.
+
+The sheet edits a copy; the checkmark (**Apply Filters**) applies it, and leaving the
+sheet discards it. Every chosen criterion narrows the list. Applying a filter that
+leaves nothing out turns filtering off, and turning it on again then starts from Unread.
+Filters apply to the Inbox list only: search, Drafts and the Outbox are not filtered,
+and the subtitle's unread count still counts the whole view. When the filter hides
+every message, the list says so. The listed metadata cannot yet answer the
+recording's other filters — flagged mail outside Gmail, To or Cc addressed to you,
+attachments and VIP senders — so they are not offered.
 
 ## Searching Gmail online
 
@@ -140,9 +175,10 @@ the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that, with Gmail's
 star as its flag. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
-Offline while the server is being checked or cannot be reached. Search changes
-the title to Search and the subtitle to the displayed saved and online result
-count; Syncing and Offline still take precedence. Opening a message shows its body, as described in
+Offline while the server is being checked or cannot be reached. While
+[search](#searching-saved-mail) is open the heading gives way to its scope choice,
+and **Top Results** reports the result count; each mailbox an online search could
+not reach says so under **From mail servers**. Opening a message shows its body, as described in
 [Reading messages](#reading-messages). The detail view also shows the message's
 own labels and the [organizing actions](#organizing-mail).
 

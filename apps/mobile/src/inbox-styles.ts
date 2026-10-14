@@ -46,6 +46,34 @@ export const styles = StyleSheet.create({
     ...(ipad ? typography.ipadList.subheadline : textStyles.caption1),
     flexShrink: 1,
   },
+  // Search's scope: two equal pill segments, the chosen one in the selected chip's graphite.
+  segments: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginHorizontal: spacing.l,
+    marginTop: spacing.xs,
+    marginBottom: spacing.s,
+    padding: 2,
+    // Pills are fully rounded.
+    borderRadius: 20,
+    borderCurve: 'continuous',
+  },
+  segment: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: 18,
+  },
+  segmentLabel: { ...textStyles.footnote },
+  resultsHeader: {
+    ...textStyles.footnote,
+    fontWeight: '600',
+    paddingTop: spacing.s,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
   // Rows scroll under the floating bar.
   list: {
     paddingHorizontal: ipad ? 6 * scale : spacing.l,

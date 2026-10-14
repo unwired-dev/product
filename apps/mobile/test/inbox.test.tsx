@@ -139,7 +139,8 @@ describe('preview Inbox', () => {
     },
   );
 
-  it('shows saved search matches with the default row preview and result count', async () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one search or filter flow end to end. */
+  it('opens search over a blank list, marks matches under Top Results, keeps search through edits and closes back to the Inbox', async () => {
     expect.hasAssertions();
     await render(<InboxJourney />);
     const row = await screen.findByRole('button', {
@@ -150,13 +151,157 @@ describe('preview Inbox', () => {
         'The forecast looks good. Coffee first, then the long way home.',
       ),
     ).toHaveProp('numberOfLines', 1);
-    await fireEvent.changeText(
-      screen.getByLabelText('Search senders and subjects'),
-      'Maya',
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    // Before typing, search shows neither the Inbox heading nor its rows.
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Oliver Park/u })).toBeNull();
+    await fireEvent.changeText(field, 'MAYA room');
+    const results = await screen.findByRole('header', {
+      name: 'Top Results. 1 result in Preview mailbox',
+    });
+    expect(results).toHaveTextContent('Top Results');
+    const maya = screen.getByRole('button', {
+      name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
+    });
+    // Each matched word is marked where search found it, ignoring case.
+    expect(within(maya).getByText('Maya')).toHaveStyle({
+      backgroundColor: palette.light.accentSelectionSubtle,
+    });
+    expect(within(maya).getByText('room')).toHaveStyle({
+      backgroundColor: palette.light.accentSelectionSubtle,
+    });
+    // Clearing the query keeps search open rather than flashing the Inbox.
+    await fireEvent.changeText(field, '');
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('header', { name: /^Top Results/u }),
+      ).toBeNull();
+    });
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Oliver Park/u })).toBeNull();
+    await fireEvent.changeText(field, 'nothing like this');
+    await expect(
+      screen.findByText(
+        'No mail saved on this device matches “nothing like this”.',
+      ),
+    ).resolves.toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    expect(screen.getByRole('header', { name: 'Inbox' })).toBeVisible();
+    expect(screen.getByLabelText('Search senders and subjects')).toHaveProp(
+      'value',
+      '',
     );
-    expect(screen.getByRole('header', { name: 'Search' })).toBeVisible();
-    expect(screen.getByText('1 result in Preview mailbox')).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
   });
+
+  it('filters the Inbox by Unread and Today, leaves search unfiltered and turns off when nothing narrows', async () => {
+    expect.hasAssertions();
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+    try {
+      await render(<InboxJourney />);
+      const fieldNotes = { name: 'Field Notes. Things worth keeping' };
+      await expect(
+        screen.findByRole('button', fieldNotes),
+      ).resolves.toBeVisible();
+      const filter = screen.getByRole('togglebutton', { name: 'Filter' });
+      expect(filter).toHaveProp('accessibilityState', { checked: false });
+      // Filtering starts from Unread.
+      await fireEvent.press(filter);
+      expect(screen.getByRole('togglebutton', { name: 'Filter' })).toHaveProp(
+        'accessibilityState',
+        { checked: true },
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+      expect(
+        screen.getByRole('button', {
+          name: 'Unread. Maya Chen. A little more room to think',
+        }),
+      ).toBeVisible();
+
+      // The sheet edits a copy: Today instead of Unread keeps today's mail, read or not.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      const sheet = within(screen.getByTestId('filters-sheet'));
+      expect(sheet.getByRole('header', { name: 'Filters' })).toBeVisible();
+      // A single mailbox offers no mailboxes to leave out.
+      expect(sheet.queryByText('Include Mail From')).toBeNull();
+      const unread = sheet.getByRole('checkbox', { name: 'Unread' });
+      expect(unread).toBeChecked();
+      await fireEvent.press(unread);
+      await fireEvent(
+        sheet.getByLabelText('Only Mail from Today'),
+        'valueChange',
+        true,
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+      await fireEvent.press(
+        sheet.getByRole('button', { name: 'Apply Filters' }),
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Filtered by Today' }),
+      ).toBeVisible();
+      expect(
+        screen.getAllByRole('button', { name: /^Unread\. /u }),
+      ).toHaveLength(2);
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+
+      // Search reaches mail the filter leaves out, and Close returns to the filtered Inbox.
+      await fireEvent.press(screen.getByRole('button', { name: 'Search' }));
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'field notes',
+      );
+      await expect(
+        screen.findByRole('button', {
+          name: `${fieldNotes.name}. Saved on this device`,
+        }),
+      ).resolves.toBeVisible();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Close Search' }),
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+
+      // Applying a filter that leaves nothing out turns filtering off.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Today' }),
+      );
+      await fireEvent(
+        within(screen.getByTestId('filters-sheet')).getByLabelText(
+          'Only Mail from Today',
+        ),
+        'valueChange',
+        false,
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Apply Filters' }),
+      );
+      expect(screen.getByRole('togglebutton', { name: 'Filter' })).toHaveProp(
+        'accessibilityState',
+        { checked: false },
+      );
+      expect(screen.getByRole('button', fieldNotes)).toBeVisible();
+      // Turning it on again starts from Unread.
+      await fireEvent.press(
+        screen.getByRole('togglebutton', { name: 'Filter' }),
+      );
+      expect(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  /* oxlint-enable vitest/max-expects */
 
   it('groups rows under the day they arrived and names today by the clock', async () => {
     expect.hasAssertions();

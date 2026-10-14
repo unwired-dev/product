@@ -725,15 +725,18 @@ const folded = (text: string) =>
 
 type Searched = Readonly<{ sender: string; address: string; subject: string }>;
 
+const queryWords = (query: string) =>
+  folded(query)
+    .split(/\s+/u)
+    .filter((word) => word.length > 0);
+
 // The listed messages whose sender name, address or subject holds every word of the query, in the
 // listing's order. It reads only the metadata already on this device; nothing asks Gmail.
 export function searchMessages<L extends Listing>(
   entries: ReadonlyArray<MailboxMessage<L>>,
   query: string,
 ): ReadonlyArray<MailboxMessage<L>> {
-  const words = folded(query)
-    .split(/\s+/u)
-    .filter((word) => word.length > 0);
+  const words = queryWords(query);
   if (words.length === 0) {
     return entries;
   }
@@ -744,6 +747,75 @@ export function searchMessages<L extends Listing>(
     );
     return words.every((word) => fields.some((field) => field.includes(word)));
   });
+}
+
+// `text` folded one code point at a time, with the span of `text` each folded letter came from.
+const foldedLetters = (text: string) => {
+  let folds = '';
+  const spans: Array<readonly [number, number]> = [];
+  let at = 0;
+  for (const point of text) {
+    for (const letter of folded(point)) {
+      folds += letter;
+      spans.push([at, at + point.length]);
+    }
+    at += point.length;
+  }
+  return { folds, spans };
+};
+
+// Sorted ranges with overlapping ones joined.
+const joined = (ranges: ReadonlyArray<readonly [number, number]>) => {
+  const sorted = Arr.sort(
+    ranges,
+    Order.mapInput(Order.Number, ([start]: readonly [number, number]) => start),
+  );
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of sorted) {
+    const last = merged.at(-1);
+    if (last !== undefined && start <= last[1]) {
+      last[1] = Math.max(last[1], end);
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged;
+};
+
+/**
+ * Find where the query's words appear in a shown field, matched as
+ * `searchMessages` matches them, so a result can mark them.
+ *
+ * @example
+ *   matchedRanges('Café on Saturday', 'cafe'); // [[0, 4]]
+ *
+ * @param {string} text - A result's sender name or subject as shown.
+ * @param {string} query - The search query.
+ * @returns {[number, number][]} Ordered, non-overlapping `[start, end)` UTF-16
+ *   ranges of `text`.
+ */
+export function matchedRanges(
+  text: string,
+  query: string,
+): ReadonlyArray<readonly [number, number]> {
+  const { folds, spans } = foldedLetters(text);
+  const found: Array<readonly [number, number]> = [];
+  for (const word of queryWords(query)) {
+    for (
+      let index = folds.indexOf(word);
+      index !== -1;
+      index = folds.indexOf(word, index + 1)
+    ) {
+      const [start] = spans[index] ?? [0, 0];
+      let [, end] = spans[index + word.length - 1] ?? [0, text.length];
+      // A combining accent belongs to the letter before it.
+      while (/^\p{M}/u.test(text.slice(end))) {
+        end += 1;
+      }
+      found.push([start, end]);
+    }
+  }
+  return joined(found);
 }
 
 // A listed message whose store can report its cached bodies. Preview stores keep every body

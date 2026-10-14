@@ -1,10 +1,10 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
 import { use, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
@@ -26,6 +26,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   search: { ...textStyles.body, flex: 1, minHeight: 48 },
+  round: { padding: 0, borderRadius: 24, backgroundColor: 'transparent' },
+  filtered: {
+    flexShrink: 1,
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    padding: 0,
+    paddingRight: spacing.l,
+    borderRadius: 24,
+    backgroundColor: 'transparent',
+  },
+  filterIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filteredBy: { flexShrink: 1, minHeight: 48, justifyContent: 'center' },
+  filteredByCaption: { ...textStyles.caption1, fontWeight: '600' },
+  filteredByValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  filteredByLabel: { ...textStyles.caption1, flexShrink: 1 },
+  spacer: { flex: 1 },
   scrollEdge: {
     position: 'absolute',
     left: 0,
@@ -58,7 +84,7 @@ const styles = StyleSheet.create({
 });
 
 // The New Message control of the floating search bar.
-function NewMessageButton({
+export function NewMessageButton({
   onCompose,
   scope,
 }: {
@@ -113,12 +139,7 @@ function NewMessageButton({
           ]}
         />
       )}
-      <GlassGroup
-        style={{
-          padding: 0,
-          borderRadius: 24,
-          backgroundColor: 'transparent',
-        }}>
+      <GlassGroup style={styles.round}>
         <Pressable
           accessibilityLabel={t('drafts.newMessage')}
           accessibilityRole="button"
@@ -138,28 +159,156 @@ function NewMessageButton({
   );
 }
 
-// The floating glass bar over the list: search on the mail saved on this device, and New Message.
-export function FloatingBar({
-  hidden = false,
+// A round glass button of the bar, as tall as the search field.
+export function BarButton({
+  label,
+  icon,
+  onPress,
+}: {
+  readonly label: string;
+  readonly icon: string;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  return (
+    <GlassGroup style={styles.round}>
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={styles.newMessage}>
+        <SFSymbol
+          name={icon}
+          color={colors.textPrimary}
+        />
+      </Pressable>
+    </GlassGroup>
+  );
+}
+
+// The filter switch, and while it is on, what the Inbox is filtered by, which opens the Filters sheet.
+export function FilterControl({
+  label,
+  onToggle,
+  onOpen,
+}: {
+  // The applied filter's summary; none while the Inbox is unfiltered.
+  readonly label: string | undefined;
+  readonly onToggle: () => void;
+  readonly onOpen: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const on = label !== undefined;
+  return (
+    <GlassGroup style={on ? styles.filtered : styles.round}>
+      <Pressable
+        accessibilityLabel={t('filters.filter')}
+        accessibilityRole="togglebutton"
+        accessibilityState={{ checked: on }}
+        onPress={onToggle}
+        style={styles.newMessage}>
+        <View
+          style={[
+            styles.filterIcon,
+            on && { backgroundColor: colors.accentFill },
+          ]}>
+          <SFSymbol
+            name="line.3.horizontal.decrease"
+            color={on ? colors.accentOnFill : colors.textPrimary}
+          />
+        </View>
+      </Pressable>
+      {on ? (
+        <Pressable
+          accessibilityHint={t('filters.openHint')}
+          accessibilityLabel={t('filters.filteredByLabel', { label })}
+          accessibilityRole="button"
+          onPress={onOpen}
+          style={styles.filteredBy}>
+          <Text
+            numberOfLines={1}
+            style={[styles.filteredByCaption, { color: colors.textPrimary }]}>
+            {t('filters.filteredBy')}
+          </Text>
+          <View style={styles.filteredByValue}>
+            <Text
+              numberOfLines={1}
+              style={[styles.filteredByLabel, { color: colors.accentInk }]}>
+              {label}
+            </Text>
+            <SFSymbol
+              name="chevron.down"
+              size={10}
+              color={colors.accentInk}
+            />
+          </View>
+        </Pressable>
+      ) : null}
+    </GlassGroup>
+  );
+}
+
+// Keeps the bar's trailing buttons at its trailing edge.
+export function BarSpacer() {
+  return <View style={styles.spacer} />;
+}
+
+// The search field. Focusing it opens search; it shows while a mailbox is readable.
+export function SearchField({
   ready,
   query,
   onQuery,
-  onCompose,
-  scope,
+  onFocus,
   search,
 }: {
-  readonly hidden?: boolean;
-  // Search waits for a mailbox to be readable.
   readonly ready: boolean;
   readonly query: string;
   readonly onQuery: (query: string) => void;
-  readonly onCompose: ((id: string) => void) | undefined;
-  readonly scope: string | undefined;
+  readonly onFocus: () => void;
   // The search field, which the Command Palette's Search Mail focuses.
   readonly search: RefObject<TextInput | null>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  if (!ready) {
+    return <View style={styles.searchBar} />;
+  }
+  return (
+    <GlassGroup style={styles.searchBar}>
+      <SFSymbol
+        name="magnifyingglass"
+        color={colors.textSecondary}
+      />
+      <TextInput
+        accessibilityLabel={t('search.label')}
+        accessibilityRole="search"
+        autoCapitalize="none"
+        autoComplete="off"
+        autoCorrect={false}
+        clearButtonMode="while-editing"
+        onChangeText={onQuery}
+        onFocus={onFocus}
+        ref={search}
+        placeholder={t('search.placeholder')}
+        placeholderTextColor={colors.textSecondary}
+        returnKeyType="search"
+        style={[styles.search, { color: colors.textPrimary }]}
+        value={query}
+      />
+    </GlassGroup>
+  );
+}
+
+// The floating glass bar over the list, holding search, filters and New Message.
+export function FloatingBar({
+  hidden = false,
+  children,
+}: {
+  readonly hidden?: boolean;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
   return (
     <>
       <View
@@ -175,37 +324,7 @@ export function FloatingBar({
       <View
         pointerEvents="box-none"
         style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
-        {ready ? (
-          <GlassGroup style={styles.searchBar}>
-            <SFSymbol
-              name="magnifyingglass"
-              color={colors.textSecondary}
-            />
-            <TextInput
-              accessibilityLabel={t('search.label')}
-              accessibilityRole="search"
-              autoCapitalize="none"
-              autoComplete="off"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-              onChangeText={onQuery}
-              ref={search}
-              placeholder={t('search.placeholder')}
-              placeholderTextColor={colors.textSecondary}
-              returnKeyType="search"
-              style={[styles.search, { color: colors.textPrimary }]}
-              value={query}
-            />
-          </GlassGroup>
-        ) : (
-          <View style={styles.searchBar} />
-        )}
-        {onCompose === undefined ? null : (
-          <NewMessageButton
-            onCompose={onCompose}
-            scope={scope}
-          />
-        )}
+        {children}
       </View>
     </>
   );

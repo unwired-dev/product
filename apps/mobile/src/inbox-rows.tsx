@@ -1,9 +1,11 @@
 import type { Message } from '@private-email/mail-core';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
+import type { ReactNode } from 'react';
 
 import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';
+import { matchedRanges } from '@private-email/mail-core/mailboxes';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -24,6 +26,36 @@ export type RowAction = Readonly<{
 }>;
 const noActions: readonly RowAction[] = [];
 
+// A field with the search's matched words marked; a selected row's graphite fill marks none.
+function Marked({
+  text,
+  query,
+  color,
+}: {
+  readonly text: string;
+  readonly query: string | undefined;
+  readonly color: string | undefined;
+}) {
+  if (query === undefined || color === undefined) {
+    return text;
+  }
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of matchedRanges(text, query)) {
+    parts.push(
+      text.slice(at, start),
+      <Text
+        key={start}
+        style={{ backgroundColor: color }}>
+        {text.slice(start, end)}
+      </Text>,
+    );
+    at = end;
+  }
+  parts.push(text.slice(at));
+  return parts;
+}
+
 export function MessageRow({
   message,
   mailbox,
@@ -32,6 +64,7 @@ export function MessageRow({
   onSelect,
   actions = noActions,
   now,
+  query,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
@@ -44,11 +77,14 @@ export function MessageRow({
   readonly actions?: readonly RowAction[] | undefined;
   // When the list was last read, which names the day the message arrived.
   readonly now: number;
+  // The search that listed it, whose matched words the sender and subject mark.
+  readonly query?: string | undefined;
 }) {
   const colors = usePalette();
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const focusColor = selected ? colors.accentOnFill : colors.accentInk;
+  const markColor = selected ? undefined : colors.accentSelectionSubtle;
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
   const [focused, setFocused] = useState(false);
@@ -115,7 +151,11 @@ export function MessageRow({
                   },
                 ]}
                 numberOfLines={1}>
-                {message.sender}
+                <Marked
+                  text={message.sender}
+                  query={query}
+                  color={markColor}
+                />
               </Text>
               {flagged ? (
                 <SFSymbol
@@ -139,7 +179,11 @@ export function MessageRow({
                 },
               ]}
               numberOfLines={1}>
-              {message.subject}
+              <Marked
+                text={message.subject}
+                query={query}
+                color={markColor}
+              />
             </Text>
             <Text
               style={[styles.preview, { color: secondaryColor }]}
