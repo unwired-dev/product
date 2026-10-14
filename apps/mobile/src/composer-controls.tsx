@@ -228,6 +228,7 @@ export function PopUp({
             label === undefined ? styles.menuTrailing : null,
             above ? styles.menuAbove : styles.menuBelow,
             {
+              backgroundColor: colors.surfaceContent,
               borderColor: colors.separator,
               boxShadow: colors.menuShadow,
               transformOrigin: `${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`,

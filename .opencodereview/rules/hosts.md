@@ -777,12 +777,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   as To. Explicit role words must retain meaning when punctuation is omitted;
   component label assertions do not qualify native VoiceOver pronunciation.
 
-- Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet` or another
-  transparent Modal relying only on the native glass view to obscure the reader.
-  Check settled native captures in both appearances: the reader's text and toolbar
-  must not remain legible through sheet controls. Preserve the shared panel's
-  palette-backed surface beneath the material, or the sheets overlap two sets of
-  text and icons even though rendered component tests pass.
+- Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet`,
+  `composer-controls.tsx.PopUp` or another foreground presentation relying only on
+  native glass to obscure the content underneath. Check settled native captures in
+  both appearances: reader and composer text must not remain legible through sheet
+  or menu controls. Preserve the shared panel's palette-backed surface beneath the
+  material, or the presentations overlap two sets of text and icons even though
+  rendered component tests pass.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
