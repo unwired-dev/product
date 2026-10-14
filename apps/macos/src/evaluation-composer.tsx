@@ -29,12 +29,11 @@ import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import { blockControls, markControls } from './composer-controls.tsx';
 import {
   Action,
-  blockControls,
   CapturedAssistance,
   Composer,
-  markControls,
   Notice,
   retires,
   rewriteLabel,
@@ -471,11 +470,15 @@ function EvaluationComposer({
   id,
   onClose,
   onRebind,
+  expanded,
+  onExpand,
 }: {
   readonly page: string;
   readonly id: string;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
   const colors = usePalette();
@@ -497,7 +500,9 @@ function EvaluationComposer({
     return (
       <Composer
         id={id}
+        expanded={expanded}
         onClose={onClose}
+        onExpand={onExpand}
         onRebind={onRebind}
       />
     );
@@ -535,6 +540,9 @@ type ComposerProps = Readonly<{
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
+  // The window-level expand control, which only the current composer offers.
+  expanded?: boolean | undefined;
+  onExpand?: (() => void) | undefined;
 }>;
 
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other

@@ -1,3 +1,4 @@
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
@@ -8,6 +9,7 @@ import {
   expectedCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
+import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
@@ -40,9 +42,10 @@ import {
   CommandInput,
   CommandInputRow,
   RegisterCommands,
+  useMessageCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { Glass, GlassGroup, ToolbarButton } from './design.tsx';
+import { ContextMenu, Glass, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -741,6 +744,24 @@ function MessageToolbar({
   );
 }
 
+// The open message's context menu: the commands its reader offers, grouped as the design orders
+// them, with Delete Message last.
+function MessageMenu({
+  target,
+  children,
+}: {
+  readonly target: CommandTarget;
+  readonly children: ReactNode;
+}) {
+  const { t } = useLocalization();
+  const commands = useMessageCommands(target);
+  return (
+    <ContextMenu sections={messageContextMenu(t, target, commands)}>
+      {children}
+    </ContextMenu>
+  );
+}
+
 // The opened message's header, mailbox and labels above a hairline.
 function MessageMetadata({
   message,
@@ -748,7 +769,8 @@ function MessageMetadata({
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
 }) {
   const state = useInbox();
-  const address = useMailbox()?.address;
+  const mailbox = useMailbox();
+  const address = mailbox?.address;
   const colors = usePalette();
   const { t } = useLocalization();
   const applied = new Set('labels' in message ? message.labels : []);
@@ -759,19 +781,21 @@ function MessageMetadata({
           .map((label) => label.name)
       : [];
   return (
-    <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
-      <MessageHeader message={message} />
-      {address === undefined ? null : (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('inbox.inMailbox', { mailbox: address })}
-        </Text>
-      )}
-      {labelNames.length === 0 ? null : (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('message.labels', { labels: labelNames.join(', ') })}
-        </Text>
-      )}
-    </View>
+    <MessageMenu target={commandTarget(mailbox?.id, message)}>
+      <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
+        <MessageHeader message={message} />
+        {address === undefined ? null : (
+          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+            {t('inbox.inMailbox', { mailbox: address })}
+          </Text>
+        )}
+        {labelNames.length === 0 ? null : (
+          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+            {t('message.labels', { labels: labelNames.join(', ') })}
+          </Text>
+        )}
+      </View>
+    </MessageMenu>
   );
 }
 

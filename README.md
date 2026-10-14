@@ -99,7 +99,7 @@ mise exec -- pnpm test
 mise exec -- pnpm test:tooling
 mise exec -- node scripts/check-changesets.mjs
 mise exec -- node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
-mise exec -- pnpm fallow
+mise exec -- pnpm exec fallow audit --gate new-only --changed-since origin/main --format json --quiet
 ```
 
 `pnpm lint` and `pnpm format` run Oxlint and Oxfmt once from the root over the

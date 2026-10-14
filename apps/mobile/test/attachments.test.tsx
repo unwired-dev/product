@@ -24,6 +24,18 @@ const pressHandler = (
   throw new Error('Expected a rendered press handler');
 };
 
+// The native context menu around a rendered control.
+const contextMenuOf = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected a context menu');
+  }
+  return node;
+};
+
 function CommitProbe({ inspect }: { readonly inspect: () => void }) {
   useLayoutEffect(inspect, [inspect]);
   return null;
@@ -82,14 +94,41 @@ describe('received attachments in the reader', () => {
         ),
       }).toStrictEqual({ sizes: ['18 bytes', '1 byte'], downloads: [] });
 
+      // Its context menu offers nothing until the attachment is on this device.
+      const unavailableMenu: unknown = contextMenuOf(
+        screen.getByLabelText('Download report.pdf'),
+      ).props.sections;
       await fireEvent.press(screen.getByLabelText('Download report.pdf'));
       const open = await screen.findByLabelText('Open report.pdf');
       await fireEvent.press(open);
       await fireEvent.press(screen.getByLabelText('Share report.pdf'));
-      expect(gmail.presentations).toStrictEqual([
-        { name: 'report.pdf', action: 'open' },
-        { name: 'report.pdf', action: 'share' },
-      ]);
+      // The context menu's Quick Look and Share… present it the same way.
+      const menu = contextMenuOf(open);
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{ id: string; title: string }>;
+      }> = menu.props.sections;
+      const items = sections.flatMap((section) => section.items);
+      for (const { id: item } of items) {
+        await fireEvent(menu, 'select', { nativeEvent: { id: item } });
+      }
+      expect({
+        unavailableMenu,
+        // Selectable native text installs a competing long-press Copy menu on the filename.
+        selectableName:
+          screen.getByText('report.pdf').props.selectable === true,
+        titles: items.map(({ title }) => title),
+        presentations: gmail.presentations,
+      }).toStrictEqual({
+        unavailableMenu: [],
+        selectableName: false,
+        titles: ['Quick Look', 'Share…'],
+        presentations: [
+          { name: 'report.pdf', action: 'open' },
+          { name: 'report.pdf', action: 'share' },
+          { name: 'report.pdf', action: 'open' },
+          { name: 'report.pdf', action: 'share' },
+        ],
+      });
       // The other attachment was never downloaded.
       expect(screen.getByLabelText('Download notes.txt')).toBeOnTheScreen();
     } finally {

@@ -674,6 +674,10 @@
     "invalidRecipients": "Correct or remove the invalid address to close this Draft.",
     "discardConfirm": "Discard this Draft? It is deleted from this device.",
     "showCcBcc": "Show Cc and Bcc",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "textStyle": "Text style",
+    "actions": "Compose actions",
     "ccBcc": "Cc/Bcc",
     "subject": "Subject",
     "formatting": "Formatting",
@@ -687,6 +691,7 @@
       "code": "Inline code"
     },
     "blocks": {
+      "body": "Body",
       "heading1": "Heading 1",
       "heading2": "Heading 2",
       "heading3": "Heading 3",
@@ -958,5 +963,23 @@
         "detail": "Any provider with IMAP and SMTP"
       }
     }
+  },
+  "contextMenu": {
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "archive": "Archive",
+    "trash": "Delete",
+    "trashMessage": "Delete Message",
+    "star": "Flag",
+    "unstar": "Unflag",
+    "read": "Mark as Read",
+    "unread": "Mark as Unread",
+    "moveMessage": "Move Message",
+    "openLink": "Open Link",
+    "copyLink": "Copy Link",
+    "quickLook": "Quick Look",
+    "share": "Share…",
+    "copyAddress": "Copy Address"
   }
 }

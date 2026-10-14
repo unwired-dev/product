@@ -1,6 +1,17 @@
+import type {
+  MenuSection,
+  NativeMenuItem,
+} from '@private-email/mail-core/context-menu';
 import type { ReactNode } from 'react';
-import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
+import type {
+  ColorValue,
+  NativeSyntheticEvent,
+  StyleProp,
+  ViewProps,
+  ViewStyle,
+} from 'react-native';
 
+import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import {
@@ -22,7 +33,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeGlass = requireNativeComponent<
+export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -48,6 +59,7 @@ export function Glass({
 const groupRadius = (28 + 2 * spacing.xs) / 2;
 
 const styles = StyleSheet.create({
+  menuContent: { flexGrow: 1 },
   group: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -121,6 +133,47 @@ export function SFSymbol({
   );
 }
 
+const NativeContextMenu = requireNativeComponent<
+  ViewProps & {
+    readonly destructiveColor: ColorValue;
+    readonly sections: ReadonlyArray<
+      Readonly<{
+        palette?: boolean | undefined;
+        items: readonly NativeMenuItem[];
+      }>
+    >;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredContextMenu');
+
+// The system context menu for its children: long-press on iPhone and iPad, secondary click with
+// a pointer or on the Mac. Empty sections are left out.
+export function ContextMenu({
+  sections,
+  children,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const colors = usePalette();
+  const menu = menuState(sections);
+  return (
+    <NativeContextMenu
+      {...props}
+      destructiveColor={colors.statusDestructive}
+      sections={menu.sections}
+      onSelect={({ nativeEvent }) => {
+        void menu.runs.get(nativeEvent.id)?.();
+      }}>
+      {/* React Native's legacy view interop mounts a nested menu without its offset, so another
+          menu never becomes this one's direct native child. */}
+      <View
+        collapsable={false}
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeContextMenu>
+  );
+}
+
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,
@@ -180,6 +233,9 @@ export function ToolbarButton({
   onPress,
   disabled = false,
   expanded,
+  selected,
+  destructive = false,
+  accessibilityHint,
 }: {
   readonly label: string;
   readonly icon: string;
@@ -187,16 +243,22 @@ export function ToolbarButton({
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;
+  // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{
         disabled,
         ...(expanded === undefined ? {} : { expanded }),
+        ...(selected === undefined ? {} : { selected }),
       }}
       disabled={disabled}
       focusable
@@ -211,18 +273,19 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true
+            pressed || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
-          borderColor: focused ? colors.accentInk : 'transparent',
+          borderColor:
+            focused || selected === true ? colors.accentInk : 'transparent',
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <SFSymbol
         name={icon}
         size={16}
-        color={colors.textPrimary}
+        color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
   );
@@ -297,30 +360,32 @@ export function Notice({
   );
 }
 
-// A push button: the primary one carries the accent fill, others the quiet fill; a destructive
-// one keeps the quiet fill with destructive text.
+// A push button, 28pt tall: the accent fill carries the view's main action, the quiet fill the rest.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
   disabled = false,
+  destructive = false,
+  accessibilityLabel,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill?: 'accent' | 'quiet' | 'destructive';
+  readonly fill?: 'accent' | 'quiet';
   readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
-  const inks = {
-    accent: colors.accentOnFill,
-    quiet: colors.textPrimary,
-    destructive: colors.statusDestructive,
-  };
+  let color = primary ? colors.accentOnFill : colors.textPrimary;
+  if (destructive) {
+    color = colors.statusDestructive;
+  }
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
@@ -331,13 +396,13 @@ export function Button({
         {
           backgroundColor:
             pressed && !primary ? colors.accentSelectionSubtle : idle,
-          opacity: disabled ? 0.4 : 1,
+          opacity: disabled ? 0.5 : 1,
         },
       ]}>
       <Text
         style={[
           primary ? textStyles.bodyEmphasized : textStyles.body,
-          { color: inks[fill] },
+          { color },
         ]}>
         {label}
       </Text>

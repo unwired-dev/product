@@ -2,6 +2,7 @@ import type {
   Command,
   CommandChoice,
   CommandRegistry,
+  CommandTarget,
   NativePreferences,
 } from '@private-email/mail-core/commands';
 import type { ReactNode } from 'react';
@@ -24,6 +25,7 @@ import {
   orderCommands,
   sectionTitle,
 } from '@private-email/mail-core/commands';
+import { messageCommands } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
@@ -85,6 +87,16 @@ export function RegisterCommands({
     [registry, owner, offer],
   );
   return null;
+}
+
+// The commands the mounted screens offer now for one message, which its context menu lists.
+export function useMessageCommands(target: CommandTarget) {
+  const { registry } = use(PaletteContext);
+  const commands = useSyncExternalStore(
+    registry.subscribe,
+    registry.getSnapshot,
+  );
+  return messageCommands(commands, target);
 }
 
 interface PreferenceModule extends TurboModule, NativePreferences {}

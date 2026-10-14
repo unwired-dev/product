@@ -3,10 +3,11 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 
 import { messageDay } from '@private-email/localization';
+import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { SFSymbol } from './design.tsx';
+import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import {
   useLocalization,
@@ -72,113 +73,118 @@ export function MessageRow({
     status,
   });
   return (
-    <Pressable
-      accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
-        name,
-        label: actionLabel,
-      }))}
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      focusable
-      onAccessibilityAction={({ nativeEvent }) => {
-        actions.find(({ name }) => name === nativeEvent.actionName)?.run();
-      }}
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onSelect}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-          borderColor: focused ? focusColor : 'transparent',
-        },
-        selected && { backgroundColor: colors.accentFill },
-      ]}>
-      {({ pressed }) => (
-        <>
-          <View style={styles.rowHeading}>
+    <ContextMenu sections={rowContextMenu(t, message.id, actions)}>
+      <Pressable
+        accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
+          name,
+          label: actionLabel,
+        }))}
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        focusable
+        onAccessibilityAction={({ nativeEvent }) => {
+          actions.find(({ name }) => name === nativeEvent.actionName)?.run();
+        }}
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onPress={onSelect}
+        style={({ pressed }) => [
+          styles.row,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+            borderColor: focused ? focusColor : 'transparent',
+          },
+          selected && { backgroundColor: colors.accentFill },
+        ]}>
+        {({ pressed }) => (
+          <>
+            <View style={styles.rowHeading}>
+              <Text
+                style={[
+                  styles.sender,
+                  {
+                    color: primaryColor,
+                    fontWeight: message.unread ? '600' : '400',
+                  },
+                ]}
+                numberOfLines={1}>
+                {message.sender}
+              </Text>
+              {flagged ? (
+                <SFSymbol
+                  name="flag.fill"
+                  size={11}
+                  color={selected ? colors.accentOnFill : colors.statusWarning}
+                />
+              ) : null}
+              <Text
+                numberOfLines={1}
+                style={[styles.date, { color: secondaryColor }]}>
+                {time}
+              </Text>
+            </View>
             <Text
               style={[
-                styles.sender,
+                styles.subject,
                 {
                   color: primaryColor,
                   fontWeight: message.unread ? '600' : '400',
                 },
               ]}
               numberOfLines={1}>
-              {message.sender}
+              {message.subject}
             </Text>
-            {flagged ? (
-              <SFSymbol
-                name="flag.fill"
-                size={11}
-                color={selected ? colors.accentOnFill : colors.statusWarning}
+            <Text
+              style={[styles.preview, { color: secondaryColor }]}
+              numberOfLines={1}>
+              {message.preview}
+            </Text>
+            {mailbox === undefined ? null : (
+              <Text
+                numberOfLines={1}
+                style={[styles.mailbox, { color: secondaryColor }]}>
+                {t('inbox.inMailbox', { mailbox })}
+              </Text>
+            )}
+            {status === undefined ? null : (
+              <Text
+                numberOfLines={1}
+                style={[styles.mailbox, { color: secondaryColor }]}>
+                {status}
+              </Text>
+            )}
+            {message.unread ? (
+              <View
+                style={[
+                  styles.unread,
+                  {
+                    backgroundColor: pressed
+                      ? colors.accentInk
+                      : colors.accentFill,
+                  },
+                  selected && { backgroundColor: colors.accentOnFill },
+                ]}
               />
             ) : null}
-            <Text
-              numberOfLines={1}
-              style={[styles.date, { color: secondaryColor }]}>
-              {time}
-            </Text>
-          </View>
-          <Text
-            style={[
-              styles.subject,
-              {
-                color: primaryColor,
-                fontWeight: message.unread ? '600' : '400',
-              },
-            ]}
-            numberOfLines={1}>
-            {message.subject}
-          </Text>
-          <Text
-            style={[styles.preview, { color: secondaryColor }]}
-            numberOfLines={1}>
-            {message.preview}
-          </Text>
-          {mailbox === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {t('inbox.inMailbox', { mailbox })}
-            </Text>
-          )}
-          {status === undefined ? null : (
-            <Text
-              numberOfLines={1}
-              style={[styles.mailbox, { color: secondaryColor }]}>
-              {status}
-            </Text>
-          )}
-          {message.unread ? (
-            <View
-              style={[
-                styles.unread,
-                {
-                  backgroundColor: pressed
-                    ? colors.accentInk
-                    : colors.accentFill,
-                },
-                selected && { backgroundColor: colors.accentOnFill },
-              ]}
-            />
-          ) : null}
-          {selected ? null : (
-            <View
-              style={[styles.separator, { backgroundColor: colors.separator }]}
-            />
-          )}
-        </>
-      )}
-    </Pressable>
+            {selected ? null : (
+              <View
+                style={[
+                  styles.separator,
+                  { backgroundColor: colors.separator },
+                ]}
+              />
+            )}
+          </>
+        )}
+      </Pressable>
+    </ContextMenu>
   );
 }
 

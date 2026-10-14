@@ -39,7 +39,8 @@ for every implementation, including later implementation fixes.
   user-visible, then spawn a third review agent with the same arguments for the
   workflow's [design review](docs/agents/implementation-review.md#design-review).
   Pause writes until every required final report; later implementer edits need
-  another review.
+  another review. OCR follow-ups use the workflow's validated incremental
+  checkpoint; thermo-nuclear and applicable design reviews keep full task scope.
 - Never pause implementation for a user decision. Send it to the workflow's
   [decision panel](docs/agents/implementation-review.md#decision-panel)
   (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.

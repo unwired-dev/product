@@ -38,7 +38,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   payloads and malformed messages can mutate Drafts. Keep the host decoder separate
   from page-facing conversion code so Schema/Effect stays outside the packaged page.
 - An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
-- The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
+- The same logic added to both hosts in one change. Compare the added non-React
+  helpers and projections across the hosts, including `ContextMenu` serialization,
+  `MessageMenu` and row-menu action selection, and `useMessageCommands` filtering.
+  Two copies drift in supported actions, ordering or native selection ownership;
+  move the shared logic to `mail-core` unless it depends on a host API. Keep
+  React subscriptions, rendering and native adapters in their host.
 
 #### React correctness
 
@@ -48,6 +53,24 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   and restore it after settlement. Exercise a held native authorization through
   the real store and an attempted provider selection; otherwise the interface
   opens a competing setup form while its other registration actions are disabled.
+
+- `design.tsx.ContextMenu` assigning action IDs from section/item positions or
+  callback object identity while native menus retain their original IDs. Identify
+  each action by its operation and owning message or destination, and dispatch to
+  its latest committed callback. Reject the ID once that semantic action retires
+  or changes owner; otherwise a live snapshot can make a displayed read or move
+  action execute a different one or silently do nothing. Exercise a recreated
+  callback, a section insertion and a retired choice through the native event boundary.
+
+- Mac context-menu content removing `selectable` text without an accessible
+  labeled replacement, or retaining selectable text that handles secondary
+  clicks before its ancestor menu. Trace the installed paragraph's native event
+  and accessibility behavior; otherwise senders disappear from VoiceOver or the
+  attachment name or `message-detail.tsx`'s received date opens the text menu
+  instead of the attachment or message actions.
+  On iPhone and iPad, also check the paragraph's selectable-text long-press
+  recognizer before retaining `selectable` on an attachment filename; otherwise
+  its Copy menu competes with the attachment's context menu.
 
 - `inbox-bar.tsx.NewMessageButton` falling back to another sender when a specific
   mailbox is selected but cannot send. Only All inboxes chooses the first usable
@@ -346,12 +369,36 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise refused saving retains dead editors indefinitely, or a pending
   Discard reports success while leaving its rebound version durable.
 
+- `composer.tsx.Editor` or `ComposerActions` allowing Close, Send or Discard to
+  overlap a pending finishing operation. Disable Compose actions as well as
+  Close and Send while closing saves, and guard queued callbacks synchronously
+  with the current operation ownership. Ordinary typing may continue but must
+  not clear the pending state. Exercise a held native commit, an already-open
+  overflow's queued Discard, queued Close and later typing, then durable Close
+  completion; otherwise Discard or an edit re-enables controls and starts a second
+  close, deletion or delivery operation against the same Draft.
+- `composer.tsx.Editor` putting variable-height save status, errors or
+  confirmations outside its single outer content scroll. Verify failed saving,
+  refusal and Discard feedback with the body/fields in that scroll; otherwise
+  stacked banners consume a short overlay or keyboard-reduced viewport and
+  cannot scroll away. Preserve ADR 0057's platform-placement amendment: the
+  fixed mobile From row, Mac From/Send footer, Mac/iPad top format bar and compact
+  iPhone above-keyboard format bar are deliberate exceptions. Do not apply the
+  superseded header-only-fixed constraint to those controls.
+
 - `Editor.close` catching failure only through `createComposerNavigation.leave`.
   The Close button also calls it directly as `void close()`: catch unexpected
   rejection from both `save` and empty-only `discard`, keep the editor open,
   settle its Saving state to retryable blocked feedback, and resolve false.
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
+- `Composer` replacing an empty editor with its unavailable fallback before a
+  successful Close or Discard resolves. Removal can unmount the editor before its
+  Promise settles; notify only the still-mounted composer that still owns that
+  Draft, rather than skipping completion because the editor retired. Exercise
+  untouched New Message Close and Discard, plus ownership changes while finishing;
+  otherwise the window remains on an unavailable Draft and its floating bar stays
+  hidden after the Draft was successfully removed.
 
 - `message-detail.tsx.MailboxMessage` offering compact New Message only when the
   opened mailbox can send. Use the eligible senders in that reader's Mail Profile,
@@ -474,6 +521,21 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Inbox warning as a completed Back guard. `useOpenDraft` must reveal an already
   selected editor without attempting to leave it, or invalid recipient entry
   can strand the hidden editor behind a refused destination change.
+
+- Mobile `app/_layout.tsx` keeping route state in a ref such as `reader` for a
+  callback that runs after an awaited save (composer Close, `compose`) while
+  only a render-time `useLayoutEffect` refreshes it. Installed Expo Router
+  queues `router.replace` and dispatches it from an effect, and `setParams`
+  reaches the layout's params only on a later render, so a save can settle
+  before the destination renders. Every handler that changes the ref's source,
+  including selection behind the composer and an Inbox row action closing the
+  selected reader, must update the ref before navigating. The same holds for
+  the open Draft: a palette Go To Inbox or Search Mail runs the composer's
+  Close and then the Inbox `onClose` from one render's closures, so `onClose`
+  must read the `composing` ref, not `draft`, or it reopens the closed composer.
+  Otherwise a delayed Close or New Message returns to a reader that was just
+  replaced or removed. The Jest router mock commits synchronously and cannot
+  show this ordering; a passing routing test is not evidence.
 
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.
@@ -727,6 +789,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   iPhone and the visible iPad `CommandInput` (`CommandInputRow` where the
   branch has no header); one without the other leaves that device without
   its documented entry.
+  Check the new touch entry's effective hit area too: the iPad `CommandInput`
+  is a 44pt-tall glass pill; keep its target at least 44pt without relying on
+  `hitSlop`, as `Chip` and the compact `Button` do. A desktop-sized 36pt pill
+  makes the iPad composer entry harder to activate.
 - A reader control rendered for one store kind, such as the preview Inbox's
   Mark as read or unread in `organize.tsx.PreviewMessageActions`, without a
   `RegisterCommands` in the same component offering the same action list and
@@ -760,6 +826,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
+  The Mac's expanded composer covers the Inbox column too: `inbox.tsx` Search
+  Mail must collapse it through `window.tsx`'s `onReveal` before focusing (a
+  #903 panel chose collapsing over leaving), or focus lands in a hidden field.
+  Mobile Search Mail instead awaits the registered composer Close through
+  `onLeave` before `onClose`; `_layout.tsx`'s composer callback clears expansion
+  and `composing.current` before the reader callback chooses its route. Test an
+  expanded regular iPad composer and failed recipient/save guards; do not infer
+  that a Draft remains open from the reader's `onClose` callback alone or impose
+  the Mac reveal policy on mobile.
 - `app/_layout.tsx` asking its split view for a column by its two-column name.
   Mailboxes is the `primary` column and the message list `supplementary`: when a
   reader, Thread or composer closes, including the compact reader's own Back
@@ -767,6 +842,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `supplementary`. Assert the requested column in the routing journey; otherwise
   iPhone returns to Mailboxes instead of the list, and iPad portrait opens the
   sidebar over it.
+- `app/_layout.tsx` placing a composer overlay from a leading column's local
+  `onLayout` alone. UIKit can move that column without changing its child bounds;
+  derive the overlay edge from the native reading column's current width, including
+  a regular split view with its leading columns hidden. Exercise sidebar movement,
+  rotation and editor continuity; otherwise the overlay covers the interactive list
+  or retains an empty gap beside the reader. Keep native geometry evidence separate
+  from injected component layout events.
+- `inbox.tsx` showing its floating search/New Message bar by default while composing,
+  or unmounting it to hide it and losing New Message command registration. Preserve
+  the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
+  collapses an expanded composer without closing its Draft. Focus search after the
+  revealed bar commits; otherwise command availability or keyboard entry breaks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it

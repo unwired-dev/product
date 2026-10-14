@@ -882,7 +882,8 @@ function RegistrationPage({
   const button: ActionButton = (label, action, fill) => (
     <Button
       disabled={busy}
-      fill={fill ?? 'quiet'}
+      destructive={fill === 'destructive'}
+      fill={fill === 'accent' ? 'accent' : 'quiet'}
       label={label}
       onPress={() => {
         void action();

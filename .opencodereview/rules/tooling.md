@@ -39,6 +39,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Secrets and release
 
+- `scripts/testflight-signing.zsh` suppressing native `security` failures without
+  a fixed operation name and exit code, or printing raw diagnostics to recover
+  that information. The former makes protected setup failures untraceable; the
+  latter can expose signing material. Check setup and cleanup failure contracts
+  separately from native compatibility evidence.
 - A secret echoed, written to a log, an artifact or a temporary file that outlives the step, or passed on a command line visible in the process list.
 - A release script that publishes, uploads or tags without the checks its documentation promises, or that derives release notes from unvalidated input.
 - A script that assumes a signing identity, profile or logged-in session and reports success when it is absent.
