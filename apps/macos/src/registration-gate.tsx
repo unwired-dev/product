@@ -374,6 +374,8 @@ function RegistrationPage({
   if (onInbox !== undefined && snapshot.kind !== 'signed-out') {
     return (
       <SettingsPage
+        // Another Product Account starts Settings afresh, on its own pending setup.
+        key={snapshot.productAccountId}
         assistance={assistance}
         microsoft={microsoft}
         start={start}

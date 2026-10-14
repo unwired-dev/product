@@ -264,6 +264,13 @@ export function TrustedDevices({
     [settings.locale],
   );
   const isCurrent = useConfirmationLifetime();
+  // A changed snapshot retires an open confirmation, so an identical later one cannot reopen it.
+  if (
+    confirming !== undefined &&
+    confirming.owner !== store.getSnapshot().snapshot
+  ) {
+    setConfirming(undefined);
+  }
   const proposal = revocationProposal(t, account);
   // A retained proposal stays confirmable after this device loses its encryption key, when it
   // can no longer approve devices but may still need to repeat the exact removal it sent.

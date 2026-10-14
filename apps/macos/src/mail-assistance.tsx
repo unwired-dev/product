@@ -18,7 +18,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { Pressable, Switch, TurboModuleRegistry } from 'react-native';
+import { Switch, TurboModuleRegistry, View } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -167,13 +167,7 @@ export function MailAssistanceSettings({
             } as const
           )[saveState],
         )}>
-        <Pressable
-          accessible={false}
-          focusable={false}
-          onPress={() => {
-            void store.setEnabled(account, defaultProfile, !enabled);
-          }}
-          style={{ minHeight: 28, justifyContent: 'center' }}>
+        <View style={{ minHeight: 28, justifyContent: 'center' }}>
           <Switch
             accessibilityLabel={t('mailAssistance.title')}
             onValueChange={(on) => {
@@ -182,7 +176,7 @@ export function MailAssistanceSettings({
             trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
             value={enabled}
           />
-        </Pressable>
+        </View>
       </SettingsRow>
       {saveState === 'failed' ? (
         <SettingsBlock>
