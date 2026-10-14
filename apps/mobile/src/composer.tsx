@@ -1259,6 +1259,7 @@ function ComposerNotices({
               : t('drafts.saveBlocked')
           }>
           <Button
+            size="compact"
             label={t('common.retry')}
             onPress={closing === 'discard-blocked' ? onDiscard : onClose}
           />
@@ -1275,11 +1276,13 @@ function ComposerNotices({
       {closing === 'discard' ? (
         <Alert message={t('drafts.discardConfirm')}>
           <Button
+            size="compact"
             destructive
             label={t('drafts.discardDraft')}
             onPress={onDiscard}
           />
           <Button
+            size="compact"
             label={t('drafts.keepEditing')}
             onPress={onKeepEditing}
           />
@@ -1880,6 +1883,7 @@ function Editor({
       <View style={styles.grow} />
       {translation === undefined ? null : (
         <Button
+          size="compact"
           disabled={lockedUnless(
             hasTranslatableText(
               selectedText(draft.body, selection, translationInputLimit + 1),
@@ -1905,6 +1909,7 @@ function Editor({
       {assistance === undefined ? null : (
         <>
           <Button
+            size="compact"
             disabled={lockedUnless(canRewrite(draft.body, selection))}
             label={t('assistance.rewrite')}
             accessibilityLabel={t(rewriteLabel(selection))}
@@ -1920,6 +1925,7 @@ function Editor({
           />
           {canSuggestReply(draft) ? (
             <Button
+              size="compact"
               disabled={sending}
               label={t('assistance.suggestReply')}
               accessibilityLabel={t('assistance.suggestReplyLabel')}
@@ -2321,6 +2327,7 @@ export function Composer({
             }>
             {state.kind === 'locked' || state.kind === 'failed' ? (
               <Button
+                size="compact"
                 label={t('common.retry')}
                 onPress={() => {
                   void store.load();

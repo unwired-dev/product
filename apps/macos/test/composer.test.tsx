@@ -43,6 +43,10 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
+// Allow cold component rendering on a loaded CI runner, including focused runs.
+// Match the mobile composer suite after this file's first test hit Jest's 5 s default.
+jest.setTimeout(10_000);
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -248,6 +252,7 @@ const press = async (name: string) => {
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
+  // Cold CI runs need extra time for the suite's first React Native render.
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();
     const initial = connected([
@@ -291,7 +296,7 @@ describe('composing Drafts', () => {
     await press('Close');
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
-  });
+  }, 15_000);
 
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
@@ -837,16 +842,14 @@ describe('composing Drafts', () => {
       screen.findByRole('button', { name }),
     ).resolves.toBeOnTheScreen();
     expect(screen.getByLabelText('Loading Inbox')).toBeOnTheScreen();
-    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No Mail')).not.toBeOnTheScreen();
     expect(
       screen.queryByLabelText('Search senders and subjects'),
     ).not.toBeOnTheScreen();
     await act(async () => {
       release();
     });
-    await expect(
-      screen.findByText('Your inbox is clear.'),
-    ).resolves.toBeOnTheScreen();
+    await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
     expect(screen.getByRole('button', { name })).toBeOnTheScreen();
   });
 
@@ -887,7 +890,7 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No Mail')).not.toBeOnTheScreen();
     await search('Synthetic message 0');
     const resultName =
       'Unread. Maya Chen. Synthetic message 0. Downloads from the mail server when opened';

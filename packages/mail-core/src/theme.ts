@@ -1,6 +1,9 @@
 // The DESIGN.md tokens ("Graphite & Cinnabar"); each client picks its platform's type ramp.
 export const spacing = { xs: 4, s: 8, m: 12, l: 16, xl: 20 };
 
+// The iPad Inbox frames scale the Mac list recipe by 1.15.
+export const ipadListScale = 1.15;
+
 export const radius = {
   control: 6,
   row: 7,
@@ -85,6 +88,13 @@ export const typography = {
     body: style(17, 22, '400'),
     subheadline: style(15, 20, '400'),
     footnote: style(13, 18, '400'),
+    caption1: style(12, 16, '400'),
+    title3Emphasized: style(20, 25, '600'),
+  },
+  ipadList: {
+    title3Emphasized: style(17.25, 23, '600'),
+    body: style(14.95, 18.4, '400'),
+    subheadline: style(12.65, 16.1, '400'),
   },
   reading: {
     subject: style(20, 25, '700'),

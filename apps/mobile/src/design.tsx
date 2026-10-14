@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import type { ColorValue, ViewProps } from 'react-native';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
   Pressable,
+  Platform,
   requireNativeComponent,
   StyleSheet,
   Text,
@@ -47,7 +48,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
-  button: { minHeight: 44, justifyContent: 'center' },
+  buttonTarget: { minHeight: 44, justifyContent: 'center' },
   buttonFill: {
     minHeight: 28,
     justifyContent: 'center',
@@ -74,8 +75,25 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
-  noticeText: { ...textStyles.subheadline, flex: 1 },
-  noticeActions: { paddingLeft: 16 + spacing.s },
+  noticeText: {
+    ...(Platform.OS === 'ios' && Platform.isPad
+      ? typography.ipadList.body
+      : textStyles.body),
+    flex: 1,
+  },
+  noticeActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s,
+    paddingLeft: 16 + spacing.s,
+  },
+  button: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
 });
 
 // An SF Symbol at regular weight. It is decorative: the control around it carries the label.
@@ -157,14 +175,22 @@ export function Chip({
   );
 }
 
-// A banner beside the content it explains, with its actions stacked under the message.
+// A banner beside the content it explains, with its actions stacked under the message. A warning
+// tints its icon; the message is an alert when it reports a failure.
 export function Notice({
   icon,
+  iconColor,
   message,
+  messageRole,
+  announce,
   children,
 }: {
   readonly icon: string;
+  readonly iconColor?: ColorValue;
   readonly message: string;
+  readonly messageRole?: 'alert';
+  // Preserves live-region semantics; native announcement support is platform-specific.
+  readonly announce?: 'polite';
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
@@ -173,9 +199,12 @@ export function Notice({
       <View style={styles.noticeMessage}>
         <SFSymbol
           name={icon}
-          color={colors.textSecondary}
+          color={iconColor ?? colors.textSecondary}
         />
-        <Text style={[styles.noticeText, { color: colors.textPrimary }]}>
+        <Text
+          accessibilityLiveRegion={announce}
+          accessibilityRole={messageRole}
+          style={[styles.noticeText, { color: colors.textPrimary }]}>
           {message}
         </Text>
       </View>
@@ -186,49 +215,60 @@ export function Notice({
   );
 }
 
-// A push button, 28pt tall: Primary (graphite) carries the view's main action, Secondary the rest.
+// A push button: the accent fill carries the view's main action, the quiet fill the rest. The
+// compact size is the 28pt pill of the compose format bar and banners inside a 44pt touch target.
 export function Button({
   label,
   onPress,
-  variant = 'secondary',
+  fill = 'quiet',
+  size = 'regular',
   disabled = false,
   destructive = false,
   accessibilityLabel,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly variant?: 'primary' | 'secondary';
+  readonly fill?: 'accent' | 'quiet';
+  readonly size?: 'regular' | 'compact';
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
-  const primary = variant === 'primary';
+  const primary = fill === 'accent';
+  const compact = size === 'compact';
+  const idle = primary ? colors.accentFill : colors.fillQuiet;
   let color = primary ? colors.accentOnFill : colors.textPrimary;
   if (destructive) {
     color = colors.statusDestructive;
   }
+  let labelStyle = primary ? textStyles.headline : textStyles.body;
+  if (compact) {
+    labelStyle = primary ? styles.buttonLabelPrimary : textStyles.subheadline;
+  }
+  const fillOf = (pressed: boolean) => ({
+    backgroundColor: pressed && !primary ? colors.accentSelectionSubtle : idle,
+  });
+  const text = <Text style={[labelStyle, { color }]}>{label}</Text>;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      focusable
       onPress={onPress}
-      style={[styles.button, { opacity: disabled ? 0.5 : 1 }]}>
-      <View
-        style={[
-          styles.buttonFill,
-          { backgroundColor: primary ? colors.accentFill : colors.fillQuiet },
-        ]}>
-        <Text
-          style={[
-            primary ? styles.buttonLabelPrimary : textStyles.subheadline,
-            { color },
-          ]}>
-          {label}
-        </Text>
-      </View>
+      style={({ pressed }) => [
+        compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
+        { opacity: disabled ? 0.5 : 1 },
+      ]}>
+      {({ pressed }) =>
+        compact ? (
+          <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
+        ) : (
+          text
+        )
+      }
     </Pressable>
   );
 }

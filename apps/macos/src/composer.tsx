@@ -2276,7 +2276,7 @@ function Editor({
         <Button
           disabled={closing === 'saving'}
           label={t('drafts.send')}
-          variant="primary"
+          fill="accent"
           onPress={() => {
             void send();
           }}

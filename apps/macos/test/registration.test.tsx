@@ -1085,6 +1085,12 @@ describe('product registration', () => {
         'alex@example.invalid: Gmail needs your permission again to show new mail.',
       ),
     ).toBeVisible();
+    // Mac standalone text exposes its live-region semantics on the accessible wrapper.
+    expect(
+      screen.getByLabelText(
+        'alex@example.invalid: Gmail needs your permission again to show new mail.',
+      ),
+    ).toHaveProp('accessibilityLiveRegion', 'polite');
     await press('Allow Gmail access for alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
 
@@ -1541,12 +1547,15 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(rows()).toHaveLength(3);
     });
+    // The header reports the unreachable server instead of a result count.
+    expect(screen.getByText(/ · Offline$/u)).toBeVisible();
     // Asking again searches every mailbox afresh.
     await press('Search mail servers again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });
     expect(screen.queryByText(/Gmail could not be reached/u)).toBeNull();
+    expect(screen.queryByText(/ · Offline$/u)).toBeNull();
 
     // A reply for a query that changed meanwhile is never shown.
     let release: () => void = () => undefined;
@@ -1907,7 +1916,8 @@ describe('product registration', () => {
         name: 'Unread. Maya Chen. Synthetic message 0',
       }),
     ).resolves.toBeVisible();
-    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    // The heading's subtitle names the connected mailbox beside its unread count.
+    expect(screen.getByText(/^alex@example\.invalid · /u)).toBeVisible();
     await openAccount();
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),

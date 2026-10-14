@@ -90,6 +90,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A shell contract in `scripts/testflight.test.mjs` supplying a minimal child
+  environment without a test-owned `HOME`, or letting host shell initialization
+  replace its stub-only `PATH`. Keep the home and startup guards consistent with
+  the existing runner fixtures; otherwise hosted Mac initialization can invoke
+  real tools instead of the stubs and stop uploads before archiving despite a
+  passing local suite.
+
 - A journey that creates an Outbox, synchronizer or another timer/subscription
   owner and disposes it only after its final assertion. Put cleanup in `finally`
   or the test framework's guaranteed teardown, covering setup as well as assertions
