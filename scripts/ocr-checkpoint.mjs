@@ -157,9 +157,7 @@ try {
     const { review } = plan(first, second, flag === '--full');
     process.stdout.write(`${JSON.stringify(review, null, 2)}\n`);
   } else if (command === 'complete' && first && second) {
-    const reviewed = Schema.decodeSync(planSchema)(
-      readFileSync(first, 'utf8'),
-    );
+    const reviewed = Schema.decodeSync(planSchema)(readFileSync(first, 'utf8'));
     const { review, statePath } = plan(
       reviewed.task,
       reviewed.baseRef,
