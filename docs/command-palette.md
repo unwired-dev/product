@@ -78,8 +78,8 @@ results never appear in the palette. The vocabulary lives in the
   its loading indicator, since it still covers the Inbox.
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
   header, the composer's top bar and the Account page's title row, and at the
-  top of a reader or composer that is loading or cannot open, so one is on
-  screen in every size class,
+  top of a reader, Thread or composer that is loading, cannot open its storage
+  or has no message or Draft to show, so one is on screen in every size class,
   including compact layouts that show only the reader or composer; tapping it
   or the header swipe opens the palette. Command-P from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native

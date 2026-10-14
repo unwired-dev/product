@@ -85,15 +85,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
   },
   headerText: { flex: 1 },
-  // The iPad command input of a reader state without a header, where the header's input would be.
-  stateCommands: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    alignItems: 'flex-end',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-  },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 5,
@@ -145,7 +136,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <CommandInputRow style={styles.stateCommands} />
+      <CommandInputRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -481,7 +472,7 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
-      <CommandInputRow style={styles.stateCommands} />
+      <CommandInputRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -516,10 +507,10 @@ function ReaderLoading() {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
+      <CommandInputRow />
       <View
         style={styles.fill}
         {...header.swipe}>
-        <CommandInputRow style={styles.stateCommands} />
         <ActivityIndicator
           accessible
           accessibilityLabel={t('message.loading')}

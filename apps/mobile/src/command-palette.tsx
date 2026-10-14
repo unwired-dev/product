@@ -196,6 +196,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   pillText: { ...textStyles.subheadline },
+  // Matches the reader's header and the composer's top bar, where the input otherwise sits.
+  commandRow: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+  },
   hint: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -613,16 +622,12 @@ export function CommandInput({
 
 // The iPad command input on its own row at the top of a screen state that has no header of its
 // own, such as a reader or composer that is loading or cannot open; nothing on iPhone.
-export function CommandInputRow({
-  style,
-}: {
-  readonly style: StyleProp<ViewStyle>;
-}) {
+export function CommandInputRow() {
   if (!pad) {
     return null;
   }
   return (
-    <View style={style}>
+    <View style={styles.commandRow}>
       <CommandInput />
     </View>
   );

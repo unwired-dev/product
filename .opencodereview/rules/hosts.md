@@ -582,9 +582,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   requirement names (Inbox, message reading, composer, Settings); otherwise a
   route-specific reader has no palette while the documentation says it does.
   Within each screen, check every early-return state branch too (loading,
-  `StorageProblem`, `EmptyDetail` and unavailable), on every route that renders
-  it: on iPhone each covers the Inbox heading, so a palette entry only in the
-  ready branch leaves no way to open the palette.
+  `StorageProblem`, `EmptyDetail` and `composer.tsx.ComposerFallback`, the
+  composer's loading, locked, failed and unavailable states), on every route
+  that renders it: on iPhone and in compact iPad layouts each covers the Inbox
+  heading, so a palette entry only in the ready branch leaves no way to open
+  the palette.
+  Each branch needs both entries, the swipe and accessibility action for
+  iPhone and the visible iPad `CommandInput` (`CommandInputRow` where the
+  branch has no header); one without the other leaves that device without
+  its documented entry.
 - A reader control rendered for one store kind, such as the preview Inbox's
   Mark as read or unread in `organize.tsx.PreviewMessageActions`, without a
   `RegisterCommands` in the same component offering the same action list and
