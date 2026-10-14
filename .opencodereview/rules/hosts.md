@@ -47,11 +47,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
-- `design.tsx.ContextMenu` assigning action IDs from section/item positions while
-  native menus retain their original IDs. Keep selection bound to the same live
-  callback or reject its retired ID when commands or submenu choices change;
-  otherwise choosing a displayed read or move action can execute a different one.
-  Exercise a section insertion and a retired choice through the native event boundary.
+- `design.tsx.ContextMenu` assigning action IDs from section/item positions or
+  callback object identity while native menus retain their original IDs. Identify
+  each action by its operation and owning message or destination, and dispatch to
+  its latest committed callback. Reject the ID once that semantic action retires
+  or changes owner; otherwise a live snapshot can make a displayed read or move
+  action execute a different one or silently do nothing. Exercise a recreated
+  callback, a section insertion and a retired choice through the native event boundary.
 
 - Mac context-menu content removing `selectable` text without an accessible
   labeled replacement, or retaining selectable text that handles secondary
