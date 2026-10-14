@@ -1,7 +1,6 @@
 ---
 '@private-email/mobile': minor
 '@private-email/macos': minor
-'@private-email/mail-core': patch
 ---
 
 Redesign composing on iPhone, iPad and Mac to match the design: the body comes
