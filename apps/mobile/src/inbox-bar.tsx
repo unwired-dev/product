@@ -1,9 +1,17 @@
-import type { ReactNode, RefObject } from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useRef, useState } from 'react';
+import {
+  createContext,
+  use,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
@@ -52,13 +60,9 @@ const styles = StyleSheet.create({
   },
   filteredByLabel: { ...textStyles.caption1, flexShrink: 1 },
   spacer: { flex: 1 },
-  scrollEdge: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 72,
-  },
+  scrollEdge: { position: 'absolute', bottom: 0, height: 72 },
+  listEdge: { left: 0, right: 0 },
+  readerEdge: { right: 0 },
   bottomBar: {
     position: 'absolute',
     left: 0,
@@ -69,6 +73,24 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     padding: spacing.l,
   },
+  // A regular-width window's bar: the field 400pt wide and centered, the Filter control leading it
+  // and New Message pinned to the trailing edge.
+  windowBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.l,
+  },
+  side: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  field: { width: 400, flexDirection: 'row' },
   searchBar: {
     flex: 1,
     alignSelf: 'stretch',
@@ -191,17 +213,22 @@ export function FilterControl({
   label,
   onToggle,
   onOpen,
+  ref,
 }: {
   // The applied filter's summary; none while the Inbox is unfiltered.
   readonly label: string | undefined;
   readonly onToggle: () => void;
   readonly onOpen: () => void;
+  // Where iPad's Filters popover grows from.
+  readonly ref?: Ref<View>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const on = label !== undefined;
   return (
-    <GlassGroup style={on ? styles.filtered : styles.round}>
+    <GlassGroup
+      ref={ref}
+      style={on ? styles.filtered : styles.round}>
       <Pressable
         accessibilityLabel={t('filters.filter')}
         accessibilityRole="togglebutton"
@@ -305,32 +332,129 @@ export function SearchField({
   );
 }
 
-// The floating glass bar over the list, holding search, filters and New Message.
+// A regular-width window's bottom edge, which shows the Inbox's floating bar across the window
+// rather than over the list column. Compact layouts provide none and keep the bar in the list.
+export function createWindowBar() {
+  let bar: ReactNode = null;
+  const listeners = new Set<() => void>();
+  return {
+    show: (next: ReactNode) => {
+      bar = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    bar: () => bar,
+  };
+}
+
+export const WindowBarContext = createContext<
+  ReturnType<typeof createWindowBar> | undefined
+>(undefined);
+
+function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {
+  const colors = usePalette();
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.scrollEdge,
+        style,
+        {
+          experimental_backgroundImage: `linear-gradient(to bottom, ${colors.surfaceContent}00, ${colors.surfaceContent})`,
+        },
+      ]}
+    />
+  );
+}
+
+// Shows the window's bar above the split view, with the reader's scroll edge beneath it.
+export function WindowBarHost({
+  windowBar,
+  readerWidth,
+  bottom,
+}: {
+  readonly windowBar: ReturnType<typeof createWindowBar>;
+  readonly readerWidth: number;
+  // The bar's distance from the window's bottom edge.
+  readonly bottom: number;
+}) {
+  const bar = useSyncExternalStore(windowBar.subscribe, windowBar.bar);
+  if (bar === null) {
+    return null;
+  }
+  return (
+    <>
+      <ScrollEdge style={[styles.readerEdge, { width: readerWidth }]} />
+      <View
+        pointerEvents="box-none"
+        testID="window-bar"
+        style={[styles.windowBar, { bottom }]}>
+        {bar}
+      </View>
+    </>
+  );
+}
+
+// The floating glass bar over the list, holding search, filters and New Message. A regular-width
+// window shows it across its bottom edge instead.
 export function FloatingBar({
   hidden = false,
+  leading,
+  trailing,
   children,
 }: {
   readonly hidden?: boolean;
+  readonly leading: ReactNode;
+  readonly trailing: ReactNode;
+  // The search field, or the button that opens it.
   readonly children: ReactNode;
 }) {
-  const colors = usePalette();
-  return (
+  const windowBar = use(WindowBarContext);
+  const shown = hidden ? null : (
     <>
       <View
-        pointerEvents="none"
-        style={[
-          styles.scrollEdge,
-          { display: hidden ? 'none' : 'flex' },
-          {
-            experimental_backgroundImage: `linear-gradient(to bottom, ${colors.surfaceContent}00, ${colors.surfaceContent})`,
-          },
-        ]}
-      />
+        pointerEvents="box-none"
+        style={styles.side}>
+        {leading}
+      </View>
+      <View style={styles.field}>{children}</View>
       <View
         pointerEvents="box-none"
-        style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
-        {children}
+        style={styles.side}>
+        {trailing}
       </View>
+    </>
+  );
+  useLayoutEffect(() => {
+    windowBar?.show(shown);
+  });
+  useLayoutEffect(
+    () => () => {
+      windowBar?.show(null);
+    },
+    [windowBar],
+  );
+  return (
+    <>
+      <ScrollEdge
+        style={[styles.listEdge, { display: hidden ? 'none' : 'flex' }]}
+      />
+      {windowBar === undefined ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
+          {leading}
+          {children}
+          {trailing}
+        </View>
+      ) : null}
     </>
   );
 }

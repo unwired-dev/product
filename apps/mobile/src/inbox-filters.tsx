@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import { filterMessages } from '@private-email/mail-core/mailboxes';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, use, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -12,11 +12,13 @@ import {
   StyleSheet,
   Switch,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass, SFSymbol } from './design.tsx';
-import { FilterControl } from './inbox-bar.tsx';
+import { FilterControl, WindowBarContext } from './inbox-bar.tsx';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -74,17 +76,32 @@ const filterLabel = (
     : t('filters.several', { count: applied.length });
 };
 
+// The Filter control's top leading corner in the window, which iPad's popover grows from.
+type Anchor = Readonly<{ x: number; y: number }>;
+
+const popoverWidth = 420;
+
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end' },
   // shortcut: a fixed home-indicator inset, as Move to… uses; read the safe area if a sheet ever opens without one.
   sheet: {
-    maxHeight: '85%',
+    flex: 1,
     gap: spacing.l,
     paddingTop: spacing.m,
     paddingHorizontal: ipad ? spacing.m * 2 : spacing.l,
     paddingBottom: 34,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
+    borderCurve: 'continuous',
+  },
+  popover: {
+    position: 'absolute',
+    width: popoverWidth,
+    gap: spacing.s,
+    paddingTop: spacing.m,
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.l,
+    borderRadius: radius.popover,
     borderCurve: 'continuous',
   },
   header: {
@@ -106,12 +123,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   list: { flexGrow: 0 },
-  sections: { gap: spacing.l },
-  section: { gap: 6 },
+  sections: { gap: ipad ? spacing.s : spacing.l },
+  section: { gap: ipad ? spacing.s : 6 },
   sectionHeader: {
-    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+    ...(ipad ? typography.ipadList.body : textStyles.footnote),
     fontWeight: '600',
-    paddingHorizontal: spacing.l,
+    paddingTop: ipad ? spacing.s : 0,
+    paddingHorizontal: ipad ? 14 : spacing.l,
   },
   group: {
     overflow: 'hidden',
@@ -123,15 +141,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     minHeight: 48,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.s,
+    paddingHorizontal: ipad ? 14 : spacing.l,
+    paddingVertical: ipad ? spacing.m : spacing.s,
   },
   rowIcon: { width: 22, alignItems: 'center' },
   rowName: {
-    ...(ipad ? typography.ipadList.body : textStyles.body),
+    ...(ipad
+      ? { ...typography.ipadList.title3Emphasized, fontWeight: '400' }
+      : textStyles.body),
     flex: 1,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: ipad ? 0 : 50 },
 });
 
 function RowLabel({
@@ -260,21 +280,27 @@ function Section({
   );
 }
 
-// The Filters sheet edits a copy of the filter; the checkmark applies it, and leaving discards it.
-function FiltersSheet({
+// Filters edits a copy of the filter; the checkmark applies it, and leaving discards it. It opens as
+// a full-height sheet, or on a regular-width iPad window as a popover above the Filter control.
+function Filters({
   filter,
   connections,
+  anchor,
   onConfirm,
   onClose,
 }: {
   readonly filter: InboxFilter;
   // The unified Inbox's connections, which it offers to leave out; none in any other view.
   readonly connections: Connections;
+  // Where the popover grows from; a sheet has none.
+  readonly anchor: Anchor | undefined;
   readonly onConfirm: (filter: InboxFilter) => void;
   readonly onClose: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const dimensions = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [edited, setEdited] = useState(filter);
   const include = (id: string, included: boolean) => {
     setEdited((current) => {
@@ -299,7 +325,11 @@ function FiltersSheet({
         'landscape-left',
         'landscape-right',
       ]}>
-      <View style={[styles.backdrop, { backgroundColor: colors.scrimTouch }]}>
+      <View
+        style={[
+          styles.backdrop,
+          anchor === undefined && { backgroundColor: colors.scrimTouch },
+        ]}>
         <Pressable
           accessible={false}
           onPress={onClose}
@@ -308,10 +338,29 @@ function FiltersSheet({
         <View
           accessibilityViewIsModal
           onAccessibilityEscape={onClose}
-          testID="filters-sheet"
-          style={[styles.sheet, { boxShadow: colors.menuGlassShadow }]}>
+          testID={anchor === undefined ? 'filters-sheet' : 'filters-popover'}
+          style={[
+            anchor === undefined
+              ? [
+                  styles.sheet,
+                  // The sheet rises to just beneath the status bar, as the iPhone frames show.
+                  { marginTop: Math.max(0, insets.top - spacing.s) },
+                ]
+              : [
+                  styles.popover,
+                  {
+                    left: Math.min(
+                      anchor.x,
+                      dimensions.width - popoverWidth - spacing.l,
+                    ),
+                    bottom: dimensions.height - anchor.y + spacing.s,
+                    maxHeight: anchor.y - spacing.s - insets.top - spacing.l,
+                  },
+                ],
+            { boxShadow: colors.menuGlassShadow },
+          ]}>
           <Glass
-            cornerRadius={radius.sheet}
+            cornerRadius={anchor === undefined ? radius.sheet : radius.popover}
             style={StyleSheet.absoluteFill}
           />
           <View style={styles.header}>
@@ -422,7 +471,8 @@ export function useInboxFilter<M extends Filtered>({
   };
 }
 
-// The bar's filter switch and summary, and the Filters sheet the summary opens.
+// The bar's filter switch and summary, and the Filters the summary opens: a popover when the bar
+// spans a regular-width window, otherwise a sheet.
 export function InboxFilterButton({
   state: { filter, setFilter, on, setOn, connections },
 }: {
@@ -432,14 +482,25 @@ export function InboxFilterButton({
   >;
 }) {
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
+  const popover = use(WindowBarContext) !== undefined;
+  const control = useRef<View>(null);
+  const [open, setOpen] = useState<
+    Readonly<{ anchor: Anchor | undefined }> | undefined
+  >();
   return (
     <>
       <FilterControl
         label={on ? filterLabel(t, filter, connections) : undefined}
         onOpen={() => {
-          setOpen(true);
+          if (!popover) {
+            setOpen({ anchor: undefined });
+            return;
+          }
+          control.current?.measureInWindow((x, y) => {
+            setOpen({ anchor: { x, y } });
+          });
         }}
+        ref={control}
         onToggle={() => {
           // A filter left with nothing to narrow starts again from Unread.
           if (!on && !narrows(filter, connections)) {
@@ -448,21 +509,22 @@ export function InboxFilterButton({
           setOn(!on);
         }}
       />
-      {open ? (
-        <FiltersSheet
+      {open === undefined ? null : (
+        <Filters
+          anchor={open.anchor}
           connections={connections}
           filter={filter}
           onClose={() => {
-            setOpen(false);
+            setOpen(undefined);
           }}
           onConfirm={(next) => {
             setFilter(next);
-            setOpen(false);
+            setOpen(undefined);
             // Applying nothing to narrow by turns the filter off.
             setOn(narrows(next, connections));
           }}
         />
-      ) : null}
+      )}
     </>
   );
 }

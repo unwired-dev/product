@@ -26,17 +26,15 @@ export type RowAction = Readonly<{
 }>;
 const noActions: readonly RowAction[] = [];
 
-// A field with the search's matched words marked; a selected row's graphite fill marks none.
+// A field with the search's matched words in bold.
 function Marked({
   text,
   query,
-  color,
 }: {
   readonly text: string;
   readonly query: string | undefined;
-  readonly color: string | undefined;
 }) {
-  if (query === undefined || color === undefined) {
+  if (query === undefined) {
     return text;
   }
   const parts: ReactNode[] = [];
@@ -46,7 +44,7 @@ function Marked({
       text.slice(at, start),
       <Text
         key={start}
-        style={{ backgroundColor: color }}>
+        style={styles.match}>
         {text.slice(start, end)}
       </Text>,
     );
@@ -84,7 +82,6 @@ export function MessageRow({
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const focusColor = selected ? colors.accentOnFill : colors.accentInk;
-  const markColor = selected ? undefined : colors.accentSelectionSubtle;
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
   const [focused, setFocused] = useState(false);
@@ -154,7 +151,6 @@ export function MessageRow({
                 <Marked
                   text={message.sender}
                   query={query}
-                  color={markColor}
                 />
               </Text>
               {flagged ? (
@@ -182,7 +178,6 @@ export function MessageRow({
               <Marked
                 text={message.subject}
                 query={query}
-                color={markColor}
               />
             </Text>
             <Text

@@ -7,7 +7,7 @@ import {
   inboxMessages,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { use, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -25,6 +25,7 @@ import {
   FloatingBar,
   NewMessageButton,
   SearchField,
+  WindowBarContext,
 } from './inbox-bar.tsx';
 import { InboxFilterButton } from './inbox-filters.tsx';
 import { SearchScope } from './inbox-heading.tsx';
@@ -121,8 +122,9 @@ export function useInboxSearch(
 }
 
 // The floating bar. Unfiltered: Filter, the search field and New Message. Filtered: what the Inbox
-// is filtered by, then Search and New Message. Searching: the field and Close. The field keeps its
-// place in each, so focusing it never remounts it.
+// is filtered by, then Search and New Message; a regular-width window keeps its field instead.
+// Searching: the field and Close. The field keeps its place in each, so focusing it never
+// remounts it.
 export function InboxBar({
   hidden,
   ready,
@@ -141,7 +143,8 @@ export function InboxBar({
   readonly scope: string | undefined;
 }) {
   const { t } = useLocalization();
-  const compact = filter.on && !searching;
+  const inWindow = use(WindowBarContext) !== undefined;
+  const compact = filter.on && !searching && !inWindow;
   let trailing = null;
   if (searching) {
     trailing = (
@@ -160,8 +163,12 @@ export function InboxBar({
     );
   }
   return (
-    <FloatingBar hidden={hidden}>
-      {searching || !ready ? null : <InboxFilterButton state={filter} />}
+    <FloatingBar
+      hidden={hidden}
+      leading={
+        searching || !ready ? null : <InboxFilterButton state={filter} />
+      }
+      trailing={trailing}>
       {compact ? <BarSpacer /> : null}
       {compact ? (
         <BarButton
@@ -178,7 +185,6 @@ export function InboxBar({
           search={field}
         />
       )}
-      {trailing}
     </FloatingBar>
   );
 }

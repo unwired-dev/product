@@ -29,8 +29,8 @@ import {
   within,
 } from '@testing-library/react-native';
 import { setStringAsync } from 'expo-clipboard';
-import { useState } from 'react';
-import { AccessibilityInfo, AppState, Linking } from 'react-native';
+import { useMemo, useState } from 'react';
+import { AccessibilityInfo, AppState, Linking, View } from 'react-native';
 
 import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
@@ -40,6 +40,11 @@ import type { usePalette } from '../src/theme.ts';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
+import {
+  createWindowBar,
+  WindowBarContext,
+  WindowBarHost,
+} from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -208,13 +213,9 @@ describe('preview Inbox', () => {
     const maya = screen.getByRole('button', {
       name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
     });
-    // Each matched word is marked where search found it, ignoring case.
-    expect(within(maya).getByText('Maya')).toHaveStyle({
-      backgroundColor: palette.light.accentSelectionSubtle,
-    });
-    expect(within(maya).getByText('room')).toHaveStyle({
-      backgroundColor: palette.light.accentSelectionSubtle,
-    });
+    // Each matched word is bold where search found it, ignoring case.
+    expect(within(maya).getByText('Maya')).toHaveStyle({ fontWeight: '600' });
+    expect(within(maya).getByText('room')).toHaveStyle({ fontWeight: '600' });
     // Clearing the query keeps search open rather than flashing the Inbox.
     await fireEvent.changeText(field, '');
     await waitFor(() => {
@@ -403,6 +404,62 @@ describe('preview Inbox', () => {
       ).toBeVisible();
     } finally {
       clock.mockRestore();
+    }
+  });
+
+  it('spans a regular-width window with its bar and opens Filters as a popover above the Filter control', async () => {
+    expect.hasAssertions();
+    // The Filter control's place in the window, which the test host cannot lay out.
+    const measure = jest
+      .spyOn(View.prototype, 'measureInWindow')
+      .mockImplementation((measured) => {
+        measured(240, 770, 124, 48);
+      });
+    function WindowJourney() {
+      const windowBar = useMemo(() => createWindowBar(), []);
+      return (
+        <WindowBarContext value={windowBar}>
+          <InboxJourney />
+          <WindowBarHost
+            windowBar={windowBar}
+            readerWidth={500}
+            bottom={20}
+          />
+        </WindowBarContext>
+      );
+    }
+    try {
+      await render(<WindowJourney />);
+      await screen.findByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      });
+      const bar = within(screen.getByTestId('window-bar'));
+      expect(
+        screen.getAllByLabelText('Search senders and subjects'),
+      ).toStrictEqual([bar.getByLabelText('Search senders and subjects')]);
+      // Filtered, the window keeps its search field beside what the Inbox is filtered by.
+      await fireEvent.press(bar.getByRole('togglebutton', { name: 'Filter' }));
+      expect(bar.getByLabelText('Search senders and subjects')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
+      await fireEvent.press(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      // jest-expo's window is 750 by 1334 points.
+      expect(screen.getByTestId('filters-popover')).toHaveStyle({
+        width: 420,
+        left: 240,
+        bottom: 1334 - 770 + 8,
+      });
+      const popover = within(screen.getByTestId('filters-popover'));
+      expect(popover.getByRole('header', { name: 'Filters' })).toBeVisible();
+      await fireEvent(
+        screen.getByTestId('filters-popover'),
+        'accessibilityEscape',
+      );
+      expect(screen.queryByTestId('filters-popover')).toBeNull();
+    } finally {
+      measure.mockRestore();
     }
   });
 

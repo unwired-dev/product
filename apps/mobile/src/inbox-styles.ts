@@ -109,6 +109,8 @@ export const styles = StyleSheet.create({
   sender: { ...(ipad ? body : textStyles.headline), flex: 1 },
   date: { ...subheadline, flexShrink: 1 },
   subject: { ...body },
+  // A search's matched words.
+  match: { fontWeight: '600' },
   unread: {
     position: 'absolute',
     left: ipad ? 8 * scale - 2 : 0,

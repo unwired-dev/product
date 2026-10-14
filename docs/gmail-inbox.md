@@ -80,8 +80,7 @@ prefetch in any mailbox yields to an explicit open in any other.
 ## Searching saved mail
 
 [#608](https://github.com/unwired-dev/product/issues/608) searches the Inbox mail
-saved on this device. The field in the floating bar under the list, **Search senders
-and subjects**,
+saved on this device. The field in the floating bar, **Search senders and subjects**,
 matches the **Durable Message Metadata** already in each mailbox's encrypted cache:
 the sender's name and address and the subject. Every word of the query must appear
 in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's
@@ -96,7 +95,12 @@ reaches it.
   beside the field replaces Filter and New Message, which return with the Inbox when
   Close clears the query. Editing or clearing the query keeps search open, so the list
   never flashes back to the Inbox. When the Inbox is [filtered](#filtering-the-inbox),
-  the bar shows a Search button that opens the field.
+  iPhone's bar shows a Search button that opens the field.
+- **The bar.** On iPhone, and on iPad in a compact-width window, the bar spans the
+  bottom of the list. In a regular-width iPad window it floats across the bottom of
+  the whole window instead: the field is 400pt wide and centered, Filter or what the
+  Inbox is filtered by leads it, and New Message or Close Search sits at the
+  trailing edge. The reader's content leaves room beneath it.
 - **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
   searches only its own mail. A removed mailbox's mail leaves the results at once,
@@ -107,8 +111,7 @@ reaches it.
 - **Results.** On iPhone and iPad, results are listed in that order under **Top Results**, whose spoken
   label also gives the number of saved and online results and where they were found.
   Saved results retain day dividers on iPad; iPhone lists them without dividers.
-  The words of the query are marked in each result's sender and subject with the
-  subtle selection fill, except on the selected row. On Mac, the Search heading's
+  The words of the query are bold in each result's sender and subject. On Mac, the Search heading's
   subtitle reports the result count, with Syncing and Offline taking precedence,
   and rows keep their ordinary sender and subject styling. Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
@@ -126,8 +129,11 @@ reaches it.
 [#974](https://github.com/unwired-dev/product/issues/974) adds **Filter** at the
 leading edge of the floating bar on iPhone and iPad. Filtering starts off at each
 launch. Turning it on keeps unread mail; the bar then shows **Filtered by** with the
-filter's one criterion, or how many apply, and its **Search** and New Message
-buttons. Pressing the summary opens the **Filters** sheet:
+filter's one criterion, or how many apply. On iPhone the field gives way to a
+**Search** button beside New Message; a regular-width iPad window keeps its field.
+Pressing the summary opens **Filters**: a full-height sheet on iPhone and in a
+compact-width iPad window, and in a regular-width iPad window a 420pt popover that
+fades in above the Filter control and closes when tapped outside:
 
 - **Include Mail From**, in **All inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
@@ -135,8 +141,8 @@ buttons. Pressing the summary opens the **Filters** sheet:
 - **Only Mail from Today:** mail that arrived on the list's current UTC day, the
   day its **Today** divider names.
 
-The sheet edits a copy; the checkmark (**Apply Filters**) applies it, and leaving the
-sheet discards it. Every chosen criterion narrows the list. Applying a filter that
+Filters edits a copy; the checkmark (**Apply Filters**) applies it, and leaving it
+discards it. Every chosen criterion narrows the list. Applying a filter that
 leaves nothing out turns filtering off, and turning it on again then starts from Unread.
 Filters apply to the Inbox list only: search, Drafts and the Outbox are not filtered,
 and the subtitle's unread count still counts the whole view. When the filter hides

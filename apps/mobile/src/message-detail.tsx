@@ -134,7 +134,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
-  compactContent: { paddingBottom: 52 + 2 * spacing.l },
+  // Clears iPhone's bottom toolbar, and iPad's floating bar across the window.
+  clearsBar: { paddingBottom: 52 + 2 * spacing.l },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -991,10 +992,7 @@ function MailboxMessage({
           {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
-            contentContainerStyle={[
-              styles.content,
-              compact ? styles.compactContent : null,
-            ]}>
+            contentContainerStyle={[styles.content, styles.clearsBar]}>
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
             <ResponseStatusNotice
