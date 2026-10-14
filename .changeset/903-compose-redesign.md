@@ -8,4 +8,9 @@ first, then attachment chips and the Subject, To, Cc and Bcc rows; the format ba
 uses SF Symbols with a Text style menu; From is a pop-up menu; and the
 regular-width iPad and Mac composers overlay the reader with Expand and Collapse
 instead of replacing it. Selecting another message keeps the open Draft and
-updates the reader underneath it.
+updates the reader underneath it. On iPhone, leaving the composer or a reader,
+including through the Command Palette's Inbox and Search Mail, returns to the
+Inbox instead of an empty reader. On iPhone and iPad, closing or discarding an
+untouched New Message closes the composer instead of leaving "This Draft is not
+available."
+The iPad Commands pill keeps its 36pt glass appearance with a 44pt touch area.

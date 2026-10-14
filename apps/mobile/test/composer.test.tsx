@@ -320,6 +320,35 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   });
 
+  it('closes an untouched New Message on Close and on Discard', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    // Removing the empty Draft unmounts the editor before Close finishes.
+    await press('New Message');
+    await press('Close');
+    expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
+    expect(
+      screen.queryByText('This Draft is not available.'),
+    ).not.toBeOnTheScreen();
+    await press('New Message');
+    await press('Compose actions');
+    await press('Discard');
+    await press('Discard Draft');
+    expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
+    expect(
+      screen.queryByText('This Draft is not available.'),
+    ).not.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+  });
+
   it('closes an empty composer without deleting content saved by another editor', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

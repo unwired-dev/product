@@ -370,7 +370,8 @@ styles) so the file stays editable.
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
   reading pane with 12pt outer insets and 70% of the available height, clamped
-  from 420 to 720pt. Expanding it takes over the whole app window with the same
+  from 420 to 720pt. Expanding it takes over the whole app window, beneath the
+  Mac's command bar, with the same
   Draft; there is no separate Compose window and no freeform resizing. Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To

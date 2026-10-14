@@ -393,7 +393,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   reaches the layout's params only on a later render, so a save can settle
   before the destination renders. Every handler that changes the ref's source,
   including selection behind the composer and an Inbox row action closing the
-  selected reader, must update the ref before navigating.
+  selected reader, must update the ref before navigating. The same holds for
+  the open Draft: a palette Go To Inbox or Search Mail runs the composer's
+  Close and then the Inbox `onClose` from one render's closures, so `onClose`
+  must read the `composing` ref, not `draft`, or it reopens the closed composer.
   Otherwise a delayed Close or New Message returns to a reader that was just
   replaced or removed. The Jest router mock commits synchronously and cannot
   show this ordering; a passing routing test is not evidence.
@@ -603,6 +606,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   iPhone and the visible iPad `CommandInput` (`CommandInputRow` where the
   branch has no header); one without the other leaves that device without
   its documented entry.
+  Check the new touch entry's effective hit area too: `CommandInput`'s 36pt
+  glass recipe needs a centered visual inside a 44pt-tall `Pressable`, as
+  `Chip` and the compact `Button` do, without relying on `hitSlop` or changing
+  the Figma geometry. A desktop-sized visible pill alone makes the new iPad
+  composer entry harder to activate.
 - A reader control rendered for one store kind, such as the preview Inbox's
   Mark as read or unread in `organize.tsx.PreviewMessageActions`, without a
   `RegisterCommands` in the same component offering the same action list and
@@ -636,6 +644,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
+  The Mac's expanded composer covers the Inbox column too: `inbox.tsx` Search
+  Mail must collapse it through `window.tsx`'s `onReveal` before focusing (a
+  #903 panel chose collapsing over leaving), or focus lands in a hidden field.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it

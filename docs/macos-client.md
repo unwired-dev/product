@@ -47,7 +47,8 @@ update all windows without changing their selections.
 A window's one composer overlays the reader as described in
 [composing](drafts.md#composing); opening a Draft keeps the selected message
 behind it, selecting another message updates that reader without closing the
-Draft, and Expand takes the composer over the window.
+Draft, and Expand takes the composer over the window's panes beneath its
+command bar.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |

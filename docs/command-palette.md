@@ -20,7 +20,8 @@ results never appear in the palette. The vocabulary lives in the
 - **App commands:** New Message (while a mailbox can send) and Search Mail,
   which focuses the Inbox search field. On iPhone and iPad, where a reader or
   composer can cover the Inbox, Search Mail first leaves the open reader or
-  composer through the same checks as closing them.
+  composer through the same checks as closing them. On the Mac it first
+  collapses an expanded composer, keeping its Draft open.
 - **Go To:** Inbox, which leaves the reader or composer through the same
   checks as closing them, and Account, while a Product Account is signed in.
   The palette stays available on the Account page, the app's settings, where
@@ -85,7 +86,8 @@ results never appear in the palette. The vocabulary lives in the
   top of a reader, Thread or composer that is loading, cannot open its storage
   or has no message or Draft to show, so one is on screen in every size class,
   including compact layouts that show only the reader or composer; tapping it
-  or the header swipe opens the palette. Command-P from a hardware keyboard is
+  or the header swipe opens the palette. Its 36pt glass pill sits inside a 44pt-tall touch target.
+  Command-P from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen

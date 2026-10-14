@@ -1,6 +1,8 @@
 import type {
   createElement as ReactCreateElement,
   ReactNode,
+  Ref,
+  useImperativeHandle as ReactUseImperativeHandle,
   useSyncExternalStore as ReactUseSyncExternalStore,
 } from 'react';
 import type { KeyboardEvent, View as NativeView } from 'react-native';
@@ -19,6 +21,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import { Keyboard } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -55,6 +58,8 @@ jest.mock(
       'react-native-safe-area-context/jest/mock',
     ).default,
 );
+// The column the native split host was last asked to show, which a collapsed host displays.
+const mockShowColumn = jest.fn<undefined, [column: 'primary' | 'secondary']>();
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Substitute the native split host; mount its actual secondary route.
 jest.mock('expo-router/unstable-split-view', () => {
   const { createElement } = jest.requireActual<{
@@ -72,10 +77,17 @@ jest.mock('expo-router/unstable-split-view', () => {
   function SplitView({
     children,
     testID,
+    ref,
   }: {
     readonly children: ReactNode;
     readonly testID?: string;
+    readonly ref?: Ref<{ show: typeof mockShowColumn }>;
   }) {
+    jest
+      .requireActual<{ useImperativeHandle: typeof ReactUseImperativeHandle }>(
+        'react',
+      )
+      .useImperativeHandle(ref, () => ({ show: mockShowColumn }));
     const { draft } = jest
       .requireMock<{ useGlobalSearchParams: () => { draft?: string } }>(
         'expo-router',
@@ -396,6 +408,115 @@ describe('profile-scoped mobile routes', () => {
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it.each([
+    { draft: 'with content', body: 'Keep this draft.' },
+    // Leaving removes the empty Draft, which unmounts its editor before it finishes closing.
+    { draft: 'untouched', body: '' },
+  ])(
+    'leaves an iPad composer overlay $draft for the Inbox from the Command Palette',
+    async ({ body }) => {
+      expect.hasAssertions();
+      mockShowColumn.mockClear();
+      const dimensions = jest
+        .spyOn(
+          jest.requireActual<{
+            useWindowDimensions: typeof useWindowDimensions;
+          }>('react-native'),
+          'useWindowDimensions',
+        )
+        .mockReturnValue({ width: 834, height: 1194, scale: 2, fontScale: 1 });
+      const connection = {
+        id: syntheticMailboxes['alex@example.invalid'],
+        address: 'alex@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+        provider: 'gmail',
+      } as const;
+      const account = {
+        snapshot: {
+          kind: 'connected',
+          productAccountId: 'synthetic-product-account',
+          signInProvider: 'google',
+          mailboxes: JSON.stringify([connection]),
+        },
+        busy: false,
+        failed: false,
+      } as const;
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        {
+          subscribe: () => () => undefined,
+          getSnapshot: () => account,
+        },
+      );
+      jest.replaceProperty(
+        jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+        'drafts',
+        drafts,
+      );
+      showMail(defaultProfile);
+      route.setParams({});
+      const app = await render(
+        <AccountContext
+          value={{
+            mailboxes: [connection],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+          }}>
+          <RootLayout />
+        </AccountContext>,
+      );
+      try {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: /Garden plan/u }),
+        );
+        await waitFor(() => {
+          expect(
+            screen.getByRole('button', { name: 'New Message' }),
+          ).toBeEnabled();
+        });
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'New Message' }),
+        );
+        await fireEvent.changeText(
+          await screen.findByLabelText('Message body'),
+          body,
+        );
+        await fireEvent(
+          screen.getByRole('header', { name: 'Inbox' }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'openCommandPalette' } },
+        );
+        await act(async () => {
+          await fireEvent.press(
+            within(screen.getByTestId('command-palette')).getByRole('button', {
+              name: 'Inbox',
+            }),
+          );
+        });
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+        expect(screen.queryByText('This Draft is not available.')).toBeNull();
+        expect(screen.queryByText('Synthetic garden body.')).toBeNull();
+        expect(
+          screen.getByLabelText('Search senders and subjects'),
+        ).toBeVisible();
+        // A collapsed split view, as on iPhone, returns to the Inbox column rather than an empty reader.
+        expect(mockShowColumn).toHaveBeenLastCalledWith('primary');
+      } finally {
+        await app.unmount();
+        dimensions.mockRestore();
+        jest.replaceProperty(
+          jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+          'drafts',
+          jest.requireActual<{ drafts: typeof drafts }>(
+            '../src/registration.ts',
+          ).drafts,
+        );
+      }
+    },
+  );
 
   it.each([
     { name: 'legacy Default', profile: defaultProfile, params: {} },

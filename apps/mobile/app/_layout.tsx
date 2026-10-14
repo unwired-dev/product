@@ -96,12 +96,18 @@ export default function RootLayout() {
   useLayoutEffect(() => {
     reader.current = { id, mailbox, profile: shownProfile };
   }, [id, mailbox, shownProfile]);
+  // Likewise the open composer's Draft: a command that leaves the composer and then closes the
+  // reader runs both closes before the next render.
+  const composing = useRef(draft);
+  useLayoutEffect(() => {
+    composing.current = draft;
+  }, [draft]);
   const detail = Boolean(id) || Boolean(draft);
 
+  // A collapsed split view keeps showing the detail column until told otherwise, so leaving the
+  // reader or composer returns to the Inbox column.
   useEffect(() => {
-    if (detail) {
-      splitView.current?.show('secondary');
-    }
+    splitView.current?.show(detail ? 'secondary' : 'primary');
   }, [detail]);
 
   function selectMessage(selection: Selection) {
@@ -115,6 +121,7 @@ export default function RootLayout() {
   // The compose destination retains the reader's selection beneath its editor.
   function compose(opened: string) {
     setExpanded(false);
+    composing.current = opened;
     const latest = reader.current;
     router.replace({
       pathname: '/compose/[draft]',
@@ -167,15 +174,12 @@ export default function RootLayout() {
                           mailbox: undefined,
                           profile: shownProfile,
                         };
+                        const open = regular ? composing.current : undefined;
                         router.replace({
                           pathname:
-                            regular && draft !== undefined
-                              ? '/compose/[draft]'
-                              : '/',
+                            open === undefined ? '/' : '/compose/[draft]',
                           params: {
-                            ...(regular && draft !== undefined
-                              ? { draft }
-                              : {}),
+                            ...(open === undefined ? {} : { draft: open }),
                             profileId: shownProfile,
                           },
                         });
@@ -248,6 +252,7 @@ export default function RootLayout() {
                       }
                       onClose={() => {
                         setExpanded(false);
+                        composing.current = undefined;
                         const latest = reader.current;
                         if (
                           latest.id === undefined ||
@@ -269,6 +274,7 @@ export default function RootLayout() {
                         }
                       }}
                       onRebind={(copy) => {
+                        composing.current = copy;
                         router.setParams({ draft: copy });
                       }}
                     />

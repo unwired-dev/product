@@ -18,7 +18,9 @@ Trusted Devices through Private Sync.
   over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
   the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
   height above the keyboard. **Expand** takes the composer over the whole
-  window with the same Draft and **Collapse** returns it; the Inbox column stays
+  window with the same Draft and **Collapse** returns it; on the Mac, the overlay
+  and the expanded composer stay beneath the window's
+  [command bar](command-palette.md#entry-points). The Inbox column stays
   interactive beneath the overlay while the covered reader waits. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout

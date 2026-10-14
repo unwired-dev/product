@@ -113,6 +113,9 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
             composing={composing}
             selected={selected}
             onClose={close}
+            onReveal={() => {
+              setExpanded(false);
+            }}
             onCompose={compose}
             onSelectBehindComposer={
               composing === undefined ? undefined : setSelected

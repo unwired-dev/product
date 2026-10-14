@@ -169,7 +169,19 @@ describe('mac window selection with the shared mock mailbox', () => {
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
-      await fireEvent.press(app.getByRole('button', { name: 'Collapse' }));
+      // Search Mail collapses the expanded composer to reveal the Inbox search field, keeping the Draft.
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      await act(async () => {
+        await fireEvent.press(
+          within(app.getByTestId('command-palette')).getByRole('button', {
+            name: 'Search Mail',
+          }),
+        );
+      });
+      expect(app.getByLabelText('Search senders and subjects')).toBeVisible();
+      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
       await fireEvent.press(app.getByRole('button', { name: oliver }));
       expect(app.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',

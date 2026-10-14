@@ -1442,7 +1442,7 @@ describe('command palette', () => {
       </InboxProvider>,
     );
     await openPalette(
-      await screen.findByRole('header', {
+      await screen.findByRole('alert', {
         name: 'This Draft is not available.',
       }),
     );

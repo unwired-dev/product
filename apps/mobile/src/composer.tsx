@@ -25,7 +25,7 @@ import type {
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import type { TextInputChangeEvent, TextStyle } from 'react-native';
 
 import {
@@ -347,16 +347,19 @@ type Closing =
 // A quiet banner beside the content it explains, with its actions under the message.
 function Alert({
   message,
+  actions,
   children,
 }: {
   readonly message: string;
+  readonly actions?: ComponentProps<typeof Banner>['messageActions'];
   readonly children?: ReactNode;
 }) {
   return (
     <Banner
       icon="exclamationmark.triangle"
       message={message}
-      messageRole="alert">
+      messageRole="alert"
+      messageActions={actions}>
       {children}
     </Banner>
   );
@@ -1289,12 +1292,16 @@ function ComposerNotices({
 function Editor({
   initial,
   onClose,
+  onClosedAfterRemoval,
   onRebind,
   expanded = false,
   onExpand,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
+  // Closing an empty Draft or discarding one removes it, which unmounts this editor before it can
+  // call `onClose`; the composer closes in its place while it still shows Draft `id`.
+  readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
   readonly onRebind: (id: string) => void;
   // Whether the composer takes over the window, and the control that toggles it when offered.
@@ -1725,6 +1732,9 @@ function Editor({
     }
     finishOperation();
     if (!lifetime.current.mounted) {
+      if (closed) {
+        onClosedAfterRemoval(authored.current.id);
+      }
       return closed;
     }
     if (closed) {
@@ -1733,7 +1743,15 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
+  }, [
+    commitHistory,
+    finishOperation,
+    keepIdentity,
+    onClose,
+    onClosedAfterRemoval,
+    store,
+    update,
+  ]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const paletteHeader = usePaletteHeader();
@@ -1774,6 +1792,8 @@ function Editor({
       } else {
         setClosing('discard-blocked');
       }
+    } else if (removed) {
+      onClosedAfterRemoval(authored.current.id);
     }
   };
   // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
@@ -2295,27 +2315,23 @@ function ComposerFallback({
             {...paletteHeader.action}
           />
         ) : (
-          <>
-            <Text
-              accessibilityRole="header"
-              style={[styles.title, { color: colors.textPrimary }]}
-              {...paletteHeader.action}>
-              {kind === 'locked'
+          <Alert
+            message={
+              kind === 'locked'
                 ? t('drafts.listLocked')
-                : t('drafts.unavailable')}
-            </Text>
+                : t('drafts.unavailable')
+            }
+            actions={paletteHeader.action}>
             {kind === 'locked' || kind === 'failed' ? (
-              <View style={styles.bar}>
-                <Button
-                  size="compact"
-                  label={t('common.retry')}
-                  onPress={() => {
-                    void store.load();
-                  }}
-                />
-              </View>
+              <Button
+                size="compact"
+                label={t('common.retry')}
+                onPress={() => {
+                  void store.load();
+                }}
+              />
             ) : null}
-          </>
+          </Alert>
         )}
       </View>
     </SafeAreaView>
@@ -2350,6 +2366,24 @@ export function Composer({
     },
     [onRebind],
   );
+  // The Draft this composer shows while it is mounted. An editor that finishes closing after its
+  // Draft was removed closes the composer only if it still shows that Draft, so leaving it or
+  // opening another Draft meanwhile stays as it is.
+  const shown = useRef<string | undefined>(id);
+  useLayoutEffect(() => {
+    shown.current = id;
+    return () => {
+      shown.current = undefined;
+    };
+  }, [id]);
+  const closedAfterRemoval = useCallback(
+    (closed: string) => {
+      if (shown.current === closed) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
   const draft = draftOf(state, id);
   if (draft !== undefined) {
     return (
@@ -2358,6 +2392,7 @@ export function Composer({
         initial={draft}
         expanded={expanded}
         onClose={onClose}
+        onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}
         onRebind={rebind}
       />

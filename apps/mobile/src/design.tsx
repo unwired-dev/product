@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, ViewProps } from 'react-native';
+import type { ColorValue, TextProps, ViewProps } from 'react-native';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
@@ -190,6 +190,7 @@ export function Notice({
   iconColor,
   message,
   messageRole,
+  messageActions,
   announce,
   children,
 }: {
@@ -197,6 +198,10 @@ export function Notice({
   readonly iconColor?: ColorValue;
   readonly message: string;
   readonly messageRole?: 'alert';
+  // Accessibility actions on the message, such as a screen header's Open Command Palette.
+  readonly messageActions?:
+    | Pick<TextProps, 'accessibilityActions' | 'onAccessibilityAction'>
+    | undefined;
   // Preserves live-region semantics; native announcement support is platform-specific.
   readonly announce?: 'polite';
   readonly children?: ReactNode;
@@ -212,7 +217,8 @@ export function Notice({
         <Text
           accessibilityLiveRegion={announce}
           accessibilityRole={messageRole}
-          style={[styles.noticeText, { color: colors.textPrimary }]}>
+          style={[styles.noticeText, { color: colors.textPrimary }]}
+          {...messageActions}>
           {message}
         </Text>
       </View>
