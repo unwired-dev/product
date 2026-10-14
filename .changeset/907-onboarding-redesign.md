@@ -15,3 +15,4 @@ Redesign onboarding, account setup and device trust on iPhone, iPad and Mac (#90
 - **Enrollment codes:** the complete code wraps between monospaced four-character groups, with its original value retained for accessibility and approval.
 - **Mail core:** the theme adds the `appleButton` and `appleOnButton` colors for Sign in with Apple in Light and Dark.
 - **Manual IMAP setup:** the provider row describes compatible IMAP and SMTP providers without promising universal server support.
+- **iPhone setup spacing:** match the approved 24pt side margins and 10pt gaps, and keep the initial heading and final controls clear of the safe area.

@@ -317,6 +317,10 @@ styles) so the file stays editable.
 
 ## Layout
 
+- **iPhone account setup:** the approved #907 adaptations use 24pt side margins
+  and 10pt content gaps. Scrollable setup content starts 62pt below the top safe
+  area and ends 26pt above the bottom safe area. Respect the horizontal safe area
+  when the phone rotates.
 - **macOS window:** 1280×800 reference, three columns. A floating glass sidebar
   236pt wide inset 8pt, a 340pt message list, and the reading pane. The reading
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt

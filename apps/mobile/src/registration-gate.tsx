@@ -34,6 +34,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { SettingsDestination } from './settings.tsx';
 
@@ -391,6 +392,7 @@ function RegistrationPage({
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
 }) {
+  const insets = useSafeAreaInsets();
   const { snapshot, busy, failed, removalFailure } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -439,9 +441,17 @@ function RegistrationPage({
     snapshot.removalPending === undefined;
   return (
     <ScrollView
-      contentContainerStyle={styles.scroll}
+      contentContainerStyle={[
+        styles.scroll,
+        !settingsColumns && {
+          paddingLeft: insets.left + 24,
+          paddingRight: insets.right + 24,
+          paddingTop: insets.top + 62,
+          paddingBottom: insets.bottom + 26,
+        },
+      ]}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.content}>
+      <View style={[styles.content, !settingsColumns && { gap: 10 }]}>
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: colors.textPrimary }]}>
