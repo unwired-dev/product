@@ -341,13 +341,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       secondDestination: null,
       backgroundRow: null,
     });
-    await fireEvent(
-      first.getByText('https://example.invalid/plan'),
-      'keyDown',
-      {
-        nativeEvent: { key: 'Escape' },
-      },
-    );
+    await fireEvent(first.getByRole('button', { name: 'Cancel' }), 'keyDown', {
+      nativeEvent: { key: 'Escape' },
+    });
     expect(
       first.getByRole('button', { name: /Not downloaded yet/u }),
     ).toBeVisible();

@@ -159,6 +159,24 @@ describe('iPad reader', () => {
             ),
           ),
         ).toBe(true);
+        const create = jest
+          .spyOn(drafts, 'create')
+          .mockRejectedValueOnce(new TypeError('Synthetic host failure'));
+        try {
+          await fireEvent.press(
+            screen.getByRole('button', { name: 'Reply All' }),
+          );
+          expect(
+            isScrollable(
+              await screen.findByText(
+                'A reply or forward could not be started. Try again.',
+              ),
+            ),
+          ).toBe(true);
+          expect(screen.getByRole('alert')).toBeVisible();
+        } finally {
+          create.mockRestore();
+        }
         await fireEvent.press(
           screen.getByRole('button', { name: 'Reply All' }),
         );

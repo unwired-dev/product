@@ -50,6 +50,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   checks clip the explanation or permanently cover message headings and bodies.
   Opened Labels/More popovers retain their deliberate floating placement.
 
+- `message-detail.tsx.ResponseActions` rendering response preparation or failure
+  text inside the fixed-height toolbar or iPhone capsule. Keep the buttons there
+  and report status in scrolling reader content for its owning message, preserving
+  live-region and failure-alert semantics. Trace progress, rejection and retry
+  on both hosts; otherwise the toolbar clips feedback or its capsule grows over
+  the message while a response is being prepared.
+
 - `apps/mobile/src/message-detail.tsx` or collaborating reader chrome choosing
   iPhone-only controls from window width alone. Keep the iPhone Back header,
   bottom toolbar and Reply picker in landscape too, and preserve the iPad's
@@ -533,6 +540,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- Mac `message-body.tsx.LinkConfirmation` leaving keyboard focus in the covered
+  reader or allowing Tab traversal outside its choices. Background accessibility
+  suppression does not remove AppKit key responders. Trace initial focus, forward
+  and reverse Tab, Escape and activation through the installed view focus command,
+  native responder chain and JavaScript key wrapper; otherwise a keyboard action
+  can change mail behind the alert or dismiss it without an available choice.
+  Keep native keyboard qualification distinct from rendered callback evidence.
 
 - `apps/macos/src/message-body.tsx.LinkConfirmationProvider` or another Mac
   view using a React Native component whose native host is absent on macOS.

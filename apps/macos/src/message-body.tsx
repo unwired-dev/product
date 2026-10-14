@@ -121,45 +121,76 @@ function LinkConfirmation({
     // oxlint-disable-next-line typescript/no-deprecated -- Core Clipboard remains in both hosts; replacing it adds a native module.
     Clipboard.setString(link.href);
   };
-  const choice = (
-    label: string,
-    onPress: () => void,
-    tone: keyof typeof tones,
-  ) => (
-    <Pressable
-      key={label}
-      accessibilityRole="button"
-      focusable
-      onFocus={() => {
-        setFocused(label);
-      }}
-      onBlur={() => {
-        setFocused(undefined);
-      }}
-      onPress={onPress}
-      style={[
-        styles.choice,
-        {
-          backgroundColor: tones[tone].fill,
-          borderWidth: 2,
-          borderColor: focused === label ? colors.accentInk : 'transparent',
-        },
-      ]}>
-      <Text
-        style={[
-          styles.choiceLabel,
-          tone === 'primary' && styles.choiceEmphasized,
-          { color: tones[tone].ink },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
+  const choices: ReadonlyArray<
+    Readonly<{ label: string; onPress: () => void; tone: keyof typeof tones }>
+  > =
+    reasons.length === 0
+      ? [
+          {
+            label: t('messageBody.openLink'),
+            onPress: proceed,
+            tone: 'primary',
+          },
+          { label: t('common.cancel'), onPress: onDone, tone: 'secondary' },
+        ]
+      : [
+          { label: t('common.cancel'), onPress: onDone, tone: 'primary' },
+          {
+            label: t('messageBody.copyLink'),
+            onPress: () => {
+              onDone();
+              if (current()) {
+                copyLink();
+              }
+            },
+            tone: 'secondary',
+          },
+          {
+            label: t('messageBody.proceed'),
+            onPress: proceed,
+            tone: 'destructive',
+          },
+        ];
+  // The alert owns keyboard focus while it is open: it takes focus as it appears, and Tab cycles
+  // through its choices instead of reaching the covered reader.
+  const buttons = useRef<Array<View | null>>([]);
+  const focusChoice = (index: number) => {
+    const button = buttons.current[index];
+    // Jest renders no native view, so a ref without focus is left alone.
+    if (button !== null && button !== undefined && 'focus' in button) {
+      button.focus();
+    }
+  };
+  // Only on appearance; later focus moves come from the keys below.
+  useEffect(() => {
+    const [first] = buttons.current;
+    if (first !== null && first !== undefined && 'focus' in first) {
+      first.focus();
+    }
+  }, []);
+  const focusedIndex = choices.findIndex(({ label }) => label === focused);
   return (
     <View
       accessibilityLiveRegion="polite"
       accessibilityViewIsModal
       onAccessibilityEscape={onDone}
+      keyDownEvents={[
+        { key: 'Escape' },
+        { key: 'Tab' },
+        { key: 'Tab', shiftKey: true },
+      ]}
+      onKeyDown={(event) => {
+        // Escape dismisses from inside the alert; the keys below move within it.
+        if (event.nativeEvent.key === 'Escape') {
+          onDone();
+          return;
+        }
+        if (event.nativeEvent.key !== 'Tab') {
+          return;
+        }
+        const step = event.nativeEvent.shiftKey ? -1 : 1;
+        focusChoice((focusedIndex + step + choices.length) % choices.length);
+      }}
       style={[styles.confirm, { backgroundColor: colors.surfaceContent }]}>
       <Glass
         cornerRadius={styles.confirm.borderRadius}
@@ -203,25 +234,40 @@ function LinkConfirmation({
         {link.href}
       </Text>
       <View style={styles.choices}>
-        {reasons.length === 0
-          ? [
-              choice(t('messageBody.openLink'), proceed, 'primary'),
-              choice(t('common.cancel'), onDone, 'secondary'),
-            ]
-          : [
-              choice(t('common.cancel'), onDone, 'primary'),
-              choice(
-                t('messageBody.copyLink'),
-                () => {
-                  onDone();
-                  if (current()) {
-                    copyLink();
-                  }
-                },
-                'secondary',
-              ),
-              choice(t('messageBody.proceed'), proceed, 'destructive'),
-            ]}
+        {choices.map(({ label, onPress, tone }, index) => (
+          <Pressable
+            key={label}
+            ref={(node) => {
+              buttons.current[index] = node;
+            }}
+            accessibilityRole="button"
+            focusable
+            onFocus={() => {
+              setFocused(label);
+            }}
+            onBlur={() => {
+              setFocused(undefined);
+            }}
+            onPress={onPress}
+            style={[
+              styles.choice,
+              {
+                backgroundColor: tones[tone].fill,
+                borderWidth: 2,
+                borderColor:
+                  focused === label ? colors.accentInk : 'transparent',
+              },
+            ]}>
+            <Text
+              style={[
+                styles.choiceLabel,
+                tone === 'primary' && styles.choiceEmphasized,
+                { color: tones[tone].ink },
+              ]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
     </View>
   );

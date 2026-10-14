@@ -3601,6 +3601,49 @@ describe('replying to and forwarding from the reader', () => {
     });
   });
 
+  it('shows a rejected response in scrolling content and permits retry', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Reply to me.' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const app = await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    // Only the unexpected host rejection is substituted; response preparation and retry use real stores.
+    const create = jest
+      .spyOn(drafts, 'create')
+      .mockRejectedValueOnce(new TypeError('Synthetic host failure'));
+    try {
+      await press('Reply');
+      await press('Forward');
+      const failure = await screen.findByText(
+        'A reply or forward could not be started. Try again.',
+      );
+      expect(isScrollable(failure)).toBe(true);
+      expect(screen.getByRole('alert')).toBeVisible();
+      expect(screen.queryByText('Preparing to forward…')).toBeNull();
+      await press('Reply');
+      await press('Forward');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Fwd: Plans',
+      );
+    } finally {
+      create.mockRestore();
+      await app.unmount();
+    }
+  });
+
   it('starts only the first queued response and ignores its old reader callback', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -3624,11 +3667,19 @@ describe('replying to and forwarding from the reader', () => {
     await screen.findByRole('button', { name: 'Forward' });
     const forward = queuedPress('Forward');
     const reply = queuedPress('Reply');
+    storage.hold();
     await act(() => {
       forward();
       reply();
       forward();
     });
+    try {
+      expect(
+        isScrollable(await screen.findByText('Preparing to forward…')),
+      ).toBe(true);
+    } finally {
+      storage.release();
+    }
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
       'Fwd: Plans',

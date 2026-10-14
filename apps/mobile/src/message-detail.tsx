@@ -1,13 +1,14 @@
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
+  createContext,
   use,
   useLayoutEffect,
   useMemo,
@@ -346,6 +347,44 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// The response controls live in the fixed toolbar; their progress and failure show in the
+// reader's scrolling content, for the message they belong to.
+type ResponseStatus =
+  | Readonly<{ id: string; kind: 'preparingForward' | 'failed' }>
+  | undefined;
+const ResponseStatusContext = createContext<
+  Dispatch<SetStateAction<ResponseStatus>> | undefined
+>(undefined);
+
+function ResponseStatusNotice({
+  status,
+  id,
+}: {
+  readonly status: ResponseStatus;
+  // The shown message; a status reported for another one stays hidden.
+  readonly id: string;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (status === undefined || status.id !== id) {
+    return null;
+  }
+  return status.kind === 'failed' ? (
+    <Text
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert"
+      style={[styles.secondary, { color: colors.textPrimary }]}>
+      {t('message.respondFailed')}
+    </Text>
+  ) : (
+    <Text
+      accessibilityLiveRegion="polite"
+      style={[styles.secondary, { color: colors.textSecondary }]}>
+      {t('message.preparingForward')}
+    </Text>
+  );
+}
+
 // Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
 // response always sends from the reader's own mailbox; one that cannot send offers none.
 function ResponseActions({
@@ -367,7 +406,7 @@ function ResponseActions({
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
-  const [failed, setFailed] = useState(false);
+  const report = use(ResponseStatusContext);
   const [focused, setFocused] = useState<string>();
   const source = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
@@ -407,7 +446,11 @@ function ResponseActions({
     }
     starting.current = true;
     setPending(kind);
-    setFailed(false);
+    report?.(
+      kind === 'forward'
+        ? { id: message.id, kind: 'preparingForward' }
+        : undefined,
+    );
     try {
       const draft = await startResponse(
         { navigation, drafts: store, inbox },
@@ -427,13 +470,18 @@ function ResponseActions({
     } catch {
       // The reader stays usable when an unexpected host operation rejects, and says so.
       if (mounted.current) {
-        setFailed(true);
+        report?.({ id: message.id, kind: 'failed' });
       }
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
     starting.current = false;
     if (mounted.current) {
       setPending(undefined);
+      report?.((status) =>
+        status?.id === message.id && status.kind === 'preparingForward'
+          ? undefined
+          : status,
+      );
     }
   };
   return (
@@ -556,21 +604,6 @@ function ResponseActions({
             </ScrollView>
           </View>
         </Modal>
-      ) : null}
-      {pending === 'forward' ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('message.preparingForward')}
-        </Text>
-      ) : null}
-      {failed ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          accessibilityRole="alert"
-          style={[styles.secondary, { color: colors.textPrimary }]}>
-          {t('message.respondFailed')}
-        </Text>
       ) : null}
     </>
   );
@@ -791,6 +824,7 @@ function MailboxMessage({
   const actions = useInboxActions();
   const mailbox = useMailbox();
   const account = use(AccountContext);
+  const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
@@ -856,52 +890,58 @@ function MailboxMessage({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <LinkConfirmationProvider
-        inbox={actions}
-        ids={[message.id]}>
-        {header ? (
-          <ReaderHeader
-            subject={message.subject}
-            onClose={onClose}
-          />
-        ) : null}
-        {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
-        <ReaderScrollView
-          contentContainerStyle={[
-            styles.content,
-            compact ? styles.compactContent : null,
-          ]}>
-          {header ? null : (
-            <Text
-              accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {message.subject}
-            </Text>
-          )}
-          <MessageMetadata message={message} />
-          <MessageActionsNotice id={message.id} />
-          <ReaderBody
-            key={message.id}
-            inbox={actions}
-            message={message}
-            connection={mailbox?.id}
-          />
-        </ReaderScrollView>
-        {compact ? (
-          <View style={styles.bottomToolbar}>
-            <View style={styles.bottomActions}>{toolbar}</View>
-            {sender === undefined || onCompose === undefined ? null : (
-              <View>
-                <ComposeButton
-                  mailbox={sender}
-                  onCompose={onCompose}
-                />
-              </View>
+      <ResponseStatusContext value={setResponseStatus}>
+        <LinkConfirmationProvider
+          inbox={actions}
+          ids={[message.id]}>
+          {header ? (
+            <ReaderHeader
+              subject={message.subject}
+              onClose={onClose}
+            />
+          ) : null}
+          {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
+          <ReaderScrollView
+            contentContainerStyle={[
+              styles.content,
+              compact ? styles.compactContent : null,
+            ]}>
+            {header ? null : (
+              <Text
+                accessibilityRole="header"
+                selectable
+                style={[styles.subject, { color: colors.textPrimary }]}>
+                {message.subject}
+              </Text>
             )}
-          </View>
-        ) : null}
-      </LinkConfirmationProvider>
+            <MessageMetadata message={message} />
+            <MessageActionsNotice id={message.id} />
+            <ResponseStatusNotice
+              status={responseStatus}
+              id={message.id}
+            />
+            <ReaderBody
+              key={message.id}
+              inbox={actions}
+              message={message}
+              connection={mailbox?.id}
+            />
+          </ReaderScrollView>
+          {compact ? (
+            <View style={styles.bottomToolbar}>
+              <View style={styles.bottomActions}>{toolbar}</View>
+              {sender === undefined || onCompose === undefined ? null : (
+                <View>
+                  <ComposeButton
+                    mailbox={sender}
+                    onCompose={onCompose}
+                  />
+                </View>
+              )}
+            </View>
+          ) : null}
+        </LinkConfirmationProvider>
+      </ResponseStatusContext>
     </SafeAreaView>
   );
 }
