@@ -65,9 +65,16 @@ records do not merge merely because they share correspondence. This selects no
 identity, matching, storage or wire algorithm and adds no merge interaction.
 
 Authored commitments survive source-message deletion and Mailbox Connection
-removal. Retain reviewed title, direction, state and dates with unavailable source links;
+removal. Retain reviewed title, direction, state, dates and configured reminders with unavailable source links;
 purge source content and connection-owned proposals. Profile/account deletion
-removes commitments and review decisions. Connection moves preserve one owning
+removes commitments and review decisions. Each observing device cancels the
+removed owner's scans, rejects late results and purges its encrypted review queue,
+unaccepted proposal text/source links and device-local scan state. Profile deletion
+affects only that Profile; account deletion affects all its Profiles. Retry,
+relaunch, unlock or recreation cannot restore removed work or old scan permission;
+unrelated Profiles/accounts remain unaffected. Offline devices apply deletion
+when observed, under the existing account/device trust and key-custody boundaries.
+Connection moves preserve one owning
 Profile and require review for mixed-source records, without cross-Profile source
 access or silent copies. The existing lifecycle safety and authorization fences
 remain in force.
@@ -83,6 +90,15 @@ removal decision and adds no bulk-delete action.
 Optional reminders reuse the current owning Profile's notification owner and
 privacy controls. The canonical Profile-move outcome also reconciles existing
 reminder ownership and schedules; record reassignment alone is insufficient.
+Observed Done or Cancelled retires known scheduled work and fences late delivery
+for the closed state while retaining the chosen time as history. The 2026-10-14
+decision panel selected restoration of a still-future chosen reminder on explicit
+Reopen, under current ownership, interruption/privacy controls and revision.
+Only the still-current configured choice is eligible; explicit reminder edits or
+removal and Delete prevail over superseded historical times or stale work.
+Reopen never revives obsolete closed-state work. Past times remain missed/history
+without an immediate catch-up alert; another interruption requires a new chosen
+time. Apply the same rule to synchronized reopening, including delayed delivery.
 An offline owner can show an alert made stale by an unsynchronized completion;
 opening it cannot reopen the commitment. No scan, acceptance or reminder sends
 mail or changes provider mail state. Full real native, model and Private Sync

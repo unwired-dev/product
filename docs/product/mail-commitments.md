@@ -35,6 +35,12 @@ represents the outstanding action or outcome.
 Commitment acceptance and state changes are private product actions. They do not
 send mail, communicate agreement to a sender, or change provider mail state.
 
+Apple native code owns keys, credentials, encrypted storage and physical purge.
+Shared TypeScript owns scan/review orchestration, owner/revision checks, in-memory
+invalidation and Private Sync reconciliation, without replacing native checks.
+Keep the existing [storage](../private-inbox-storage.md) and
+[Private Sync](../private-product-sync.md#keys-and-envelopes) ownership boundaries.
+
 ## Record and lifecycle
 
 - Each commitment has an editable title, an I owe or Waiting for direction, an
@@ -106,6 +112,18 @@ Locally scheduled reminders may work offline. Completion or cancellation on
 another device reaches the reminder owner only after synchronization, so an
 outdated alert may still appear. Opening it shows current available state and
 never reopens a completed commitment.
+
+When a device observes Done or Cancelled, retire its known scheduled reminder
+work and fence late delivery for that closed state. Retain the chosen reminder
+time as history. Explicit Reopen restores only a still-current configured chosen
+reminder whose time remains future, under
+current ownership and interruption/privacy controls with a current revision;
+it never revives obsolete closed-state work, a removed reminder or a superseded
+historical time. Explicit reminder edits/removal and Delete remain authoritative
+when they race with close/reopen. A past reminder time remains visible
+as missed/history without an immediate catch-up alert; another interruption then
+requires a new user-chosen time. The same rule applies when reopening arrives
+through synchronization, including after the old time has passed.
 
 ## Automatic scanning
 
@@ -204,7 +222,7 @@ unavailable or misses an item. Inference is not required to use the commitment l
 ## Source removal and Profile moves
 
 - Accepted commitments survive source-message deletion and Mailbox Connection
-  removal. Their reviewed title, direction, state and dates remain, with unavailable source
+  removal. Their reviewed title, direction, state, dates and configured reminders remain, with unavailable source
   links. Suggestions and cached source content belonging to the removed
   connection are purged. Mailbox removal alone therefore does not erase accepted
   commitment text.
@@ -215,7 +233,15 @@ unavailable or misses an item. Inference is not required to use the commitment l
   Profile Lock without revealing protected titles or other retained content. Explain the existing
   explicit Delete action for commitment content/reminders and its minimal retained
   review decision; owning Profile/account deletion also removes review decisions.
-- Removing the owning Mail Profile or Product Account deletes its commitments.
+- Removing the owning Mail Profile or Product Account deletes its commitments
+  and minimal review decisions. Each observing device also cancels affected
+  scans, rejects late results and purges that owner's encrypted review queue,
+  unaccepted proposal text/source links and device-local scan state. Deletion
+  applies when a device observes it; retries, relaunch or later unlock cannot restore the
+  removed owner's proposals or scan work. Profile deletion applies only to that
+  Profile; Product Account deletion applies to every Profile owned by that account.
+  Unrelated Profiles and accounts retain their state. Recreating an owner does not
+  restore its deleted queue, scan state or earlier scanning permission.
 - Commitments belonging solely to a moving connection follow it to the target
   Profile. Mixed-source commitments require the user to choose one owning Profile
   and review affected links. Preserve one record, without cross-Profile source
@@ -296,6 +322,11 @@ Representative acceptance scenarios:
   the chosen reminder time. Repeat for a reviewed mixed-source move, cancelled
   move, offline owner, retry and interruption; taps use current available ownership
   without duplicate known alerts or protected-content exposure.
+- Close a commitment before its reminder time and observe the change on its
+  notification owner. Retire known scheduled work and fence late delivery; then
+  explicitly reopen before or after the chosen time, including delayed sync.
+  Restore only a still-future reminder under current controls, keep past times
+  visible without an immediate catch-up alert and never revive obsolete work.
 - A Tuesday message saying "tomorrow" scanned on Friday proposes Wednesday in
   the reviewed source zone. "Next week" shows its ambiguity. Accepted dates remain
   fixed after relaunch or travel.
@@ -308,6 +339,11 @@ Representative acceptance scenarios:
 - Preserve reviewed records after mailbox removal while purging its suggestions
   and source content; enforce chosen ownership and source isolation on Profile
   moves; remove all related records and review decisions on Profile/account deletion.
+  With a saved queue and active or interrupted scan, verify that observing owner
+  deletion purges proposals and local scan state and rejects late results,
+  including after relaunch, unlock, retry or owner recreation. Apply Profile-only
+  versus all-account-Profile scope, reject prior scanning permission and preserve
+  owners outside the deleted scope.
 - Show missed reminders and handle an offline stale alert without changing the
   commitment's accepted state or exposing private content against notification
   preferences.

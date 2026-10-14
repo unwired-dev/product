@@ -18,6 +18,20 @@ Do not synchronize unaccepted output, copy complete source bodies into proposals
 or grant provider/network access to inference. Accepted records remain owned by
 one Profile and source access remains confined to that owner.
 
+Use the ownership split in
+[ADR 0067](../../adr/0067-keep-native-code-to-a-minimal-vault.md): Apple native code
+owns key/credential custody, sealing/opening, encrypted file storage and physical
+purge. Shared TypeScript owns application orchestration, current-owner/revision
+checks, scan and review lifecycles, in-memory invalidation and Private Sync
+reconciliation. Native operations retain their own authenticated owner, key and
+storage checks; shared checks do not replace them. Account/device trust combines
+TypeScript sequencing, native proofs/credentials and Convex authorization. Convex
+stores/transports only the permitted opaque Private Sync records and metadata.
+The existing [storage](../private-inbox-storage.md#ownership-and-failure-behavior)
+and [Private Sync](../private-product-sync.md#initialization-and-relaunch)
+companions govern these boundaries. This future feature adds no new native
+application subsystem or credential/key bridge exception.
+
 The product contract governs independent/conflicting edits, deletion, source loss,
 reviewed mixed-source moves, date semantics and reminder behavior. Implementation
 must preserve these requirements through interruption, relaunch and synchronization,
@@ -53,12 +67,28 @@ separate from lifecycle state and remains part of both retention and disclosure.
 Retention alone
 does not satisfy that requirement.
 
+The same contract covers owner deletion beyond accepted records: observing
+devices cancel scans, fence late results and purge the removed owner's local queue
+and scan state. Profile deletion and whole-account deletion keep their distinct
+scopes, and retry, relaunch, unlock or recreation cannot restore removed work or
+old scan permission. The offline observation limit and existing trust/key
+boundaries remain; no new removal, tombstone or storage protocol is selected.
+
 Profile moves must also apply the canonical move outcome to reminder work already
 scheduled, rather than only reparenting the accepted record. The
 [source-removal and move contract](../../product/mail-commitments.md#source-removal-and-profile-moves)
 owns reminder reassignment and reconciliation, including current target controls,
 cancelled moves and delayed offline observation. This selects no scheduler or
 remote-cancellation protocol.
+
+The [reminder contract](../../product/mail-commitments.md#reminders) also retires
+known scheduled work and fences late delivery after observed Done or Cancelled.
+ADR 0072 records the panel-selected explicit-Reopen rule: restore only a
+still-future chosen reminder under current ownership, controls and revision; keep
+past times as missed/history without immediate catch-up. Synchronized reopening
+uses that current-state rule rather than reviving obsolete closed-state work.
+Explicit reminder edits/removal and Delete remain authoritative; reopening cannot
+restore a removed reminder or superseded historical configuration.
 
 ## Qualification
 
