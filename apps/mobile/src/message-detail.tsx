@@ -3,6 +3,11 @@ import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
+import {
+  commandTarget,
+  expectedCommands,
+  responseCommands,
+} from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
@@ -31,6 +36,12 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import {
+  CommandInput,
+  CommandInputRow,
+  RegisterCommands,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import { Glass, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -121,6 +132,17 @@ const styles = StyleSheet.create({
     gap: spacing.l,
   },
   compactContent: { paddingBottom: 52 + 2 * spacing.l },
+  header: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+  },
+  headerText: { flex: 1 },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 2,
@@ -158,14 +180,19 @@ const keepVisibleMessage = { minIndexForVisible: 0 };
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.empty}>
+      <CommandInputRow />
+      <View
+        style={styles.empty}
+        {...header.swipe}>
         <Text
           accessibilityRole="header"
-          style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+          style={[styles.emptyTitle, { color: colors.textPrimary }]}
+          {...header.action}>
           {id ? t('message.unavailable') : t('message.empty')}
         </Text>
         <Text
@@ -347,6 +374,32 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// The reader's header where the compact Back header is absent: the subject, the iPad command
+// input, and the gestures that open the Command Palette.
+function RegularHeader({ subject }: { readonly subject: string }) {
+  const colors = usePalette();
+  const header = usePaletteHeader();
+  return (
+    <View
+      style={styles.header}
+      {...header.swipe}>
+      <View
+        accessible
+        accessibilityLabel={subject}
+        accessibilityRole="header"
+        style={styles.headerText}
+        {...header.action}>
+        <Text
+          selectable
+          style={[styles.subject, { color: colors.textPrimary }]}>
+          {subject}
+        </Text>
+      </View>
+      <CommandInput />
+    </View>
+  );
+}
+
 // The response controls live in the fixed toolbar; their progress and failure show in the
 // reader's scrolling content, for the message they belong to.
 type ResponseStatus =
@@ -486,6 +539,14 @@ function ResponseActions({
   };
   return (
     <>
+      <RegisterCommands
+        offer={() =>
+          responseCommands(t, commandTarget(mailbox?.id, message), {
+            start,
+            starting: pending !== undefined,
+          })
+        }
+      />
       {compact ? (
         <ToolbarButton
           icon="arrowshape.turn.up.left"
@@ -666,24 +727,7 @@ function MessageToolbar({
   readonly onClose: (() => void) | undefined;
   readonly onCompose: ((id: string) => void) | undefined;
 }) {
-  const actions = useInboxActions();
   const address = useMailbox()?.address;
-  const { t } = useLocalization();
-  if ('setUnread' in actions) {
-    return (
-      <GlassGroup>
-        <ToolbarButton
-          icon={message.unread ? 'envelope.open' : 'envelope.badge'}
-          label={
-            message.unread ? t('message.markRead') : t('message.markUnread')
-          }
-          onPress={() => {
-            void actions.setUnread(message.id, !message.unread);
-          }}
-        />
-      </GlassGroup>
-    );
-  }
   return (
     <MessageActions
       id={message.id}
@@ -736,24 +780,58 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
   const actions = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
-    <View style={styles.empty}>
-      <Text
-        accessibilityRole="alert"
-        style={[styles.emptyDescription, { color: colors.textPrimary }]}>
-        {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
-      </Text>
-      <Pressable
-        style={styles.control}
-        accessibilityRole="button"
-        onPress={() => {
-          void actions.load();
-        }}>
-        <Text style={[styles.secondary, { color: colors.accentInk }]}>
-          {t('common.retry')}
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <CommandInputRow />
+      <View
+        style={styles.empty}
+        {...header.swipe}>
+        <Text
+          accessibilityRole="alert"
+          style={[styles.emptyDescription, { color: colors.textPrimary }]}
+          {...header.action}>
+          {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
-      </Pressable>
-    </View>
+        <Pressable
+          style={styles.control}
+          accessibilityRole="button"
+          onPress={() => {
+            void actions.load();
+          }}>
+          <Text style={[styles.secondary, { color: colors.accentInk }]}>
+            {t('common.retry')}
+          </Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// The scoped mailbox's storage is still opening. ActivityIndicator sizes its native view to the
+// spinner and leaves it out of the accessibility tree unless `accessible`, so the swipe goes on a
+// full-size wrapper and the action on the now accessible spinner.
+function ReaderLoading() {
+  const { t } = useLocalization();
+  const header = usePaletteHeader();
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <CommandInputRow />
+      <View
+        style={styles.fill}
+        {...header.swipe}>
+        <ActivityIndicator
+          accessible
+          accessibilityLabel={t('message.loading')}
+          style={styles.fill}
+          {...header.action}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -844,12 +922,7 @@ function MailboxMessage({
     senders[0];
 
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
-    );
+    return <ReaderLoading />;
   }
 
   if (state.kind === 'locked' || state.kind === 'failed') {
@@ -857,27 +930,10 @@ function MailboxMessage({
   }
 
   if (message === undefined) {
-    return (
-      <SafeAreaView
-        edges={{ top: true, bottom: true, left: true, right: true }}
-        style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.empty}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-            {t('message.unavailable')}
-          </Text>
-          <Text
-            style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-            {t('message.chooseAnother')}
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
+    return <EmptyDetail id={id} />;
   }
 
-  // The compact header carries the subject and Back; without a way back the subject stays in
-  // the content.
+  // The compact header carries the subject and Back; without a way back use the regular header.
   const header = compact && onClose !== undefined;
   const toolbar = (
     <MessageToolbar
@@ -894,6 +950,14 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           ids={[message.id]}>
+          <RegisterCommands
+            offer={() =>
+              expectedCommands(t, {
+                target: commandTarget(mailbox?.id, message),
+                disabled: t('commands.unavailable'),
+              })
+            }
+          />
           {header ? (
             <ReaderHeader
               subject={message.subject}
@@ -901,19 +965,12 @@ function MailboxMessage({
             />
           ) : null}
           {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
+          {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
             contentContainerStyle={[
               styles.content,
               compact ? styles.compactContent : null,
             ]}>
-            {header ? null : (
-              <Text
-                accessibilityRole="header"
-                selectable
-                style={[styles.subject, { color: colors.textPrimary }]}>
-                {message.subject}
-              </Text>
-            )}
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
             <ResponseStatusNotice
@@ -989,6 +1046,7 @@ function ThreadMessages({
   const inbox = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const mailbox = useMailbox();
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -997,12 +1055,7 @@ function ThreadMessages({
     [state, id],
   );
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
-    );
+    return <ReaderLoading />;
   }
   if (state.kind === 'locked' || state.kind === 'failed') {
     return <StorageProblem kind={state.kind} />;
@@ -1025,23 +1078,25 @@ function ThreadMessages({
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
+          <RegisterCommands
+            offer={() =>
+              expectedCommands(t, {
+                target: commandTarget(mailbox?.id, opened),
+                disabled: t('commands.unavailable'),
+              })
+            }
+          />
           {header ? (
             <ReaderHeader
               subject={opened.subject}
               onClose={onClose}
             />
-          ) : null}
+          ) : (
+            <RegularHeader subject={opened.subject} />
+          )}
           <ReaderScrollView
             contentContainerStyle={styles.content}
             maintainVisibleContentPosition={keepVisibleMessage}>
-            {header ? null : (
-              <Text
-                accessibilityRole="header"
-                selectable
-                style={[styles.subject, { color: colors.textPrimary }]}>
-                {opened.subject}
-              </Text>
-            )}
             <MessageCount count={messages.length} />
             {messages.map((message) => (
               <ThreadMessage

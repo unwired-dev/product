@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { usePaletteHeader } from './command-palette.tsx';
 import { Glass, Monogram, SFSymbol } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox } from './mailbox.tsx';
@@ -69,6 +70,7 @@ export function ReaderHeader({
   readonly onClose: () => void;
 }) {
   const state = useInbox();
+  const header = usePaletteHeader();
   const colors = usePalette();
   const { t } = useLocalization();
   const [backWidth, setBackWidth] = useState(72);
@@ -78,7 +80,9 @@ export function ReaderHeader({
       ? state.messages.filter((message) => message.unread).length
       : 0;
   return (
-    <View style={styles.header}>
+    <View
+      style={styles.header}
+      {...header.swipe}>
       <NativeReaderChrome
         style={{ position: 'absolute', width: 0, height: 0 }}
       />
@@ -132,7 +136,8 @@ export function ReaderHeader({
       <Text
         accessibilityRole="header"
         numberOfLines={1}
-        style={[styles.headerTitle, { color: colors.textPrimary }]}>
+        style={[styles.headerTitle, { color: colors.textPrimary }]}
+        {...header.action}>
         {subject}
       </Text>
       <View style={{ width: backWidth }} />

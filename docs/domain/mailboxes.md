@@ -71,7 +71,7 @@ A device-scoped action that deletes local mailbox credentials and cached mail wi
 _Avoid_: Remove Mailbox Connection Everywhere
 
 **Remove Mailbox Connection Everywhere**:
-A product-account-scoped action that removes a **Mailbox Connection** and its product-owned state from every trusted device without deleting provider mail.
+A product-account-scoped action that removes a **Mailbox Connection** and its product-owned state from every trusted device without deleting provider mail, except the reviewed **Mail Commitments** retained under their [source-removal contract](../product/mail-commitments.md).
 _Avoid_: Remove Device Authorization, delete provider mailbox
 
 **Standards-Based Mailbox Connection**:

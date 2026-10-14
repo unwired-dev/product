@@ -11,6 +11,7 @@ import {
 } from '@testing-library/react-native';
 import { Dimensions, ScrollView } from 'react-native';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
 
@@ -23,6 +24,11 @@ jest.mock('../src/private-storage.ts', () => ({
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -97,10 +103,9 @@ describe('thread view', () => {
     await act(store.load);
 
     await expect(screen.findByText('See you then.')).resolves.toBeVisible();
-    expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
-      'selectable',
-      true,
-    );
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
+    // The subject text itself stays selectable inside the accessible header.
+    expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     await expect(
       screen.findByText('Can we meet on Tuesday?'),
     ).resolves.toBeVisible();
@@ -227,12 +232,54 @@ describe('thread view', () => {
     await act(store.load);
 
     await expect(screen.findByText('Alex Rivera')).resolves.toBeVisible();
-    expect(screen.getByRole('header', { name: 'Re: Planning' })).toHaveProp(
-      'selectable',
-      true,
-    );
+    expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
+    // The subject text itself stays selectable inside the accessible header.
+    expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
   });
+
+  it.each([
+    { back: false, onClose: undefined },
+    { back: true, onClose: () => undefined },
+  ])(
+    'opens the Command Palette from the thread header with Back $back',
+    async ({ back, onClose }) => {
+      expect.hasAssertions();
+      const { native, middle } = threadMailbox();
+      const store = createGmailInbox(native);
+      await render(
+        <InboxProvider mailboxes={singleMailbox(store, alex)}>
+          <CommandPaletteProvider>
+            <ThreadView
+              id={middle}
+              mailbox={alex}
+              onClose={onClose}
+            />
+          </CommandPaletteProvider>
+        </InboxProvider>,
+      );
+      await act(store.load);
+      expect(screen.queryByRole('button', { name: /^Back/u }) !== null).toBe(
+        back,
+      );
+      await fireEvent(
+        await screen.findByRole('header', { name: 'Re: Planning' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      const palette = within(screen.getByTestId('command-palette'));
+      expect(
+        palette.getByRole('header', {
+          name: 'Selected Message · Re: Planning',
+        }),
+      ).toBeVisible();
+      expect(
+        palette.getByRole('button', {
+          name: 'Reply. Not available for this message',
+        }),
+      ).toBeDisabled();
+    },
+  );
 
   it('shows the message as unavailable when it is not cached', async () => {
     expect.hasAssertions();

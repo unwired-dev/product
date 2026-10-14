@@ -1,6 +1,11 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
+import {
+  commandTarget,
+  expectedCommands,
+  responseCommands,
+} from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
@@ -23,6 +28,7 @@ import {
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -436,19 +442,29 @@ function ResponseActions({
     ['forward', 'arrowshape.turn.up.right', t('message.forward')],
   ] as const;
   return (
-    <GlassGroup>
-      {actions.map(([kind, icon, label]) => (
-        <ToolbarButton
-          key={kind}
-          icon={icon}
-          label={label}
-          disabled={pending !== undefined}
-          onPress={() => {
-            void start(kind);
-          }}
-        />
-      ))}
-    </GlassGroup>
+    <>
+      <RegisterCommands
+        offer={() =>
+          responseCommands(t, commandTarget(mailbox?.id, message), {
+            start,
+            starting: pending !== undefined,
+          })
+        }
+      />
+      <GlassGroup>
+        {actions.map(([kind, icon, label]) => (
+          <ToolbarButton
+            key={kind}
+            icon={icon}
+            label={label}
+            disabled={pending !== undefined}
+            onPress={() => {
+              void start(kind);
+            }}
+          />
+        ))}
+      </GlassGroup>
+    </>
   );
 }
 
@@ -593,32 +609,24 @@ function MailboxMessage({
           </View>
         ) : (
           <>
+            <RegisterCommands
+              offer={() =>
+                expectedCommands(t, {
+                  target: commandTarget(mailbox?.id, message),
+                  disabled: t('commands.unavailable'),
+                })
+              }
+            />
             <View style={styles.toolbar}>
-              {'setUnread' in actions ? (
-                <GlassGroup>
-                  <ToolbarButton
-                    icon={message.unread ? 'envelope.open' : 'envelope.badge'}
-                    label={
-                      message.unread
-                        ? t('message.markRead')
-                        : t('message.markUnread')
-                    }
-                    onPress={() => {
-                      void actions.setUnread(message.id, !message.unread);
-                    }}
-                  />
-                </GlassGroup>
-              ) : (
-                <MessageActions
-                  id={message.id}
-                  onClose={onClose}>
-                  <ResponseActions
-                    key={`${address}:${message.id}`}
-                    message={message}
-                    onCompose={onCompose}
-                  />
-                </MessageActions>
-              )}
+              <MessageActions
+                id={message.id}
+                onClose={onClose}>
+                <ResponseActions
+                  key={`${address}:${message.id}`}
+                  message={message}
+                  onCompose={onCompose}
+                />
+              </MessageActions>
             </View>
             <ReaderScrollView contentContainerStyle={styles.content}>
               <Text

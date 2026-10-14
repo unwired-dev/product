@@ -47,6 +47,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
+import { CommandEntryBlockedContext } from './command-palette.tsx';
 import { Glass, ModalBackground, Notice, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
@@ -307,7 +308,9 @@ export function LinkConfirmationProvider({
         <ModalBackground
           accessibilityElementsHidden={shown}
           style={styles.fill}>
-          {children}
+          <CommandEntryBlockedContext value={shown}>
+            {children}
+          </CommandEntryBlockedContext>
         </ModalBackground>
         {pending === undefined || !shown ? null : (
           // react-native-macos has no native Modal host, so the window owns this overlay.

@@ -8,10 +8,17 @@ import { mailboxesOf } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
 import { useState } from 'react';
 import { Dimensions } from 'react-native';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -35,6 +42,11 @@ jest.mock('../src/private-storage.ts', () => ({
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette clears the status bar itself; this host has no inset.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -64,20 +76,22 @@ function Reader({
     <InboxProvider
       drafts={drafts}
       mailboxes={singleMailbox(inbox, alex)}>
-      {composing === undefined ? (
-        <MessageDetail
-          mailbox={alex}
-          id={message}
-          onClose={ignore}
-          onCompose={setComposing}
-        />
-      ) : (
-        <Composer
-          id={composing}
-          onClose={ignore}
-          onRebind={setComposing}
-        />
-      )}
+      <CommandPaletteProvider>
+        {composing === undefined ? (
+          <MessageDetail
+            mailbox={alex}
+            id={message}
+            onClose={ignore}
+            onCompose={setComposing}
+          />
+        ) : (
+          <Composer
+            id={composing}
+            onClose={ignore}
+            onRebind={setComposing}
+          />
+        )}
+      </CommandPaletteProvider>
     </InboxProvider>
   );
 }
@@ -85,7 +99,7 @@ function Reader({
 describe('iPad reader', () => {
   /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
   it.each([320, 1024])(
-    'keeps direct response actions and a content subject at %i points',
+    'keeps direct response actions and the palette in the fixed header at %i points',
     async (width) => {
       expect.hasAssertions();
       const window = Dimensions.get('window');
@@ -133,11 +147,30 @@ describe('iPad reader', () => {
         );
         await act(inbox.load);
         await screen.findByText('Shall we meet on Friday?');
-        expect(screen.getByRole('header', { name: 'iPad plans' })).toHaveProp(
-          'selectable',
-          true,
-        );
+        expect(
+          screen.getByRole('header', { name: 'iPad plans' }),
+        ).toBeVisible();
+        // The subject text itself stays selectable inside the accessible header.
+        expect(screen.getByText('iPad plans')).toHaveProp('selectable', true);
         expect(screen.queryByRole('button', { name: /^Back/u })).toBeNull();
+        const commands = screen.getByRole('button', {
+          name: 'Open Command Palette',
+        });
+        expect({ scrollable: isScrollable(commands) }).toStrictEqual({
+          scrollable: false,
+        });
+        await fireEvent.press(commands);
+        const palette = within(screen.getByTestId('command-palette'));
+        expect(
+          palette.getByRole('header', {
+            name: 'Selected Message · iPad plans',
+          }),
+        ).toBeVisible();
+        expect(
+          palette.getByRole('button', { name: 'Reply All' }),
+        ).toBeEnabled();
+        expect(palette.getByRole('button', { name: 'Archive' })).toBeEnabled();
+        await fireEvent.press(palette.getByRole('button', { name: 'Cancel' }));
         await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
         expect(
           screen.getByText('This Gmail mailbox has no labels of its own yet.'),

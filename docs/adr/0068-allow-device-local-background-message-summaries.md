@@ -8,6 +8,15 @@ Amended on 2026-10-10 following the product owner's answers on
 [PR #814](https://github.com/unwired-dev/product/pull/814): summaries share the
 Bounded Encrypted Body Cache budget and lifetime, as specified below.
 
+## Post-launch Mail Commitments amendment — 2026-10-13
+
+[ADR 0072](0072-allow-reviewed-post-launch-mail-commitments.md) adds a separate
+user-authorized automatic-scan and persistent-review-queue exception for planned
+Mail Commitments. It qualifies the blanket invocation and preview-lifetime
+restrictions below only for that feature; Catch Up retention and all other
+assistance contracts remain unchanged. It adds no launch requirement or claim of
+implementation.
+
 ## Context
 
 [Catch Up #807](https://github.com/unwired-dev/product/issues/807) presents the

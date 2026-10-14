@@ -61,7 +61,8 @@ synchronization continues without a window, as
 describes. Explicit Quit stops application work; there is no separate helper.
 Queued delivery is a later slice.
 
-Native menus use AppKit accessibility. Message buttons expose labels and selected
+The View menu's Commands… item (Command-P) opens the key window's
+[Command Palette](command-palette.md). Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
 not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
 its label, or make it selectable so it becomes a native text view. Full VoiceOver and

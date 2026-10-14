@@ -32,7 +32,7 @@ export const ModalBackground = requireNativeComponent<ViewProps>(
 
 export function Glass({
   cornerRadius,
-  style,
+  style = StyleSheet.absoluteFill,
   ...props
 }: ViewProps & { readonly cornerRadius: number }) {
   return (

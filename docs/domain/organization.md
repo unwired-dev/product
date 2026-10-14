@@ -15,6 +15,10 @@ for launch scope; a term's presence does not establish implementation or release
 
 ## Language
 
+**Command Palette**:
+A panel that finds and runs the app's commands by name, including navigation to app destinations, over the current screen; it acts on the open message and never searches mail content. See the [Command Palette guide](../command-palette.md).
+_Avoid_: Spotlight, quick actions, search
+
 **Mail Rule**:
 A user-defined set of explicit conditions and mail actions for organizing matching messages without model inference.
 _Avoid_: Notification Rule, Category, AI categorization
@@ -54,6 +58,30 @@ _Avoid_: Provider snooze, archive, scheduled delivery
 **Follow-Up Nudge**:
 Profile-scoped encrypted product state for revisiting a sent Thread, created only by explicit scheduling or acceptance of an on-device suggestion. It never drafts or sends mail, is cancelled by a newly observed reply outside the recorded authorized Sending Identity set, and remains visibly overdue when interruption is unavailable.
 _Avoid_: Automatic follow-up, Read Receipt, Scheduled Send
+
+**Mail Commitment**:
+An action the user owes or an outcome the user is waiting for, associated with email correspondence within one Mail Profile. It represents the outstanding obligation or outcome, which may extend beyond sending or receiving a reply.
+_Avoid_: Follow-Up Nudge, Thread Snooze, reply reminder
+
+**Mail Commitment Suggestion**:
+An on-device proposal to create or update a Mail Commitment, linked to its supporting correspondence and awaiting review. It is distinct from the accepted commitment and its saved state.
+_Avoid_: Mail Commitment, accepted obligation, automatically created task
+
+**Mail Commitment Deadline**:
+An optional accepted calendar date or time by which a Mail Commitment is expected to be fulfilled, associated with its intended time zone.
+_Avoid_: Reminder time, unreviewed date suggestion
+
+**Mail Commitment Reminder**:
+A user-chosen prompt to revisit a Mail Commitment at a particular time, independent of its deadline.
+_Avoid_: Mail Commitment Deadline, Follow-Up Nudge, automatic follow-up email
+
+**Commitment Review Queue**:
+The collection of Mail Commitment Suggestions awaiting user review.
+_Avoid_: Active commitment list, notification inbox
+
+**Commitment Review Decision**:
+The user's acceptance, dismissal or deletion disposition associated with reviewed commitment sources, distinct from the commitment's authored content and current state.
+_Avoid_: Model confidence, generated suggestion, synced AI preview
 
 **Category**:
 A product-owned grouping used to organize messages independently of provider folders and labels; it may be product-provided or user-created.

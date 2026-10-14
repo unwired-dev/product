@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react';
 
 import type { Selection } from '../src/inbox.tsx';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import {
   pollGmailWhileActive,
   scheduleGmailFreshness,
@@ -59,30 +60,32 @@ export default function RootLayout() {
       <InboxProvider>
         <ProfileScope profile={shownProfile}>
           <StatusBar style="auto" />
-          <SplitView
-            ref={splitView}
-            preferredDisplayMode="oneBesideSecondary"
-            preferredSplitBehavior="tile"
-            topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
-            <SplitView.Column>
-              <Inbox
-                composing={draft}
-                onClose={() => {
-                  router.replace({
-                    pathname: '/',
-                    params: { profileId: shownProfile },
-                  });
-                }}
-                onCompose={compose}
-                onSelect={selectMessage}
-                selected={
-                  id === undefined || mailbox === undefined
-                    ? undefined
-                    : { mailbox, id }
-                }
-              />
-            </SplitView.Column>
-          </SplitView>
+          <CommandPaletteProvider>
+            <SplitView
+              ref={splitView}
+              preferredDisplayMode="oneBesideSecondary"
+              preferredSplitBehavior="tile"
+              topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
+              <SplitView.Column>
+                <Inbox
+                  composing={draft}
+                  onClose={() => {
+                    router.replace({
+                      pathname: '/',
+                      params: { profileId: shownProfile },
+                    });
+                  }}
+                  onCompose={compose}
+                  onSelect={selectMessage}
+                  selected={
+                    id === undefined || mailbox === undefined
+                      ? undefined
+                      : { mailbox, id }
+                  }
+                />
+              </SplitView.Column>
+            </SplitView>
+          </CommandPaletteProvider>
         </ProfileScope>
       </InboxProvider>
     </RegistrationGate>

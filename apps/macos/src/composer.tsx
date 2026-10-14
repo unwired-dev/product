@@ -38,6 +38,7 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { composeCommand } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -102,6 +103,7 @@ import {
   View,
 } from 'react-native';
 
+import { RegisterCommands } from './command-palette.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -480,6 +482,17 @@ export function DraftList({
   };
   return (
     <View>
+      {state.kind !== 'ready' ||
+      sender === undefined ||
+      creatingShown ? null : (
+        <RegisterCommands
+          offer={() => [
+            composeCommand(t, () => {
+              void compose(sender);
+            }),
+          ]}
+        />
+      )}
       <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
         <Action
           disabled={

@@ -28,7 +28,7 @@ const NativeGlass = requireNativeComponent<
 
 export function Glass({
   cornerRadius,
-  style,
+  style = StyleSheet.absoluteFill,
   ...props
 }: ViewProps & { readonly cornerRadius: number }) {
   return (
