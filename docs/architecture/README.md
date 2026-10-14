@@ -78,6 +78,12 @@ precedence where they explicitly replace prototype architecture or release scope
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.
 
+## Post-launch decisions
+
+- [Reviewed Mail Commitments](../adr/0072-allow-reviewed-post-launch-mail-commitments.md) and
+  [their architecture companion](product/mail-commitments.md), separate from
+  the confirmed power-user launch.
+
 ## Existing reviewer-only sources
 
 These directories remain whole reviewer-only sources; use their original filenames.

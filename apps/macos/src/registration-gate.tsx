@@ -49,6 +49,7 @@ import {
   View,
 } from 'react-native';
 
+import { AccountPage } from './account-page.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
@@ -854,7 +855,7 @@ function RegistrationPage({
       <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
-  return (
+  const page = (
     <ScrollView
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
@@ -939,5 +940,10 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
+  );
+  return onInbox === undefined ? (
+    page
+  ) : (
+    <AccountPage onInbox={onInbox}>{page}</AccountPage>
   );
 }

@@ -11,6 +11,15 @@ is on. It supersedes the clauses below that enablement never starts inference an
 all generation needs an explicit action, solely for this feature. Other
 assistance retains those restrictions and the existing lifecycle protections.
 
+## Post-launch Mail Commitments amendment — 2026-10-13
+
+[ADR 0072](0072-allow-reviewed-post-launch-mail-commitments.md) adds a separate
+user-authorized automatic-scan and persistent-review-queue exception for planned
+Mail Commitments. It qualifies the blanket invocation and preview-lifetime
+restrictions below only for that feature; Catch Up retention and all other
+assistance contracts remain unchanged. It adds no launch requirement or claim of
+implementation.
+
 ## Context
 
 On-Device Mail Assistance can process private mail and Draft content only after an explicit request. A person may trust that processing on one device but not another, and a synchronized opt-in could silently enable it on a newly trusted device. Profile Lock must also prevent retained assistance state from surviving the transition to concealed content.

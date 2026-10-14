@@ -117,6 +117,14 @@
   [self recordLifecycle:@"window-open"];
 }
 
+// Command-P opens the key Inbox window's Command Palette; its JavaScript listens for the window.
+- (void)showCommands:(id)sender
+{
+  NSWindow *window = NSApp.keyWindow;
+  if (window.identifier == nil) return;
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredOpenCommandPalette" object:window.identifier];
+}
+
 - (void)focusInbox:(id)sender
 {
   if (self.inboxWindows.count == 0) {
@@ -216,6 +224,12 @@
   editItem.submenu = edit;
   [edit addItemWithTitle:UnwiredNativeText(@"copy") action:@selector(copy:) keyEquivalent:@"c"];
   [edit addItemWithTitle:UnwiredNativeText(@"selectAll") action:@selector(selectAll:) keyEquivalent:@"a"];
+
+  NSMenuItem *viewItem = [main addItemWithTitle:UnwiredNativeText(@"view") action:nil keyEquivalent:@""];
+  NSMenu *view = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"view")];
+  viewItem.submenu = view;
+  NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"p"];
+  commands.target = self;
 
   NSMenuItem *windowItem = [main addItemWithTitle:UnwiredNativeText(@"window") action:nil keyEquivalent:@""];
   NSMenu *windows = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"window")];

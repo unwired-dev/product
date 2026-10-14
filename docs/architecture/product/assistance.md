@@ -8,9 +8,11 @@ replacement requirements or release qualification.
 ## Scope
 
 Explicit on-device assistance remains part of the replacement. Planned Catch Up
-adds Background Message Summaries as its only background-generation exception,
+adds Background Message Summaries as a background-generation exception,
 gated by device-local, default-off Mail Assistance Enablement and retained only
-in the encrypted local cache under ADR 0068. Profile-specific
+in the encrypted local cache under ADR 0068.
+[Post-launch Mail Commitments](mail-commitments.md) add a separately authorized
+automatic-scan and persistent-queue exception under ADR 0072. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
@@ -21,6 +23,7 @@ come from the accepted replacement decisions.
 - [Keep Mail Assistance on device and input-bound](../../adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
 - [Keep Mail Assistance enablement device-local](../../adr/0053-keep-mail-assistance-enablement-device-local.md)
 - [Allow device-local Background Message Summaries](../../adr/0068-allow-device-local-background-message-summaries.md)
+- [Allow reviewed post-launch Mail Commitments](../../adr/0072-allow-reviewed-post-launch-mail-commitments.md)
 
 [The documentation index](../../README.md) explains ADR precedence and separates
 current replacement work from prototype maintenance and historical plans.

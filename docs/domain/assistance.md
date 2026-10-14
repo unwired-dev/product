@@ -16,11 +16,11 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **On-Device Mail Assistance**:
-Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries**.
+Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries** and the separately confirmed post-launch **Mail Commitment Suggestions**.
 _Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
+A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions, **Background Message Summaries**, and the separately confirmed post-launch **Mail Commitment Suggestions**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
