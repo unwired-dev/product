@@ -39,6 +39,7 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { composeCommand } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -103,6 +104,7 @@ import {
   View,
 } from 'react-native';
 
+import { RegisterCommands } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -563,6 +565,17 @@ export function DraftList({
   };
   return (
     <View>
+      {state.kind !== 'ready' ||
+      sender === undefined ||
+      creatingShown ? null : (
+        <RegisterCommands
+          offer={() => [
+            composeCommand(t, () => {
+              void compose(sender);
+            }),
+          ]}
+        />
+      )}
       <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
         <Action
           disabled={

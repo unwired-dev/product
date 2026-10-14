@@ -6,6 +6,7 @@ import type {
 import type {
   AssetPreview,
   Draft,
+  DraftsState,
   PickedFile,
   PickSource,
   RecipientField,
@@ -34,6 +35,7 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { composeCommand } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -100,6 +102,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import {
+  CommandInput,
+  RegisterCommands,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -534,6 +541,17 @@ export function DraftList({
   };
   return (
     <View>
+      {state.kind !== 'ready' ||
+      sender === undefined ||
+      creatingShown ? null : (
+        <RegisterCommands
+          offer={() => [
+            composeCommand(t, () => {
+              void compose(sender);
+            }),
+          ]}
+        />
+      )}
       <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
         <Action
           disabled={
@@ -1718,6 +1736,7 @@ function Editor({
   }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
+  const paletteHeader = usePaletteHeader();
   const discard = async () => {
     if (discarded.current) {
       return;
@@ -1960,7 +1979,10 @@ function Editor({
         enabled={layout.avoidKeyboard}
         keyboardVerticalOffset={layout.top}
         style={styles.fill}>
-        <View style={styles.header}>
+        {/* The header opens the Command Palette by a downward swipe, as other screens' do. */}
+        <View
+          style={styles.header}
+          {...paletteHeader.swipe}>
           <Pressable
             accessibilityLabel={t('drafts.close')}
             accessibilityRole="button"
@@ -1983,9 +2005,11 @@ function Editor({
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
             numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.textPrimary }]}>
+            style={[styles.grow, styles.title, { color: colors.textPrimary }]}
+            {...paletteHeader.action}>
             {title}
           </Text>
+          <CommandInput />
           {onExpand === undefined ? null : (
             <ToolbarButton
               icon={
@@ -2226,6 +2250,78 @@ function Editor({
   );
 }
 
+// A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
+// keeps the palette entry the editor's header has.
+function ComposerFallback({
+  kind,
+  onClose,
+}: {
+  readonly kind: DraftsState['kind'];
+  readonly onClose: () => void;
+}) {
+  const store = useDraftStore();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const paletteHeader = usePaletteHeader();
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      <View
+        style={styles.header}
+        {...paletteHeader.swipe}>
+        <Pressable
+          accessibilityLabel={t('drafts.close')}
+          accessibilityRole="button"
+          onPress={onClose}
+          style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
+          <NativeGlass
+            cornerRadius={22}
+            style={StyleSheet.absoluteFill}
+          />
+          <SFSymbol
+            name="xmark"
+            color={colors.textPrimary}
+          />
+        </Pressable>
+        <View style={styles.grow} />
+        <CommandInput />
+      </View>
+      <View style={styles.alerts}>
+        {kind === 'loading' ? (
+          <ActivityIndicator
+            accessible
+            accessibilityLabel={t('drafts.loading')}
+            {...paletteHeader.action}
+          />
+        ) : (
+          <>
+            <Text
+              accessibilityRole="header"
+              style={[styles.title, { color: colors.textPrimary }]}
+              {...paletteHeader.action}>
+              {kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.unavailable')}
+            </Text>
+            {kind === 'locked' || kind === 'failed' ? (
+              <View style={styles.bar}>
+                <Button
+                  size="compact"
+                  label={t('common.retry')}
+                  onPress={() => {
+                    void store.load();
+                  }}
+                />
+              </View>
+            ) : null}
+          </>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}
+
 // Opens a Draft directly for editing; it has no read-only presentation.
 export function Composer({
   id,
@@ -2242,9 +2338,6 @@ export function Composer({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
-  const store = useDraftStore();
-  const colors = usePalette();
-  const { t } = useLocalization();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
   const [editor, setEditor] = useState({ key: id, followed: id });
   if (editor.followed !== id) {
@@ -2270,49 +2363,10 @@ export function Composer({
       />
     );
   }
-  const waiting = state.kind === 'loading';
   return (
-    <SafeAreaView
-      edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityLabel={t('drafts.close')}
-          accessibilityRole="button"
-          onPress={onClose}
-          style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-          <NativeGlass
-            cornerRadius={22}
-            style={StyleSheet.absoluteFill}
-          />
-          <SFSymbol
-            name="xmark"
-            color={colors.textPrimary}
-          />
-        </Pressable>
-      </View>
-      <View style={styles.alerts}>
-        {waiting ? (
-          <ActivityIndicator accessibilityLabel={t('drafts.loading')} />
-        ) : (
-          <Alert
-            message={
-              state.kind === 'locked'
-                ? t('drafts.listLocked')
-                : t('drafts.unavailable')
-            }>
-            {state.kind === 'locked' || state.kind === 'failed' ? (
-              <Button
-                size="compact"
-                label={t('common.retry')}
-                onPress={() => {
-                  void store.load();
-                }}
-              />
-            ) : null}
-          </Alert>
-        )}
-      </View>
-    </SafeAreaView>
+    <ComposerFallback
+      kind={state.kind}
+      onClose={onClose}
+    />
   );
 }

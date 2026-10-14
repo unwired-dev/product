@@ -1,4 +1,4 @@
-import { radius } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
@@ -12,6 +12,20 @@ export const registrationStyles = StyleSheet.create({
     padding: 32,
   },
   content: { maxWidth: 420, width: '100%', gap: 20 },
+  // The account page's fixed title, aligned with the content column below it.
+  accountHeader: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingTop: spacing.l,
+  },
+  accountHeading: {
+    maxWidth: 420,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+  },
+  grow: { flex: 1 },
   title: { ...textStyles.largeTitle },
   heading: { ...textStyles.headline },
   text: { ...textStyles.body },

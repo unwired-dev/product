@@ -25,7 +25,7 @@ import {
   within,
   waitFor,
 } from '@testing-library/react-native';
-import { AccessibilityInfo, AppState, View } from 'react-native';
+import { AccessibilityInfo, AppState, ScrollView, View } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
@@ -88,6 +88,15 @@ function Windows({
   );
 }
 
+// A palette command's row in the list, which native layout places, around its button.
+const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
+  const row = button.parent;
+  if (row === null) {
+    throw new Error('Expected the command row around its button');
+  }
+  return row;
+};
+
 describe('mac window selection with the shared mock mailbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
   beforeEach(() => {
@@ -140,7 +149,7 @@ describe('mac window selection with the shared mock mailbox', () => {
       </AccountContext>,
     );
     try {
-      await fireEvent(app.getByTestId('inbox-window-compose'), 'layout', {
+      await fireEvent(app.getByTestId('window-panes-compose'), 'layout', {
         nativeEvent: { layout: { width: 1000, height: 600 } },
       });
       await fireEvent.press(await app.findByRole('button', { name: maya }));
@@ -368,6 +377,155 @@ describe('mac window selection with the shared mock mailbox', () => {
     ).resolves.toBeVisible();
     expect(app.getByText('Select a message to start reading.')).toBeVisible();
   });
+
+  it('scrolls the keyboard-highlighted command into view', async () => {
+    expect.hasAssertions();
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    try {
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      await fireEvent.press(await app.findByRole('button', { name: oliver }));
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      const palette = within(app.getByTestId('command-palette'));
+      // Every row is 40pt tall and the list shows two of them, as native layout would report.
+      const names = [
+        'Reply. Not available for this message',
+        'Forward. Not available for this message',
+        'Archive. Not available for this message',
+        'Move to…. Not available for this message',
+        'Mark as read',
+        'Search Mail',
+        'Inbox',
+      ];
+      for (const [index, name] of names.entries()) {
+        await fireEvent(
+          rowOf(palette.getByRole('button', { name })),
+          'layout',
+          {
+            nativeEvent: { layout: { y: index * 40, height: 40 } },
+          },
+        );
+      }
+      const list = app.getByTestId('command-list');
+      await fireEvent(list, 'layout', {
+        nativeEvent: { layout: { y: 0, height: 80 } },
+      });
+      const input = app.getByPlaceholderText('Type a command');
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      expect(palette.getByRole('button', { name: 'Inbox' })).toBeSelected();
+      // Inbox ends at 280pt, below the visible 80pt, so the list scrolls until it is the last row.
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 200, animated: false });
+      // The wheel then scrolls Search Mail, which starts at 200pt, out of view above.
+      await fireEvent(list, 'scroll', {
+        nativeEvent: { contentOffset: { y: 240 } },
+      });
+      // Up scrolls until Search Mail is the first row; the first enabled command then brings back
+      // the top, with its header and the unavailable commands.
+      scrollTo.mockClear();
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      expect(scrollTo.mock.calls).toStrictEqual([
+        [{ y: 200, animated: false }],
+        [{ y: 0, animated: false }],
+      ]);
+      // A new query highlights its first match, so the list returns to the top to show it.
+      scrollTo.mockClear();
+      await fireEvent.changeText(input, 'in');
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 0, animated: false });
+      expect(palette.getByRole('button', { name: 'Inbox' })).toBeSelected();
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
+  it("runs the preview reader's read state from the palette", async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await fireEvent.press(await app.findByRole('button', { name: oliver }));
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        within(app.getByTestId('command-palette')).getByRole('button', {
+          name: 'Mark as read',
+        }),
+      );
+    });
+    await expect(
+      app.findByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).resolves.toBeVisible();
+  });
+
+  /* oxlint-disable vitest/max-expects -- One journey proves the bar, the fixed order, narrowing and the keys. */
+  it('opens the Command Palette from the window bar and drives it with the keyboard', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await app.findByRole('button', { name: maya });
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    const input = app.getByPlaceholderText('Type a command');
+    // Nothing open: mail commands stay listed, disabled, before App and Go To.
+    expect(
+      app.getByRole('button', { name: 'Reply. Select a conversation' }),
+    ).toBeDisabled();
+    const headers = app
+      .getAllByRole('header')
+      .map((item) => String(item.props.accessibilityLabel));
+    expect(headers.indexOf('Selected Message')).toBeLessThan(
+      headers.indexOf('App'),
+    );
+    expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
+    await fireEvent.changeText(input, 'se');
+    expect(app.getByRole('button', { name: 'Search Mail' })).toBeVisible();
+    expect(app.queryByRole('button', { name: 'Inbox' })).toBeNull();
+    await fireEvent.changeText(input, '');
+    // Down selects the next command that can run; Return runs it and closes the palette.
+    await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+    expect(app.getByRole('button', { name: 'Inbox' })).toBeSelected();
+    await fireEvent(input, 'submitEditing');
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    // Escape closes it too, back to the visible input.
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent(app.getByPlaceholderText('Type a command'), 'keyDown', {
+      nativeEvent: { key: 'Escape' },
+    });
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    // So does a click anywhere outside the bar and its panel.
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(app.getByRole('button', { name: 'Close commands' }));
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    ).toBeVisible();
+  });
+  /* oxlint-enable vitest/max-expects */
 });
 
 function holdingListing(

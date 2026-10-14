@@ -2,6 +2,11 @@ import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
+import {
+  commandTarget,
+  expectedCommands,
+  responseCommands,
+} from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
@@ -26,6 +31,12 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import {
+  CommandInput,
+  CommandInputRow,
+  RegisterCommands,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -61,6 +72,19 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     padding: spacing.xl,
   },
+  // Under the fixed header, the first Thread message keeps its own top margin.
+  threadContent: { paddingTop: 0 },
+  header: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+  },
+  headerText: { flex: 1 },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 5,
@@ -107,14 +131,19 @@ const keepVisibleMessage = { minIndexForVisible: 0 };
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.empty}>
+      <CommandInputRow />
+      <View
+        style={styles.empty}
+        {...header.swipe}>
         <Text
           accessibilityRole="header"
-          style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+          style={[styles.emptyTitle, { color: colors.textPrimary }]}
+          {...header.action}>
           {id ? t('message.unavailable') : t('message.empty')}
         </Text>
         <Text
@@ -391,6 +420,14 @@ function ResponseActions({
   ] as const;
   return (
     <View>
+      <RegisterCommands
+        offer={() =>
+          responseCommands(t, commandTarget(mailbox?.id, message), {
+            start,
+            starting: pending !== undefined,
+          })
+        }
+      />
       <View style={styles.responses}>
         {actions.map(([kind, label]) => (
           <Pressable
@@ -433,24 +470,58 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
   const actions = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   return (
-    <View style={styles.empty}>
-      <Text
-        accessibilityRole="alert"
-        style={[styles.emptyDescription, { color: colors.textPrimary }]}>
-        {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
-      </Text>
-      <Pressable
-        style={styles.control}
-        accessibilityRole="button"
-        onPress={() => {
-          void actions.load();
-        }}>
-        <Text style={[styles.secondary, { color: colors.accentInk }]}>
-          {t('common.retry')}
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <CommandInputRow />
+      <View
+        style={styles.empty}
+        {...header.swipe}>
+        <Text
+          accessibilityRole="alert"
+          style={[styles.emptyDescription, { color: colors.textPrimary }]}
+          {...header.action}>
+          {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
-      </Pressable>
-    </View>
+        <Pressable
+          style={styles.control}
+          accessibilityRole="button"
+          onPress={() => {
+            void actions.load();
+          }}>
+          <Text style={[styles.secondary, { color: colors.accentInk }]}>
+            {t('common.retry')}
+          </Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// The scoped mailbox's storage is still opening. ActivityIndicator sizes its native view to the
+// spinner and leaves it out of the accessibility tree unless `accessible`, so the swipe goes on a
+// full-size wrapper and the action on the now accessible spinner.
+function ReaderLoading() {
+  const { t } = useLocalization();
+  const header = usePaletteHeader();
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <CommandInputRow />
+      <View
+        style={styles.fill}
+        {...header.swipe}>
+        <ActivityIndicator
+          accessible
+          accessibilityLabel={t('message.loading')}
+          style={styles.fill}
+          {...header.action}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -508,6 +579,49 @@ function ReaderBody({
   );
 }
 
+// The reader's subject, which stays put while the body scrolls: it is the screen's header, which
+// opens the Command Palette by a downward swipe, its accessibility action or, on iPad, its command
+// input. It also lists the message's expected commands, disabled until a section offers them.
+function ReaderHeader({
+  message,
+}: {
+  readonly message: Readonly<{ id: string; subject: string }>;
+}) {
+  const mailbox = useMailbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const header = usePaletteHeader();
+  return (
+    <>
+      <RegisterCommands
+        offer={() =>
+          expectedCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            disabled: t('commands.unavailable'),
+          })
+        }
+      />
+      <View
+        style={styles.header}
+        {...header.swipe}>
+        <View
+          accessible
+          accessibilityLabel={message.subject}
+          accessibilityRole="header"
+          style={styles.headerText}
+          {...header.action}>
+          <Text
+            selectable
+            style={[styles.subject, { color: colors.textPrimary }]}>
+            {message.subject}
+          </Text>
+        </View>
+        <CommandInput />
+      </View>
+    </>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
@@ -540,111 +654,71 @@ function MailboxMessage({
       : [];
 
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
-    );
+    return <ReaderLoading />;
   }
 
   if (state.kind === 'locked' || state.kind === 'failed') {
     return <StorageProblem kind={state.kind} />;
   }
 
+  if (message === undefined) {
+    return <EmptyDetail id={id} />;
+  }
+
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {message === undefined ? (
-        <View style={styles.empty}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-            {t('message.unavailable')}
-          </Text>
-          <Text
-            style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-            {t('message.chooseAnother')}
-          </Text>
-        </View>
-      ) : (
-        <LinkConfirmationProvider
-          inbox={actions}
-          ids={[message.id]}>
-          <ReaderScrollView contentContainerStyle={styles.content}>
-            {'setUnread' in actions ? (
-              <Pressable
-                style={styles.control}
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
-            ) : (
-              <MessageActions
-                id={message.id}
-                onClose={onClose}
-              />
-            )}
+      <LinkConfirmationProvider
+        inbox={actions}
+        ids={[message.id]}>
+        <ReaderHeader message={message} />
+        <ReaderScrollView contentContainerStyle={styles.content}>
+          <MessageActions
+            id={message.id}
+            onClose={onClose}
+          />
+          <View
+            style={[styles.metadata, { borderBottomColor: colors.separator }]}>
             <Text
-              accessibilityRole="header"
               selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {message.subject}
+              style={[styles.sender, { color: colors.textPrimary }]}>
+              {message.sender}
             </Text>
-            <View
-              style={[
-                styles.metadata,
-                { borderBottomColor: colors.separator },
-              ]}>
-              <Text
-                selectable
-                style={[styles.sender, { color: colors.textPrimary }]}>
-                {message.sender}
-              </Text>
-              <Text
-                selectable
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {message.address}
-              </Text>
+            <Text
+              selectable
+              style={[styles.secondary, { color: colors.textSecondary }]}>
+              {message.address}
+            </Text>
+            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+              {t('message.received', {
+                date: dateFormat.format(new Date(message.receivedAt)),
+              })}
+            </Text>
+            {address === undefined ? null : (
               <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('message.received', {
-                  date: dateFormat.format(new Date(message.receivedAt)),
-                })}
+                {t('inbox.inMailbox', { mailbox: address })}
               </Text>
-              {address === undefined ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('inbox.inMailbox', { mailbox: address })}
-                </Text>
-              )}
-              {labelNames.length === 0 ? null : (
-                <Text
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('message.labels', { labels: labelNames.join(', ') })}
-                </Text>
-              )}
-            </View>
-            <ResponseActions
-              key={`${address}:${message.id}`}
-              message={message}
-              onCompose={onCompose}
-            />
-            <ReaderBody
-              key={message.id}
-              inbox={actions}
-              message={message}
-              connection={mailbox?.id}
-            />
-          </ReaderScrollView>
-        </LinkConfirmationProvider>
-      )}
+            )}
+            {labelNames.length === 0 ? null : (
+              <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+                {t('message.labels', { labels: labelNames.join(', ') })}
+              </Text>
+            )}
+          </View>
+          <ResponseActions
+            key={`${address}:${message.id}`}
+            message={message}
+            onCompose={onCompose}
+          />
+          <ReaderBody
+            key={message.id}
+            inbox={actions}
+            message={message}
+            connection={mailbox?.id}
+          />
+        </ReaderScrollView>
+      </LinkConfirmationProvider>
     </SafeAreaView>
   );
 }
@@ -681,7 +755,6 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const state = useInbox();
   const inbox = useInboxActions();
   const colors = usePalette();
-  const { t } = useLocalization();
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -690,12 +763,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
     [state, id],
   );
   if (state.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('message.loading')}
-        style={styles.fill}
-      />
-    );
+    return <ReaderLoading />;
   }
   if (state.kind === 'locked' || state.kind === 'failed') {
     return <StorageProblem kind={state.kind} />;
@@ -717,15 +785,10 @@ function ThreadMessages({ id }: { readonly id: string }) {
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
+          <ReaderHeader message={opened} />
           <ReaderScrollView
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, styles.threadContent]}
             maintainVisibleContentPosition={keepVisibleMessage}>
-            <Text
-              accessibilityRole="header"
-              selectable
-              style={[styles.subject, { color: colors.textPrimary }]}>
-              {opened.subject}
-            </Text>
             {messages.map((message) => (
               <ThreadMessage
                 key={message.id}

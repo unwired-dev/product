@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Selection } from '../src/inbox.tsx';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
@@ -132,143 +133,150 @@ export default function RootLayout() {
       <InboxProvider>
         <ProfileScope profile={shownProfile}>
           <StatusBar style="auto" />
-          <View
-            testID="mail-shell"
-            onLayout={({ nativeEvent }) => {
-              setHeight(nativeEvent.layout.height);
-            }}
-            style={styles.fill}>
-            <SplitView
-              ref={splitView}
-              testID="mail-split"
-              onCollapse={() => {
-                setCollapsed(true);
+          <CommandPaletteProvider>
+            <View
+              testID="mail-shell"
+              onLayout={({ nativeEvent }) => {
+                setHeight(nativeEvent.layout.height);
               }}
-              onExpand={() => {
-                setCollapsed(false);
-              }}
-              style={styles.fill}
-              preferredDisplayMode="oneBesideSecondary"
-              preferredSplitBehavior="tile"
-              topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
-              <SplitView.Column>
-                <View
-                  style={styles.fill}
-                  onLayout={({ nativeEvent }) => {
-                    setSidebarWidth(nativeEvent.layout.width);
-                  }}>
-                  <Inbox
-                    composing={draft}
-                    onClose={() => {
-                      reader.current = {
-                        id: undefined,
-                        mailbox: undefined,
-                        profile: shownProfile,
-                      };
-                      router.replace({
-                        pathname:
-                          regular && draft !== undefined
-                            ? '/compose/[draft]'
-                            : '/',
-                        params: {
-                          ...(regular && draft !== undefined ? { draft } : {}),
-                          profileId: shownProfile,
-                        },
-                      });
-                    }}
-                    onCompose={compose}
-                    onSelect={selectMessage}
-                    onSelectBehindComposer={
-                      regular && draft !== undefined
-                        ? (selection) => {
-                            reader.current = {
-                              ...reader.current,
-                              ...selection,
-                            };
-                            router.setParams(selection);
-                          }
-                        : undefined
-                    }
-                    selected={
-                      id === undefined || mailbox === undefined
-                        ? undefined
-                        : { mailbox, id }
-                    }
-                  />
-                </View>
-              </SplitView.Column>
-            </SplitView>
-            {draft === undefined ? null : (
-              <View
-                testID="composer-overlay"
-                accessibilityViewIsModal={!regular || expanded}
-                style={
-                  regular && !expanded
-                    ? [
-                        styles.overlay,
-                        {
-                          left: sidebarWidth + spacing.m,
-                          bottom: spacing.m + height - available,
-                          height: Math.min(
-                            Math.max(0, available - insets.top - 2 * spacing.m),
-                            Math.min(720, Math.max(420, available * 0.7)),
-                          ),
-                          borderColor: colors.separator,
-                          boxShadow: colors.sheetShadow,
-                        },
-                      ]
-                    : [
-                        StyleSheet.absoluteFill,
-                        {
-                          paddingTop: insets.top,
-                          paddingBottom: insets.bottom,
-                          paddingLeft: insets.left,
-                          paddingRight: insets.right,
-                          backgroundColor: colors.surfaceContent,
-                        },
-                      ]
-                }>
-                <ComposerLayoutContext value={composerLayout}>
-                  <DraftComposer
-                    id={draft}
-                    expanded={expanded}
-                    onExpand={
-                      regular
-                        ? () => {
-                            setExpanded((current) => !current);
-                          }
-                        : undefined
-                    }
-                    onClose={() => {
-                      setExpanded(false);
-                      const latest = reader.current;
-                      if (
-                        latest.id === undefined ||
-                        latest.mailbox === undefined
-                      ) {
+              style={styles.fill}>
+              <SplitView
+                ref={splitView}
+                testID="mail-split"
+                onCollapse={() => {
+                  setCollapsed(true);
+                }}
+                onExpand={() => {
+                  setCollapsed(false);
+                }}
+                style={styles.fill}
+                preferredDisplayMode="oneBesideSecondary"
+                preferredSplitBehavior="tile"
+                topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
+                <SplitView.Column>
+                  <View
+                    style={styles.fill}
+                    onLayout={({ nativeEvent }) => {
+                      setSidebarWidth(nativeEvent.layout.width);
+                    }}>
+                    <Inbox
+                      composing={draft}
+                      onClose={() => {
+                        reader.current = {
+                          id: undefined,
+                          mailbox: undefined,
+                          profile: shownProfile,
+                        };
                         router.replace({
-                          pathname: '/',
-                          params: { profileId: latest.profile },
-                        });
-                      } else {
-                        router.replace({
-                          pathname: '/message/[id]',
+                          pathname:
+                            regular && draft !== undefined
+                              ? '/compose/[draft]'
+                              : '/',
                           params: {
-                            id: latest.id,
-                            mailbox: latest.mailbox,
-                            profileId: latest.profile,
+                            ...(regular && draft !== undefined
+                              ? { draft }
+                              : {}),
+                            profileId: shownProfile,
                           },
                         });
+                      }}
+                      onCompose={compose}
+                      onSelect={selectMessage}
+                      onSelectBehindComposer={
+                        regular && draft !== undefined
+                          ? (selection) => {
+                              reader.current = {
+                                ...reader.current,
+                                ...selection,
+                              };
+                              router.setParams(selection);
+                            }
+                          : undefined
                       }
-                    }}
-                    onRebind={(copy) => {
-                      router.setParams({ draft: copy });
-                    }}
-                  />
-                </ComposerLayoutContext>
-              </View>
-            )}
-          </View>
+                      selected={
+                        id === undefined || mailbox === undefined
+                          ? undefined
+                          : { mailbox, id }
+                      }
+                    />
+                  </View>
+                </SplitView.Column>
+              </SplitView>
+              {draft === undefined ? null : (
+                <View
+                  testID="composer-overlay"
+                  accessibilityViewIsModal={!regular || expanded}
+                  style={
+                    regular && !expanded
+                      ? [
+                          styles.overlay,
+                          {
+                            left: sidebarWidth + spacing.m,
+                            bottom: spacing.m + height - available,
+                            height: Math.min(
+                              Math.max(
+                                0,
+                                available - insets.top - 2 * spacing.m,
+                              ),
+                              Math.min(720, Math.max(420, available * 0.7)),
+                            ),
+                            borderColor: colors.separator,
+                            boxShadow: colors.menuShadow,
+                          },
+                        ]
+                      : [
+                          StyleSheet.absoluteFill,
+                          {
+                            paddingTop: insets.top,
+                            paddingBottom: insets.bottom,
+                            paddingLeft: insets.left,
+                            paddingRight: insets.right,
+                            backgroundColor: colors.surfaceContent,
+                          },
+                        ]
+                  }>
+                  <ComposerLayoutContext value={composerLayout}>
+                    <DraftComposer
+                      id={draft}
+                      expanded={expanded}
+                      onExpand={
+                        regular
+                          ? () => {
+                              setExpanded((current) => !current);
+                            }
+                          : undefined
+                      }
+                      onClose={() => {
+                        setExpanded(false);
+                        const latest = reader.current;
+                        if (
+                          latest.id === undefined ||
+                          latest.mailbox === undefined
+                        ) {
+                          router.replace({
+                            pathname: '/',
+                            params: { profileId: latest.profile },
+                          });
+                        } else {
+                          router.replace({
+                            pathname: '/message/[id]',
+                            params: {
+                              id: latest.id,
+                              mailbox: latest.mailbox,
+                              profileId: latest.profile,
+                            },
+                          });
+                        }
+                      }}
+                      onRebind={(copy) => {
+                        router.setParams({ draft: copy });
+                      }}
+                    />
+                  </ComposerLayoutContext>
+                </View>
+              )}
+            </View>
+          </CommandPaletteProvider>
         </ProfileScope>
       </InboxProvider>
     </RegistrationGate>

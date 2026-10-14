@@ -212,7 +212,7 @@ export function PopUp({
             above ? styles.menuAbove : styles.menuBelow,
             {
               borderColor: colors.separator,
-              boxShadow: colors.sheetShadow,
+              boxShadow: colors.menuShadow,
             },
           ]}>
           <NativeGlass
