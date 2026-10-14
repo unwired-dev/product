@@ -4,7 +4,7 @@ import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
@@ -26,6 +26,7 @@ import {
 import {
   use,
   useDeferredValue,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -627,6 +628,34 @@ function headingOf(
   return { title, subtitle, emptyScope: folder ?? scopeName };
 }
 
+function useComposeSearch(
+  composing: string | undefined,
+  search: RefObject<TextInput | null>,
+) {
+  const [presentation, setPresentation] = useState({
+    draft: composing,
+    revealed: false,
+  });
+  if (presentation.draft !== composing) {
+    setPresentation({ draft: composing, revealed: false });
+  }
+  useLayoutEffect(() => {
+    if (presentation.revealed) {
+      search.current?.focus();
+    }
+  }, [presentation, search]);
+  return {
+    hidden: composing !== undefined && !presentation.revealed,
+    reveal: () => {
+      if (composing === undefined || presentation.revealed) {
+        search.current?.focus();
+      } else {
+        setPresentation({ draft: composing, revealed: true });
+      }
+    },
+  };
+}
+
 export function Inbox({
   selected,
   onSelect,
@@ -666,6 +695,7 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
+  const composeSearch = useComposeSearch(composing, search);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -826,7 +856,7 @@ export function Inbox({
               search: ready
                 ? () => {
                     onReveal?.();
-                    search.current?.focus();
+                    composeSearch.reveal();
                   }
                 : undefined,
               inbox:
@@ -1020,6 +1050,7 @@ export function Inbox({
           }}
         />
         <FloatingBar
+          hidden={composeSearch.hidden}
           search={search}
           onCompose={onCompose}
           onQuery={setQuery}

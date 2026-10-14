@@ -221,48 +221,59 @@ function App({
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(snapshot),
-        openAccount,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <ProfileScope profile={profile}>
-          <Mailboxes
-            view={view}
-            onView={setView}
-          />
-          <Inbox
-            composing={composing}
-            onCompose={setComposing}
-            onSelect={setSelected}
-            onView={setView}
-            selected={selected}
-            view={view}
-          />
-          {composing === undefined ? null : (
-            <Composer
-              id={composing}
-              onClose={() => {
-                setComposing(undefined);
-              }}
-              onRebind={(id) => {
-                setComposing(id);
-                onRebind(id);
-              }}
+    <CommandPaletteProvider windowId="composer">
+      <CommandBar />
+      <AccountContext
+        value={{
+          mailboxes: mailboxesOf(snapshot),
+          openAccount,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <InboxProvider
+          drafts={drafts}
+          mailboxes={mailboxes}>
+          <ProfileScope profile={profile}>
+            <Mailboxes
+              view={view}
+              onView={setView}
             />
-          )}
-        </ProfileScope>
-      </InboxProvider>
-    </AccountContext>
+            <Inbox
+              composing={composing}
+              onCompose={setComposing}
+              onSelect={setSelected}
+              onView={setView}
+              selected={selected}
+              view={view}
+            />
+            {composing === undefined ? null : (
+              <Composer
+                id={composing}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
+                onRebind={(id) => {
+                  setComposing(id);
+                  onRebind(id);
+                }}
+              />
+            )}
+          </ProfileScope>
+        </InboxProvider>
+      </AccountContext>
+    </CommandPaletteProvider>
   );
 }
 
 const press = async (name: string) => {
+  if (
+    name === 'New Message' &&
+    screen.queryByRole('button', { name }) === null
+  ) {
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
@@ -302,17 +313,14 @@ describe('composing Drafts', () => {
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
     await render(
-      <CommandPaletteProvider windowId="composer">
-        <CommandBar />
-        <App
-          drafts={drafts}
-          registration={registration}
-          mailboxes={{
-            ...connections,
-            getSnapshot: connections.getConnections,
-          }}
-        />
-      </CommandPaletteProvider>,
+      <App
+        drafts={drafts}
+        registration={registration}
+        mailboxes={{
+          ...connections,
+          getSnapshot: connections.getConnections,
+        }}
+      />,
     );
     // The Command Palette's New Message follows the floating bar's button.
     const palette = async () => {
@@ -431,9 +439,41 @@ describe('composing Drafts', () => {
     ).toBeNull();
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
     await press('Close');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   }, 15_000);
+
+  it('closes an untouched New Message on Close and on Discard', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await screen.findByLabelText('Message body');
+    await press('Close');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
+    expect(screen.queryByText('This Draft is not available.')).toBeNull();
+    await press('New Message');
+    await screen.findByLabelText('Message body');
+    await press('Compose actions');
+    await press('Discard');
+    await press('Discard Draft');
+    await expect(
+      screen.findByRole('button', { name: 'New Message' }),
+    ).resolves.toBeEnabled();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+  });
 
   it('keeps forward and backward deletion attached to their marked characters', async () => {
     expect.hasAssertions();
@@ -1010,6 +1050,8 @@ describe('composing Drafts', () => {
     await expect(
       screen.findByRole('button', { name: draftName }),
     ).resolves.toHaveProp('accessibilityState', { selected: true });
+    await press('Open Command Palette');
+    await press('Search Mail');
     const search = async (query: string) => {
       await act(async () => {
         await fireEvent.changeText(

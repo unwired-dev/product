@@ -25,6 +25,10 @@ Trusted Devices through Private Sync.
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
   retain the same editor and Undo history. Each window has one composer.
+  The floating search and New Message bar hides while composing. On Mac,
+  **Search Mail** reveals it and collapses an expanded composer without closing
+  the Draft; New Message remains available through the Command Palette and
+  finishes saving before switching the editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
   Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.

@@ -13,4 +13,8 @@ including through the Command Palette's Inbox and Search Mail, returns to the
 Inbox instead of an empty reader. On iPhone and iPad, closing or discarding an
 untouched New Message closes the composer instead of leaving "This Draft is not
 available."
-The iPad Commands pill keeps its 36pt glass appearance with a 44pt touch area.
+The iPad Commands pill uses a 44pt glass touch target.
+Closing or discarding an untouched Mac Draft also clears its composer after removal.
+The floating search bar hides while composing; Mac Search Mail reveals it while
+keeping the Draft open. The iPad overlay follows the current reading column as
+native sidebars move or hide.

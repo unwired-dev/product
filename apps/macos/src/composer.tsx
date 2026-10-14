@@ -1279,12 +1279,14 @@ function ComposerNotices({
 function Editor({
   initial,
   onClose,
+  onClosedAfterRemoval,
   onRebind,
   expanded = false,
   onExpand,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
+  readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
   readonly onRebind: (id: string) => void;
   // Whether the composer takes over the window, and the control that toggles it when offered.
@@ -1704,6 +1706,9 @@ function Editor({
     }
     finishOperation();
     if (!lifetime.current.mounted) {
+      if (closed) {
+        onClosedAfterRemoval(authored.current.id);
+      }
       return closed;
     }
     if (closed) {
@@ -1712,7 +1717,15 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
+  }, [
+    commitHistory,
+    finishOperation,
+    keepIdentity,
+    onClose,
+    onClosedAfterRemoval,
+    store,
+    update,
+  ]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const keyDown = ({ nativeEvent }: KeyEvent) => {
@@ -1779,6 +1792,8 @@ function Editor({
       } else {
         setClosing('discard-blocked');
       }
+    } else if (removed) {
+      onClosedAfterRemoval(authored.current.id);
     }
   };
   // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
@@ -2246,6 +2261,22 @@ export function Composer({
     },
     [onRebind],
   );
+  // Deleting an empty Draft can retire its editor before Close or Discard settles.
+  const shown = useRef<string | undefined>(id);
+  useLayoutEffect(() => {
+    shown.current = id;
+    return () => {
+      shown.current = undefined;
+    };
+  }, [id]);
+  const closedAfterRemoval = useCallback(
+    (closed: string) => {
+      if (shown.current === closed) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
   const draft = draftOf(state, id);
   if (draft !== undefined) {
     return (
@@ -2254,6 +2285,7 @@ export function Composer({
         initial={draft}
         expanded={expanded}
         onClose={onClose}
+        onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}
         onRebind={rebind}
       />

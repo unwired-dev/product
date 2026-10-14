@@ -345,6 +345,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   settle its Saving state to retryable blocked feedback, and resolve false.
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
+- `Composer` replacing an empty editor with its unavailable fallback before a
+  successful Close or Discard resolves. Removal can unmount the editor before its
+  Promise settles; notify only the still-mounted composer that still owns that
+  Draft, rather than skipping completion because the editor retired. Exercise
+  untouched New Message Close and Discard, plus ownership changes while finishing;
+  otherwise the window remains on an unavailable Draft and its floating bar stays
+  hidden after the Draft was successfully removed.
 
 - `message-detail.tsx.MailboxMessage` offering compact New Message only when the
   opened mailbox can send. Use the eligible senders in that reader's Mail Profile,
@@ -782,6 +789,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `supplementary`. Assert the requested column in the routing journey; otherwise
   iPhone returns to Mailboxes instead of the list, and iPad portrait opens the
   sidebar over it.
+- `app/_layout.tsx` placing a composer overlay from a leading column's local
+  `onLayout` alone. UIKit can move that column without changing its child bounds;
+  derive the overlay edge from the native reading column's current width, including
+  a regular split view with its leading columns hidden. Exercise sidebar movement,
+  rotation and editor continuity; otherwise the overlay covers the interactive list
+  or retains an empty gap beside the reader. Keep native geometry evidence separate
+  from injected component layout events.
+- `inbox.tsx` showing its floating search/New Message bar by default while composing,
+  or unmounting it to hide it and losing New Message command registration. Preserve
+  the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
+  collapses an expanded composer without closing its Draft. Focus search after the
+  revealed bar commits; otherwise command availability or keyboard entry breaks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it

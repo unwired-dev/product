@@ -334,7 +334,9 @@ styles) so the file stays editable.
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
-  under it behind a 72pt scroll edge fade. It hides while the composer is open.
+  under it behind a 72pt scroll edge fade. It hides while the composer is open;
+  on Mac, explicitly invoking Search Mail reveals it and collapses an expanded
+  composer while keeping the Draft open.
 - **Command Palette:** on the Mac a 36pt glass command input (command
   symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with

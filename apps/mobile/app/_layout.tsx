@@ -21,6 +21,7 @@ import {
 } from '../src/freshness.ts';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
+import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
@@ -49,9 +50,8 @@ function MailShell() {
   const regular = width >= 600 && !collapsed;
   const [expanded, setExpanded] = useState(false);
   const [height, setHeight] = useState(0);
-  // Where the reading pane starts: after the message list, and after Mailboxes when it is beside.
-  const list = useRef<View>(null);
-  const [readerLeft, setReaderLeft] = useState(0);
+  // UIKit changes the reading column's width when either leading column moves or hides.
+  const [readerWidth, setReaderWidth] = useState(width);
   const colors = usePalette();
   // The composer sits outside the split view's screens, so it keeps clear of the system bars here.
   const insets = useSafeAreaInsets();
@@ -151,88 +151,83 @@ function MailShell() {
           setHeight(nativeEvent.layout.height);
         }}
         style={styles.fill}>
-        <SplitView
-          ref={splitView}
-          testID="mail-split"
-          columnMetrics={{
-            preferredPrimaryColumnWidthOrFraction: 236,
-            preferredSupplementaryColumnWidthOrFraction: 340,
-          }}
-          onCollapse={() => {
-            setCollapsed(true);
-          }}
-          onExpand={() => {
-            setCollapsed(false);
-          }}
-          style={styles.fill}
-          // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
-          // system's sidebar button shows over the list.
-          preferredDisplayMode="automatic"
-          preferredSplitBehavior="tile"
-          primaryBackgroundStyle="sidebar"
-          topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
-          <SplitView.Column>
-            <Mailboxes
-              view={view}
-              onView={(next) => {
-                setView(next);
-                // On iPhone a Mailbox opens its list; beside it, the list is already shown.
-                splitView.current?.show('supplementary');
-              }}
-            />
-          </SplitView.Column>
-          <SplitView.Column>
-            <View
-              ref={list}
-              style={styles.fill}
-              onLayout={() => {
-                list.current?.measureInWindow((x, _y, listWidth) => {
-                  setReaderLeft(x + listWidth);
-                });
-              }}>
-              <Inbox
-                composing={draft}
-                onClose={() => {
-                  reader.current = {
-                    id: undefined,
-                    mailbox: undefined,
-                    profile: shownProfile,
-                  };
-                  const open = regular ? composing.current : undefined;
-                  router.replace({
-                    pathname: open === undefined ? '/' : '/compose/[draft]',
-                    params: {
-                      ...(open === undefined ? {} : { draft: open }),
-                      profileId: shownProfile,
-                    },
-                  });
-                  // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+        <ReaderPaneWidthContext value={setReaderWidth}>
+          <SplitView
+            ref={splitView}
+            testID="mail-split"
+            columnMetrics={{
+              preferredPrimaryColumnWidthOrFraction: 236,
+              preferredSupplementaryColumnWidthOrFraction: 340,
+            }}
+            onCollapse={() => {
+              setCollapsed(true);
+            }}
+            onExpand={() => {
+              setCollapsed(false);
+            }}
+            style={styles.fill}
+            // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
+            // system's sidebar button shows over the list.
+            preferredDisplayMode="automatic"
+            preferredSplitBehavior="tile"
+            primaryBackgroundStyle="sidebar"
+            topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
+            <SplitView.Column>
+              <Mailboxes
+                view={view}
+                onView={(next) => {
+                  setView(next);
+                  // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                   splitView.current?.show('supplementary');
                 }}
-                onCompose={compose}
-                onSelect={selectMessage}
-                onSelectBehindComposer={
-                  regular && draft !== undefined
-                    ? (selection) => {
-                        reader.current = {
-                          ...reader.current,
-                          ...selection,
-                        };
-                        router.setParams(selection);
-                      }
-                    : undefined
-                }
-                onView={setView}
-                selected={
-                  id === undefined || mailbox === undefined
-                    ? undefined
-                    : { mailbox, id }
-                }
-                view={view}
               />
-            </View>
-          </SplitView.Column>
-        </SplitView>
+            </SplitView.Column>
+            <SplitView.Column>
+              <View style={styles.fill}>
+                <Inbox
+                  composing={draft}
+                  onClose={() => {
+                    reader.current = {
+                      id: undefined,
+                      mailbox: undefined,
+                      profile: shownProfile,
+                    };
+                    const open = regular ? composing.current : undefined;
+                    router.replace({
+                      pathname: open === undefined ? '/' : '/compose/[draft]',
+                      params: {
+                        ...(open === undefined ? {} : { draft: open }),
+                        profileId: shownProfile,
+                      },
+                    });
+                    // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+                    splitView.current?.show('supplementary');
+                  }}
+                  onCompose={compose}
+                  onSelect={selectMessage}
+                  onSelectBehindComposer={
+                    regular && draft !== undefined
+                      ? (selection) => {
+                          reader.current = {
+                            ...reader.current,
+                            ...selection,
+                          };
+                          router.setParams(selection);
+                        }
+                      : undefined
+                  }
+                  onView={setView}
+                  selected={
+                    id === undefined || mailbox === undefined
+                      ? undefined
+                      : { mailbox, id }
+                  }
+                  view={view}
+                />
+              </View>
+            </SplitView.Column>
+          </SplitView>
+        </ReaderPaneWidthContext>
         {draft === undefined ? null : (
           <View
             testID="composer-overlay"
@@ -242,7 +237,7 @@ function MailShell() {
                 ? [
                     styles.overlay,
                     {
-                      left: readerLeft + spacing.m,
+                      left: Math.max(0, width - readerWidth) + spacing.m,
                       bottom: spacing.m + height - available,
                       height: Math.min(
                         Math.max(0, available - insets.top - 2 * spacing.m),

@@ -339,6 +339,7 @@ describe('profile-scoped mobile routes', () => {
         expect(inboxNewMessage()).toBeEnabled();
       });
       await fireEvent.press(inboxNewMessage());
+      expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       await fireEvent(
         screen.getByTestId('mail-shell', { includeHiddenElements: true }),
         'layout',
@@ -346,6 +347,23 @@ describe('profile-scoped mobile routes', () => {
       );
       const overlay = () =>
         screen.getByTestId('composer-overlay', { includeHiddenElements: true });
+      const readerPane = screen.getByTestId('compose-reader-pane', {
+        includeHiddenElements: true,
+      });
+      // UIKit changes the reader width while the 340pt list keeps its local bounds.
+      await fireEvent(readerPane, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 258, height: 1194 } },
+      });
+      expect(overlay()).toHaveStyle({ left: 588 });
+      await fireEvent(readerPane, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 494, height: 1194 } },
+      });
+      expect(overlay()).toHaveStyle({ left: 352 });
+      // A regular split view can hide both leading columns without collapsing.
+      await fireEvent(readerPane, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 834, height: 1194 } },
+      });
+      expect(overlay()).toHaveStyle({ left: 12 });
       expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
       // A docked software keyboard leaves the overlay the height above it.
       await act(() => {

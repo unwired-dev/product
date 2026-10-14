@@ -234,51 +234,63 @@ function App({
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(snapshot),
-        openAccount,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <ProfileScope profile={profile}>
-          <Mailboxes
-            view={view}
-            onView={setView}
-          />
-          <Inbox
-            composing={composing}
-            onCompose={(id) => {
-              setComposing(id);
-              onCompose(id);
-            }}
-            onSelect={setSelected}
-            onView={setView}
-            selected={selected}
-            view={view}
-          />
-          {composing === undefined ? null : (
-            <Composer
-              id={composing}
-              onClose={() => {
-                setComposing(undefined);
-              }}
-              onRebind={(id) => {
-                setComposing(id);
-                onRebind(id);
-              }}
+    <CommandPaletteProvider>
+      <AccountContext
+        value={{
+          mailboxes: mailboxesOf(snapshot),
+          openAccount,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <InboxProvider
+          drafts={drafts}
+          mailboxes={mailboxes}>
+          <ProfileScope profile={profile}>
+            <Mailboxes
+              view={view}
+              onView={setView}
             />
-          )}
-        </ProfileScope>
-      </InboxProvider>
-    </AccountContext>
+            <Inbox
+              composing={composing}
+              onCompose={(id) => {
+                setComposing(id);
+                onCompose(id);
+              }}
+              onSelect={setSelected}
+              onView={setView}
+              selected={selected}
+              view={view}
+            />
+            {composing === undefined ? null : (
+              <Composer
+                id={composing}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
+                onRebind={(id) => {
+                  setComposing(id);
+                  onRebind(id);
+                }}
+              />
+            )}
+          </ProfileScope>
+        </InboxProvider>
+      </AccountContext>
+    </CommandPaletteProvider>
   );
 }
 
 const press = async (name: string) => {
+  if (
+    name === 'New Message' &&
+    screen.queryByRole('button', { name }) === null
+  ) {
+    await fireEvent(
+      screen.getByRole('header', { name: 'Mailboxes' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'openCommandPalette' } },
+    );
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
@@ -339,16 +351,14 @@ describe('composing Drafts', () => {
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
     await render(
-      <CommandPaletteProvider>
-        <App
-          drafts={drafts}
-          registration={registration}
-          mailboxes={{
-            ...connections,
-            getSnapshot: connections.getConnections,
-          }}
-        />
-      </CommandPaletteProvider>,
+      <App
+        drafts={drafts}
+        registration={registration}
+        mailboxes={{
+          ...connections,
+          getSnapshot: connections.getConnections,
+        }}
+      />,
     );
     // The Command Palette's New Message follows the floating bar's button.
     const palette = async () => {
@@ -906,6 +916,7 @@ describe('composing Drafts', () => {
     await expect(
       screen.findByRole('button', { name: draftName }),
     ).resolves.toHaveProp('accessibilityState', { selected: true });
+    await press('Close');
     const search = async (query: string) => {
       await act(async () => {
         await fireEvent.changeText(
@@ -948,6 +959,7 @@ describe('composing Drafts', () => {
     expect(
       screen.getByRole('button', { name: 'New Message' }),
     ).toBeOnTheScreen();
+    await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('To'), 'not valid');
     await press(onlineName);
     expect(

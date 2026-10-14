@@ -178,12 +178,29 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       await expect(app.findByTestId('composer-overlay')).resolves.toHaveStyle({
         height: 420,
+        left: 604,
       });
+      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+      expect(app.queryByRole('button', { name: 'New Message' })).toBeNull();
+      await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
+      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 352 });
+      await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 604 });
       await fireEvent.changeText(
         app.getByLabelText('Message body'),
         'Keep this draft.',
       );
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
+      // The hidden floating bar retains its command, which still guards the current Draft.
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      await fireEvent.press(
+        within(app.getByTestId('command-palette')).getByRole('button', {
+          name: 'New Message',
+        }),
+      );
+      expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
       // Search Mail collapses the expanded composer to reveal the Inbox search field, keeping the Draft.
@@ -221,6 +238,7 @@ describe('mac window selection with the shared mock mailbox', () => {
       expect(app.queryByLabelText('Message body')).toBeNull();
       await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
       expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
+      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
     } finally {
       await app.unmount();
       replacement.restore();

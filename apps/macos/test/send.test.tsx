@@ -25,6 +25,7 @@ import {
 } from '@testing-library/react-native';
 import { useState } from 'react';
 
+import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -77,38 +78,49 @@ function App({
 }) {
   const [composing, setComposing] = useState<string>();
   return (
-    <AccountContext
-      value={{
-        mailboxes: listed,
-        openAccount: () => undefined,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={sender.drafts}
-        mailboxes={sender.mailboxes}
-        outbox={sender.outbox}>
-        <Inbox
-          composing={composing}
-          onCompose={setComposing}
-          onSelect={() => undefined}
-          selected={undefined}
-        />
-        {composing === undefined ? null : (
-          <Composer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
+    <CommandPaletteProvider windowId="composer">
+      <CommandBar />
+      <AccountContext
+        value={{
+          mailboxes: listed,
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <InboxProvider
+          drafts={sender.drafts}
+          mailboxes={sender.mailboxes}
+          outbox={sender.outbox}>
+          <Inbox
+            composing={composing}
+            onCompose={setComposing}
+            onSelect={() => undefined}
+            selected={undefined}
           />
-        )}
-      </InboxProvider>
-    </AccountContext>
+          {composing === undefined ? null : (
+            <Composer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+              onRebind={setComposing}
+            />
+          )}
+        </InboxProvider>
+      </AccountContext>
+    </CommandPaletteProvider>
   );
 }
 
 const press = async (name: string) => {
+  if (
+    name === 'New Message' &&
+    screen.queryByRole('button', { name }) === null
+  ) {
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);

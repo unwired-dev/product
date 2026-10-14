@@ -980,6 +980,7 @@ export function Inbox({
             }}
           />
           <FloatingBar
+            hidden={composing !== undefined}
             search={search}
             onCompose={onCompose}
             onQuery={setQuery}
