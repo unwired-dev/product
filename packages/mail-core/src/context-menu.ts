@@ -4,8 +4,9 @@ import type { Command, CommandId, CommandTarget } from './commands.ts';
 
 import { mergeCommands } from './commands.ts';
 
-// A context menu's items as the hosts' native menu views receive them: each action gets an ID
-// that stays stable across live updates, so a displayed item never runs another action.
+// A context menu's items as the hosts' native menu views receive them. An action's key names what
+// it does to which message or destination, so an open menu runs that action's latest callback after
+// a live update, never another action, and nothing once the action is gone.
 export type MenuAction = () => void | Promise<void>;
 
 // A context menu item: an action, or a submenu of further items.
@@ -14,7 +15,10 @@ export type MenuItem = Readonly<{
   symbol: string;
   destructive?: boolean;
 }> &
-  (Readonly<{ run: MenuAction }> | Readonly<{ items: readonly MenuItem[] }>);
+  (
+    | Readonly<{ key: string; run: MenuAction }>
+    | Readonly<{ items: readonly MenuItem[] }>
+  );
 
 // A group of items set apart by separators; a palette shows them side by side on iPhone and iPad.
 export type MenuSection = Readonly<{
@@ -30,44 +34,22 @@ export type NativeMenuItem = Readonly<{
   items?: readonly NativeMenuItem[];
 }>;
 
-// Carry action IDs across live menu updates, without retaining retired callbacks.
-export const menuState = (
-  sections: readonly MenuSection[],
-  previous?: Readonly<{
-    ids: ReadonlyMap<MenuAction, string>;
-    nextId: number;
-  }>,
-) => {
+// The native items, each action identified by its key, and the latest callback for each key.
+export const menuState = (sections: readonly MenuSection[]) => {
   const runs = new Map<string, MenuAction>();
-  const ids = new Map<MenuAction, string>();
-  let { nextId } = previous ?? { nextId: 0 };
   const native = (item: MenuItem): NativeMenuItem => {
     const { title, symbol, destructive } = item;
     if ('run' in item) {
-      let id = ids.get(item.run) ?? previous?.ids.get(item.run);
-      if (id === undefined) {
-        id = String(nextId);
-        nextId += 1;
-      }
-      ids.set(item.run, id);
-      runs.set(id, item.run);
-      return { id, title, symbol, destructive };
+      runs.set(item.key, item.run);
+      return { id: item.key, title, symbol, destructive };
     }
-    return {
-      id: '',
-      title,
-      symbol,
-      items: item.items.map(native),
-    };
+    return { id: '', title, symbol, items: item.items.map(native) };
   };
   return {
-    source: sections,
     sections: sections
       .filter(({ items }) => items.length > 0)
       .map(({ palette, items }) => ({ palette, items: items.map(native) })),
     runs,
-    ids,
-    nextId,
   };
 };
 
@@ -102,6 +84,7 @@ export const messageContextMenu = (
             title,
             symbol,
             items: enabled.map((choice) => ({
+              key: `${command.target?.id}\n${id}\n${choice.id}`,
               title: choice.title,
               symbol: choice.icon ?? 'folder',
               run: choice.run,
@@ -113,6 +96,7 @@ export const messageContextMenu = (
         ? []
         : [
             {
+              key: `${command.target?.id}\n${id}`,
               title,
               symbol,
               destructive: id === 'trash',
@@ -146,9 +130,11 @@ export const messageContextMenu = (
   ];
 };
 
-// The row's supported organizing actions, with Delete last and Spam omitted.
+// The row's supported organizing actions, with Delete last and Spam omitted. Keys carry the
+// listed message, so a recycled row never runs an action for the message it showed before.
 export const rowContextMenu = (
   t: Translate,
+  message: string,
   actions: ReadonlyArray<Readonly<{ name: string; run: MenuAction }>>,
 ): readonly MenuSection[] => {
   const menuItems = (
@@ -160,6 +146,7 @@ export const rowContextMenu = (
         ? []
         : [
             {
+              key: `${message}\n${name}`,
               title,
               symbol,
               destructive: name === 'trash',

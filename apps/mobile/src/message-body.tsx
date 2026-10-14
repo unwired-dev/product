@@ -306,6 +306,7 @@ function MessageLinks({
         {
           items: [
             {
+              key: `open\n${link.href}`,
               title: t('contextMenu.openLink'),
               symbol: 'safari',
               run: () => {
@@ -313,6 +314,7 @@ function MessageLinks({
               },
             },
             {
+              key: `copy\n${link.href}`,
               title: t('contextMenu.copyLink'),
               symbol: 'doc.on.doc',
               run: () => {
@@ -812,11 +814,13 @@ function AttachmentRow({
       {
         items: [
           {
+            key: 'quickLook',
             title: t('contextMenu.quickLook'),
             symbol: 'eye',
             run: open,
           },
           {
+            key: 'share',
             title: t('contextMenu.share'),
             symbol: 'square.and.arrow.up',
             run: share,

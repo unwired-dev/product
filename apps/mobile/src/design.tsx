@@ -156,12 +156,7 @@ export function ContextMenu({
   ...props
 }: ViewProps & { readonly sections: readonly MenuSection[] }) {
   const colors = usePalette();
-  const [previous, setPrevious] = useState(() => menuState(sections));
-  const menu =
-    previous.source === sections ? previous : menuState(sections, previous);
-  if (menu !== previous) {
-    setPrevious(menu);
-  }
+  const menu = menuState(sections);
   return (
     <NativeContextMenu
       {...props}

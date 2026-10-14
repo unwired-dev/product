@@ -187,6 +187,7 @@ export function MessageHeader({
           {
             items: [
               {
+                key: `copy\n${message.address}`,
                 title: t('contextMenu.copyAddress'),
                 symbol: 'doc.on.doc',
                 run: copyAddress,

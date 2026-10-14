@@ -35,18 +35,22 @@ const actionOf = (menu: MenuNode, title: string) => {
 };
 
 describe('context menu event ownership', () => {
-  it('keeps a native menu choice bound to its action after sections change and rejects retired choices', async () => {
+  it('runs the latest callback for a displayed item after live updates and rejects retired choices', async () => {
     expect.hasAssertions();
     const read = jest.fn(() => Promise.resolve());
+    // A live snapshot rebuilds the same action with a new callback while the menu stays open.
+    const rebuiltRead = jest.fn(() => Promise.resolve());
     const reply = jest.fn();
     const trash = jest.fn();
-    const readSection = {
-      items: [{ title: 'Mark as Read', symbol: 'envelope.open', run: read }],
+    const readItem = {
+      key: 'read',
+      title: 'Mark as Read',
+      symbol: 'envelope.open',
     };
     const app = await render(
       <ContextMenu
         testID="menu"
-        sections={[readSection]}>
+        sections={[{ items: [{ ...readItem, run: read }] }]}>
         <Text>Message</Text>
       </ContextMenu>,
     );
@@ -59,29 +63,30 @@ describe('context menu event ownership', () => {
             {
               items: [
                 {
+                  key: 'reply',
                   title: 'Reply',
                   symbol: 'arrowshape.turn.up.left',
                   run: reply,
                 },
               ],
             },
-            readSection,
+            { items: [{ ...readItem, run: rebuiltRead }] },
           ]}>
           <Text>Message</Text>
         </ContextMenu>,
       );
       await fireEvent(app.getByTestId('menu'), 'select', {
         nativeEvent: { id },
-      });
-      expect({ read: read.mock.calls, reply: reply.mock.calls }).toStrictEqual({
-        read: [[]],
-        reply: [],
       });
       await app.rerender(
         <ContextMenu
           testID="menu"
           sections={[
-            { items: [{ title: 'Delete', symbol: 'trash', run: trash }] },
+            {
+              items: [
+                { key: 'trash', title: 'Delete', symbol: 'trash', run: trash },
+              ],
+            },
           ]}>
           <Text>Message</Text>
         </ContextMenu>,
@@ -89,10 +94,12 @@ describe('context menu event ownership', () => {
       await fireEvent(app.getByTestId('menu'), 'select', {
         nativeEvent: { id },
       });
-      expect({ read: read.mock.calls, trash: trash.mock.calls }).toStrictEqual({
-        read: [[]],
-        trash: [],
-      });
+      expect({
+        read: read.mock.calls,
+        rebuiltRead: rebuiltRead.mock.calls,
+        reply: reply.mock.calls,
+        trash: trash.mock.calls,
+      }).toStrictEqual({ read: [], rebuiltRead: [[]], reply: [], trash: [] });
     } finally {
       await app.unmount();
     }

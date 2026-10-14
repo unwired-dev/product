@@ -73,7 +73,7 @@ export function MessageRow({
     status,
   });
   return (
-    <ContextMenu sections={rowContextMenu(t, actions)}>
+    <ContextMenu sections={rowContextMenu(t, message.id, actions)}>
       <Pressable
         accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
           name,
