@@ -162,9 +162,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   monogram: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
@@ -398,7 +395,13 @@ export function ToolbarButton({
 }
 
 // Neutral initials for a sender without a contact photo; never a generated color.
-export function Monogram({ name }: { readonly name: string }) {
+export function Monogram({
+  name,
+  size = 36,
+}: {
+  readonly name: string;
+  readonly size?: 36 | 48;
+}) {
   const colors = usePalette();
   const initials = name
     .split(/\s+/u)
@@ -413,11 +416,18 @@ export function Monogram({ name }: { readonly name: string }) {
       style={[
         styles.monogram,
         {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
           backgroundColor: colors.surfaceBubble,
           borderColor: colors.separator,
         },
       ]}>
-      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
+      <Text
+        style={[
+          size === 48 ? textStyles.headline : styles.monogramText,
+          { color: colors.textSecondary },
+        ]}>
         {initials}
       </Text>
     </View>

@@ -73,10 +73,10 @@ const styles = StyleSheet.create({
   replyTiles: { flexDirection: 'row', gap: spacing.s },
   replyTile: {
     flex: 1,
-    minHeight: 64,
+    minHeight: 76,
     gap: spacing.xs,
     paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.s,
+    paddingVertical: spacing.m,
     borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
     borderWidth: 2,
@@ -225,7 +225,10 @@ export function ReplySheet({
             style={{ flexGrow: 0 }}
             contentContainerStyle={styles.replyContent}>
             <View style={styles.replyHeader}>
-              <Monogram name={message.sender} />
+              <Monogram
+                name={message.sender}
+                size={48}
+              />
               <View style={styles.replyFrom}>
                 <Text
                   numberOfLines={1}
