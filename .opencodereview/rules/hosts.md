@@ -386,6 +386,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   selected editor without attempting to leave it, or invalid recipient entry
   can strand the hidden editor behind a refused destination change.
 
+- Mobile `app/_layout.tsx` keeping route state in a ref such as `reader` for a
+  callback that runs after an awaited save (composer Close, `compose`) while
+  only a render-time `useLayoutEffect` refreshes it. Installed Expo Router
+  queues `router.replace` and dispatches it from an effect, and `setParams`
+  reaches the layout's params only on a later render, so a save can settle
+  before the destination renders. Every handler that changes the ref's source,
+  including selection behind the composer and an Inbox row action closing the
+  selected reader, must update the ref before navigating.
+  Otherwise a delayed Close or New Message returns to a reader that was just
+  replaced or removed. The Jest router mock commits synchronously and cannot
+  show this ordering; a passing routing test is not evidence.
+
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.
   Text and Undo events can still arrive while storage is pending; trace rendered

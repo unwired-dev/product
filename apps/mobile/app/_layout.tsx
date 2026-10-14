@@ -89,7 +89,8 @@ export default function RootLayout() {
   // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
   // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
   const shownProfile = readingProfile(profileId);
-  // Close or New Message can finish saving after the reader beneath it changes.
+  // Close or New Message can finish saving after the reader beneath it changes. The router
+  // commits navigation after this render, so a handler that changes the reader updates this first.
   const reader = useRef({ id, mailbox, profile: shownProfile });
   useLayoutEffect(() => {
     reader.current = { id, mailbox, profile: shownProfile };
@@ -159,6 +160,11 @@ export default function RootLayout() {
                   <Inbox
                     composing={draft}
                     onClose={() => {
+                      reader.current = {
+                        id: undefined,
+                        mailbox: undefined,
+                        profile: shownProfile,
+                      };
                       router.replace({
                         pathname:
                           regular && draft !== undefined
