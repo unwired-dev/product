@@ -2658,6 +2658,46 @@ describe('product registration', () => {
     );
   });
 
+  it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    await session.native.signIn('google');
+    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    await session.native.addMailbox('gmail', false);
+    let current = session.native;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => current.restore(),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await settings('Email Accounts');
+    expect(
+      screen.getByRole('header', { name: 'Email Accounts' }),
+    ).toBeVisible();
+    // Foreground verification discovers another Product Account with an unconfirmed key.
+    const replacement = createMockRegistrationSession('registration-success');
+    await replacement.native.signIn('apple');
+    await replacement.native.addMailbox('gmail', false);
+    current = replacement.native;
+    await act(async () => {
+      await store.resume();
+    });
+    expect(
+      screen.getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    expect(screen.getByTestId('recovery-key')).toHaveTextContent(
+      syntheticRecoveryKey,
+    );
+    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+  });
+
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock

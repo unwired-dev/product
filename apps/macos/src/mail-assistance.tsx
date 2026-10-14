@@ -170,6 +170,7 @@ export function MailAssistanceSettings({
         <View style={{ minHeight: 28, justifyContent: 'center' }}>
           <Switch
             accessibilityLabel={t('mailAssistance.title')}
+            style={{ minHeight: 28 }}
             onValueChange={(on) => {
               void store.setEnabled(account, defaultProfile, on);
             }}

@@ -35,6 +35,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   can inherit the earlier repair destination. Exercise the real gate and repair
   form with both confirmed and deferred setup on each host.
 
+- `registration-gate.tsx.SettingsPage` retaining a selected destination or child
+  form state when foreground verification replaces its Product Account while
+  Settings stays mounted. Scope the page lifetime to that account and retire
+  the old requested destination; otherwise a new account inherits Email Accounts
+  and its pending Recovery Key or device enrollment is hidden. Exercise account
+  replacement from an open destination through the real gate on both hosts.
+
 - Application logic in a component, hook or adapter: decoding a native result, deciding a registration or enrollment transition, retrying, merging or filtering mail state. That logic belongs in a `mail-core` store so both hosts and its tests share it.
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
 - A native module result used in the host before the shared store decodes it. The adapter passes the raw result through; see `src/private-storage.ts`.
@@ -54,6 +61,22 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   React subscriptions, rendering and native adapters in their host.
 
 #### React correctness
+
+- `mail-assistance.tsx.MailAssistanceSettings` wrapping a native `Switch` in a
+  press handler that also saves its choice. Trace native event ownership on each
+  renderer so one switch interaction produces one enablement transition; otherwise
+  a Mac click can toggle twice or issue duplicate saves. Preserve the 28pt Mac
+  and 44pt mobile targets. Check the native control's clickable bounds; a plain
+  outer View's minimum height reserves layout space without enlarging that target.
+  Qualify any separate enlarged touch handler with
+  native interaction evidence rather than treating component events as proof.
+
+- `settings.tsx.settingsButton` giving a short visible title whose words are
+  absent from its target-specific accessible name. Trace every `options.title`
+  caller and localized title/name pair, ignoring decorative punctuation and
+  capitalization; otherwise Voice Control cannot invoke the visible action.
+  Preserve the mailbox or device context while keeping the visible words in
+  the accessible name on both hosts.
 
 - `design.tsx.ContextMenu` assigning action IDs from section/item positions or
   callback object identity while native menus retain their original IDs. Identify
