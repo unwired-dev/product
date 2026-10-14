@@ -56,8 +56,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  // Matches the format bar's Text style pop-up, as in the touch compose frames.
-  buttonLabelPrimary: { ...textStyles.subheadline, fontWeight: '600' },
   toolbarButton: {
     width: 44,
     minHeight: 44,
@@ -244,7 +242,7 @@ export function Button({
   }
   let labelStyle = primary ? textStyles.headline : textStyles.body;
   if (compact) {
-    labelStyle = primary ? styles.buttonLabelPrimary : textStyles.subheadline;
+    labelStyle = textStyles.subheadline;
   }
   const fillOf = (pressed: boolean) => ({
     backgroundColor: pressed && !primary ? colors.accentSelectionSubtle : idle,

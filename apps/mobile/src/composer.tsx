@@ -106,7 +106,13 @@ import {
   MenuItem,
   PopUp,
 } from './composer-controls.tsx';
-import { Button, NativeGlass, SFSymbol, ToolbarButton } from './design.tsx';
+import {
+  Notice as Banner,
+  Button,
+  NativeGlass,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -174,25 +180,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: fieldInset,
     paddingBottom: spacing.s,
-  },
-  alert: {
-    gap: spacing.s,
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  alertMessage: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.s,
-  },
-  alertActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
-    paddingLeft: 16 + spacing.s,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
   content: { paddingBottom: spacing.s },
@@ -358,24 +345,13 @@ function Alert({
   readonly message: string;
   readonly children?: ReactNode;
 }) {
-  const colors = usePalette();
   return (
-    <View style={[styles.alert, { backgroundColor: colors.fillQuiet }]}>
-      <View style={styles.alertMessage}>
-        <SFSymbol
-          name="exclamationmark.triangle"
-          color={colors.textSecondary}
-        />
-        <Text
-          accessibilityRole="alert"
-          style={[styles.notice, styles.grow, { color: colors.textPrimary }]}>
-          {message}
-        </Text>
-      </View>
-      {children === undefined ? null : (
-        <View style={styles.alertActions}>{children}</View>
-      )}
-    </View>
+    <Banner
+      icon="exclamationmark.triangle"
+      message={message}
+      messageRole="alert">
+      {children}
+    </Banner>
   );
 }
 
