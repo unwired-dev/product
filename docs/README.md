@@ -33,6 +33,10 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Interface translations and language preferences](localization.md)
 - [Planned opt-in analytics and error reporting](telemetry.md)
 
+## Post-launch requirements
+
+- [Mail Commitments: confirmed future-feature requirements](product/mail-commitments.md)
+
 ## Shared policies
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
