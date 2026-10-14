@@ -55,6 +55,16 @@ const onlineAnswer = <T>(answer: T | undefined): T => {
 
 const at = (day: number) => Date.UTC(2026, 8, day);
 
+// The open sections and waiting connections of a sidebar projection, in its order.
+const sectionsOf = (sidebar: ReturnType<typeof mailboxSidebar>) =>
+  sidebar.entries.flatMap((entry) =>
+    'section' in entry ? [entry.section] : [],
+  );
+const waitingOf = (sidebar: ReturnType<typeof mailboxSidebar>) =>
+  sidebar.entries.flatMap((entry) =>
+    'waiting' in entry ? [entry.waiting] : [],
+  );
+
 // Every connection of the Default Profile, which owns every connection listed before Profiles.
 const everything = { profile: defaultProfile };
 
@@ -1052,7 +1062,7 @@ describe('mailbox sidebar projection', () => {
     expect({
       unread: selected.unread,
       allSelected: selected.allSelected,
-      rows: selected.sections.map(({ mailbox: entry, folders }) => [
+      rows: sectionsOf(selected).map(({ mailbox: entry, folders }) => [
         entry.id,
         folders,
       ]),
@@ -1114,7 +1124,7 @@ describe('mailbox sidebar projection', () => {
         // The chosen waiting connection shows its own notice; every mailbox shows all; a listed one none.
         notices: choice.waiting.map(({ id }) => id),
         allSelected: sidebar.allSelected,
-        selectedWaiting: sidebar.waiting
+        selectedWaiting: waitingOf(sidebar)
           .filter(({ selected }) => selected)
           .map(({ connection }) => connection.id),
       };
@@ -1153,6 +1163,52 @@ describe('mailbox sidebar projection', () => {
         allSelected: true,
         selectedWaiting: [],
       },
+    ]);
+  });
+
+  it('keeps every connection in its saved place while an earlier one waits for authorization', () => {
+    expect.hasAssertions();
+    const order = (
+      first: MailboxConnection['state'],
+      mailboxes: ReadonlyArray<
+        Readonly<{ id: string; state: { kind: 'loading' } }>
+      >,
+    ) =>
+      mailboxSidebar({
+        mailboxes,
+        connections: [
+          {
+            id: 'first',
+            profile: defaultProfile,
+            provider: 'gmail',
+            state: first,
+          },
+          {
+            id: 'second',
+            profile: defaultProfile,
+            provider: 'gmail',
+            state: 'connected',
+          },
+        ],
+        profile: defaultProfile,
+        view: {},
+      }).entries.map((entry) => [entry.id, 'waiting' in entry]);
+    const loading = { kind: 'loading' } as const;
+    expect([
+      order('connected', [
+        { id: 'first', state: loading },
+        { id: 'second', state: loading },
+      ]),
+      order('authorization', [{ id: 'second', state: loading }]),
+    ]).toStrictEqual([
+      [
+        ['first', false],
+        ['second', false],
+      ],
+      [
+        ['first', true],
+        ['second', false],
+      ],
     ]);
   });
 
@@ -1222,12 +1278,14 @@ describe('mailbox sidebar projection', () => {
         view: { mailbox: 'stored', folder },
       });
     const selected = project(state, 'Other Inbox');
-    expect(selected.sections.flatMap(({ folders }) => folders)).toStrictEqual([
+    expect(
+      sectionsOf(selected).flatMap(({ folders }) => folders),
+    ).toStrictEqual([
       { name: 'INBOX', inbox: true, unread: 0, selected: false },
       { name: 'Other Inbox', inbox: false, unread: 0, selected: true },
     ]);
     expect(
-      selected.waiting.map(({ connection, recovery }) => [
+      waitingOf(selected).map(({ connection, recovery }) => [
         connection.id,
         recovery,
       ]),
@@ -1248,7 +1306,7 @@ describe('mailbox sidebar projection', () => {
           { ...state, status: 'authentication' },
           { ...state, status: 'syncing' },
         ] satisfies readonly ImapInboxState[]
-      ).map((snapshot) => project(snapshot).sections[0]?.problem),
+      ).map((snapshot) => sectionsOf(project(snapshot))[0]?.problem),
     ).toStrictEqual([
       'locked',
       'failed',
@@ -1265,7 +1323,7 @@ describe('mailbox sidebar projection', () => {
     ];
     expect(
       unavailable.map((snapshot) =>
-        project(snapshot).sections.flatMap(({ folders }) => folders),
+        sectionsOf(project(snapshot)).flatMap(({ folders }) => folders),
       ),
     ).toStrictEqual([
       [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
@@ -1273,14 +1331,16 @@ describe('mailbox sidebar projection', () => {
       [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
     ]);
     expect(
-      project(
-        {
-          ...state,
-          folders: state.folders.filter(({ name }) => name !== 'Other Inbox'),
-        },
-        'Other Inbox',
+      sectionsOf(
+        project(
+          {
+            ...state,
+            folders: state.folders.filter(({ name }) => name !== 'Other Inbox'),
+          },
+          'Other Inbox',
+        ),
       )
-        .sections.flatMap(({ folders }) => folders)
+        .flatMap(({ folders }) => folders)
         .some(({ selected: chosen }) => chosen),
     ).toBe(false);
   });

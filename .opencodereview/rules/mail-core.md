@@ -994,6 +994,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   becomes false. Invalidate the snapshot immediately and fence late publications;
   address-only rendering checks can expose a previous account's mail.
 
+- `mailbox-views.ts.mailboxSidebar` ordering a connection's sidebar entry by its
+  state, such as appending connections waiting for authorization after the open
+  sections. Keep open and waiting connections in the Profile's saved connection
+  order, without duplicate rows, and exercise an earlier connection lapsing beside
+  a later open one. Otherwise sections jump whenever authorization lapses or
+  recovers.
+
 #### Tests in the same change
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.

@@ -116,12 +116,17 @@ export function mailboxSidebar<
     };
   });
   const profileConnections = profileMailboxes(connections, profile);
-  // Waiting connections have no store until authorization succeeds; never duplicate a store row.
-  const waiting = profileConnections.filter(
-    ({ id, state }) =>
-      state === 'authorization' &&
-      !mailboxes.some((mailbox) => mailbox.id === id),
-  );
+  const waitingEntry = (connection: C) => ({
+    id: connection.id,
+    waiting: {
+      connection,
+      recovery: connection.provider === 'imap' ? 'account' : 'authorization',
+      selected: connection.id === view.mailbox,
+    },
+  });
+  type Entry =
+    | Readonly<{ id: string; section: (typeof sections)[number] }>
+    | ReturnType<typeof waitingEntry>;
   return {
     unread: sections.reduce((sum, section) => sum + section.unread, 0),
     // All inboxes is selected exactly when the Inbox shows every mailbox.
@@ -130,11 +135,26 @@ export function mailboxSidebar<
       connections: profileConnections,
       view,
     }).keepsChoice,
-    sections,
-    waiting: waiting.map((connection) => ({
-      connection,
-      recovery: connection.provider === 'imap' ? 'account' : 'authorization',
-      selected: connection.id === view.mailbox,
-    })),
+    // Open and waiting connections in their saved order, so a section keeps its place while its
+    // authorization lapses; a mailbox without a connection, such as the preview, comes first.
+    entries: [
+      ...sections
+        .filter(({ mailbox }) =>
+          profileConnections.every(({ id }) => id !== mailbox.id),
+        )
+        .map((section): Entry => ({ id: section.mailbox.id, section })),
+      // Waiting connections have no store until authorization succeeds; never duplicate a store row.
+      ...profileConnections.flatMap((connection): Entry[] => {
+        const section = sections.find(
+          ({ mailbox }) => mailbox.id === connection.id,
+        );
+        if (section !== undefined) {
+          return [{ id: connection.id, section }];
+        }
+        return connection.state === 'authorization'
+          ? [waitingEntry(connection)]
+          : [];
+      }),
+    ],
   };
 }

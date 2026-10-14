@@ -290,26 +290,30 @@ export function Mailboxes({
               onView({});
             }}
           />
-          {sidebar.sections.map(({ mailbox, folders, problem }) => {
-            const name = mailbox.address ?? mailbox.id;
-            const provider = t(`mailProviders.${mailbox.provider ?? 'gmail'}`);
-            const trouble = problemText(t, problem, {
-              provider: mailbox.provider,
-              name: provider,
-            });
-            return (
-              <Fragment key={mailbox.id}>
-                <SectionHeader label={`${provider} · ${name}`} />
-                <FolderRows
-                  mailbox={mailbox}
-                  folders={folders}
-                  trouble={trouble}
-                  onView={onView}
-                />
-              </Fragment>
-            );
-          })}
-          {sidebar.waiting.map(({ connection, recovery, selected }) => {
+          {sidebar.entries.map((entry) => {
+            if ('section' in entry) {
+              const { mailbox, folders, problem } = entry.section;
+              const name = mailbox.address ?? mailbox.id;
+              const provider = t(
+                `mailProviders.${mailbox.provider ?? 'gmail'}`,
+              );
+              const trouble = problemText(t, problem, {
+                provider: mailbox.provider,
+                name: provider,
+              });
+              return (
+                <Fragment key={mailbox.id}>
+                  <SectionHeader label={`${provider} · ${name}`} />
+                  <FolderRows
+                    mailbox={mailbox}
+                    folders={folders}
+                    trouble={trouble}
+                    onView={onView}
+                  />
+                </Fragment>
+              );
+            }
+            const { connection, recovery, selected } = entry.waiting;
             const provider = t(`mailProviders.${connection.provider}`);
             const imap = recovery === 'account';
             return (
