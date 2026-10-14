@@ -32,6 +32,7 @@ import { setStringAsync } from 'expo-clipboard';
 import { useState } from 'react';
 import { AccessibilityInfo, AppState, Linking } from 'react-native';
 
+import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
@@ -241,6 +242,47 @@ describe('preview Inbox', () => {
       }),
     ).toBeVisible();
   });
+
+  it.each([false, true])(
+    'shows search day dividers only on iPad (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      const clock = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+      try {
+        await render(<InboxJourney />);
+        await screen.findByRole('button', {
+          name: 'Unread. Maya Chen. A little more room to think',
+        });
+        const field = screen.getByLabelText('Search senders and subjects');
+        await fireEvent(field, 'focus');
+        await fireEvent.changeText(field, 'Maya');
+        await expect(
+          screen.findByRole('header', {
+            name: 'Top Results. 1 result in Preview mailbox',
+          }),
+        ).resolves.toBeVisible();
+        expect(screen.getAllByText('Top Results')).toHaveLength(1);
+        expect(screen.queryByRole('header', { name: 'Today' }) !== null).toBe(
+          isPad,
+        );
+        expect(
+          screen.getByRole('button', {
+            name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
+          }),
+        ).toBeVisible();
+      } finally {
+        clock.mockRestore();
+        platform.restore();
+      }
+    },
+  );
 
   it('filters the Inbox by Unread and Today, leaves search unfiltered and turns off when nothing narrows', async () => {
     expect.hasAssertions();

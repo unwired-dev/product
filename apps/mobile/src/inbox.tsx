@@ -621,11 +621,14 @@ export function Inbox({
   const now = useNow();
   const filtering = useInboxFilter({ scope, mailboxes, listed, now });
   const inboxRows = filtering.rows;
-  // Results are one list in the listing's order, under Top Results; the Inbox is grouped by day.
+  // Search keeps iPad's day groups beneath Top Results; iPhone lists matches without dividers.
   const dated = useMemo(
     () =>
       searching
-        ? [{ key: 'saved', data: results ?? [] }]
+        ? [
+            { key: 'saved', data: ipad ? [] : (results ?? []) },
+            ...(ipad ? messageDateSections(results ?? [], now) : []),
+          ]
         : messageDateSections(inboxRows, now),
     [searching, results, inboxRows, now],
   );
@@ -821,10 +824,10 @@ export function Inbox({
                 );
               }
               const [first] = section.data;
-              if (searching) {
+              if (searching && section.key === 'saved') {
                 const count =
-                  section.data.length + (online.found?.results.length ?? 0);
-                return section.key === 'saved' && count > 0 ? (
+                  (results?.length ?? 0) + (online.found?.results.length ?? 0);
+                return count > 0 ? (
                   <Text
                     accessibilityLabel={t('search.topResultsLabel', {
                       count,

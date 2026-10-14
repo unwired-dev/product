@@ -106,6 +106,7 @@ reaches it.
   searches, and asks the mail servers about, every Inbox of the Profile.
 - **Results.** On iPhone and iPad, results are listed in that order under **Top Results**, whose spoken
   label also gives the number of saved and online results and where they were found.
+  Saved results retain day dividers on iPad; iPhone lists them without dividers.
   The words of the query are marked in each result's sender and subject with the
   subtle selection fill, except on the selected row. On Mac, the Search heading's
   subtitle reports the result count, with Syncing and Offline taking precedence,
