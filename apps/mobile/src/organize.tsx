@@ -243,7 +243,9 @@ function Toolbar({
         </GlassGroup>
       </View>
       {folders?.open === true || more.open ? (
-        <View style={compact ? undefined : styles.floatingPanels}>
+        <View
+          testID="reader-panels"
+          style={compact ? undefined : styles.floatingPanels}>
           {folders?.open === true ? (
             <GlassPanel>{folders.panel}</GlassPanel>
           ) : null}

@@ -140,9 +140,11 @@ describe('iPad reader', () => {
         expect(screen.queryByRole('button', { name: /^Back/u })).toBeNull();
         await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
         expect(
-          screen.getByText('This Gmail mailbox has no labels of its own yet.')
-            .parent?.parent?.parent?.parent?.parent,
-        ).toHaveStyle({ position: 'absolute' });
+          screen.getByText('This Gmail mailbox has no labels of its own yet.'),
+        ).toBeVisible();
+        expect(screen.getByTestId('reader-panels')).toHaveStyle({
+          position: 'absolute',
+        });
         await fireEvent.press(
           screen.getByRole('button', { name: 'Hide labels' }),
         );
