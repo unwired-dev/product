@@ -267,12 +267,14 @@ styles, copy, icons, motion, notifications or accessibility labels.
 
 ## Design approval
 
-A request to design or redesign something, or any change to how a maintained
+A request for visual design or redesign, or any change to how a maintained
 client looks that the Figma frames do not already show, starts in Figma. Code
-waits for the user's approval of the frames.
+waits for the user's approval of the frames. Tasks that do not request visual
+design or redesign may implement existing frames without another approval,
+provided their visual design stays unchanged.
 
-1. Read [DESIGN.md](../../DESIGN.md) and the issue, then load the `figma-use`
-   skill. In the
+1. Read [DESIGN.md](../../DESIGN.md) and the issue. Through the Figma MCP server,
+   in the
    [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
    file, add or update the frames for every affected screen and state on the
    macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,

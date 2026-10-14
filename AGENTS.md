@@ -129,7 +129,7 @@ user-visible change according to them.
   or needed states without a frame, to the
   [decision panel](docs/agents/implementation-review.md#decision-panel) instead
   of inventing a pattern.
-- Design Figma first. When a request asks to design or redesign something, or
+- Design Figma first. When a request asks for visual design or redesign, or
   changes how a client looks beyond what the frames already show, update the
   Figma frames before writing code, then ask the user to review them. Implement
   only after the user approves, following the workflow's
