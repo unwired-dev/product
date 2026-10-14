@@ -611,6 +611,23 @@ export function CommandInput({
   );
 }
 
+// The iPad command input on its own row at the top of a screen state that has no header of its
+// own, such as a reader or composer that is loading or cannot open; nothing on iPhone.
+export function CommandInputRow({
+  style,
+}: {
+  readonly style: StyleProp<ViewStyle>;
+}) {
+  if (!pad) {
+    return null;
+  }
+  return (
+    <View style={style}>
+      <CommandInput />
+    </View>
+  );
+}
+
 const swipe = 24;
 
 // Opens the palette from a header. `swipe` goes on the header's whole area: a downward swipe

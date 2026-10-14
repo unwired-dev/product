@@ -100,6 +100,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import {
   CommandInput,
+  CommandInputRow,
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
@@ -139,6 +140,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.s,
+  },
+  // The iPad command input of a composer that cannot open its Draft, where the top bar's would be.
+  stateCommands: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
   },
   top: {
     width: '100%',
@@ -2140,6 +2150,9 @@ export function Composer({
   const store = useDraftStore();
   const colors = usePalette();
   const { t } = useLocalization();
+  // A composer that is loading or cannot open its Draft still covers the Inbox on iPhone, so it
+  // keeps the palette entry the editor's top bar has.
+  const paletteHeader = usePaletteHeader();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
   const [editor, setEditor] = useState({ key: id, followed: id });
   if (editor.followed !== id) {
@@ -2168,14 +2181,22 @@ export function Composer({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.content}>
+      <CommandInputRow style={styles.stateCommands} />
+      <View
+        style={styles.content}
+        {...paletteHeader.swipe}>
         {waiting ? (
-          <ActivityIndicator accessibilityLabel={t('drafts.loading')} />
+          <ActivityIndicator
+            accessible
+            accessibilityLabel={t('drafts.loading')}
+            {...paletteHeader.action}
+          />
         ) : (
           <>
             <Text
               accessibilityRole="header"
-              style={[styles.actionText, { color: colors.textPrimary }]}>
+              style={[styles.actionText, { color: colors.textPrimary }]}
+              {...paletteHeader.action}>
               {state.kind === 'locked'
                 ? t('drafts.listLocked')
                 : t('drafts.unavailable')}

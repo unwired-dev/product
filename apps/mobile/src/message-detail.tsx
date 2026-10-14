@@ -33,6 +33,7 @@ import type { InboxStore } from './private-storage.ts';
 
 import {
   CommandInput,
+  CommandInputRow,
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
@@ -84,6 +85,15 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
   },
   headerText: { flex: 1 },
+  // The iPad command input of a reader state without a header, where the header's input would be.
+  stateCommands: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+  },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 5,
@@ -135,6 +145,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      <CommandInputRow style={styles.stateCommands} />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -467,26 +478,31 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
   const { t } = useLocalization();
   const header = usePaletteHeader();
   return (
-    <View
-      style={styles.empty}
-      {...header.swipe}>
-      <Text
-        accessibilityRole="alert"
-        style={[styles.emptyDescription, { color: colors.textPrimary }]}
-        {...header.action}>
-        {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
-      </Text>
-      <Pressable
-        style={styles.control}
-        accessibilityRole="button"
-        onPress={() => {
-          void actions.load();
-        }}>
-        <Text style={[styles.secondary, { color: colors.accentInk }]}>
-          {t('common.retry')}
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <CommandInputRow style={styles.stateCommands} />
+      <View
+        style={styles.empty}
+        {...header.swipe}>
+        <Text
+          accessibilityRole="alert"
+          style={[styles.emptyDescription, { color: colors.textPrimary }]}
+          {...header.action}>
+          {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
-      </Pressable>
-    </View>
+        <Pressable
+          style={styles.control}
+          accessibilityRole="button"
+          onPress={() => {
+            void actions.load();
+          }}>
+          <Text style={[styles.secondary, { color: colors.accentInk }]}>
+            {t('common.retry')}
+          </Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -497,16 +513,21 @@ function ReaderLoading() {
   const { t } = useLocalization();
   const header = usePaletteHeader();
   return (
-    <View
-      style={styles.fill}
-      {...header.swipe}>
-      <ActivityIndicator
-        accessible
-        accessibilityLabel={t('message.loading')}
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={styles.fill}>
+      <View
         style={styles.fill}
-        {...header.action}
-      />
-    </View>
+        {...header.swipe}>
+        <CommandInputRow style={styles.stateCommands} />
+        <ActivityIndicator
+          accessible
+          accessibilityLabel={t('message.loading')}
+          style={styles.fill}
+          {...header.action}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 

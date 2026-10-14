@@ -36,6 +36,7 @@ import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -1416,6 +1417,35 @@ describe('command palette', () => {
     // VoiceOver offers the action only on an accessibility element; the spinner is not one by default.
     expect(loading).toHaveProp('accessible', true);
     await openPalette(loading);
+    expect(
+      openedPalette().getByRole('button', {
+        name: 'Reply. Select a conversation',
+      }),
+    ).toBeDisabled();
+  });
+
+  it('opens the palette from a composer that cannot open its Draft', async () => {
+    expect.hasAssertions();
+    const inbox = createPersistentInbox(
+      makeMockInboxStorage(),
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, preview)}>
+        <CommandPaletteProvider>
+          <Composer
+            id="not-a-draft"
+            onClose={() => undefined}
+            onRebind={() => undefined}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await openPalette(
+      await screen.findByRole('header', {
+        name: 'This Draft is not available.',
+      }),
+    );
     expect(
       openedPalette().getByRole('button', {
         name: 'Reply. Select a conversation',
