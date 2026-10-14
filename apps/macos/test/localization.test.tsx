@@ -99,7 +99,11 @@ describe('language selection', () => {
       }),
     ).toBeVisible();
     const second = within(app.getByTestId('second'));
-    expect(second.getByText('Boîte de réception')).toBeVisible();
+    expect(
+      second.getByRole('header', {
+        name: /^Boîte de réception\. .* pour Preview mailbox$/u,
+      }),
+    ).toBeVisible();
     await fireEvent.press(first.getByRole('radio', { name: 'English' }));
     await expect(first.findByText('All Inboxes')).resolves.toBeVisible();
     expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
@@ -120,7 +124,11 @@ describe('language selection', () => {
     );
     expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
     await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
-    await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
+    await expect(
+      first.findByRole('header', {
+        name: /^Boîte de réception\. .* pour Preview mailbox$/u,
+      }),
+    ).resolves.toBeVisible();
     expect(first.queryByRole('alert')).toBeNull();
   });
 });

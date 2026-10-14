@@ -34,6 +34,7 @@ import { AccessibilityInfo, AppState, Linking } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 import type { usePalette } from '../src/theme.ts';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
@@ -42,6 +43,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -385,18 +387,25 @@ function renderConnected(
   );
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
+    const [view, setView] = useState<MailboxView>({});
     return (
       <RegistrationGate
         store={registration}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <CommandPaletteProvider>
+            <Mailboxes
+              view={view}
+              onView={setView}
+            />
             <Inbox
               onClose={() => {
                 setSelected(undefined);
               }}
               onSelect={setSelected}
+              onView={setView}
               selected={selected}
+              view={view}
             />
             <MessageDetail
               id={selected?.id}
@@ -772,7 +781,11 @@ describe('connected Gmail Inbox', () => {
 
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
-    expect(screen.getByText('Microsoft · alex@example.invalid')).toBeVisible();
+    expect(
+      within(screen.getByTestId('move-sheet')).getByText(
+        'Microsoft · alex@example.invalid',
+      ),
+    ).toBeVisible();
     expect(
       within(screen.getByTestId('move-sheet')).getByRole('button', {
         name: 'Inbox',

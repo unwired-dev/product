@@ -4,9 +4,10 @@ import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Selection } from '../src/inbox.tsx';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import {
@@ -16,11 +17,13 @@ import {
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 
 void scheduleGmailFreshness();
 pollGmailWhileActive();
 
-export default function RootLayout() {
+// Presentation choices live below ProfileScope, which retires them with the Profile.
+function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
   const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
     id?: string;
@@ -33,9 +36,11 @@ export default function RootLayout() {
   // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
   const shownProfile = readingProfile(profileId);
   const detail = Boolean(id) || Boolean(draft);
+  // The Mailboxes column's choice, which the message list column shows.
+  const [view, setView] = useState<MailboxView>({});
 
   useEffect(() => {
-    splitView.current?.show(detail ? 'secondary' : 'primary');
+    splitView.current?.show(detail ? 'secondary' : 'supplementary');
   }, [detail]);
 
   function selectMessage(selection: Selection) {
@@ -56,36 +61,66 @@ export default function RootLayout() {
   }
 
   return (
+    <CommandPaletteProvider>
+      <StatusBar style="auto" />
+      <SplitView
+        ref={splitView}
+        columnMetrics={{
+          preferredPrimaryColumnWidthOrFraction: 236,
+          preferredSupplementaryColumnWidthOrFraction: 340,
+        }}
+        // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
+        // system's sidebar button shows over the list.
+        preferredDisplayMode="automatic"
+        preferredSplitBehavior="tile"
+        primaryBackgroundStyle="sidebar"
+        topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
+        <SplitView.Column>
+          <Mailboxes
+            view={view}
+            onView={(next) => {
+              setView(next);
+              // On iPhone a Mailbox opens its list; beside it, the list is already shown.
+              splitView.current?.show('supplementary');
+            }}
+          />
+        </SplitView.Column>
+        <SplitView.Column>
+          <Inbox
+            composing={draft}
+            onClose={() => {
+              router.replace({
+                pathname: '/',
+                params: { profileId: shownProfile },
+              });
+              // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+              splitView.current?.show('supplementary');
+            }}
+            onCompose={compose}
+            onSelect={selectMessage}
+            onView={setView}
+            selected={
+              id === undefined || mailbox === undefined
+                ? undefined
+                : { mailbox, id }
+            }
+            view={view}
+          />
+        </SplitView.Column>
+      </SplitView>
+    </CommandPaletteProvider>
+  );
+}
+
+export default function RootLayout() {
+  const { profileId } = useGlobalSearchParams<{
+    profileId?: string | string[];
+  }>();
+  return (
     <RegistrationGate>
       <InboxProvider>
-        <ProfileScope profile={shownProfile}>
-          <StatusBar style="auto" />
-          <CommandPaletteProvider>
-            <SplitView
-              ref={splitView}
-              preferredDisplayMode="oneBesideSecondary"
-              preferredSplitBehavior="tile"
-              topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
-              <SplitView.Column>
-                <Inbox
-                  composing={draft}
-                  onClose={() => {
-                    router.replace({
-                      pathname: '/',
-                      params: { profileId: shownProfile },
-                    });
-                  }}
-                  onCompose={compose}
-                  onSelect={selectMessage}
-                  selected={
-                    id === undefined || mailbox === undefined
-                      ? undefined
-                      : { mailbox, id }
-                  }
-                />
-              </SplitView.Column>
-            </SplitView>
-          </CommandPaletteProvider>
+        <ProfileScope profile={readingProfile(profileId)}>
+          <MailShell />
         </ProfileScope>
       </InboxProvider>
     </RegistrationGate>

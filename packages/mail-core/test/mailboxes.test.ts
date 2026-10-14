@@ -1,11 +1,15 @@
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
+import type { ImapInboxState } from '../src/imap-inbox.ts';
 import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
+import type { MailboxConnection } from '../src/registration.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
 import {
   createGmailSearch,
   createMailboxes,
+  inboxChoice,
   inboxMessages,
+  mailboxSidebar,
   messageDateSections,
   searchGmail,
   searchMessages,
@@ -50,6 +54,16 @@ const onlineAnswer = <T>(answer: T | undefined): T => {
 };
 
 const at = (day: number) => Date.UTC(2026, 8, day);
+
+// The open sections and waiting connections of a sidebar projection, in its order.
+const sectionsOf = (sidebar: ReturnType<typeof mailboxSidebar>) =>
+  sidebar.entries.flatMap((entry) =>
+    'section' in entry ? [entry.section] : [],
+  );
+const waitingOf = (sidebar: ReturnType<typeof mailboxSidebar>) =>
+  sidebar.entries.flatMap((entry) =>
+    'waiting' in entry ? [entry.waiting] : [],
+  );
 
 // Every connection of the Default Profile, which owns every connection listed before Profiles.
 const everything = { profile: defaultProfile };
@@ -1027,5 +1041,307 @@ describe('searching saved metadata', () => {
       ['α\u0345λφα', ['a', 'f']],
       ['not saved', []],
     ]);
+  });
+});
+
+describe('mailbox sidebar projection', () => {
+  it('keeps unread totals and row selection tied to the current Inbox snapshots', async () => {
+    expect.hasAssertions();
+    const { gmail, mailboxes, registration } = await twoMailboxes();
+    gmail.alex.deliver({ subject: 'Unread in Alex', at: at(1) });
+    gmail.other.deliver({ subject: 'Unread in Other', at: at(2) });
+    await mailboxes.load();
+    const project = (view: { mailbox?: string; folder?: string }) =>
+      mailboxSidebar({
+        mailboxes: mailboxes.getSnapshot(),
+        connections: mailboxesOf(registration.getSnapshot().snapshot),
+        profile: defaultProfile,
+        view,
+      });
+    const selected = project({ mailbox: alex });
+    expect({
+      unread: selected.unread,
+      allSelected: selected.allSelected,
+      rows: sectionsOf(selected).map(({ mailbox: entry, folders }) => [
+        entry.id,
+        folders,
+      ]),
+    }).toStrictEqual({
+      unread: 2,
+      allSelected: false,
+      rows: [
+        [alex, [{ name: 'INBOX', inbox: true, unread: 1, selected: true }]],
+        [other, [{ name: 'INBOX', inbox: true, unread: 1, selected: false }]],
+      ],
+    });
+    const { inbox } = mailbox(mailboxes.getSnapshot(), alex);
+    const message = firstOf(ready(inbox.getSnapshot()).messages);
+    await inbox.organize(message, gmailAction.read);
+    expect(project({}).unread).toBe(1);
+    expect([
+      project({}).allSelected,
+      project({ mailbox: 'removed' }).allSelected,
+    ]).toStrictEqual([true, true]);
+  });
+
+  it('keeps a chosen connection chosen while it waits for authorization, and drops a removed one', () => {
+    expect.hasAssertions();
+    const connections: ReadonlyArray<
+      Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>
+    > = [
+      {
+        id: 'open',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'connected',
+      },
+      {
+        id: 'lapsed',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'other',
+        profile: defaultProfile,
+        provider: 'microsoft-graph',
+        state: 'authorization',
+      },
+    ];
+    const mailboxes = [{ id: 'open', state: { kind: 'loading' } as const }];
+    const decide = (mailbox: string | undefined) => {
+      const view = { mailbox };
+      const sidebar = mailboxSidebar({
+        mailboxes,
+        connections,
+        profile: defaultProfile,
+        view,
+      });
+      const choice = inboxChoice({ mailboxes, connections, view });
+      return {
+        kept: choice.keepsChoice,
+        waiting: choice.chosenWaiting?.id,
+        // The chosen waiting connection shows its own notice; every mailbox shows all; a listed one none.
+        notices: choice.waiting.map(({ id }) => id),
+        allSelected: sidebar.allSelected,
+        selectedWaiting: waitingOf(sidebar)
+          .filter(({ selected }) => selected)
+          .map(({ connection }) => connection.id),
+      };
+    };
+    expect([
+      decide('lapsed'),
+      decide('open'),
+      decide('removed'),
+      decide(undefined),
+    ]).toStrictEqual([
+      {
+        kept: true,
+        waiting: 'lapsed',
+        notices: ['lapsed'],
+        allSelected: false,
+        selectedWaiting: ['lapsed'],
+      },
+      {
+        kept: true,
+        waiting: undefined,
+        notices: [],
+        allSelected: false,
+        selectedWaiting: [],
+      },
+      {
+        kept: false,
+        waiting: undefined,
+        notices: ['lapsed', 'other'],
+        allSelected: true,
+        selectedWaiting: [],
+      },
+      {
+        kept: false,
+        waiting: undefined,
+        notices: ['lapsed', 'other'],
+        allSelected: true,
+        selectedWaiting: [],
+      },
+    ]);
+  });
+
+  it('keeps every connection in its saved place while an earlier one waits for authorization', () => {
+    expect.hasAssertions();
+    const order = (
+      first: MailboxConnection['state'],
+      mailboxes: ReadonlyArray<
+        Readonly<{ id: string; state: { kind: 'loading' } }>
+      >,
+    ) =>
+      mailboxSidebar({
+        mailboxes,
+        connections: [
+          {
+            id: 'first',
+            profile: defaultProfile,
+            provider: 'gmail',
+            state: first,
+          },
+          {
+            id: 'second',
+            profile: defaultProfile,
+            provider: 'gmail',
+            state: 'connected',
+          },
+        ],
+        profile: defaultProfile,
+        view: {},
+      }).entries.map((entry) => [entry.id, 'waiting' in entry]);
+    const loading = { kind: 'loading' } as const;
+    expect([
+      order('connected', [
+        { id: 'first', state: loading },
+        { id: 'second', state: loading },
+      ]),
+      order('authorization', [{ id: 'second', state: loading }]),
+    ]).toStrictEqual([
+      [
+        ['first', false],
+        ['second', false],
+      ],
+      [
+        ['first', true],
+        ['second', false],
+      ],
+    ]);
+  });
+
+  it('keeps selectable IMAP names distinct and missing-store recovery inside its Profile', () => {
+    expect.hasAssertions();
+    const state: ImapInboxState = {
+      kind: 'ready',
+      address: 'alex@example.invalid',
+      messages: [],
+      status: 'current',
+      folders: [
+        { name: 'INBOX', selectable: true, roles: ['inbox'] },
+        { name: 'Other Inbox', selectable: true, roles: ['inbox'] },
+        { name: 'Container', selectable: false, roles: [] },
+      ],
+      capabilities: undefined,
+      pending: 0,
+      blocked: undefined,
+      undo: false,
+      imap: true,
+    };
+    const connections: ReadonlyArray<
+      Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>
+    > = [
+      {
+        id: 'stored',
+        profile: defaultProfile,
+        provider: 'imap',
+        state: 'authorization',
+      },
+      {
+        id: 'imap',
+        profile: defaultProfile,
+        provider: 'imap',
+        state: 'authorization',
+      },
+      {
+        id: 'gmail',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'graph',
+        profile: defaultProfile,
+        provider: 'microsoft-graph',
+        state: 'authorization',
+      },
+      {
+        id: 'foreign',
+        profile: 'work',
+        provider: 'gmail',
+        state: 'authorization',
+      },
+      {
+        id: 'connected',
+        profile: defaultProfile,
+        provider: 'gmail',
+        state: 'connected',
+      },
+    ];
+    const project = (snapshot: ImapInboxState, folder?: string) =>
+      mailboxSidebar({
+        mailboxes: [{ id: 'stored', state: snapshot }],
+        connections,
+        profile: defaultProfile,
+        view: { mailbox: 'stored', folder },
+      });
+    const selected = project(state, 'Other Inbox');
+    expect(
+      sectionsOf(selected).flatMap(({ folders }) => folders),
+    ).toStrictEqual([
+      { name: 'INBOX', inbox: true, unread: 0, selected: false },
+      { name: 'Other Inbox', inbox: false, unread: 0, selected: true },
+    ]);
+    expect(
+      waitingOf(selected).map(({ connection, recovery }) => [
+        connection.id,
+        recovery,
+      ]),
+    ).toStrictEqual([
+      ['imap', 'account'],
+      ['gmail', 'authorization'],
+      ['graph', 'authorization'],
+    ]);
+    // A problem the Inbox explains rides beside the mailbox; healthy and loading states have none.
+    expect(
+      (
+        [
+          { kind: 'locked' },
+          { kind: 'failed' },
+          { kind: 'loading' },
+          state,
+          { ...state, status: 'retry' },
+          { ...state, status: 'authentication' },
+          { ...state, status: 'syncing' },
+        ] satisfies readonly ImapInboxState[]
+      ).map((snapshot) => sectionsOf(project(snapshot))[0]?.problem),
+    ).toStrictEqual([
+      'locked',
+      'failed',
+      undefined,
+      undefined,
+      'retry',
+      'authentication',
+      undefined,
+    ]);
+    const unavailable: readonly ImapInboxState[] = [
+      { kind: 'loading' },
+      { kind: 'locked' },
+      { kind: 'failed' },
+    ];
+    expect(
+      unavailable.map((snapshot) =>
+        sectionsOf(project(snapshot)).flatMap(({ folders }) => folders),
+      ),
+    ).toStrictEqual([
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+      [{ name: 'INBOX', inbox: true, unread: 0, selected: true }],
+    ]);
+    expect(
+      sectionsOf(
+        project(
+          {
+            ...state,
+            folders: state.folders.filter(({ name }) => name !== 'Other Inbox'),
+          },
+          'Other Inbox',
+        ),
+      )
+        .flatMap(({ folders }) => folders)
+        .some(({ selected: chosen }) => chosen),
+    ).toBe(false);
   });
 });

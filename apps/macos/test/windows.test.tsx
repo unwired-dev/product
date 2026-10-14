@@ -153,6 +153,32 @@ describe('mac window selection with the shared mock mailbox', () => {
     },
   );
 
+  it('hides the Mailboxes sidebar in a narrow window until its toggle shows it', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    const window = app.getByTestId('inbox-window-first');
+    await expect(
+      app.findByRole('button', { name: 'All inboxes' }),
+    ).resolves.toBeVisible();
+    await fireEvent(window, 'layout', {
+      nativeEvent: { layout: { width: 900 } },
+    });
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+    expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
+    // The toggle's choice outlives later resizing.
+    await fireEvent(window, 'layout', {
+      nativeEvent: { layout: { width: 1280 } },
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+  });
+
   it('shows saved search matches with the default row preview and result count', async () => {
     expect.hasAssertions();
     const app = await render(

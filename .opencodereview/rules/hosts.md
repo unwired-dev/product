@@ -42,6 +42,43 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `inbox-bar.tsx.NewMessageButton` falling back to another sender when a specific
+  mailbox is selected but cannot send. Only All inboxes chooses the first usable
+  mailbox in the window's Profile; a selected mailbox without authorization or
+  SMTP keeps New Message disabled. Exercise a receive-only selection beside a
+  usable sender, then All inboxes, through the real Draft store. Otherwise a new
+  Draft silently starts from an identity the person did not choose.
+  The same applies when `inbox.tsx.Inbox` normalizes the window's view: a chosen
+  connection whose Inbox store closes while it waits for authorization stays
+  chosen (`mailboxes.ts.inboxChoice`); only a removed connection falls back to
+  All inboxes. Exercise a lapse of the chosen mailbox beside a usable sender and
+  check New Message, the heading and the sidebar selection; otherwise the view
+  silently widens to All inboxes and New Message picks another sender.
+
+- `sidebar.tsx.Mailboxes` deriving its entire connection list from open Inbox
+  stores. Connections needing authorization can have no store; retain those
+  definitions from the current Profile with a connection-local problem and the
+  owning provider's recovery action. Check the missing-store state, successful
+  recovery without duplicate rows and Profile isolation; IMAP password repair
+  must open Account through the composer exit guard. Otherwise a saved connection
+  disappears precisely when the person needs to repair its access.
+
+- `sidebar.tsx.Mailboxes` or `mailbox-views.ts.mailboxSidebar` exposing a connection's
+  storage, retry or authentication problem only in the selected Inbox. Keep each
+  store-backed connection's problem beside its sidebar row, independently of the
+  window's mailbox selection, and retain access to its owning Inbox recovery
+  controls. Exercise a failed connection while another mailbox is selected and
+  after recovery; otherwise switching mailboxes hides a connection needing repair.
+
+- `sidebar.tsx.FolderRows` or `mailbox-views.ts.failedFolders` losing a folder-local
+  read failure when navigation unmounts its list notice. Subscribe to the owning
+  IMAP store's folder updates independently of its Inbox snapshot, keep the
+  warning on the exact failed folder row after switching destinations, and clear
+  it on successful recovery or folder retirement. A primitive snapshot encoding
+  must preserve every admitted folder name, including embedded separators, without
+  marking healthy siblings. Otherwise a connection appears healthy despite unreadable
+  folders, or one folder's failure is attributed to another.
+
 - `organize.tsx.GmailMessageActions` returning saved-only explanations or other
   persistent notices inside the reader's fixed-height toolbar or iPhone capsule.
   Trace every capability branch with replies available and organizing disabled:
@@ -80,11 +117,18 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   query/scope replacement through the real search store on both hosts; otherwise
   current cached mail makes a failed online search appear connected.
 
-- `imap-folders.tsx.FolderPicker` localizing every folder with the inbox role as
+- `sidebar.tsx.FolderRows` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
   role-bearing folders keep their provider name and separate selection. Exercise
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
   distinct folders appear to be the same Inbox.
+
+- `inbox.tsx.headingOf` retaining the Inbox title while the sidebar selects a
+  different IMAP folder. Trace the effective folder from `useImapFolder` into
+  the visible and accessible list heading on both hosts, including names with
+  embedded newlines and fallback after folder retirement. Otherwise the list
+  labels Archive or another folder's messages as Inbox. Preserve the search
+  title while searching and the aggregate Inbox title for aggregate mail.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
@@ -310,7 +354,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   action or creates a Draft in the wrong Profile. Preserve unavailable Draft
   storage and retired-reader creation fences.
 
-- `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
+- `inbox-bar.tsx.NewMessageButton` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
   until refusal or completion releases it. A second press after leaving settles
@@ -568,10 +612,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   presentation even though types, bundles and rendered host tests pass.
 - Mac link confirmation mounted inside `message-detail.tsx.MailboxMessage`
   instead of `window.tsx.WindowContents`. The window's selected mailbox store
-  and message must gate its overlay; cover both columns and hide their
-  background accessibility while it is open. Check independent windows and
-  queued input after selection changes, or the alert leaves the list usable
-  beneath a partial scrim and can escape its reader's ownership.
+  and message must gate its overlay; cover the glass sidebar, command bar and
+  both columns and hide their background accessibility while it is open. Check
+  independent windows and queued input after selection changes, or the alert
+  leaves Mailboxes or the list usable beneath a partial scrim and can escape its
+  reader's ownership.
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
@@ -658,8 +703,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   every other screen the host mounts for the same state, such as
   `ThreadMessages` behind `app/thread/[id].tsx`. Enumerate the routes under
   `apps/mobile/app` and the Mac window's panes and check each screen the
-  requirement names (Inbox, message reading, composer, Settings); otherwise a
-  route-specific reader has no palette while the documentation says it does.
+  requirement names (Inbox, Mailboxes, message reading, composer, Settings);
+  otherwise a route-specific reader has no palette while the documentation says
+  it does. A split-view column that covers the Inbox on iPhone, such as
+  `sidebar.tsx.Mailboxes`, also needs the header entry, and commands it can run
+  that act on the Inbox column (Search Mail, Go To Inbox) must bring that column
+  forward through `app/_layout.tsx`'s split view `show('supplementary')`;
+  otherwise they run behind the covering column with no visible effect.
   Within each screen, check every early-return state branch too (loading,
   `StorageProblem`, `EmptyDetail` and `composer.tsx.ComposerFallback`, the
   composer's loading, locked, failed and unavailable states), on every route
@@ -703,6 +753,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
+- `app/_layout.tsx` asking its split view for a column by its two-column name.
+  Mailboxes is the `primary` column and the message list `supplementary`: when a
+  reader, Thread or composer closes, including the compact reader's own Back
+  that hides the native navigation bar, and on first mount, show
+  `supplementary`. Assert the requested column in the routing journey; otherwise
+  iPhone returns to Mailboxes instead of the list, and iPad portrait opens the
+  sidebar over it.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it

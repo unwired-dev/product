@@ -43,6 +43,12 @@ The generated project also compiles `native/design`, the first-party SF Symbol a
 Liquid Glass views shared with the iPhone/iPad host.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
+Each window has three columns: a floating Liquid Glass Mailboxes sidebar
+(**All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
+**Account**), the message list with its floating search and **New Message** bar,
+and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
+toggles the sidebar; a window at most 900pt wide starts without it.
+
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.

@@ -35,6 +35,14 @@ import {
   unavailableProfile,
 } from './registration.ts';
 
+export type { MailboxProblem } from './mailbox-views.ts';
+export {
+  failedFolders,
+  inboxChoice,
+  mailboxSidebar,
+  profileMailboxes,
+} from './mailbox-views.ts';
+
 type Scope = Readonly<{
   connection: string;
   address: string;
@@ -607,12 +615,6 @@ export const readingProfile = (profileId: unknown): string =>
         ),
         () => '',
       );
-
-// The mailboxes owned by exactly `profile`, in the order the connections were added.
-export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
-  mailboxes: readonly L[],
-  profile: string,
-) => mailboxes.filter((mailbox) => mailbox.profile === profile);
 
 const inScope =
   ({ profile, mailbox }: ViewScope) =>

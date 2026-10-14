@@ -30,7 +30,9 @@ import { AppState, Dimensions, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -41,6 +43,7 @@ import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
 // Allow cold component rendering even when a focused run skips the first test.
@@ -51,6 +54,11 @@ const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -224,6 +232,7 @@ function App({
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
   const [selected, setSelected] = useState<Selection>();
+  const [view, setView] = useState<MailboxView>({});
   return (
     <AccountContext
       value={{
@@ -236,6 +245,10 @@ function App({
         drafts={drafts}
         mailboxes={mailboxes}>
         <ProfileScope profile={profile}>
+          <Mailboxes
+            view={view}
+            onView={setView}
+          />
           <Inbox
             composing={composing}
             onCompose={(id) => {
@@ -243,7 +256,9 @@ function App({
               onCompose(id);
             }}
             onSelect={setSelected}
+            onView={setView}
             selected={selected}
+            view={view}
           />
           {composing === undefined ? null : (
             <Composer
@@ -293,6 +308,125 @@ const deletionKey = async (
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
+  it('does not substitute a sender for the selected receive-only mailbox', async () => {
+    expect.hasAssertions();
+    const initial = connected(['alex@example.invalid']);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        ...mailboxesOf(initial),
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          imap: {
+            host: 'imap.example.invalid',
+            port: 993,
+            username: 'imap',
+          },
+          state: 'connected',
+        },
+      ]),
+    });
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    const connections = createMailboxes(
+      syntheticConnections(
+        { [alex]: createSyntheticGmail({ messages: 1 }) },
+        { imap: imap.native },
+      ),
+      registration,
+    );
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <CommandPaletteProvider>
+        <App
+          drafts={drafts}
+          registration={registration}
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}
+        />
+      </CommandPaletteProvider>,
+    );
+    // The Command Palette's New Message follows the floating bar's button.
+    const palette = async () => {
+      await fireEvent(
+        screen.getByRole('header', { name: 'Inbox' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      return within(screen.getByTestId('command-palette'));
+    };
+    await press('Inbox. In imap@example.invalid');
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    const receiveOnly = await palette();
+    expect(
+      receiveOnly.queryByRole('button', { name: 'New Message' }),
+    ).toBeNull();
+    await press('Cancel');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await press('All inboxes');
+    const unified = await palette();
+    const command = unified.getByRole('button', { name: 'New Message' });
+    await act(async () => {
+      await fireEvent.press(command);
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
+  it('does not substitute a sender while the selected mailbox waits for authorization', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('Inbox. In alex@example.invalid');
+    const lapse = async (state: 'authorization' | 'connected') => {
+      await act(() => {
+        registration.change({
+          ...initial,
+          mailboxes: JSON.stringify([
+            { id: alex, address: 'alex@example.invalid', state },
+            { id: other, address: 'other@example.invalid', state: 'connected' },
+          ]),
+        });
+      });
+    };
+    await lapse('authorization');
+    expect(
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+    ).toBeSelected();
+    expect(
+      screen.getByText(
+        'alex@example.invalid · Gmail needs your permission again',
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await lapse('connected');
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();
     const initial = connected([
