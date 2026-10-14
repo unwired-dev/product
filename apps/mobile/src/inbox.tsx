@@ -22,14 +22,7 @@ import {
   resultKey,
 } from '@private-email/mail-core/mailboxes';
 import { use, useMemo, useRef, useSyncExternalStore } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  SectionList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -49,7 +42,12 @@ import { useImapFolder } from './imap-folders.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
-import { InboxBar, SearchHeading, useInboxSearch } from './inbox-search.tsx';
+import {
+  InboxBar,
+  OnlineResults,
+  SearchHeading,
+  useInboxSearch,
+} from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -341,70 +339,6 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
   }
   return saved ? t('search.saved') : t('search.download');
 };
-
-// Gmail's own search, asked for explicitly below the results saved on this device, which it never
-// replaces. Each mailbox that Gmail could not search says why.
-function OnlineResults({
-  search,
-  query,
-}: {
-  readonly search: ReturnType<typeof useGmailSearch>;
-  readonly query: string;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const { found, searching } = search;
-  if (!search.available) {
-    return null;
-  }
-  if (found === undefined && !searching) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
-    );
-  }
-  return (
-    <View>
-      {found?.results.length === 0 && found.failures.length === 0 ? (
-        <Text style={[styles.notice, { color: colors.textSecondary }]}>
-          {t('search.onlineEmpty', { query })}
-        </Text>
-      ) : null}
-      {searching ? (
-        <ActivityIndicator accessibilityLabel={t('search.searching')} />
-      ) : null}
-      {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
-      ) : null}
-      {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
 
 // The online section announces its source and each connection's failure before its rows.
 function OnlineHeading({

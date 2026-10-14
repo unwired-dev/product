@@ -8,7 +8,13 @@ import {
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Keyboard } from 'react-native';
+import {
+  ActivityIndicator,
+  Keyboard,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
 
 import type { useInboxFilter } from './inbox-filters.tsx';
 import type { InboxMailbox } from './private-storage.ts';
@@ -22,8 +28,10 @@ import {
 } from './inbox-bar.tsx';
 import { InboxFilterButton } from './inbox-filters.tsx';
 import { SearchScope } from './inbox-heading.tsx';
+import { styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useGmailSearch } from './mailbox.tsx';
+import { usePalette } from './theme.ts';
 
 /**
  * Search's state and results. Search stays open from focusing its field until
@@ -193,4 +201,68 @@ export function SearchHeading({
       onAll={setAll}
     />
   ) : null;
+}
+
+// Gmail's own search, asked for explicitly below the results saved on this device, which it never
+// replaces. Each mailbox that Gmail could not search says why.
+export function OnlineResults({
+  search,
+  query,
+}: {
+  readonly search: ReturnType<typeof useGmailSearch>;
+  readonly query: string;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const { found, searching } = search;
+  if (!search.available) {
+    return null;
+  }
+  if (found === undefined && !searching) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          void search.search();
+        }}>
+        <Text style={[styles.notice, { color: colors.accentInk }]}>
+          {t('search.online', { query })}
+        </Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View>
+      {found?.results.length === 0 && found.failures.length === 0 ? (
+        <Text style={[styles.notice, { color: colors.textSecondary }]}>
+          {t('search.onlineEmpty', { query })}
+        </Text>
+      ) : null}
+      {searching ? (
+        <ActivityIndicator accessibilityLabel={t('search.searching')} />
+      ) : null}
+      {!searching && found !== undefined && found.next.size > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void search.more();
+          }}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
+            {t('search.more')}
+          </Text>
+        </Pressable>
+      ) : null}
+      {!searching && found !== undefined && found.failures.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void search.search();
+          }}>
+          <Text style={[styles.notice, { color: colors.accentInk }]}>
+            {t('search.retry')}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
