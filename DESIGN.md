@@ -117,6 +117,7 @@ rounded:
   bubble: '20px'
   window: '16px'
   mailbox-group: '22px'
+  settings-detail: '16.923076629638672px'
 spacing:
   xs: '4px'
   s: '8px'
@@ -412,6 +413,9 @@ content.
 ## Shapes
 
 - Controls 6pt, message rows 7pt, cards and banners 10pt, windows 16pt.
+- iPhone Settings root groups and account cards use the 22pt inset-group token.
+  Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
+  matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - Monograms and avatars are circles. Message list rows show a real contact photo

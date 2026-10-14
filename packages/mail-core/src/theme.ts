@@ -19,6 +19,7 @@ export const radius = {
   sheet: 38,
   searchField: 18,
   insetGroup: 22,
+  settingsDetail: 16.923076629638672,
 };
 
 export const palette = {

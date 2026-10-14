@@ -32,7 +32,7 @@ account and its Inbox:
 | Network or Microsoft service failure                              | **Mailbox authorization was interrupted**; retry resumes           |
 
 Each outcome keeps the Product Account and offers retry or another provider,
-including after relaunch. Once connected, the account page's **Mailboxes** section
+including after relaunch. Once connected, Settings' **Email Accounts**
 lists Gmail and Microsoft connections together and offers **Add a Microsoft mailbox**.
 That action also requires Microsoft mail to be configured for this build.
 A connection whose grant Microsoft refuses later shows **Microsoft needs your
