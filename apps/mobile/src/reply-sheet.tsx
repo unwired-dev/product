@@ -42,9 +42,9 @@ export const ThreadActionsContext = createContext<
   Readonly<{ actions: readonly ThreadAction[] }> | undefined
 >(undefined);
 const responseIcons = {
-  reply: 'arrowshape.turn.up.left',
-  replyAll: 'arrowshape.turn.up.left.2',
-  forward: 'arrowshape.turn.up.right',
+  reply: 'arrowshape.turn.up.left.fill',
+  replyAll: 'arrowshape.turn.up.left.2.fill',
+  forward: 'arrowshape.turn.up.right.fill',
 } as const;
 
 const styles = StyleSheet.create({
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     marginHorizontal: spacing.l,
   },
-  secondary: { ...textStyles.footnote },
+  secondary: { ...textStyles.subheadline },
 });
 
 // Owns the Reply presentation while the reader owns response preparation.

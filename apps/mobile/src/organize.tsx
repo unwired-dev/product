@@ -265,7 +265,7 @@ function Toolbar({
             {
               name: 'archive',
               label: t('gmailActions.label.archive'),
-              icon: 'archivebox',
+              icon: 'archivebox.fill',
               group: 'tile' as const,
               run: archive,
             },
