@@ -304,10 +304,11 @@ describe('composing Drafts', () => {
       screen.findByRole('button', {
         name: 'Send from other@example.invalid',
       }),
-    ).resolves.toHaveProp('accessibilityState', {
-      selected: true,
-      disabled: false,
-    });
+    ).resolves.toHaveProp(
+      'accessibilityState',
+      // The From pop-up also reports whether its menu is open.
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
     expect(
       screen.queryByRole('button', {
         name: 'Send from alex@example.invalid',
@@ -364,10 +365,11 @@ describe('composing Drafts', () => {
       screen.findByRole('button', {
         name: 'Send from alex@example.invalid',
       }),
-    ).resolves.toHaveProp('accessibilityState', {
-      selected: true,
-      disabled: false,
-    });
+    ).resolves.toHaveProp(
+      'accessibilityState',
+      // The From pop-up also reports whether its menu is open.
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
 
     // Recipients become tokens; invalid text stays for correction and duplicates are refused.
     const to = screen.getByLabelText('To');
@@ -411,6 +413,13 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Message body'),
       '• Notes',
     );
+    // The new pop-up applies a semantic block change and closes without losing history.
+    await press('Text style');
+    await press('Heading 1');
+    expect(screen.getByLabelText('Message body')).not.toHaveTextContent('•');
+    expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('• Notes');
     await waitFor(() => {
       expect(
         screen.getByText('Draft · Saved on this device'),
@@ -470,6 +479,8 @@ describe('composing Drafts', () => {
         'This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.',
       ),
     ).toBeOnTheScreen();
+    // The From menu lists the mailbox under its current address.
+    await press('alex@example.invalid, cannot send');
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
     ).toHaveProp('accessibilityState', { selected: false, disabled: false });
@@ -477,13 +488,17 @@ describe('composing Drafts', () => {
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
     );
+    await press('alex@example.invalid, cannot send');
     await press('Send from renamed@example.invalid');
     expect(
       screen.queryByLabelText('alex@example.invalid, cannot send'),
     ).not.toBeOnTheScreen();
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
+    ).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
     await press('Close');
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From renamed@example.invalid',
@@ -499,10 +514,14 @@ describe('composing Drafts', () => {
         'This mailbox was removed from this account. Choose another mailbox to send from.',
       ),
     ).toBeOnTheScreen();
+    await press('renamed@example.invalid, cannot send');
     await press('Send from other@example.invalid');
     expect(
       screen.getByRole('button', { name: 'Send from other@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
+    ).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
   });
 
   it('keeps a Draft open while it cannot be saved', async () => {
@@ -544,6 +563,7 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     storage.failNextCommit('locked');
     await press('Discard Draft');
@@ -981,6 +1001,11 @@ describe('composing Drafts', () => {
     ).toBe('Second window continued');
     // Discarding in the stale window deletes only its own version.
     await act(async () => {
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Compose actions' }),
+      );
+    });
+    await act(async () => {
       await fireEvent.press(second.getByRole('button', { name: 'Discard' }));
     });
     await act(async () => {
@@ -1114,6 +1139,7 @@ describe('composing Drafts', () => {
           screen.getByText('Draft · Saved on this device'),
         ).toBeOnTheScreen();
       });
+      await press('Compose actions');
       await press('Discard');
       await press('Keep Editing');
       await fireEvent.changeText(
@@ -1125,6 +1151,7 @@ describe('composing Drafts', () => {
           screen.getByText('Draft · Saved on this device'),
         ).toBeOnTheScreen();
       });
+      await press('Compose actions');
       await press('Discard');
       storage.hold();
       storage.failNextCommit('locked');
@@ -1161,6 +1188,7 @@ describe('composing Drafts', () => {
       );
       // A callback already queued by this editor cannot recreate its completed discard.
       const queuedSubject = screen.getByLabelText('Subject');
+      await press('Compose actions');
       await press('Discard');
       await press('Discard Draft');
       await act(async () => {
@@ -1190,6 +1218,7 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Subject'),
       'Before discard',
     );
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     // This accepted native event changes the editor while its autosave is suppressed.
@@ -1243,6 +1272,7 @@ describe('composing Drafts', () => {
     await otherWriter.update({ ...before, subject: 'Other writer' }, before);
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     refusing = true;
@@ -1293,6 +1323,7 @@ describe('composing Drafts', () => {
     await otherWriter.update({ ...before, subject: 'Other writer' }, before);
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Compose actions');
     await press('Discard');
     await press('Discard Draft');
     // A native window close destroys the composer independently of its pending Discard.

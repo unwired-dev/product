@@ -246,6 +246,8 @@ describe('sending a Draft', () => {
         await sender.drafts.save();
       });
       // These callbacks were dispatched before native received the read-only props.
+      await press('Text style');
+      await press('Send from alex@example.invalid');
       const changeSubject = screen.getByLabelText('Subject').props.onChangeText;
       const changeBody =
         screen.getByLabelText('Message body').props.onChangeText;
@@ -278,12 +280,20 @@ describe('sending a Draft', () => {
         'Close',
         'Undo',
         'Redo',
-        'Discard',
+        'Compose actions',
         'Send',
         'Bold',
         'Show Cc and Bcc',
+        'Text style',
+        'Body',
+        'Heading 1',
       ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      for (const choice of screen.getAllByRole('button', {
+        name: 'Send from alex@example.invalid',
+      })) {
+        expect(choice).toBeDisabled();
       }
       await act(async () => {
         sender.storage.release();
@@ -561,6 +571,7 @@ describe('sending a Draft', () => {
           name: 'Add a recipient before sending.',
         }),
       ).toBeNull();
+      await press('Compose actions');
       await press('Discard');
       await press('Discard Draft');
       // Gmail refuses the first, keeps the second without answering, and answers the third with
@@ -580,6 +591,7 @@ describe('sending a Draft', () => {
       ).toBeOnTheScreen();
       await press('Edit');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
+      await press('Compose actions');
       await press('Discard');
       await press('Discard Draft');
       await compose('Lost');

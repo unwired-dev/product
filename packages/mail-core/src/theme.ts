@@ -35,6 +35,8 @@ export const palette = {
     statusDestructive: '#D70015',
     // Glass controls of 48pt or less.
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
+    // Menus and sheets, which read as floating.
+    sheetShadow: '0px 4px 24px rgba(0, 0, 0, 0.08)',
   },
   dark: {
     accentFill: '#6A6E78',
@@ -59,6 +61,7 @@ export const palette = {
     statusWarning: '#FFB340',
     statusDestructive: '#FF6961',
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
+    sheetShadow: '0px 4px 24px rgba(0, 0, 0, 0.3)',
   },
 };
 

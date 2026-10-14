@@ -1,20 +1,22 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
+import { View } from 'react-native';
 
-import { DraftComposer } from '../../src/evaluation-composer.tsx';
-import { useProfile } from '../../src/mailbox.tsx';
+import { MessageDetail } from '../../src/message-detail.tsx';
 
 export default function ComposeRoute() {
-  const profile = useProfile();
-  const { draft } = useLocalSearchParams<{ draft: string }>();
+  const { id, mailbox } = useLocalSearchParams<{
+    id?: string;
+    mailbox?: string;
+  }>();
   return (
-    <DraftComposer
-      id={draft}
-      onClose={() => {
-        router.replace({ pathname: '/', params: { profileId: profile } });
-      }}
-      onRebind={(copy) => {
-        router.setParams({ draft: copy });
-      }}
-    />
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      style={{ flex: 1 }}>
+      <MessageDetail
+        id={id}
+        mailbox={mailbox}
+      />
+    </View>
   );
 }

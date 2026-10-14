@@ -44,6 +44,10 @@ The Podfile check requires the mise-managed Ruby and accepts only literal pod na
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.
+A window's one composer overlays the reader as described in
+[composing](drafts.md#composing); opening a Draft keeps the selected message
+behind it, selecting another message updates that reader without closing the
+Draft, and Expand takes the composer over the window.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |

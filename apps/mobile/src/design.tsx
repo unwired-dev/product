@@ -20,7 +20,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeGlass = requireNativeComponent<
+export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -47,6 +47,23 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
+  button: { minHeight: 44, justifyContent: 'center' },
+  buttonFill: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  // Matches the format bar's Text style pop-up, as in the touch compose frames.
+  buttonLabelPrimary: { ...textStyles.subheadline, fontWeight: '600' },
+  toolbarButton: {
+    width: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.control,
+  },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.footnote, flex: 1 },
   notice: {
@@ -166,6 +183,102 @@ export function Notice({
         <View style={styles.noticeActions}>{children}</View>
       )}
     </View>
+  );
+}
+
+// A push button, 28pt tall: Primary (graphite) carries the view's main action, Secondary the rest.
+export function Button({
+  label,
+  onPress,
+  variant = 'secondary',
+  disabled = false,
+  destructive = false,
+  accessibilityLabel,
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly variant?: 'primary' | 'secondary';
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
+}) {
+  const colors = usePalette();
+  const primary = variant === 'primary';
+  let color = primary ? colors.accentOnFill : colors.textPrimary;
+  if (destructive) {
+    color = colors.statusDestructive;
+  }
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.button, { opacity: disabled ? 0.5 : 1 }]}>
+      <View
+        style={[
+          styles.buttonFill,
+          { backgroundColor: primary ? colors.accentFill : colors.fillQuiet },
+        ]}>
+        <Text
+          style={[
+            primary ? styles.buttonLabelPrimary : textStyles.subheadline,
+            { color },
+          ]}>
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+// An icon-only toolbar button; the label names it for accessibility.
+export function ToolbarButton({
+  icon,
+  label,
+  onPress,
+  disabled = false,
+  selected = false,
+  destructive = false,
+  accessibilityHint,
+}: {
+  readonly icon: string;
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
+}) {
+  const colors = usePalette();
+  let color = destructive ? colors.statusDestructive : colors.textPrimary;
+  if (disabled) {
+    color = colors.textSecondary;
+  }
+  return (
+    <Pressable
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.toolbarButton,
+        {
+          backgroundColor: selected
+            ? colors.accentSelectionSubtle
+            : 'transparent',
+          borderWidth: selected ? 2 : 0,
+          borderColor: colors.accentInk,
+        },
+      ]}>
+      <SFSymbol
+        name={icon}
+        color={color}
+      />
+    </Pressable>
   );
 }
 
