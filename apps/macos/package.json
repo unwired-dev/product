@@ -21,6 +21,7 @@
     "@private-email/draft-editor": "workspace:*",
     "@private-email/localization": "workspace:*",
     "@private-email/mail-core": "workspace:*",
+    "@react-native-clipboard/clipboard": "catalog:macos",
     "effect": "catalog:",
     "fast-text-encoding": "catalog:macos",
     "i18next": "catalog:",

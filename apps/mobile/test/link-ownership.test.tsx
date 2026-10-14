@@ -3,8 +3,9 @@ import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { setStringAsync } from 'expo-clipboard';
 import { useLayoutEffect } from 'react';
-import { Clipboard, Linking } from 'react-native';
+import { Linking } from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import {
@@ -12,6 +13,9 @@ import {
   LinkConfirmationProvider,
   QuotedHistoryContext,
 } from '../src/message-body.tsx';
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires string module names.
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
 
 // Capture the application callback through the same composite-fiber boundary as fireEvent.
 // Host nodes expose responder handlers rather than the Pressable's onPress prop.
@@ -135,10 +139,7 @@ describe('queued message link privacy', () => {
     async (transition) => {
       expect.hasAssertions();
       const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-      const copy = jest
-        // oxlint-disable-next-line typescript/no-deprecated -- Tests the existing core Clipboard boundary in both hosts.
-        .spyOn(Clipboard, 'setString')
-        .mockReturnValue(undefined);
+      const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
       const gmail = createSyntheticGmail();
       const id = gmail.deliver({
         at: Date.UTC(2020, 0, 1),
@@ -237,10 +238,7 @@ describe.each(['gmail', 'imap'] as const)(
       async (transition) => {
         expect.hasAssertions();
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-        const copy = jest
-          // oxlint-disable-next-line typescript/no-deprecated -- Exercises the retained native clipboard boundary.
-          .spyOn(Clipboard, 'setString')
-          .mockReturnValue(undefined);
+        const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
         const mailbox = linkMailbox(provider);
         const id = mailbox.deliver(
           `<a href="${oldHref}">https://bank.invalid</a>`,

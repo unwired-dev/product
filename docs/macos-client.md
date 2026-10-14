@@ -32,8 +32,10 @@ UTF-8 encoding only, not a general message-charset decoder.
 
 The production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
-reader, and its Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
+autolinking. The host autolinks `@react-native-clipboard/clipboard` for Copy link
+and `react-native-webview`, patched for the isolated message reader. Keep Expo
+Clipboard in the mobile host; the Mac bundle excludes Expo packages.
+The Mac Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
 reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.

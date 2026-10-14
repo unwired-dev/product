@@ -29,10 +29,10 @@ assert.equal(
   path.dirname(require.resolve('react-native-macos/package.json')),
 );
 assert.equal(autolinking.root, root);
-// The isolated WebKit message reader is the only autolinked module.
+// Clipboard and the isolated WebKit message reader are the reviewed native modules.
 assert.deepEqual(
   Object.keys(autolinking.dependencies),
-  ['react-native-webview'],
+  ['@react-native-clipboard/clipboard', 'react-native-webview'],
   'Review native modules before expanding the Mac autolinking scope.',
 );
 const podSchema = Schema.fromJsonString(

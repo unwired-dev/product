@@ -25,6 +25,7 @@
     "expo": "catalog:mobile",
     "expo-background-task": "catalog:mobile",
     "expo-build-properties": "catalog:mobile",
+    "expo-clipboard": "catalog:mobile",
     "expo-constants": "catalog:mobile",
     "expo-dev-client": "catalog:mobile",
     "expo-linking": "catalog:mobile",
