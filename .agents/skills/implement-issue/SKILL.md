@@ -109,12 +109,15 @@ and setup guides. Record actual results and unavailable checks; an unavailable
 check is never a pass. Resolve failures within the issue's scope, and identify
 any blocker that prevents delivery.
 
-Hand the complete task diff and evidence to a separate reviewer with explicit
+Hand the full task context, evidence and validated OCR checkpoint plan to a
+separate reviewer with explicit
 `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and `fork_turns: "none"`.
 Follow the linked workflow's handoff and Open Code Review delegation procedure,
-including task-owned untracked files and any pre-existing changes. The reviewer
-owns architecture checking and fixes to validated findings. After its final
-report, hand the same pinned diff, evidence and that report to a second reviewer
+including its incremental checkpoint procedure and the disposition of task-owned
+untracked files and any pre-existing changes. Keep the original starting commit
+for the later full-task review passes. The reviewer owns architecture checking and fixes to validated findings. After its final
+report, hand the full task diff from the original starting commit, evidence and
+that report to a second reviewer
 with the same arguments for the workflow's thermo-nuclear code quality review.
 When the issue changes anything user-visible, then hand the diff, evidence, both
 reports, the changed screens and the Figma sections used to a third reviewer
