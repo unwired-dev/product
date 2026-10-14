@@ -67,11 +67,11 @@ for (const source of sources) {
     assert.match(source, /react-native-macos@0\.81\.9[/_]/u);
   }
 }
-// Registration scenarios substitute a native provider only; their JavaScript stays production,
-// apart from the evaluation editor page below.
+// Selected scenarios carry their synthetic providers, except enrollment, whose synthetic trusted
+// device still answers natively. Registration JavaScript otherwise stays production, apart from
+// the evaluation editor page below.
 const scenario: unknown = process.env.UNWIRED_MOCK_SCENARIO;
-const nativeOnly =
-  typeof scenario === 'string' && scenario.startsWith('registration-');
+const nativeOnly = scenario === 'registration-enrollment';
 const mockSources = sources.filter((source) =>
   source.includes('/mail-core/src/testing/'),
 );

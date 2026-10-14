@@ -34,13 +34,12 @@ final class InboxTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    entry.typeText(String(presented.suffix(4)) + "\n")
+    enter(String(presented.suffix(4)), into: entry)
     app.buttons["Confirm Recovery Key"].tap()
     // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
@@ -53,7 +52,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
-      app.staticTexts["Images in this message are not loaded."].waitForExistence(timeout: 15))
+      text("Images in this message are not loaded.", in: app).waitForExistence(timeout: 15))
     // The sanitized HTML renders inside the isolated WebKit view.
     XCTAssertTrue(
       app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
@@ -96,7 +95,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
     XCTAssertTrue(
@@ -131,19 +130,7 @@ final class InboxTests: XCTestCase {
     // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
     // beside Gmail's.
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    // Confirm each character reached the controlled field before sending the next one.
-    var confirmation = ""
-    for character in app.staticTexts["recovery-key"].label.suffix(4) {
-      entry.typeText(String(character))
-      confirmation += String(character)
-      let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
-        .completed)
-    }
-    entry.typeText("\n")
+    enter(String(app.staticTexts["recovery-key"].label.suffix(4)), into: entry)
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
@@ -217,7 +204,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Mail connected"].exists)
+    XCTAssertTrue(app.staticTexts["Gmail connected"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Linked Apple and Google sign-in"
     shot.lifetime = .keepAlways
@@ -266,8 +253,7 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(mailboxes.exists)
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
-    entry.tap()
-    entry.typeText("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG\n")
+    enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry)
     app.buttons["Unlock with Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.exists)
@@ -289,6 +275,23 @@ final class InboxTests: XCTestCase {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
+  // Types into a controlled field one character at a time, confirming each reached it before the
+  // next: the software keyboard drops characters typed while the field re-renders.
+  private func enter(_ value: String, into field: XCUIElement) {
+    field.tap()
+    var confirmation = ""
+    for character in value {
+      field.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5),
+        .completed)
+    }
+    field.typeText("\n")
+  }
+
   // This device created the keys; removing the account's iPad first proposes a replacement
   // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication) {
@@ -296,8 +299,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let first = app.staticTexts["recovery-key"].label
     let initialEntry = app.textFields["Last four characters"]
-    initialEntry.tap()
-    initialEntry.typeText(String(first.suffix(4)) + "\n")
+    enter(String(first.suffix(4)), into: initialEntry)
     app.buttons["Confirm Recovery Key"].tap()
     let proposed = app.staticTexts["revocation-recovery-key"]
     func prepare() {
@@ -316,8 +318,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(replaced.count, 64)
     XCTAssertNotEqual(replaced, first)
     let entry = app.textFields["Last four characters of the new Recovery Key"]
-    entry.tap()
-    entry.typeText(String(replaced.suffix(4)) + "\n")
+    enter(String(replaced.suffix(4)), into: entry)
     app.buttons["Remove iPad"].tap()
     XCTAssertTrue(text("The device was removed.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
@@ -372,8 +373,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let key = app.staticTexts["recovery-key"].label
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    entry.typeText(String(key.suffix(4)) + "\n")
+    enter(String(key.suffix(4)), into: entry)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()
@@ -412,21 +412,9 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    // Confirm each character reached the controlled field before sending the next one.
-    var confirmation = ""
-    for character in presented.suffix(4) {
-      entry.typeText(String(character))
-      confirmation += String(character)
-      let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
-        .completed)
-    }
-    entry.typeText("\n")
+    enter(String(presented.suffix(4)), into: entry)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
