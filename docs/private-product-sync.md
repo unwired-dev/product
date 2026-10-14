@@ -97,7 +97,7 @@ the device only with the key its approval or proof named.
 On the new device, **Check for approval** collects the approval. The device stores
 the account keys and then confirms them; only that confirmation makes it a Trusted
 Device, already at the approval's key epoch. It shows **Private sync is on** with
-the mailbox list decrypted from Private Sync, and **Authorize Gmail** appears.
+the mailbox list decrypted from Private Sync, and the **Gmail** provider row appears.
 Gmail on that device still needs its own authorization, and the Recovery Key stays
 with the device that created it. If the approving device is removed, or a removal
 supersedes the approved key epoch, before the new device confirms, the approval is
@@ -153,8 +153,8 @@ with the key, saves the account keys and confirms them, and only then becomes a
 Trusted Device. A Trusted Device that lost its keys reads its account's envelope
 directly. The Recovery Key never leaves the device, and only after the envelope
 opens does the device save the account keys. The device shows **Private sync is
-on** with the mailbox list decrypted from Private Sync, and **Authorize Gmail**
-appears. Gmail on this device still needs its own authorization. The device does
+on** with the mailbox list decrypted from Private Sync, and the **Gmail** provider
+row appears. Gmail on this device still needs its own authorization. The device does
 not keep or show the Recovery Key afterwards.
 
 Only the current Recovery Key unlocks a device. A removal replaces it in the same

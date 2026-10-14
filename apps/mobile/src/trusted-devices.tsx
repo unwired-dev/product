@@ -13,11 +13,12 @@ import {
   revocationProposal,
   trustedDevicesOf,
 } from '@private-email/mail-core/registration';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,10 +29,13 @@ import {
 
 import type { SettingsButton } from './settings.tsx';
 
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
+
+const ipad = Platform.OS === 'ios' && Platform.isPad;
 
 const confirmationStyles = StyleSheet.create({
   backdrop: {
@@ -42,20 +46,38 @@ const confirmationStyles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: ipad ? 345 : 310,
     maxHeight: '80%',
-    padding: spacing.xl,
-    gap: spacing.m,
-    borderRadius: radius.alertTouch,
+    padding: ipad ? 23 : 22,
+    gap: ipad ? 11.5 : spacing.s,
+    borderRadius: ipad ? radius.alertMac * 1.15 : radius.alertTouch,
   },
   body: { flexGrow: 0, flexShrink: 1 },
+  iconTile: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: ipad ? 64.4 : 52,
+    height: ipad ? 64.4 : 52,
+    borderRadius: ipad ? 16.1 : 14,
+  },
+  title: {
+    ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
+    textAlign: 'center',
+  },
+  description: {
+    ...(ipad ? typography.ipadList.body : textStyles.subheadline),
+    textAlign: 'center',
+  },
+  choices: { gap: ipad ? 9.2 : spacing.s, paddingTop: ipad ? 6.9 : spacing.s },
   choice: {
-    minHeight: 44,
+    minHeight: ipad ? 44 : 48,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: spacing.m,
-    borderRadius: radius.control,
+    borderRadius: ipad ? radius.control * 1.15 : 24,
   },
+  choiceText: ipad ? typography.ipadList.body : textStyles.headline,
 });
 
 // The full safety explanation uses AA text on an opaque native modal rather than system gray.
@@ -90,7 +112,7 @@ function DeviceConfirmation({
       <View
         style={[
           confirmationStyles.backdrop,
-          { backgroundColor: colors.scrimTouch },
+          { backgroundColor: ipad ? colors.scrimMac : colors.scrimTouch },
         ]}>
         <Pressable
           accessible={false}
@@ -110,46 +132,66 @@ function DeviceConfirmation({
           ]}>
           <ScrollView
             style={confirmationStyles.body}
-            contentContainerStyle={{ gap: spacing.m }}>
+            contentContainerStyle={{ gap: ipad ? 11.5 : spacing.s }}>
+            <View
+              style={[
+                confirmationStyles.iconTile,
+                { backgroundColor: colors.fillQuiet },
+              ]}>
+              <SFSymbol
+                name="laptopcomputer.and.iphone"
+                size={28}
+                color={colors.accentInk}
+              />
+            </View>
             <Text
               ref={title}
               accessibilityRole="header"
-              style={[
-                textStyles.headline,
-                { color: colors.textPrimary, textAlign: 'center' },
-              ]}>
-              {t('revocation.remove', { name })}
+              style={[confirmationStyles.title, { color: colors.textPrimary }]}>
+              {t('revocation.confirmTitle', { name })}
             </Text>
             <Text
-              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+              style={[
+                confirmationStyles.description,
+                { color: colors.textSecondary },
+              ]}>
               {t('revocation.confirm', { name })}
             </Text>
           </ScrollView>
-          <Pressable
-            accessibilityLabel={t('revocation.remove', { name })}
-            accessibilityRole="button"
-            onPress={onConfirm}
-            style={[
-              confirmationStyles.choice,
-              { backgroundColor: colors.fillQuiet },
-            ]}>
-            <Text
-              style={[textStyles.body, { color: colors.statusDestructive }]}>
-              {t('revocation.remove', { name })}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel={t('revocation.cancel')}
-            accessibilityRole="button"
-            onPress={onCancel}
-            style={[
-              confirmationStyles.choice,
-              { backgroundColor: colors.fillQuiet },
-            ]}>
-            <Text style={[textStyles.body, { color: colors.textPrimary }]}>
-              {t('revocation.cancel')}
-            </Text>
-          </Pressable>
+          <View style={confirmationStyles.choices}>
+            <Pressable
+              accessibilityLabel={t('revocation.remove', { name })}
+              accessibilityRole="button"
+              onPress={onConfirm}
+              style={[
+                confirmationStyles.choice,
+                { backgroundColor: colors.fillQuiet },
+              ]}>
+              <Text
+                style={[
+                  confirmationStyles.choiceText,
+                  { color: colors.statusDestructive },
+                ]}>
+                {t('revocation.remove', { name })}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel={t('revocation.cancel')}
+              accessibilityRole="button"
+              onPress={onCancel}
+              style={[
+                confirmationStyles.choice,
+                { backgroundColor: colors.fillQuiet },
+              ]}>
+              <Text
+                style={[
+                  confirmationStyles.choiceText,
+                  { color: ipad ? colors.textPrimary : colors.accentInk },
+                ]}>
+                {t('revocation.cancel')}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </Modal>

@@ -22,14 +22,17 @@ import {
   recoveryKeyEntry,
   signInMethodsCopy,
 } from '@private-email/mail-core/registration';
+import { palette } from '@private-email/mail-core/theme';
 import { useState, useSyncExternalStore } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Platform, Text, TextInput, View } from 'react-native';
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
+import { Button, Notice } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
+import { TrustCard } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -189,93 +192,155 @@ function Mailboxes({
   );
 }
 
+// Trust steps are cards whose push buttons follow the design: accent for the step's action,
+// destructive text for declining, all disabled while registration is busy.
+function useCardButton(store: Registration) {
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return function cardButton(
+    label: string,
+    action: () => Promise<void>,
+    fill?: 'accent' | 'destructive',
+  ) {
+    return (
+      <Button
+        key={label}
+        destructive={fill === 'destructive'}
+        disabled={busy}
+        fill={fill === 'accent' ? 'accent' : 'quiet'}
+        label={label}
+        onPress={() => {
+          void action();
+        }}
+      />
+    );
+  };
+}
+
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
   account,
-  button,
   failure,
   store,
 }: {
   readonly account: Parameters<typeof privateSyncCopy>[1];
-  readonly button: SettingsButton;
   readonly failure: RecoveryKeyFailure | undefined;
   readonly store: Registration;
 }) {
-  const colors = usePalette();
+  const schemeColors = usePalette();
   const { t } = useLocalization();
+  const card = useCardButton(store);
   const [entry, setEntry] = useState('');
   const copy = privateSyncCopy(t, account);
   if (copy === undefined) {
     return null;
   }
-  const { recoveryKey } = copy;
+  const { recoveryKey, enrollmentCode } = copy;
+  const brand =
+    Platform.OS === 'ios' &&
+    !Platform.isPad &&
+    (recoveryKey !== undefined || enrollmentCode !== undefined);
+  const colors = brand
+    ? {
+        ...schemeColors,
+        textPrimary: schemeColors.brandOnDeep,
+        textSecondary: palette.dark.textSecondary,
+        fillQuiet: palette.dark.fillQuiet,
+        separator: palette.dark.textSecondary,
+      }
+    : schemeColors;
+  const notes = (
+    <>
+      {copy.mailboxes === undefined ? null : (
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
+          {copy.mailboxes}
+        </Text>
+      )}
+      {copy.pending === undefined ? null : (
+        <Text style={[styles.text, { color: colors.textPrimary }]}>
+          {copy.pending}
+        </Text>
+      )}
+    </>
+  );
+  if (recoveryKey !== undefined) {
+    return (
+      <TrustCard
+        fill={brand ? 'brand' : 'content'}
+        icon="key"
+        title={copy.title}
+        description={copy.description}>
+        <Text
+          selectable
+          testID="recovery-key"
+          style={[
+            styles.recoveryKey,
+            { color: colors.textPrimary, backgroundColor: colors.fillQuiet },
+          ]}>
+          {recoveryKey}
+        </Text>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
+          {t('recoveryKeyConfirmation.prompt')}
+        </Text>
+        <TextInput
+          accessibilityLabel={t('recoveryKeyConfirmation.label')}
+          autoCapitalize="characters"
+          autoComplete="off"
+          autoCorrect={false}
+          onChangeText={(text) => {
+            setEntry(recoveryKeyEntry(text));
+          }}
+          placeholder={t('recoveryKeyConfirmation.label')}
+          placeholderTextColor={colors.textSecondary}
+          style={[
+            styles.input,
+            { borderColor: colors.separator, color: colors.textPrimary },
+          ]}
+          value={entry}
+        />
+        {failure === undefined ? null : (
+          <Text
+            accessibilityRole="alert"
+            style={[styles.text, { color: colors.textPrimary }]}>
+            {t(`recoveryKeyConfirmation.${failure}`)}
+          </Text>
+        )}
+        {card(
+          t('recoveryKeyConfirmation.confirm'),
+          () => store.confirmRecoveryKey(entry),
+          'accent',
+        )}
+        {notes}
+      </TrustCard>
+    );
+  }
+  if (enrollmentCode !== undefined) {
+    return (
+      <TrustCard
+        fill={brand ? 'brand' : 'content'}
+        icon="laptopcomputer.and.iphone"
+        title={copy.title}
+        description={copy.description}>
+        <Text
+          accessibilityLabel={enrollmentCode}
+          selectable
+          testID="enrollment-code"
+          style={[
+            styles.code,
+            { color: colors.textPrimary, backgroundColor: colors.fillQuiet },
+          ]}>
+          {enrollmentCode.replaceAll('-', ' ')}
+        </Text>
+        {card(t('enrollment.check'), store.refreshPrivateSync, 'accent')}
+        {notes}
+      </TrustCard>
+    );
+  }
   return (
     <SettingsGroup
       title={copy.title}
       footer={copy.description}>
-      {recoveryKey === undefined ? null : (
-        <SettingsBlock>
-          <Text
-            selectable
-            testID="recovery-key"
-            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
-            {recoveryKey}
-          </Text>
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {t('recoveryKeyConfirmation.prompt')}
-          </Text>
-          <TextInput
-            accessibilityLabel={t('recoveryKeyConfirmation.label')}
-            autoCapitalize="characters"
-            autoComplete="off"
-            autoCorrect={false}
-            onChangeText={(text) => {
-              setEntry(recoveryKeyEntry(text));
-            }}
-            placeholder={t('recoveryKeyConfirmation.label')}
-            placeholderTextColor={colors.textSecondary}
-            style={[
-              styles.input,
-              { borderColor: colors.separator, color: colors.textPrimary },
-            ]}
-            value={entry}
-          />
-          {failure === undefined ? null : (
-            <Text
-              accessibilityRole="alert"
-              style={[styles.text, { color: colors.textPrimary }]}>
-              {t(`recoveryKeyConfirmation.${failure}`)}
-            </Text>
-          )}
-          {button(t('recoveryKeyConfirmation.confirm'), () =>
-            store.confirmRecoveryKey(entry),
-          )}
-        </SettingsBlock>
-      )}
-      {copy.enrollmentCode === undefined ? null : (
-        <SettingsBlock>
-          <Text
-            selectable
-            testID="enrollment-code"
-            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
-            {copy.enrollmentCode}
-          </Text>
-          {button(t('enrollment.check'), store.refreshPrivateSync)}
-        </SettingsBlock>
-      )}
       {copy.mailboxes === undefined && copy.pending === undefined ? null : (
-        <SettingsBlock>
-          {copy.mailboxes === undefined ? null : (
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {copy.mailboxes}
-            </Text>
-          )}
-          {copy.pending === undefined ? null : (
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {copy.pending}
-            </Text>
-          )}
-        </SettingsBlock>
+        <SettingsBlock>{notes}</SettingsBlock>
       )}
     </SettingsGroup>
   );
@@ -284,29 +349,42 @@ function PrivateSync({
 // Without an available trusted device, the Recovery Key unlocks this one; nothing offers a reset.
 function RecoveryKeyUnlock({
   account,
-  button,
   failure,
   store,
 }: {
   readonly account: Readonly<{ privateSync?: PrivateSyncState }>;
-  readonly button: SettingsButton;
   readonly failure: RecoveryFailure | undefined;
   readonly store: Registration;
 }) {
-  const colors = usePalette();
+  const schemeColors = usePalette();
+  const brand = Platform.OS === 'ios' && !Platform.isPad;
+  const colors = brand
+    ? {
+        ...schemeColors,
+        textPrimary: schemeColors.brandOnDeep,
+        textSecondary: palette.dark.textSecondary,
+        separator: palette.dark.textSecondary,
+      }
+    : schemeColors;
   const { t } = useLocalization();
+  const card = useCardButton(store);
   const [entry, setEntry] = useState('');
   if (!offersRecovery(account.privateSync)) {
     return null;
   }
+  const notice = (
+    <Notice
+      icon="info.circle"
+      message={t('recovery.lost')}
+    />
+  );
   return (
-    <SettingsGroup
-      title={t('recovery.title')}
-      footer={t('recovery.lost')}>
-      <SettingsBlock>
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {t('recovery.description')}
-        </Text>
+    <>
+      <TrustCard
+        fill={brand ? 'brand' : 'content'}
+        icon="key"
+        title={t('recovery.title')}
+        description={t('recovery.description')}>
         <TextInput
           accessibilityLabel={t('recovery.label')}
           autoCapitalize="characters"
@@ -328,11 +406,15 @@ function RecoveryKeyUnlock({
             {t(`recovery.${failure}`)}
           </Text>
         )}
-        {button(t('recovery.unlock'), () =>
-          store.recoverWithRecoveryKey(entry),
+        {card(
+          t('recovery.unlock'),
+          () => store.recoverWithRecoveryKey(entry),
+          'accent',
         )}
-      </SettingsBlock>
-    </SettingsGroup>
+        {brand ? null : notice}
+      </TrustCard>
+      {brand ? notice : null}
+    </>
   );
 }
 
@@ -354,6 +436,7 @@ function DeviceApproval({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const card = useCardButton(store);
   const [entry, setEntry] = useState('');
   const { enrollmentRequest: request } = account;
   if (!approvesDevices(account.privateSync)) {
@@ -378,38 +461,40 @@ function DeviceApproval({
     );
   }
   return (
-    <SettingsGroup title={t('enrollment.title')}>
-      <SettingsBlock>
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {t('enrollment.description', {
-            device: account.enrollmentDevice ?? t('enrollment.device'),
-          })}
-        </Text>
-        <TextInput
-          accessibilityLabel={t('enrollment.label')}
-          autoCapitalize="characters"
-          autoComplete="off"
-          autoCorrect={false}
-          onChangeText={setEntry}
-          placeholder={t('enrollment.label')}
-          placeholderTextColor={colors.textSecondary}
-          style={[
-            styles.input,
-            { borderColor: colors.separator, color: colors.textPrimary },
-          ]}
-          value={entry}
-        />
-        {alert}
-        {button(t('enrollment.approve'), () =>
-          store.approveEnrollment(request, entry),
-        )}
-        {button(t('enrollment.decline'), () =>
-          store.declineEnrollment(request),
-        )}
-        {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
-        {button(t('enrollment.find'), store.refreshPrivateSync)}
-      </SettingsBlock>
-    </SettingsGroup>
+    <TrustCard
+      icon="laptopcomputer.and.iphone"
+      title={t('enrollment.title')}
+      description={t('enrollment.description', {
+        device: account.enrollmentDevice ?? t('enrollment.device'),
+      })}>
+      <TextInput
+        accessibilityLabel={t('enrollment.label')}
+        autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect={false}
+        onChangeText={setEntry}
+        placeholder={t('enrollment.label')}
+        placeholderTextColor={colors.textSecondary}
+        style={[
+          styles.input,
+          { borderColor: colors.separator, color: colors.textPrimary },
+        ]}
+        value={entry}
+      />
+      {alert}
+      {card(
+        t('enrollment.approve'),
+        () => store.approveEnrollment(request, entry),
+        'accent',
+      )}
+      {card(
+        t('enrollment.decline'),
+        () => store.declineEnrollment(request),
+        'destructive',
+      )}
+      {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
+      {card(t('enrollment.find'), store.refreshPrivateSync)}
+    </TrustCard>
   );
 }
 
@@ -571,7 +656,6 @@ export function AccountSettings({
   const recovery = (
     <RecoveryKeyUnlock
       account={snapshot}
-      button={button}
       failure={recoveryFailure}
       store={store}
     />
@@ -584,7 +668,6 @@ export function AccountSettings({
         ) : (
           <PrivateSync
             account={snapshot}
-            button={button}
             failure={recoveryKeyFailure}
             store={store}
           />
@@ -622,7 +705,6 @@ export function AccountSettings({
           <PrivateSync
             key={snapshot.recoveryKey ?? 'confirmed'}
             account={snapshot}
-            button={button}
             failure={recoveryKeyFailure}
             store={store}
           />

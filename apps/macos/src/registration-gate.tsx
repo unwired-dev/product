@@ -25,20 +25,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  AppState,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, AppState, ScrollView, View } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
-import { ImapSetup } from './imap-setup.tsx';
+import { Button, Notice } from './design.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -48,6 +41,8 @@ import {
   mailAssistance as deviceMailAssistance,
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
+import { TrustCard } from './onboarding.tsx';
+import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { microsoftMail, registration } from './registration.ts';
 import {
@@ -219,19 +214,16 @@ export function RegistrationGate({
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
-        <Label
-          accessibilityRole="header"
-          style={[styles.title, { color: colors.textPrimary }]}>
-          {t('locked.title')}
-        </Label>
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
-          {t('locked.description')}
-        </Label>
-        {busy ? (
-          <ActivityIndicator
-            accessibilityLabel={t('registration.connecting')}
-          />
-        ) : null}
+        <TrustCard
+          icon="lock.fill"
+          title={t('locked.title')}
+          description={t('locked.description')}>
+          {busy ? (
+            <ActivityIndicator
+              accessibilityLabel={t('registration.connecting')}
+            />
+          ) : null}
+        </TrustCard>
       </View>
     </ScrollView>
   );
@@ -384,18 +376,30 @@ function RegistrationPage({
       />
     );
   }
-  const button = (label: string, action: () => Promise<void>) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled: busy }}
+  if (snapshot.kind === 'signed-out') {
+    return <SignedOutPage store={store} />;
+  }
+  // Setup actions are design push buttons; the account's Settings groups keep their own.
+  const button = (
+    label: string,
+    action: () => Promise<void>,
+    fill?: 'accent',
+  ) => (
+    <Button
       disabled={busy}
+      fill={fill ?? 'quiet'}
+      label={label}
       onPress={() => {
         void action();
       }}
-      style={[styles.button, { borderColor: colors.separator }]}>
-      <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
-    </Pressable>
+    />
   );
+  const groupButton = settingsButton(busy);
+  // Microsoft's refusal usually means the organization has not approved Unwired Mail yet.
+  const organizationApproval =
+    snapshot.kind === 'mailbox-needed' &&
+    snapshot.reason === 'microsoft-unavailable' &&
+    snapshot.removalPending === undefined;
   return (
     <ScrollView
       contentContainerStyle={styles.scroll}
@@ -406,9 +410,17 @@ function RegistrationPage({
           style={[styles.title, { color: colors.textPrimary }]}>
           {copy.title}
         </Label>
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
-          {copy.description}
-        </Label>
+        {organizationApproval ? (
+          <Notice
+            icon="building.2"
+            iconColor={colors.statusWarning}
+            message={copy.description}
+          />
+        ) : (
+          <Label style={[styles.text, { color: colors.textSecondary }]}>
+            {copy.description}
+          </Label>
+        )}
         {copy.account === undefined ? null : (
           <Label style={[styles.text, { color: colors.textSecondary }]}>
             {copy.account}
@@ -427,23 +439,12 @@ function RegistrationPage({
           </Label>
         ) : null}
         {actions.firstMailbox ? (
-          <>
-            {button(t('registration.authorizeGmail'), () =>
-              store.addMailbox('gmail'),
-            )}
-            {button(t('registration.chooseMailbox'), () =>
-              store.addMailbox('gmail', true),
-            )}
-            {microsoft
-              ? button(t('registration.connectMicrosoft'), () =>
-                  store.addMailbox('microsoft-graph'),
-                )
-              : null}
-            <ImapSetup
-              button={button}
-              store={store}
-            />
-          </>
+          <FirstMailbox
+            button={button}
+            busy={busy}
+            microsoft={microsoft}
+            store={store}
+          />
         ) : null}
         {actions.signIn.map(({ offer, provider }) => (
           <Fragment key={`${offer}-${provider}`}>
@@ -459,19 +460,17 @@ function RegistrationPage({
         {actions.settings ? (
           <AccountSettings
             assistance={assistance}
-            button={button}
+            button={groupButton}
             microsoft={microsoft}
             store={store}
           />
         ) : null}
-        {snapshot.kind === 'signed-out' ? null : (
-          <AccountActions
-            button={button}
-            failure={removalFailure}
-            pending={snapshot.removalPending}
-            store={store}
-          />
-        )}
+        <AccountActions
+          button={groupButton}
+          failure={removalFailure}
+          pending={snapshot.removalPending}
+          store={store}
+        />
         <LanguageSelector />
       </View>
     </ScrollView>

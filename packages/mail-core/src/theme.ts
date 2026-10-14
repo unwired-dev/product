@@ -35,6 +35,9 @@ export const palette = {
     brandSeal: '#C2412A',
     brandOnSeal: '#FFFFFF',
     brandMonogram: '#15171B',
+    // Sign in with Apple follows Apple's black and white button styles.
+    appleButton: '#000000',
+    appleOnButton: '#FFFFFF',
     textPrimary: 'rgba(0, 0, 0, 0.85)',
     textSecondary: 'rgba(0, 0, 0, 0.6)',
     surfaceContent: '#FFFFFF',
@@ -66,6 +69,8 @@ export const palette = {
     brandSeal: '#C2412A',
     brandOnSeal: '#FFFFFF',
     brandMonogram: '#6A6E78',
+    appleButton: '#FFFFFF',
+    appleOnButton: '#000000',
     textPrimary: 'rgba(255, 255, 255, 0.85)',
     textSecondary: 'rgba(255, 255, 255, 0.55)',
     surfaceContent: '#1E1E1E',

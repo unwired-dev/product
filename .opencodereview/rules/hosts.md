@@ -62,6 +62,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `apps/mobile/src/registration-gate.tsx.RegistrationPage` placing scrollable
+  setup content beneath the status bar or home indicator, or retaining spacing
+  from superseded frames. Compare initial scroll position and final controls
+  with the approved phone frames and device safe-area insets; an expanded Figma
+  canvas does not waive horizontal geometry or safe-area ownership.
+
+- `imap-setup.tsx.ImapSetup` or another registration chooser replacing the
+  registration action helper with a direct provider row that ignores the store's
+  `busy` state. Preserve disabled navigation during pending account/mailbox work
+  and restore it after settlement. Exercise a held native authorization through
+  the real store and an attempted provider selection; otherwise the interface
+  opens a competing setup form while its other registration actions are disabled.
+
 - `mail-assistance.tsx.MailAssistanceSettings` wrapping a native `Switch` in a
   press handler that also saves its choice. Trace native event ownership on each
   renderer so one switch interaction produces one enablement transition; otherwise
