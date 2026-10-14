@@ -8,9 +8,17 @@ export const radius = {
   control: 6,
   row: 7,
   card: 10,
+  menu: 12,
+  alertMac: 22,
+  alertTouch: 32,
   window: 16,
   bubble: 20,
   chip: 14,
+  mailboxGroup: 22,
+  // iPhone's Move to… sheet: its top corners, search field and inset row groups.
+  sheet: 38,
+  searchField: 18,
+  insetGroup: 22,
 };
 
 export const palette = {
@@ -38,6 +46,10 @@ export const palette = {
     statusDestructive: '#D70015',
     // Glass controls of 48pt or less.
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
+    largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.08)',
+    menuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
+    scrimMac: 'rgba(0, 0, 0, 0.18)',
+    scrimTouch: 'rgba(0, 0, 0, 0.22)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
   },
@@ -64,6 +76,10 @@ export const palette = {
     statusWarning: '#FFB340',
     statusDestructive: '#FF6961',
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
+    largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',
+    menuGlassShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
+    scrimMac: 'rgba(0, 0, 0, 0.18)',
+    scrimTouch: 'rgba(0, 0, 0, 0.45)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
   },
 };

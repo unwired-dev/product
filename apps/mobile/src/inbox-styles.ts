@@ -35,8 +35,6 @@ export const styles = StyleSheet.create({
     marginLeft: 14 * scale,
     marginTop: spacing.l * scale,
   },
-  account: { ...textStyles.body, paddingVertical: 8 },
-  accountTarget: { minHeight: 44, justifyContent: 'center' },
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },
@@ -48,7 +46,12 @@ export const styles = StyleSheet.create({
     ...(ipad ? typography.ipadList.subheadline : textStyles.caption1),
     flexShrink: 1,
   },
-  list: { paddingHorizontal: ipad ? 6 * scale : spacing.l, flexGrow: 1 },
+  // Rows scroll under the floating bar.
+  list: {
+    paddingHorizontal: ipad ? 6 * scale : spacing.l,
+    paddingBottom: 72,
+    flexGrow: 1,
+  },
   listFooter: { flexGrow: 1 },
   // The 2pt focus ring sits inside the design's 10/12/18pt row insets.
   row: {
@@ -128,21 +131,4 @@ export const styles = StyleSheet.create({
   footer: { ...textStyles.footnote, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.footnote },
-  search: {
-    ...textStyles.body,
-    minHeight: 44,
-    marginHorizontal: spacing.l,
-    marginBottom: spacing.m,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    paddingHorizontal: spacing.l,
-    paddingBottom: spacing.s,
-  },
 });

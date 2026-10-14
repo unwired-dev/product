@@ -42,6 +42,7 @@ assert.deepEqual(
     'expo',
     'expo-asset',
     'expo-background-task',
+    'expo-clipboard',
     'expo-constants',
     'expo-dev-client',
     'expo-dev-launcher',

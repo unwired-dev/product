@@ -4,6 +4,7 @@ import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
+import type { TextInput } from 'react-native';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
@@ -13,6 +14,7 @@ import {
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
+  inboxChoice,
   inboxMessages,
   messageDateSections,
   profileMailboxes,
@@ -29,16 +31,18 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   SectionList,
   Pressable,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
+import type { MailboxView } from './sidebar.tsx';
 
 import {
   DraftHeading,
@@ -46,8 +50,9 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
-import { Button, Chip, Notice, SFSymbol } from './design.tsx';
-import { FolderPicker, useImapFolder } from './imap-folders.tsx';
+import { Button, Notice, SFSymbol } from './design.tsx';
+import { useImapFolder } from './imap-folders.tsx';
+import { FloatingBar } from './inbox-bar.tsx';
 import { InboxHeading } from './inbox-heading.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
@@ -101,7 +106,13 @@ interface InboxProps {
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
+  // The mailbox or folder the list shows; every mailbox of the Profile without one.
+  readonly view?: MailboxView;
+  readonly onView?: (view: MailboxView) => void;
 }
+
+const allInboxes: MailboxView = {};
+const keepView = () => undefined;
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -329,38 +340,6 @@ function ImapAuthorizationNeeded({
   );
 }
 
-// Chooses every mailbox together, or one on its own.
-function ScopePicker({
-  mailboxes,
-  scope,
-  onScope,
-}: {
-  readonly mailboxes: readonly InboxMailbox[];
-  readonly scope: string | undefined;
-  readonly onScope: (scope: string | undefined) => void;
-}) {
-  const { t } = useLocalization();
-  const choices = [
-    { id: undefined, label: t('inbox.allInboxes') },
-    ...mailboxes.map(({ id, address }) => ({ id, label: address ?? id })),
-  ];
-  return (
-    <View style={styles.scopes}>
-      {choices.map(({ id, label }) => (
-        <Chip
-          key={id ?? 'all'}
-          icon={id === undefined ? 'tray.2' : 'tray'}
-          label={label}
-          selected={id === scope}
-          onPress={() => {
-            onScope(id);
-          }}
-        />
-      ))}
-    </View>
-  );
-}
-
 // A search result's saved state, once known.
 const savedStatus = (t: Translate, saved: boolean | undefined) => {
   if (saved === undefined) {
@@ -482,8 +461,20 @@ function OnlineHeading({
 function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
-  { several, gmail }: Readonly<{ several: boolean; gmail: boolean }>,
+  {
+    several,
+    gmail,
+    waiting,
+  }: Readonly<{
+    several: boolean;
+    gmail: boolean;
+    // The chosen connection while it waits for authorization, which has no Inbox to show.
+    waiting: Readonly<{ address: string }> | undefined;
+  }>,
 ) {
+  if (waiting !== undefined) {
+    return waiting.address;
+  }
   const [only] = shown;
   if (shown.length === 1 && only?.address !== undefined) {
     return only.address;
@@ -507,12 +498,22 @@ function statusOf(
   {
     unread,
     searchOffline,
+    waiting,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
+    // The chosen connection while it waits for authorization, whose unread mail is unknown.
+    waiting: Readonly<{ provider: MailProvider }> | undefined;
   }>,
 ) {
+  if (waiting !== undefined) {
+    return waiting.provider === 'imap'
+      ? t('mailboxes.states.imap-authorization')
+      : t('mailboxes.states.authorization', {
+          provider: t(`mailProviders.${waiting.provider}`),
+        });
+  }
   if (shown.some(({ state }) => checking(state))) {
     return t('inbox.syncing');
   }
@@ -626,6 +627,8 @@ export function Inbox({
   onClose,
   onCompose,
   composing,
+  view = allInboxes,
+  onView = keepView,
 }: InboxProps) {
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
@@ -654,19 +657,20 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
-  const [chosen, setChosen] = useState<string>();
-  // A removed mailbox's view falls back to every mailbox of the Profile.
-  const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
-  const view = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
+  const insets = useSafeAreaInsets();
+  const connections = profileMailboxes(account?.mailboxes ?? [], profile);
+  // Connections waiting for provider authorization have no Inbox until it is given again.
+  const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
+    mailboxes,
+    connections,
+    view,
+  });
+  // A plain conditional of the view, so React Compiler can preserve the memo below.
+  const scope = keepsChoice ? view.mailbox : undefined;
+  const scoped = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
-  const connections = profileMailboxes(account?.mailboxes ?? [], profile);
-  // Connections waiting for provider authorization have no Inbox until it is given again.
-  const waiting =
-    scope === undefined
-      ? connections.filter(({ state }) => state === 'authorization')
-      : [];
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
@@ -674,13 +678,13 @@ export function Inbox({
   // Typing stays responsive while the list catches up with the latest query.
   const searched = useDeferredValue(query.trim());
   const inboxListed = useMemo(
-    () => inboxMessages(mailboxes, view),
-    [mailboxes, view],
+    () => inboxMessages(mailboxes, scoped),
+    [mailboxes, scoped],
   );
-  const { imap, folder, listed, failed, chooseFolder } = useImapFolder(
-    shown,
-    inboxListed,
-  );
+  const { folder, listed, failed } = useImapFolder(shown, inboxListed, {
+    view,
+    onView,
+  });
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
     () => (searched === '' ? undefined : searchMessages(listed, searched)),
@@ -691,7 +695,7 @@ export function Inbox({
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
-  const online = useGmailSearch(shown, searched, view);
+  const online = useGmailSearch(shown, searched, scoped);
   const messages = results ?? listed;
   const now = useNow();
   const dated = useMemo(
@@ -713,10 +717,15 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
-  const scopeName = scopeOf(t, shown, { several, gmail });
+  const scopeName = scopeOf(t, shown, {
+    several,
+    gmail,
+    waiting: chosenWaiting,
+  });
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
+    waiting: chosenWaiting,
   });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,
@@ -800,201 +809,186 @@ export function Inbox({
       </Text>
     );
   return (
-    <SafeAreaView
-      edges={{ top: true, bottom: true, left: true }}
+    // The floating bar rises above the software keyboard while its search field is in use. The safe
+    // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it.
+    <KeyboardAvoidingView
+      behavior="padding"
+      keyboardVerticalOffset={-insets.bottom}
       style={styles.fill}>
-      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <InboxHeading
-          account={account}
-          detail={selected !== undefined || composing !== undefined}
-          onAccount={openAccount}
-          onClose={onClose}
-          onLeave={leave}
-          search={search}
-          searchable={ready}
-          subtitle={subtitle}
-          title={title}
-        />
-        {mailboxes.length > 1 ? (
-          <ScopePicker
-            mailboxes={mailboxes}
-            onScope={setChosen}
+      <SafeAreaView
+        edges={{ top: true, bottom: true, left: true }}
+        style={styles.fill}>
+        <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+          <InboxHeading
+            account={account}
+            detail={selected !== undefined || composing !== undefined}
+            onAccount={openAccount}
+            onClose={onClose}
+            onLeave={leave}
+            search={search}
+            searchable={ready}
+            subtitle={subtitle}
+            title={title}
+          />
+          <View style={styles.notices}>
+            {failed ? (
+              <Notice
+                icon="exclamationmark.triangle"
+                iconColor={colors.statusWarning}
+                message={t('imap.foldersUnavailable')}
+                messageRole="alert"
+              />
+            ) : null}
+            {shown.map((mailbox) => (
+              <MailboxScope
+                key={mailbox.id}
+                id={mailbox.id}>
+                <MailboxStatus
+                  address={several ? mailbox.address : undefined}
+                />
+              </MailboxScope>
+            ))}
+            {waiting.map((mailbox) =>
+              mailbox.provider === 'imap' ? (
+                <ImapAuthorizationNeeded
+                  key={mailbox.id}
+                  address={mailbox.address}
+                  onRepair={() => {
+                    if (account !== undefined) {
+                      void openAccount(account.openAccount);
+                    }
+                  }}
+                />
+              ) : (
+                <AuthorizationNeeded
+                  key={mailbox.id}
+                  address={mailbox.address}
+                  provider={mailbox.provider}
+                  onAllow={async () => {
+                    await account?.authorizeMailbox(mailbox.id);
+                    await reload();
+                  }}
+                />
+              ),
+            )}
+          </View>
+          <SectionList
+            accessibilityLabel={t('inbox.messages')}
+            contentContainerStyle={styles.list}
+            sections={sections}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => {
+              if (section.key === 'outbox') {
+                return <OutboxHeading />;
+              }
+              if (section.key === 'drafts') {
+                return <DraftHeading />;
+              }
+              if (section.key === 'gmail') {
+                return (
+                  <OnlineHeading
+                    search={online}
+                    several={several}
+                  />
+                );
+              }
+              const [first] = section.data;
+              return section.key === 'saved' ||
+                first === undefined ||
+                !('message' in first) ? null : (
+                <DateDivider
+                  receivedAt={first.message.receivedAt}
+                  now={now}
+                />
+              );
+            }}
+            extraData={rows}
+            keyExtractor={(item) => {
+              if ('outbox' in item) {
+                return `outbox\n${item.outbox.id}`;
+              }
+              return 'draft' in item
+                ? `draft\n${item.draft.id}`
+                : resultKey(item);
+            }}
+            ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
+            ListFooterComponent={
+              <>
+                {results === undefined &&
+                hasNoMail({ ready, syncing, count: messages.length })
+                  ? empty
+                  : null}
+                {results === undefined && syncing ? <SkeletonRows /> : null}
+                <OnlineResults
+                  query={searched}
+                  search={online}
+                />
+                <LanguageSelector />
+                <Text style={[styles.footer, { color: colors.textSecondary }]}>
+                  {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
+                </Text>
+              </>
+            }
+            ListFooterComponentStyle={styles.listFooter}
+            renderSectionFooter={({ section }) =>
+              section.key === 'saved' && ready && results !== undefined
+                ? empty
+                : null
+            }
+            renderItem={({ item, section }) => {
+              if ('outbox' in item) {
+                return (
+                  <OutboxRow
+                    entry={item.outbox}
+                    onOpen={openDraft}
+                  />
+                );
+              }
+              return 'draft' in item ? (
+                <DraftRow
+                  draft={item.draft}
+                  onOpen={openDraft}
+                  selected={composing === item.draft.id}
+                />
+              ) : (
+                <MessageRow
+                  mailbox={several ? item.mailbox.address : undefined}
+                  message={item.message}
+                  actions={
+                    section.key === 'gmail'
+                      ? undefined
+                      : rowActions(item.mailbox, item.message)
+                  }
+                  now={now}
+                  onSelect={() => {
+                    void select({
+                      mailbox: item.mailbox.id,
+                      id: item.message.id,
+                    });
+                  }}
+                  selected={
+                    selected?.mailbox === item.mailbox.id &&
+                    selected.id === item.message.id
+                  }
+                  status={
+                    section.key === 'gmail' || results === undefined
+                      ? undefined
+                      : savedStatus(t, saved?.get(resultKey(item)))
+                  }
+                />
+              );
+            }}
+          />
+          <FloatingBar
+            search={search}
+            onCompose={onCompose}
+            onQuery={setQuery}
+            query={query}
+            ready={ready}
             scope={scope}
           />
-        ) : null}
-        <FolderPicker
-          mailbox={imap}
-          folder={folder}
-          failed={failed}
-          onFolder={chooseFolder}
-        />
-        {ready ? (
-          <TextInput
-            accessibilityLabel={t('search.label')}
-            accessibilityRole="search"
-            autoCapitalize="none"
-            autoComplete="off"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-            onChangeText={setQuery}
-            ref={search}
-            placeholder={t('search.label')}
-            placeholderTextColor={colors.textSecondary}
-            returnKeyType="search"
-            style={[
-              styles.search,
-              { borderColor: colors.separator, color: colors.textPrimary },
-            ]}
-            value={query}
-          />
-        ) : null}
-        <View style={styles.notices}>
-          {shown.map((mailbox) => (
-            <MailboxScope
-              key={mailbox.id}
-              id={mailbox.id}>
-              <MailboxStatus address={several ? mailbox.address : undefined} />
-            </MailboxScope>
-          ))}
-          {waiting.map((mailbox) =>
-            mailbox.provider === 'imap' ? (
-              <ImapAuthorizationNeeded
-                key={mailbox.id}
-                address={mailbox.address}
-                onRepair={() => {
-                  if (account !== undefined) {
-                    void openAccount(account.openAccount);
-                  }
-                }}
-              />
-            ) : (
-              <AuthorizationNeeded
-                key={mailbox.id}
-                address={mailbox.address}
-                provider={mailbox.provider}
-                onAllow={async () => {
-                  await account?.authorizeMailbox(mailbox.id);
-                  await reload();
-                }}
-              />
-            ),
-          )}
         </View>
-        <SectionList
-          accessibilityLabel={t('inbox.messages')}
-          contentContainerStyle={styles.list}
-          sections={sections}
-          stickySectionHeadersEnabled={false}
-          renderSectionHeader={({ section }) => {
-            if (section.key === 'outbox') {
-              return <OutboxHeading />;
-            }
-            if (section.key === 'drafts') {
-              return <DraftHeading />;
-            }
-            if (section.key === 'gmail') {
-              return (
-                <OnlineHeading
-                  search={online}
-                  several={several}
-                />
-              );
-            }
-            const [first] = section.data;
-            return section.key === 'saved' ||
-              first === undefined ||
-              !('message' in first) ? null : (
-              <DateDivider
-                receivedAt={first.message.receivedAt}
-                now={now}
-              />
-            );
-          }}
-          extraData={rows}
-          keyExtractor={(item) => {
-            if ('outbox' in item) {
-              return `outbox\n${item.outbox.id}`;
-            }
-            return 'draft' in item
-              ? `draft\n${item.draft.id}`
-              : resultKey(item);
-          }}
-          ListHeaderComponent={
-            onCompose === undefined ? null : (
-              <DraftList
-                onCompose={onCompose}
-                scope={scope}
-              />
-            )
-          }
-          ListFooterComponent={
-            <>
-              {results === undefined &&
-              hasNoMail({ ready, syncing, count: messages.length })
-                ? empty
-                : null}
-              {results === undefined && syncing ? <SkeletonRows /> : null}
-              <OnlineResults
-                query={searched}
-                search={online}
-              />
-            </>
-          }
-          ListFooterComponentStyle={styles.listFooter}
-          renderSectionFooter={({ section }) =>
-            section.key === 'saved' && ready && results !== undefined
-              ? empty
-              : null
-          }
-          renderItem={({ item, section }) => {
-            if ('outbox' in item) {
-              return (
-                <OutboxRow
-                  entry={item.outbox}
-                  onOpen={openDraft}
-                />
-              );
-            }
-            return 'draft' in item ? (
-              <DraftRow
-                draft={item.draft}
-                onOpen={openDraft}
-                selected={composing === item.draft.id}
-              />
-            ) : (
-              <MessageRow
-                mailbox={several ? item.mailbox.address : undefined}
-                message={item.message}
-                actions={
-                  section.key === 'gmail'
-                    ? undefined
-                    : rowActions(item.mailbox, item.message)
-                }
-                now={now}
-                onSelect={() => {
-                  void select({
-                    mailbox: item.mailbox.id,
-                    id: item.message.id,
-                  });
-                }}
-                selected={
-                  selected?.mailbox === item.mailbox.id &&
-                  selected.id === item.message.id
-                }
-                status={
-                  section.key === 'gmail' || results === undefined
-                    ? undefined
-                    : savedStatus(t, saved?.get(resultKey(item)))
-                }
-              />
-            );
-          }}
-        />
-        <LanguageSelector />
-        <Text style={[styles.footer, { color: colors.textSecondary }]}>
-          {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
-        </Text>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }

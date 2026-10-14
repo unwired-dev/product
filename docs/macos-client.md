@@ -32,14 +32,22 @@ UTF-8 encoding only, not a general message-charset decoder.
 
 The production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
-reader, and its Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
+autolinking. The host autolinks `@react-native-clipboard/clipboard` for Copy link
+and `react-native-webview`, patched for the isolated message reader. Keep Expo
+Clipboard in the mobile host; the Mac bundle excludes Expo packages.
+The Mac Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
 reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project also compiles `native/design`, the first-party SF Symbol and
 Liquid Glass views shared with the iPhone/iPad host.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
+
+Each window has three columns: a floating Liquid Glass Mailboxes sidebar
+(**All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
+**Account**), the message list with its floating search and **New Message** bar,
+and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
+toggles the sidebar; a window at most 900pt wide starts without it.
 
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
@@ -72,6 +80,12 @@ state, support keyboard focus, and show a focus border. React Native macOS 0.81.
 not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
 its label, or make it selectable so it becomes a native text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
+
+Link confirmations move keyboard focus to their first choice and cycle Tab and
+Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
+explicitly restore focus to the originating link because that control is not
+tracked. Focus return, the complete native keyboard journey and VoiceOver behavior
+remain accessibility qualification gaps.
 
 ## Build and run
 

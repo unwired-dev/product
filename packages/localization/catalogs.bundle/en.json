@@ -53,6 +53,11 @@
     "unavailableLabel": "Message unavailable. Choose another message from the Inbox.",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
+    "count_one": "{{count}} Message",
+    "count_other": "{{count}} Messages",
+    "back": "Back",
+    "backUnread": "Back, {{count}} unread",
+    "more": "More",
     "received": "{{date}} UTC",
     "labels": "Labels: {{labels}}",
     "reply": "Reply",
@@ -81,6 +86,8 @@
     "minimize": "Minimize",
     "nextWindow": "Next Window",
     "windowTitle": "Inbox {{number}}",
+    "showSidebar": "Show Sidebar",
+    "hideSidebar": "Hide Sidebar",
     "view": "View",
     "commands": "Commands…"
   },
@@ -201,7 +208,10 @@
     "receiveOnly": "Receive only. Enter the password again to set up sending.",
     "addImap": "Add an IMAP mailbox",
     "enterPassword": "Enter the password for {{address}} again",
-    "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server."
+    "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server.",
+    "favorites": "Favorites",
+    "unread_one": "{{count}} unread",
+    "unread_other": "{{count}} unread"
   },
   "remoteContent": {
     "title": "Remote images",
@@ -331,6 +341,7 @@
     "loadImages": "Load images",
     "confirmLink": "Open this link in your browser?",
     "cautionLink": "Check this link before opening it:",
+    "cautionTitle": "This link may not be what it seems",
     "openLink": "Open link",
     "copyLink": "Copy link",
     "proceed": "Proceed",
@@ -485,7 +496,8 @@
       "authentication": "Allow access again to search this mailbox.",
       "failed": "The search did not finish. Try again."
     },
-    "foldersLimited": "Some folders or older matches were not searched. The search covers the newest 50 matches in each of up to 50 folders including the Inbox, without Trash and Spam."
+    "foldersLimited": "Some folders or older matches were not searched. The search covers the newest 50 matches in each of up to 50 folders including the Inbox, without Trash and Spam.",
+    "placeholder": "Search"
   },
   "imapActions": {
     "uncertain": "The mail server has not confirmed where “{{subject}}” moved. Check its folders, then discard this change to continue. It will not be sent again."
@@ -566,6 +578,9 @@
     "noFolders": "This Microsoft mailbox has no folders of its own yet.",
     "foldersLimited": "Showing the first {{count}} folders.",
     "moveTo": "Move to {{label}}",
+    "moveToTitle": "Move to…",
+    "connection": "{{provider}} · {{address}}",
+    "noMatchingFolders": "No folders match your search.",
     "undo": "Undo",
     "saving": "Saving the change on this device…",
     "retryChange": "Retry change",

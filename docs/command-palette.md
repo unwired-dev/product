@@ -20,8 +20,9 @@ results never appear in the palette. The vocabulary lives in the
 - **App commands:** New Message (while a mailbox can send) and Search Mail,
   which focuses the Inbox search field. On iPhone and iPad, where a reader or
   composer can cover the Inbox, Search Mail first leaves the open reader or
-  composer through the same checks as closing them. On the Mac it first
-  collapses an expanded composer, keeping its Draft open.
+  composer through the same checks as closing them. Search Mail and Go To Inbox
+  also bring the message list forward where Mailboxes covers it. On the Mac they
+  first collapse an expanded composer, keeping its Draft open.
 - **Go To:** Inbox, which leaves the reader or composer through the same
   checks as closing them, and Account, while a Product Account is signed in.
   The palette stays available on the Account page, the app's settings, where
@@ -70,8 +71,11 @@ results never appear in the palette. The vocabulary lives in the
   picker; the footer names these keys. The bar shows the Command-P shortcut.
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
+  While a link confirmation is open, dismiss it before opening the palette in
+  that window; command entry in other windows remains available.
 - **iPhone:** a downward swipe that starts on a screen header (the Inbox heading,
-  the reader's subject line, the composer's top bar or the Account page's title,
+  the Mailboxes title, the reader's subject line, the composer's top bar or the
+  Account page's title,
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
   it as usual. There is no visible entry button. A one-time hint under the
   Inbox heading says Swipe down on the header for commands, and goes away once
@@ -86,8 +90,7 @@ results never appear in the palette. The vocabulary lives in the
   top of a reader, Thread or composer that is loading, cannot open its storage
   or has no message or Draft to show, so one is on screen in every size class,
   including compact layouts that show only the reader or composer; tapping it
-  or the header swipe opens the palette. Its 36pt glass pill sits inside a 44pt-tall touch target.
-  Command-P from a hardware keyboard is
+  or the header swipe opens the palette. Command-P from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen
@@ -105,17 +108,18 @@ results never appear in the palette. The vocabulary lives in the
 
 Component tests cover opening from each entry, including the Thread reader,
 the fixed order, fuzzy narrowing, running Archive and Move to… on the open
-message with Undo, the disabled reasons, Search Mail leaving the reader, the
-Account page's entry and its way back to the Inbox, Command-P opening the Mac
-palette only while its window shows the bar, an open palette leaving with its
+message with Undo, the disabled reasons, Search Mail leaving the reader and
+bringing the list forward from Mailboxes, New Message following the floating
+bar's button, the Account page's entry and its way back to the Inbox, Command-P
+opening the Mac palette only while its window shows the bar, an open palette leaving with its
 screen when registration replaces it, Back, Escape and the Mac's outside click,
 and a target that disappears after opening.
 From the root:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/commands.test.ts
-mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx
-mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx
+mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx test/profile-routing.test.tsx test/composer.test.tsx
+mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx test/composer.test.tsx
 ```
 
 The Command-P menu item, the saved hint preference and the header swipe are

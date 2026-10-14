@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
@@ -63,7 +64,9 @@ final class InboxTests: XCTestCase {
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
-    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
+    // an archive and Undo.
+    app.buttons["More"].tap()
     app.buttons["Star"].tap()
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
@@ -86,7 +89,13 @@ final class InboxTests: XCTestCase {
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
-    app.buttons["Account"].tap()
+    // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
+    let account = app.buttons["Account"]
+    if !account.waitForExistence(timeout: 5) || !account.isHittable {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
     XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
@@ -153,6 +162,26 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // A no-match search shrinks the Move sheet; its field and explanation must stay above the keyboard.
+      app.buttons["Folders"].tap()
+      XCTAssertTrue(app.staticTexts["Move to…"].waitForExistence(timeout: 10))
+      let search = app.textFields["Search"]
+      search.tap()
+      let keyboard = app.keyboards.firstMatch
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      for character in "missing folder" { search.typeText(String(character)) }
+      let noMatch = text("No folders match your search.", in: app)
+      XCTAssertTrue(noMatch.waitForExistence(timeout: 5))
+      XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Move sheet no-match search above the keyboard"
+      sheet.lifetime = .keepAlways
+      add(sheet)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+      XCTAssertFalse(app.staticTexts["Move to…"].exists)
+    }
     app.terminate()
     app.launch()
     // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
@@ -622,13 +651,16 @@ final class InboxTests: XCTestCase {
       NSPredicate(format: "label CONTAINS %@", "Garden plans for spring")
     ).firstMatch
     // On iPhone the closed composer leaves the reader route; go back to the Inbox.
-    let back = app.buttons["Back"]
+    let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
     if !message.waitForExistence(timeout: 5), back.exists {
       back.tap()
     }
     XCTAssertTrue(message.waitForExistence(timeout: 15))
     message.tap()
     app.buttons["Reply"].tap()
+    if app.buttons["Reply All"].waitForExistence(timeout: 2) {
+      app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
+    }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.
     let suggest = app.buttons["Suggest a reply to the quoted message"]
@@ -682,6 +714,19 @@ final class InboxTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.label.hasPrefix("Unread."))
+    // The floating search field rises above the software keyboard while it is in use.
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.tap()
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    let aboveKeyboard = NSPredicate { _, _ in search.frame.maxY <= keyboard.frame.minY }
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
+      .completed)
+    search.typeText("\n")
+    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
@@ -701,7 +746,7 @@ final class InboxTests: XCTestCase {
     let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
       .firstMatch
     if !oliver.exists || !oliver.isHittable {
-      let back = app.navigationBars.buttons.firstMatch
+      let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
       XCTAssertTrue(back.exists)
       back.tap()
     }

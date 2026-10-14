@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import {
   CommandInput,
@@ -51,8 +51,9 @@ export function InboxHeading({
           inboxCommands(t, {
             search: searchable
               ? async () => {
-                  if (detail && onClose !== undefined) {
-                    if (!(await onLeave())) {
+                  // Closing also brings the list forward when Mailboxes covers it on iPhone.
+                  if (onClose !== undefined) {
+                    if (detail && !(await onLeave())) {
                       return;
                     }
                     onClose();
@@ -97,19 +98,6 @@ export function InboxHeading({
               </Text>
             </View>
           </View>
-          {account === undefined ? null : (
-            <Pressable
-              accessibilityLabel={t('inbox.account')}
-              accessibilityRole="button"
-              style={styles.accountTarget}
-              onPress={() => {
-                void onAccount(account.openAccount);
-              }}>
-              <Text style={[styles.account, { color: colors.accentInk }]}>
-                {t('inbox.account')}
-              </Text>
-            </Pressable>
-          )}
         </View>
       </View>
       <PaletteHint />

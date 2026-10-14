@@ -186,14 +186,13 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.35 },
   detail: { ...textStyles.footnote },
   empty: { ...textStyles.subheadline, padding: spacing.l },
-  pillTarget: { minHeight: 44, justifyContent: 'center' },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: spacing.m,
-    borderRadius: 18,
+    borderRadius: 22,
     borderCurve: 'continuous',
   },
   pillText: { ...textStyles.subheadline },
@@ -608,17 +607,15 @@ export function CommandInput({
       accessibilityLabel={t('commands.openPalette')}
       accessibilityRole="button"
       onPress={open}
-      style={[styles.pillTarget, style]}>
-      <View style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-        <Glass cornerRadius={18} />
-        <SFSymbol
-          name="command"
-          color={colors.textSecondary}
-        />
-        <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-          {t('commands.open')}
-        </Text>
-      </View>
+      style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
+      <Glass cornerRadius={22} />
+      <SFSymbol
+        name="command"
+        color={colors.textSecondary}
+      />
+      <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+        {t('commands.open')}
+      </Text>
     </Pressable>
   );
 }

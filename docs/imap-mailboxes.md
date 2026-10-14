@@ -155,9 +155,12 @@ minutes, so a refused password or a repaired connection resumes waiting; a serve
 without IDLE leaves the mailbox to polling. Waiting for IDLE does not block reading
 or organizing mail.
 
-The unified Inbox lists each IMAP connection's Inbox folder. Choosing the connection on
-its own shows its folders; each Mac window chooses its folder independently. A folder
+The unified Inbox lists each IMAP connection's Inbox folder. The Mailboxes sidebar
+lists the connection's selectable folders under it; choosing one shows that folder, and
+each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
+The failed read also marks that folder's sidebar row, including after another mailbox
+is selected and when the folder has no cached messages.
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache

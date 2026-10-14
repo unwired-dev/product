@@ -13,7 +13,11 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { styles } from './message-body-styles.ts';
-import { LinkConfirmationContext, Presentation } from './message-body.tsx';
+import {
+  LinkConfirmationContext,
+  Presentation,
+  withoutLinkFrom,
+} from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
@@ -58,9 +62,9 @@ export function ImapMessageBody({
       return undefined;
     }
     return () => {
-      confirm?.(undefined);
+      confirm?.(withoutLinkFrom(inbox, id));
     };
-  }, [body, confirm]);
+  }, [body, confirm, inbox, id]);
   if (body === undefined || body.kind === 'loading') {
     return (
       <ActivityIndicator

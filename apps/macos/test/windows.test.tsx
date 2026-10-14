@@ -1,4 +1,4 @@
-import type { AppStateStatus } from 'react-native';
+import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
@@ -25,7 +25,14 @@ import {
   within,
   waitFor,
 } from '@testing-library/react-native';
-import { AccessibilityInfo, AppState, ScrollView, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  DeviceEventEmitter,
+  ScrollView,
+  TurboModuleRegistry,
+  View,
+} from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
@@ -58,6 +65,16 @@ const showMailboxes = (list: typeof mailboxes) => {
     'mailboxes',
     list,
   );
+};
+
+// Substitute only the native menu boundary; other native lookups keep their host behavior.
+const commandModule = (menu: TurboModule) => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  return jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? menu : get(name),
+    );
 };
 
 const maya = 'Unread. Maya Chen. A little more room to think';
@@ -253,6 +270,32 @@ describe('mac window selection with the shared mock mailbox', () => {
       }
     },
   );
+
+  it('hides the Mailboxes sidebar in a narrow window until its toggle shows it', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    const window = app.getByTestId('inbox-window-first');
+    await expect(
+      app.findByRole('button', { name: 'All inboxes' }),
+    ).resolves.toBeVisible();
+    await fireEvent(window, 'layout', {
+      nativeEvent: { layout: { width: 900 } },
+    });
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+    expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
+    // The toggle's choice outlives later resizing.
+    await fireEvent(window, 'layout', {
+      nativeEvent: { layout: { width: 1280 } },
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+  });
 
   it('shows saved search matches with the default row preview and result count', async () => {
     expect.hasAssertions();
@@ -571,6 +614,73 @@ function holdingListing(
 }
 
 describe('mac windows over a connected Gmail mailbox', () => {
+  it('keeps Command-P from opening behind a link confirmation in its window', async () => {
+    expect.hasAssertions();
+    const menu: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        saveFocus: ReturnType<typeof jest.fn>;
+        restoreFocus: () => void;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      saveFocus: jest.fn(),
+      restoreFocus: () => undefined,
+    };
+    const module = commandModule(menu);
+    try {
+      const gmail = createSyntheticGmail();
+      gmail.deliver({
+        subject: 'Garden plan',
+        content: {
+          html: '<a href="https://example.invalid/plan">the plan</a>',
+        },
+      });
+      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      const app = await render(
+        <Windows
+          first
+          second
+        />,
+      );
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await fireEvent.press(
+        await first.findByRole('button', { name: /Garden plan/u }),
+      );
+      await fireEvent.press(
+        await first.findByRole('link', { name: 'Open link: the plan' }),
+      );
+      await act(() => {
+        DeviceEventEmitter.emit('openCommandPalette', {
+          window: 'inbox-window-first',
+        });
+      });
+      expect(
+        first.queryByPlaceholderText('Type a command', {
+          includeHiddenElements: true,
+        }),
+      ).toBeNull();
+      expect(menu.saveFocus).not.toHaveBeenCalled();
+      await act(() => {
+        DeviceEventEmitter.emit('openCommandPalette', {
+          window: 'inbox-window-second',
+        });
+      });
+      expect(second.getByPlaceholderText('Type a command')).toBeVisible();
+      await fireEvent.press(first.getByRole('button', { name: 'Cancel' }));
+      await act(() => {
+        DeviceEventEmitter.emit('openCommandPalette', {
+          window: 'inbox-window-first',
+        });
+      });
+      expect(first.getByPlaceholderText('Type a command')).toBeVisible();
+    } finally {
+      module.mockRestore();
+    }
+  });
+
   it('keeps confirmations window-local and rejects queued links after replacing a message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -605,8 +715,27 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(
       await first.findByRole('link', { name: 'Open link: the plan' }),
     );
-    expect(first.getByText('https://example.invalid/plan')).toBeVisible();
-    expect(second.queryByText('https://example.invalid/plan')).toBeNull();
+    expect({
+      firstDestination:
+        first.queryByText('https://example.invalid/plan') !== null,
+      secondDestination: second.queryByText('https://example.invalid/plan'),
+      backgroundRow: first.queryByRole('button', {
+        name: /Not downloaded yet/u,
+      }),
+    }).toStrictEqual({
+      firstDestination: true,
+      secondDestination: null,
+      backgroundRow: null,
+    });
+    await fireEvent(first.getByRole('button', { name: 'Cancel' }), 'keyDown', {
+      nativeEvent: { key: 'Escape' },
+    });
+    expect(
+      first.getByRole('button', { name: /Not downloaded yet/u }),
+    ).toBeVisible();
+    await fireEvent.press(
+      first.getByRole('link', { name: 'Open link: the plan' }),
+    );
     await fireEvent.press(
       await second.findByRole('button', { name: /Other window/u }),
     );
@@ -614,7 +743,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await second.findByRole('link', { name: 'Open link: other plan' }),
     );
     await fireEvent.press(
-      first.getByRole('button', { name: /Not downloaded yet/u }),
+      first.getByRole('button', {
+        name: /Not downloaded yet/u,
+        includeHiddenElements: true,
+      }),
     );
     await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
     await act(() => {

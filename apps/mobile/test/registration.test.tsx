@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import type {
   NativeRegistration,
   Registration,
@@ -36,17 +38,20 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
 import { AppState, Pressable, Text } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -111,11 +116,29 @@ function ConnectedInbox() {
   }, [listed]);
   return (
     <InboxProvider mailboxes={mailboxes}>
-      <Inbox
+      <Shell
         onSelect={() => undefined}
         selected={undefined}
       />
     </InboxProvider>
+  );
+}
+
+// The Mailboxes column beside the message list, as the app's layout composes them.
+function Shell(props: Omit<Parameters<typeof Inbox>[0], 'view' | 'onView'>) {
+  const [view, setView] = useState<MailboxView>({});
+  return (
+    <>
+      <Mailboxes
+        view={view}
+        onView={setView}
+      />
+      <Inbox
+        {...props}
+        onView={setView}
+        view={view}
+      />
+    </>
   );
 }
 
@@ -219,7 +242,7 @@ describe('product registration', () => {
           store={store}
           preview={false}>
           <InboxProvider mailboxes={mailboxes}>
-            <Inbox
+            <Shell
               onSelect={() => undefined}
               selected={undefined}
             />
@@ -230,7 +253,11 @@ describe('product registration', () => {
         screen.findByText('Saved IMAP message'),
       ).resolves.toBeVisible();
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Archive. In alex@example.invalid',
+          }),
+        );
       });
       await expect(
         screen.findByText('Private archived message'),
@@ -348,7 +375,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -357,9 +384,15 @@ describe('product registration', () => {
     );
     // A folder with the inbox role keeps its own name beside the reserved INBOX.
     await expect(
-      screen.findByRole('button', { name: 'Primary' }),
+      screen.findByRole('button', {
+        name: 'Primary. In alex@icloud.example.invalid',
+      }),
     ).resolves.toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Inbox' })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', {
+        name: 'Inbox. In alex@icloud.example.invalid',
+      }),
+    ).toHaveLength(1);
     await openAccount();
     await act(async () => {
       await fireEvent.press(
@@ -377,13 +410,15 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
-  it('warns when a cached folder cannot be refreshed and falls back to the Inbox once the folder is gone', async () => {
+  it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Saved IMAP message' });
     imap.addFolder('Archive');
-    imap.deliver('Archive', { subject: 'Private archived message' });
+    imap.addFolder('2026');
+    imap.addFolder('Archive\n2026');
+    imap.deliver('Archive\n2026', { subject: 'Private archived message' });
     const session = createMockRegistrationSession('registration-success');
     const connection = 'imap-connection';
     const connected = {
@@ -418,7 +453,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -427,24 +462,96 @@ describe('product registration', () => {
     );
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: 'Archive' }),
+        await screen.findByRole('button', {
+          name: 'Archive\n2026. In alex@example.invalid',
+        }),
       );
     });
     await expect(
       screen.findByText('Private archived message'),
     ).resolves.toBeVisible();
+    // With the sidebar hidden on iPhone, the list heading names the chosen folder.
+    expect(screen.getByRole('header', { name: 'Archive\n2026' })).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
+    const [mailbox] = mailboxes.getSnapshot();
+    assert.ok(mailbox);
+    assert.ok('openFolder' in mailbox.inbox);
+    const { inbox } = mailbox;
+    const beforeFolderFailure = inbox.getSnapshot();
+    imap.server.failure = 'offline';
+    // A folder update must reach the sidebar even when its Inbox snapshot is unchanged.
+    await act(async () => {
+      await inbox.openFolder('Archive\n2026');
+    });
+    expect(inbox.getSnapshot()).toBe(beforeFolderFailure);
+    expect(
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    ).toBe(
+      'Folders could not be listed. Try again when the mail server can be reached.',
+    );
     // An unreachable server keeps the cached folder visible and says it could not be refreshed.
     imap.server.failure = 'offline';
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive\n2026. In alex@example.invalid',
+        }),
+      );
     });
     expect(screen.getByText('Private archived message')).toBeVisible();
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Folders could not be listed. Try again when the mail server can be reached.',
-    );
+    const unlisted =
+      'Folders could not be listed. Try again when the mail server can be reached.';
+    expect(screen.getByRole('alert')).toHaveTextContent(unlisted);
+    // The failed folder keeps its warning in the sidebar after the person moves to the Inbox.
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
+    expect([
+      screen.queryByRole('alert'),
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+      screen.getByRole('button', { name: 'Archive. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+      screen.getByRole('button', { name: '2026. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+    ]).toStrictEqual([null, unlisted, undefined, undefined]);
+    // A first read that fails has no cached rows, but its warning must survive an Inbox reload.
+    await act(async () => {
+      await inbox.openFolder('2026');
+      await mailboxes.load();
+    });
+    expect(
+      screen.getByRole('button', { name: '2026. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+    ).toBe(unlisted);
+    // A successful read clears that folder's warning without hiding its cached mail.
+    imap.server.failure = undefined;
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive\n2026. In alex@example.invalid',
+        }),
+      );
+    });
+    expect([
+      screen.queryByRole('alert'),
+      screen.getByRole('button', {
+        name: 'Archive\n2026. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    ]).toStrictEqual([null, undefined]);
+    expect(screen.getByText('Private archived message')).toBeVisible();
     // A folder the refreshed listing no longer offers is not shown from its stale cache.
     imap.server.failure = undefined;
-    imap.removeFolder('Archive');
+    imap.removeFolder('Archive\n2026');
     await act(async () => {
       await mailboxes.load();
     });
@@ -453,9 +560,9 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.queryByText('Private archived message')).toBeNull();
     // Recreating that name does not restore a discarded choice or expose the old cached rows.
-    imap.addFolder('Archive');
-    imap.renumber('Archive');
-    imap.deliver('Archive', { subject: 'New archived message' });
+    imap.addFolder('Archive\n2026');
+    imap.renumber('Archive\n2026');
+    imap.deliver('Archive\n2026', { subject: 'New archived message' });
     await act(async () => {
       await mailboxes.load();
     });
@@ -463,7 +570,11 @@ describe('product registration', () => {
     expect(screen.queryByText('Private archived message')).toBeNull();
     expect(screen.queryByText('New archived message')).toBeNull();
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Archive\n2026. In alex@example.invalid',
+        }),
+      );
     });
     await expect(
       screen.findByText('New archived message'),
@@ -514,7 +625,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onClose={() => {
               setSelected(undefined);
             }}
@@ -549,6 +660,7 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
+    await press('More');
     await press('Mark as read');
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
@@ -576,9 +688,19 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders.
+    // Move to lists the mailbox's other folders. On iPhone it is a sheet: the current folder is
+    // checked and cannot be chosen again, and a search narrows the rest.
     await press(/Team lunch/u);
     await press('Folders');
+    const sheet = within(screen.getByTestId('move-sheet'));
+    expect(sheet.getByRole('header', { name: 'Move to…' })).toBeVisible();
+    expect(
+      sheet.getByRole('button', { name: 'Inbox', selected: true }),
+    ).toBeDisabled();
+    await act(async () => {
+      await fireEvent.changeText(sheet.getByLabelText('Search'), 'proj');
+    });
+    expect(sheet.queryByRole('button', { name: 'Inbox' })).toBeNull();
     imap.server.loseReply = true;
     await press('Move to Projects');
     await waitFor(() => {
@@ -622,12 +744,24 @@ describe('product registration', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     await createGmailInbox(gmail.native).load();
+    const other = createSyntheticGmail({
+      address: 'other@example.invalid',
+      messages: 0,
+    });
     const session = createMockRegistrationSession('registration-success');
     const connected = {
       kind: 'connected',
       productAccountId: 'synthetic-product-account',
       signInProvider: 'google',
-      mailboxes: connectedTo('alex@example.invalid'),
+      mailboxes: JSON.stringify(
+        (['alex@example.invalid', 'other@example.invalid'] as const).map(
+          (address) => ({
+            id: syntheticMailboxes[address],
+            address,
+            state: 'connected',
+          }),
+        ),
+      ),
       privateSync: 'ready',
     } as const;
     let snapshot: unknown = { ...connected, kind: 'cached' };
@@ -641,13 +775,14 @@ describe('product registration', () => {
     });
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: { ...gmail.native, openMailbox: () => openMailbox() } },
+      [syntheticMailboxes['other@example.invalid']]: other,
     });
     await render(
       <RegistrationGate
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -657,11 +792,26 @@ describe('product registration', () => {
     await expect(
       screen.findByText('Synthetic message 1'),
     ).resolves.toBeVisible();
-    expect(
-      screen.getByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
-    ).toBeVisible();
+    const unreachable =
+      'Gmail could not be reached. Showing mail saved on this device.';
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
+      );
+    });
+    // The unselected mailbox still explains its problem beside its Inbox row.
+    expect([
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
+        .props.accessibilityState?.selected,
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
+        .props.accessibilityValue?.text,
+      screen.queryByText(/Gmail could not be reached/u),
+    ]).toStrictEqual([false, unreachable, null]);
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      );
+    });
     await openAccount();
     expect(
       screen.getByRole('header', { name: 'Saved Gmail Inbox' }),
@@ -678,7 +828,12 @@ describe('product registration', () => {
     await expect(
       screen.findByText('After verification'),
     ).resolves.toBeVisible();
-    expect(store.getSnapshot().snapshot).toStrictEqual(connected);
+    expect({
+      snapshot: store.getSnapshot().snapshot,
+      problem: screen.getByRole('button', {
+        name: 'Inbox. In alex@example.invalid',
+      }).props.accessibilityValue?.text,
+    }).toStrictEqual({ snapshot: connected, problem: '2 unread' });
   });
 
   it('waits for registration verification before loading Gmail on activation', async () => {
@@ -713,7 +868,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -906,7 +1061,7 @@ describe('product registration', () => {
         microsoft
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -1028,7 +1183,7 @@ describe('product registration', () => {
         store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={() => undefined}
             selected={undefined}
           />
@@ -1071,9 +1226,9 @@ describe('product registration', () => {
       'Unread. Maya Chen. Only for Alex. In alex@example.invalid',
       'Unread. Maya Chen. Only for Other. In other@example.invalid',
     ]);
-    await press('other@example.invalid');
+    await press('Inbox. In other@example.invalid');
     expect(
-      screen.getByRole('button', { name: 'other@example.invalid' }),
+      screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
     ).toBeSelected();
     expect(screen.queryByText('Only for Alex')).toBeNull();
     expect(screen.getByText('Only for Other')).toBeVisible();
@@ -1089,8 +1244,34 @@ describe('product registration', () => {
         'alex@example.invalid: Gmail needs your permission again to show new mail.',
       ),
     ).toBeVisible();
+    // The sidebar keeps the connection listed with its problem beside it, and offers the grant.
+    expect(
+      screen.getByRole('button', {
+        name: 'Allow Gmail access for alex@example.invalid',
+      }),
+    ).toBeVisible();
+    const alexRow = () =>
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' });
+    expect(alexRow()).toHaveAccessibilityValue({
+      text: 'Gmail needs your permission again',
+    });
+    await press('Inbox. In alex@example.invalid');
+    await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
+    expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
+    // A chosen mailbox stays chosen while its grant lapses, so nothing else is shown or sent from.
+    await press('Inbox. In alex@example.invalid');
+    session.expire('alex@example.invalid');
+    await act(store.resume);
+    expect([
+      alexRow().props.accessibilityState?.selected,
+      screen.getByRole('button', { name: 'All inboxes' }).props
+        .accessibilityState?.selected,
+      screen.queryByText('Only for Other'),
+    ]).toStrictEqual([true, false, null]);
     await press('Allow Gmail access for alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
+    expect(alexRow().props.accessibilityState?.selected).toBe(true);
+    await press('All inboxes');
 
     // Removal asks first, then removes only that mailbox's mail from this device.
     await openAccount();
@@ -1179,7 +1360,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={list}>
-          <Inbox
+          <Shell
             onSelect={(selection) => {
               opened.push(selection);
               setSelected(selection);
@@ -1310,7 +1491,7 @@ describe('product registration', () => {
 
     // One mailbox's view searches only its own mail.
     await search('maya');
-    await press('alex@example.invalid');
+    await press('Inbox. In alex@example.invalid');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
         'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
@@ -1411,7 +1592,7 @@ describe('product registration', () => {
       const [selected, setSelected] = useState<Selection>();
       return (
         <InboxProvider mailboxes={mailboxes}>
-          <Inbox
+          <Shell
             onSelect={setSelected}
             selected={selected}
           />
@@ -1481,7 +1662,7 @@ describe('product registration', () => {
     expect(rows()[0]).toMatch(/^Unread\. Maya Chen\. Studio review\./u);
 
     // Changing to one mailbox and back discards the online answer even with the same query.
-    await press('alex@example.invalid');
+    await press('Inbox. In alex@example.invalid');
     await press('Search mail servers for “studio”');
     await waitFor(() => {
       expect(rows()).toHaveLength(3);

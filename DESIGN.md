@@ -116,6 +116,7 @@ rounded:
   card: '10px'
   bubble: '20px'
   window: '16px'
+  mailbox-group: '22px'
 spacing:
   xs: '4px'
   s: '8px'
@@ -415,6 +416,7 @@ content.
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
+- iPhone Mailboxes uses 22pt rounded groups of 52pt rows, as shown in the Mailboxes frames.
 
 ## Components
 

@@ -26,11 +26,13 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AppState, View } from 'react-native';
+import { AppState, Dimensions, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -41,6 +43,7 @@ import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
 // Allow cold component rendering even when a focused run skips the first test.
@@ -51,6 +54,11 @@ const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -132,9 +140,10 @@ function scriptedDraftAssistance() {
   return { native, asked, cancelled };
 }
 
-// Capture queued native input at the same composite-fiber boundary used by fireEvent.
+// Capture queued native input at the same composite-fiber boundary used by fireEvent. With the
+// compact Reply picker open, its choice shares the toolbar button's label and renders last.
 const queuedPress = (label: string, event = 'onPress') => {
-  let fiber = screen.getByLabelText(label).unstable_fiber;
+  let fiber = screen.getAllByLabelText(label).at(-1)?.unstable_fiber ?? null;
   while (fiber !== null) {
     const handler = fiber.memoizedProps?.[event];
     if (typeof handler === 'function') {
@@ -146,6 +155,16 @@ const queuedPress = (label: string, event = 'onPress') => {
   }
   throw new Error('Expected a rendered input handler');
 };
+
+// A persistent reader notice must scroll with content, outside the fixed toolbar.
+function isScrollable(
+  element: ReturnType<typeof screen.getByText> | null,
+): boolean {
+  return (
+    element !== null &&
+    (element.props.onScroll !== undefined || isScrollable(element.parent))
+  );
+}
 
 const ignore = () => undefined;
 
@@ -213,6 +232,7 @@ function App({
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
   const [selected, setSelected] = useState<Selection>();
+  const [view, setView] = useState<MailboxView>({});
   return (
     <AccountContext
       value={{
@@ -225,6 +245,10 @@ function App({
         drafts={drafts}
         mailboxes={mailboxes}>
         <ProfileScope profile={profile}>
+          <Mailboxes
+            view={view}
+            onView={setView}
+          />
           <Inbox
             composing={composing}
             onCompose={(id) => {
@@ -232,7 +256,9 @@ function App({
               onCompose(id);
             }}
             onSelect={setSelected}
+            onView={setView}
             selected={selected}
+            view={view}
           />
           {composing === undefined ? null : (
             <Composer
@@ -259,6 +285,17 @@ const press = async (name: string) => {
   });
 };
 
+// With the compact Reply picker open, its choice shares the toolbar button's name and renders last.
+const pressLast = async (name: string) => {
+  const button = screen.getAllByRole('button', { name }).at(-1);
+  if (button === undefined) {
+    throw new Error(`Expected a last button named ${name}`);
+  }
+  await act(async () => {
+    await fireEvent.press(button);
+  });
+};
+
 // Delegate replacements emit a synthetic key; delegate-bypassing edits do not.
 const deletionKey = async (
   body: Parameters<typeof fireEvent>[0],
@@ -271,6 +308,125 @@ const deletionKey = async (
 
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
+  it('does not substitute a sender for the selected receive-only mailbox', async () => {
+    expect.hasAssertions();
+    const initial = connected(['alex@example.invalid']);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        ...mailboxesOf(initial),
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          imap: {
+            host: 'imap.example.invalid',
+            port: 993,
+            username: 'imap',
+          },
+          state: 'connected',
+        },
+      ]),
+    });
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    const connections = createMailboxes(
+      syntheticConnections(
+        { [alex]: createSyntheticGmail({ messages: 1 }) },
+        { imap: imap.native },
+      ),
+      registration,
+    );
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <CommandPaletteProvider>
+        <App
+          drafts={drafts}
+          registration={registration}
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}
+        />
+      </CommandPaletteProvider>,
+    );
+    // The Command Palette's New Message follows the floating bar's button.
+    const palette = async () => {
+      await fireEvent(
+        screen.getByRole('header', { name: 'Inbox' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      return within(screen.getByTestId('command-palette'));
+    };
+    await press('Inbox. In imap@example.invalid');
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    const receiveOnly = await palette();
+    expect(
+      receiveOnly.queryByRole('button', { name: 'New Message' }),
+    ).toBeNull();
+    await press('Cancel');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await press('All inboxes');
+    const unified = await palette();
+    const command = unified.getByRole('button', { name: 'New Message' });
+    await act(async () => {
+      await fireEvent.press(command);
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
+  it('does not substitute a sender while the selected mailbox waits for authorization', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('Inbox. In alex@example.invalid');
+    const lapse = async (state: 'authorization' | 'connected') => {
+      await act(() => {
+        registration.change({
+          ...initial,
+          mailboxes: JSON.stringify([
+            { id: alex, address: 'alex@example.invalid', state },
+            { id: other, address: 'other@example.invalid', state: 'connected' },
+          ]),
+        });
+      });
+    };
+    await lapse('authorization');
+    expect(
+      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+    ).toBeSelected();
+    expect(
+      screen.getByText(
+        'alex@example.invalid · Gmail needs your permission again',
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
+    await press('New Message');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await lapse('connected');
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+    ).resolves.toBeSelected();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
+  });
+
   it('creates a unified Inbox Draft only from the window’s Profile', async () => {
     expect.hasAssertions();
     const initial = connected([
@@ -2402,12 +2558,14 @@ function ReaderApp({
   gmail,
   message,
   senders,
+  mailboxes: providedMailboxes,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly gmail: ReturnType<typeof createSyntheticGmail>;
   readonly message: string;
   readonly senders?: ReturnType<typeof mailboxesOf>;
+  readonly mailboxes?: MailboxList;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -2415,8 +2573,9 @@ function ReaderApp({
   );
   const mailboxes = useMemo(
     () =>
+      providedMailboxes ??
       createMailboxes(syntheticConnections({ [alex]: gmail }), registration),
-    [gmail, registration],
+    [gmail, registration, providedMailboxes],
   );
   const [composing, setComposing] = useState<string>();
   return (
@@ -3208,7 +3367,223 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
-  it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
+  it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {
+    expect.hasAssertions();
+    const window = Dimensions.get('window');
+    Dimensions.set({ window: { ...window, width: 844, height: 390 } });
+    try {
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        subject: 'Compact plans',
+        content: { text: 'Meet on Friday?' },
+        headers: {
+          To: 'alex@example.invalid, Bob <bob@example.invalid>',
+          'Message-ID': '<compact@example.invalid>',
+        },
+      });
+      const app = await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />,
+      );
+      await screen.findByRole('button', { name: 'Reply' });
+      expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
+      // Organizer panels must open above this bottom toolbar in landscape too.
+      await press('Labels');
+      const panel = screen.getByText(
+        'This Gmail mailbox has no labels of its own yet.',
+      ).parent?.parent?.parent?.parent?.parent;
+      expect(panel).not.toHaveStyle({ position: 'absolute' });
+      await press('Hide labels');
+      await press('Reply');
+      expect(screen.getAllByRole('button', { name: 'Reply' })[0]).toHaveProp(
+        'accessibilityState',
+        { disabled: false, expanded: true },
+      );
+      await press('Cancel');
+      expect(screen.getByRole('button', { name: 'Reply' })).toHaveProp(
+        'accessibilityState',
+        { disabled: false, expanded: false },
+      );
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await press('Reply');
+      await press('Reply All');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Re: Compact plans',
+      );
+      expect(draftsOf(drafts.getSnapshot())[0]).toMatchObject({
+        response: { kind: 'replyAll' },
+        to: [
+          { name: 'Maya Chen', address: 'maya@example.invalid' },
+          { name: 'Bob', address: 'bob@example.invalid' },
+        ],
+      });
+      await press('Close');
+      await press('Reply');
+      const choose = queuedPress('Reply All');
+      await app.unmount();
+      await act(async () => {
+        choose();
+        await drafts.save();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    } finally {
+      await act(() => {
+        Dimensions.set({ window });
+      });
+    }
+  });
+
+  it('uses a sending mailbox in the compact reader Profile and does not open after the reader closes during creation', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'other@example.invalid',
+      'alex@example.invalid',
+    ]);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+        {
+          id: alex,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+        {
+          id: 'imap',
+          address: 'imap@example.invalid',
+          provider: 'imap',
+          profile: 'work',
+          imap: { host: 'imap.example.invalid', port: 993, username: 'imap' },
+          state: 'connected',
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    const message = `7.${imap.deliver('INBOX', {
+      subject: 'Compact reader sender fallback',
+      body: 'Read me.',
+    })}.INBOX`;
+    const connections = createMailboxes(
+      syntheticConnections(
+        {
+          [alex]: createSyntheticGmail({ messages: 0 }),
+          [other]: createSyntheticGmail({
+            address: 'other@example.invalid',
+            messages: 0,
+          }),
+        },
+        { imap: imap.native },
+      ),
+      registration,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    const onCompose = jest.fn();
+    try {
+      const reader = await render(
+        <AccountContext
+          value={{
+            mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
+            openAccount: ignore,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+          }}>
+          <InboxProvider
+            drafts={drafts}
+            mailboxes={mailboxes}>
+            <ProfileScope profile="work">
+              <MessageDetail
+                id={message}
+                mailbox="imap"
+                onCompose={onCompose}
+              />
+            </ProfileScope>
+          </InboxProvider>
+        </AccountContext>,
+      );
+      await screen.findByText('Read me.');
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'New Message' }),
+        ).toBeEnabled();
+      });
+      storage.hold();
+      await press('New Message');
+      await waitFor(() => {
+        expect(drafts.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          save: 'saving',
+        });
+      });
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { connection: alex, from: 'alex@example.invalid' },
+      ]);
+      await reader.unmount();
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      expect(onCompose).not.toHaveBeenCalled();
+    } finally {
+      storage.release();
+    }
+  });
+
+  it('replies to an archived message opened from online search', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Archived plans',
+      content: { text: 'Shall we meet on Friday?' },
+      headers: { 'Message-ID': '<archived-plans@example.invalid>' },
+    });
+    gmail.archive(message);
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Search senders and subjects'),
+      'Archived plans',
+    );
+    await press('Search mail servers for “Archived plans”');
+    await expect(
+      screen.findByText('Shall we meet on Friday?'),
+    ).resolves.toBeOnTheScreen();
+    // The compact reader's Reply opens its picker first; its Reply choice renders last.
+    await press('Reply');
+    await pressLast('Reply');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Archived plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())[0]?.response).toMatchObject({
+      kind: 'reply',
+      inReplyTo: '<archived-plans@example.invalid>',
+    });
+  });
+
+  it('keeps the saved-only notice in reader content and opens Reply All without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -3223,14 +3598,36 @@ describe('replying to and forwarding from the reader', () => {
       },
     });
     const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail }),
+      registration,
+    );
     await render(
       <ReaderApp
         drafts={drafts}
         gmail={gmail}
+        mailboxes={mailboxes}
         message={message}
         registration={registration}
       />,
     );
+    await screen.findByText('Shall we meet on Friday?');
+    const [connection] = mailboxes.getConnections();
+    ok(connection, 'Expected the reader mailbox');
+    const { openMailbox } = gmail.native;
+    gmail.native.openMailbox = async () => ({
+      ...(await openMailbox()),
+      availability: 'retry',
+    });
+    await act(connection.inbox.load);
+    expect(
+      isScrollable(
+        screen.getByText(
+          'Organizing mail waits until Gmail can be checked again. Try again to reconnect.',
+        ),
+      ),
+    ).toBe(true);
+    await press('Reply');
     await press('Reply All');
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
@@ -3297,6 +3694,7 @@ describe('replying to and forwarding from the reader', () => {
         />
       </AssistanceContext>,
     );
+    await press('Reply');
     await press('Reply All');
     await screen.findByLabelText('Subject');
     const [draft] = draftsOf(drafts.getSnapshot());
@@ -3397,6 +3795,49 @@ describe('replying to and forwarding from the reader', () => {
     });
   });
 
+  it('shows a rejected response in scrolling content and permits retry', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Reply to me.' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const app = await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    // Only the unexpected host rejection is substituted; response preparation and retry use real stores.
+    const create = jest
+      .spyOn(drafts, 'create')
+      .mockRejectedValueOnce(new TypeError('Synthetic host failure'));
+    try {
+      await press('Reply');
+      await press('Forward');
+      const failure = await screen.findByText(
+        'A reply or forward could not be started. Try again.',
+      );
+      expect(isScrollable(failure)).toBe(true);
+      expect(screen.getByRole('alert')).toBeVisible();
+      expect(screen.queryByText('Preparing to forward…')).toBeNull();
+      await press('Reply');
+      await press('Forward');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Fwd: Plans',
+      );
+    } finally {
+      create.mockRestore();
+      await app.unmount();
+    }
+  });
+
   it('starts only the first queued response and ignores its old reader callback', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -3415,14 +3856,24 @@ describe('replying to and forwarding from the reader', () => {
         registration={registration}
       />,
     );
+    // The compact reader's Reply opens its picker, where every response is a choice.
+    await press('Reply');
     await screen.findByRole('button', { name: 'Forward' });
     const forward = queuedPress('Forward');
     const reply = queuedPress('Reply');
+    storage.hold();
     await act(() => {
       forward();
       reply();
       forward();
     });
+    try {
+      expect(
+        isScrollable(await screen.findByText('Preparing to forward…')),
+      ).toBe(true);
+    } finally {
+      storage.release();
+    }
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',
       'Fwd: Plans',

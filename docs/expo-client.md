@@ -4,7 +4,12 @@ Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/expo-client.md).
 
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
-a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
+a deterministic Inbox and message detail for iPhone and iPad. The shell is a native
+split view: a Mailboxes sidebar column (**All inboxes**, each Mailbox Connection with
+its Inbox and IMAP folders, and **Account**), the message list with a floating
+search and **New Message** bar, which rises above the software keyboard while its
+search field is in use, and the reader. On iPhone the columns collapse into
+one navigation stack that opens on the Inbox, with Mailboxes one Back away. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
 Product Sign-In, each followed by a choice of Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an [IMAP mailbox](imap-mailboxes.md).
@@ -25,6 +30,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 - Expo 57.0.28, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.26.
 - Route parameters identify the selected message.
+- The message reader's Copy link action uses `expo-clipboard`, with the native
+  module included in the reviewed Expo autolinking scope. Regenerate and rebuild
+  development clients after adding or updating it.
 - Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
 - Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.48.0, Oxlint 1.86.0 and Oxfmt 0.71.0.
@@ -200,8 +208,9 @@ under `artifacts/expo-bootstrap/`. Simulator device type identifiers after the
 app path limit the run to those devices; without them both devices run in turn. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
-these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, selecting and
-replacing a message, and compact back navigation. It does not claim keyboard,
+these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, the floating search field
+staying above the software keyboard, selecting and replacing a message, and compact
+back navigation. It does not claim hardware keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).
 

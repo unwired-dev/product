@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, ViewProps } from 'react-native';
+import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
+import { useState } from 'react';
 import {
   Pressable,
   requireNativeComponent,
@@ -25,6 +26,24 @@ export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
+export const ModalBackground = requireNativeComponent<ViewProps>(
+  'UnwiredModalBackground',
+);
+
+export function Glass({
+  cornerRadius,
+  style = StyleSheet.absoluteFill,
+  ...props
+}: ViewProps & { readonly cornerRadius: number }) {
+  return (
+    <NativeGlass
+      {...props}
+      cornerRadius={cornerRadius}
+      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+    />
+  );
+}
+
 // Toolbar buttons are 28pt; the group adds a 4pt inset and takes half its height.
 const groupRadius = (28 + 2 * spacing.xs) / 2;
 
@@ -36,24 +55,24 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    maxWidth: '100%',
-    paddingLeft: 10,
-    paddingRight: spacing.m,
-    borderRadius: radius.chip,
-    borderCurve: 'continuous',
-  },
+  panel: { borderRadius: radius.menu, maxWidth: '100%' },
   toolbarButton: {
-    width: 32,
+    minWidth: 32,
     minHeight: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.control,
+    borderRadius: groupRadius - spacing.xs,
+    borderCurve: 'continuous',
   },
+  monogram: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
@@ -102,23 +121,30 @@ export function SFSymbol({
   );
 }
 
-// Liquid Glass behind a control or menu on the navigation layer; the owner sets the shadow.
-export function Glass({ cornerRadius }: { readonly cornerRadius: number }) {
-  return (
-    <NativeGlass
-      cornerRadius={cornerRadius}
-      style={StyleSheet.absoluteFill}
-    />
-  );
-}
-
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
-export function GlassGroup({ children }: { readonly children: ReactNode }) {
+export function GlassGroup({
+  children,
+  style,
+}: {
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
+  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
-    <View style={[styles.group, { boxShadow: colors.smallGlassShadow }]}>
-      <NativeGlass
-        cornerRadius={groupRadius}
+    <View
+      style={[
+        styles.group,
+        {
+          boxShadow: colors.smallGlassShadow,
+          backgroundColor: colors.surfaceContent,
+        },
+        style,
+      ]}>
+      <Glass
+        cornerRadius={
+          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+        }
         style={StyleSheet.absoluteFill}
       />
       {children}
@@ -126,42 +152,116 @@ export function GlassGroup({ children }: { readonly children: ReactNode }) {
   );
 }
 
-// A selectable filter: the icon and label together carry its meaning.
-export function Chip({
+// Menus float independently of their toolbar, with the deeper menu shadow.
+export function GlassPanel({ children }: { readonly children: ReactNode }) {
+  const colors = usePalette();
+  return (
+    <View
+      style={[
+        styles.panel,
+        {
+          boxShadow: colors.menuGlassShadow,
+          backgroundColor: colors.surfaceContent,
+        },
+      ]}>
+      <Glass
+        cornerRadius={radius.menu}
+        style={StyleSheet.absoluteFill}
+      />
+      {children}
+    </View>
+  );
+}
+
+// An icon button on a toolbar's glass: the label is for accessibility, the SF Symbol for sight.
+export function ToolbarButton({
   label,
   icon,
-  selected,
   onPress,
+  disabled = false,
+  expanded,
+  selected,
+  destructive = false,
+  accessibilityHint,
 }: {
   readonly label: string;
   readonly icon: string;
-  readonly selected: boolean;
   readonly onPress: () => void;
+  readonly disabled?: boolean;
+  // A control that reveals a panel reports whether the panel is open.
+  readonly expanded?: boolean;
+  // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityState={{
+        disabled,
+        ...(expanded === undefined ? {} : { expanded }),
+        ...(selected === undefined ? {} : { selected }),
+      }}
+      disabled={disabled}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
-      style={[
-        styles.chip,
-        { backgroundColor: selected ? colors.accentFill : colors.fillQuiet },
+      style={({ pressed }) => [
+        styles.toolbarButton,
+        {
+          backgroundColor:
+            pressed || expanded === true || selected === true
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+          borderWidth: 2,
+          borderColor:
+            focused || selected === true ? colors.accentInk : 'transparent',
+          opacity: disabled ? 0.4 : 1,
+        },
       ]}>
       <SFSymbol
         name={icon}
-        color={selected ? colors.accentOnFill : colors.textSecondary}
+        size={16}
+        color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
-      <Text
-        style={[
-          selected ? textStyles.bodyEmphasized : textStyles.body,
-          { flexShrink: 1 },
-          { color: selected ? colors.accentOnFill : colors.textPrimary },
-        ]}>
-        {label}
-      </Text>
     </Pressable>
+  );
+}
+
+// Neutral initials for a sender without a contact photo; never a generated color.
+export function Monogram({ name }: { readonly name: string }) {
+  const colors = usePalette();
+  const initials = name
+    .split(/\s+/u)
+    .filter((word) => word !== '')
+    .slice(0, 2)
+    .map((word) => [...word][0]?.toLocaleUpperCase() ?? '')
+    .join('');
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        styles.monogram,
+        {
+          backgroundColor: colors.surfaceBubble,
+          borderColor: colors.separator,
+        },
+      ]}>
+      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
+        {initials}
+      </Text>
+    </View>
   );
 }
 
@@ -253,55 +353,6 @@ export function Button({
         ]}>
         {label}
       </Text>
-    </Pressable>
-  );
-}
-
-// An icon-only toolbar button; the label names it for accessibility.
-export function ToolbarButton({
-  icon,
-  label,
-  onPress,
-  disabled = false,
-  selected = false,
-  destructive = false,
-  accessibilityHint,
-}: {
-  readonly icon: string;
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly selected?: boolean;
-  readonly destructive?: boolean;
-  readonly accessibilityHint?: string;
-}) {
-  const colors = usePalette();
-  let color = destructive ? colors.statusDestructive : colors.textPrimary;
-  if (disabled) {
-    color = colors.textSecondary;
-  }
-  return (
-    <Pressable
-      accessibilityHint={accessibilityHint}
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled, selected }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.toolbarButton,
-        {
-          backgroundColor: selected
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-          borderWidth: selected ? 2 : 0,
-          borderColor: colors.accentInk,
-        },
-      ]}>
-      <SFSymbol
-        name={icon}
-        color={color}
-      />
     </Pressable>
   );
 }

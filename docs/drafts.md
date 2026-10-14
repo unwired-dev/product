@@ -12,8 +12,8 @@ Trusted Devices through Private Sync.
 
 ## Composing
 
-- **New Message** in the Inbox column starts a Draft from the mailbox the Inbox
-  shows, or the first usable mailbox under **All inboxes**. It opens the composer in
+- **New Message**, in the floating bar under the Inbox list, starts a Draft from the
+  mailbox the Inbox shows, or the first usable mailbox under **All inboxes**. It opens the composer in
   the detail column: a route of its own on iPhone and a bottom-anchored overlay
   over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
   the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
