@@ -296,23 +296,33 @@ export function Notice({
   );
 }
 
-// A push button: the primary one carries the accent fill, others the quiet fill.
+// A push button: the primary one carries the accent fill, others the quiet fill; a destructive
+// one keeps the quiet fill with destructive text.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
+  disabled = false,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill?: 'accent' | 'quiet';
+  readonly fill?: 'accent' | 'quiet' | 'destructive';
+  readonly disabled?: boolean;
 }) {
   const colors = usePalette();
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  const inks = {
+    accent: colors.accentOnFill,
+    quiet: colors.textPrimary,
+    destructive: colors.statusDestructive,
+  };
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       focusable
       onPress={onPress}
       style={({ pressed }) => [
@@ -320,12 +330,13 @@ export function Button({
         {
           backgroundColor:
             pressed && !primary ? colors.accentSelectionSubtle : idle,
+          opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <Text
         style={[
           primary ? textStyles.headline : textStyles.body,
-          { color: primary ? colors.accentOnFill : colors.textPrimary },
+          { color: inks[fill] },
         ]}>
         {label}
       </Text>

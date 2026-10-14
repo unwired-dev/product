@@ -18,6 +18,7 @@ import { Text, TextInput, View } from 'react-native';
 
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
+import { TrustCard } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { usePalette } from './theme.ts';
 
@@ -29,7 +30,11 @@ function RevocationProposal({
   recoveryKey,
   store,
 }: {
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: (
+    label: string,
+    action: () => Promise<void>,
+    fill?: 'destructive',
+  ) => ReactNode;
   readonly failure: RevocationFailure | undefined;
   readonly name: string;
   readonly recoveryKey: string;
@@ -100,7 +105,11 @@ export function TrustedDevices({
     revocationRecoveryKey?: string;
     revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
   }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: (
+    label: string,
+    action: () => Promise<void>,
+    fill?: 'destructive',
+  ) => ReactNode;
   readonly failure: RevocationFailure | undefined;
   readonly store: Registration;
 }) {
@@ -167,21 +176,22 @@ export function TrustedDevices({
             {t('revocation.added', { date: added.format(device.registeredAt) })}
           </Label>
           {confirming === device.id ? (
-            <>
-              <Label style={[styles.text, { color: colors.textPrimary }]}>
-                {t('revocation.confirm', { name: device.name })}
-              </Label>
+            <TrustCard
+              icon="laptopcomputer.and.iphone"
+              title={t('revocation.confirmTitle', { name: device.name })}
+              description={t('revocation.confirm', { name: device.name })}>
               {button(
                 t('revocation.remove', { name: device.name }),
                 async () => {
                   setConfirming(undefined);
                   await store.revokeTrustedDevice(device.id);
                 },
+                'destructive',
               )}
               {button(t('revocation.cancel'), async () => {
                 setConfirming(undefined);
               })}
-            </>
+            </TrustCard>
           ) : (
             button(t('revocation.remove', { name: device.name }), async () => {
               setConfirming(device.id);

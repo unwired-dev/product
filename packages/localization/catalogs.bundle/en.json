@@ -158,9 +158,7 @@
     "signInWith": "Sign in with {{provider}}",
     "signInAgain": "Sign in again with {{provider}}",
     "signInInstead": "Sign in with {{provider}} instead",
-    "authorizeGmail": "Authorize Gmail",
-    "chooseMailbox": "Choose another Google mailbox",
-    "connectMicrosoft": "Connect Microsoft mail"
+    "chooseMailbox": "Choose another Google mailbox"
   },
   "signInMethods": {
     "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
@@ -322,7 +320,8 @@
     "renewed": "Your Product Account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",
     "unconfirmed": "The removal could not be confirmed. Keep the new Recovery Key shown here, and confirm again when you are online to finish.",
     "superseded": "The selected device was removed. The Recovery Key prepared here is not your current Recovery Key; keep the Recovery Key confirmed for the latest removal.",
-    "failed": "The device could not be removed. Try again."
+    "failed": "The device could not be removed. Try again.",
+    "confirmTitle": "Remove “{{name}}”?"
   },
   "gmailSync": {
     "syncing": "Checking {{provider}}…",
@@ -815,9 +814,8 @@
     "providers": {
       "icloud": "iCloud Mail",
       "fastmail": "Fastmail",
-      "other": "Another IMAP server"
+      "other": "Other IMAP Account"
     },
-    "choose": "Connect {{provider}}",
     "description": "Mail is read with IMAP and sent with SMTP.",
     "address": "Email address",
     "username": "User name",
@@ -825,6 +823,7 @@
     "appPassword": "{{provider}} requires an app-specific password, which you create in your account's security settings. Your usual password does not work.",
     "host": "IMAP server",
     "port": "Port",
+    "server": "Server",
     "outgoing": "Outgoing (SMTP)",
     "smtpHost": "SMTP server",
     "smtpPort": "SMTP port",
@@ -853,7 +852,10 @@
     },
     "folders": "Folders",
     "folder": "{{folder}}",
-    "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached."
+    "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached.",
+    "incoming": "Incoming (IMAP)",
+    "securityLabel": "Security",
+    "sameAsIncoming": "Same as incoming"
   },
   "imapSync": {
     "syncing": "Checking the mail server…",
@@ -913,6 +915,47 @@
       "search": "find filter",
       "inbox": "home mail messages back",
       "account": "settings preferences profile mailboxes"
+    }
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Your mail,\non your devices.",
+      "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
+      "assistance": "Assistance runs on this device.",
+      "privateSync": "Private Sync keeps your devices in step.",
+      "continue": "Continue"
+    },
+    "brand": {
+      "name": "Unwired Mail",
+      "tagline": "Calm, private, precise."
+    },
+    "signIn": {
+      "title": "Sign in to Unwired",
+      "description": "Use the account you already use on your other devices.",
+      "finePrint": "Signing in turns on Private Sync. A new Product Account creates its Recovery Key on this device."
+    },
+    "back": "Back",
+    "providers": {
+      "gmail": {
+        "name": "Gmail",
+        "detail": "Google Workspace and personal Gmail"
+      },
+      "icloud": {
+        "name": "iCloud Mail",
+        "detail": "Uses an app-specific password"
+      },
+      "microsoft": {
+        "name": "Microsoft 365 and Outlook",
+        "detail": "Work, school and Outlook.com accounts"
+      },
+      "fastmail": {
+        "name": "Fastmail",
+        "detail": "Uses an app-specific password"
+      },
+      "other": {
+        "name": "Other IMAP Account",
+        "detail": "Any provider with IMAP and SMTP"
+      }
     }
   }
 }

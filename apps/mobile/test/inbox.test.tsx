@@ -1361,7 +1361,7 @@ describe('command palette', () => {
       await Promise.resolve();
     });
     await expect(
-      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
   });
