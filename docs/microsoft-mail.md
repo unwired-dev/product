@@ -165,8 +165,8 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
   mise exec -- pnpm native:generate
 ```
 
-The variable is optional: without it the hosts offer neither **Connect Microsoft
-mail** nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
+The variable is optional: without it the hosts offer neither the **Microsoft 365
+and Outlook** row nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
 read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository secret.
 
 ## Deterministic evidence
