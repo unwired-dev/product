@@ -30,8 +30,9 @@ Apple's API still supplies base64 certificate content at its HTTP boundary.
 Upload jobs use the workflow revision's signing wrapper, even when archiving an
 older ref. That checkout lives in the ignored TestFlight artifact directory, so
 the archive runner's source-cleanliness check still binds the build to its
-stamped commit. The wrapper creates a temporary PKCS#12 and user keychain, sends
-password-bearing `security` commands through stdin one at a time, and restricts
+stamped commit. The wrapper imports the canonical PEM private key and DER
+certificate separately into a temporary user keychain, sends password-bearing
+`security` commands through stdin one at a time, and restricts
 the user search list to the imported keychain. It confirms that keychain exposes
 the expected valid code-signing fingerprint before Xcode can provision. It
 removes loose private files before build phases and restores the search list and
@@ -40,7 +41,10 @@ the step. Automatic provisioning and cloud-managed distribution export remain
 unchanged. Local invocations retain the developer's own identity.
 
 Credential-free contracts prove real CSR generation, public-key matching,
-PKCS#12 packaging, wrapper orchestration and cleanup with only Apple HTTP and
-macOS `security` substituted. They do not prove Apple issuance, keychain trust,
-Xcode identity selection, processed TestFlight builds or installation. The
+identity preparation, wrapper orchestration and cleanup with only Apple HTTP and
+macOS `security` substituted. A separate native CI preflight uses a synthetic
+self-signed identity through the real wrapper, requiring import and key-access
+setup to succeed before the expected code-signing trust rejection, then checking
+search-list restoration and cleanup. Neither proves Apple issuance, trusted
+identity selection by Xcode, processed TestFlight builds or installation. The
 operating guide's protected validation remains required release evidence.

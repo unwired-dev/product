@@ -4,7 +4,7 @@ require 'open3'
 require 'openssl'
 require 'tmpdir'
 
-# Real PKCS#12 creation and wrapper execution; only macOS security is substituted.
+# Real key/certificate preparation and wrapper execution; native mode uses macOS security.
 root = File.expand_path('..', __dir__)
 FileUtils.mkdir_p("#{root}/scratchpad")
 Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |directory|
@@ -17,6 +17,21 @@ Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |direct
   certificate.not_before = Time.now - 60
   certificate.not_after = Time.now + 86400
   certificate.sign(key, OpenSSL::Digest::SHA256.new)
+  if ARGV == ['--native']
+    raise 'Native signing check requires macOS' unless RUBY_PLATFORM.include?('darwin')
+    original, original_status = Open3.capture2('/usr/bin/security', 'list-keychains', '-d', 'user')
+    raise 'Could not read native keychain search list' unless original_status.success?
+    env = { 'PATH' => ENV.fetch('PATH'), '__ETC_ZSHENV_SOURCED' => '1', 'RUNNER_TEMP' => directory,
+      'TESTFLIGHT_SIGNING_KEY' => key.to_pem, 'TESTFLIGHT_CERTIFICATE' => certificate.to_der.unpack1('H*') }
+    output, status = Open3.capture2e(env, '/bin/zsh', "#{root}/scripts/testflight-signing.zsh", '/usr/bin/false', unsetenv_others: true)
+    # A self-signed fixture must import successfully, then fail Apple's trust check.
+    raise "Native identity import failed: #{output}" unless status.exitstatus == 1 && output.include?('The prepared TestFlight identity is not valid for code signing')
+    restored, restored_status = Open3.capture2('/usr/bin/security', 'list-keychains', '-d', 'user')
+    raise 'Native search list not restored' unless restored_status.success? && restored == original
+    raise 'Native signing material retained' unless Dir.glob("#{directory}/testflight-signing.*").empty?
+    puts 'Passed native TestFlight identity import and cleanup'
+    next
+  end
   bin = "#{directory}/bin"
   FileUtils.mkdir_p(bin)
   File.write("#{bin}/security", <<~'STUB')
@@ -42,10 +57,15 @@ Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |direct
     when 'import'
       path = ARGV.fetch(1)
       raise 'Readable private material' unless File.stat(path).mode & 0o077 == 0
-      password = ARGV.fetch(ARGV.index('-P') + 1)
-      identity = OpenSSL::PKCS12.new(File.binread(path), password)
-      raise 'Invalid signing identity' unless identity.certificate.check_private_key(identity.key)
-      exit 23 if ENV['SCENARIO'] == 'import-failure'
+      if ARGV.fetch(ARGV.index('-t') + 1) == 'priv'
+        raise 'Invalid private key' unless OpenSSL::PKey.read(File.binread(path)).private?
+        exit 23 if ENV['SCENARIO'] == 'import-key-failure'
+      else
+        certificate = OpenSSL::X509::Certificate.new(File.binread(path))
+        key = OpenSSL::PKey.read(File.binread("#{File.dirname(path)}/key.pem"))
+        raise 'Invalid signing identity' unless certificate.check_private_key(key)
+        exit 31 if ENV['SCENARIO'] == 'import-certificate-failure'
+      end
     when 'create-keychain', 'set-keychain-settings', 'unlock-keychain', 'set-key-partition-list'
       exit 1 if ENV['SCENARIO'] == "#{operation}-failure"
     when 'find-identity'
@@ -71,7 +91,7 @@ Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |direct
   { 'success' => 0, 'failure' => 42, 'SIGINT' => 130, 'SIGTERM' => 143,
     'read-search-list-failure' => 17, 'set-search-list-failure' => 19, 'find-identity-failure' => 29,
     'create-keychain-failure' => 1, 'set-keychain-settings-failure' => 1,
-    'unlock-keychain-failure' => 1, 'import-failure' => 23,
+    'unlock-keychain-failure' => 1, 'import-key-failure' => 23, 'import-certificate-failure' => 31,
     'set-key-partition-list-failure' => 1, 'missing-identity' => 1, 'restore-failure' => 1,
     'delete-failure' => 1, 'malformed' => 1, 'expired' => 1 }.each do |scenario, expected|
     run = "#{directory}/#{scenario}"

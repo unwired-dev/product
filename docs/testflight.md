@@ -116,7 +116,8 @@ The private key is not rotated on certificate renewal.
 Only the public certificate crosses jobs as an output. Each upload imports the
 identity into a temporary keychain, limits the user keychain search list to that
 keychain for the build, and restores the original list and deletes the keychain
-on exit. Loose private-key and PKCS#12 files are removed before the build starts.
+on exit. The private key and certificate are imported directly; the loose
+private-key file is removed before the build starts.
 The prepared identity must be valid for code signing before the build starts.
 Native signing setup failures report a fixed operation name and exit code;
 cleanup failures identify search-list restoration or keychain deletion. Raw
@@ -258,11 +259,15 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
 [CI run 38431867551](https://github.com/unwired-dev/product/actions/runs/38431867551)
 successfully uploaded both hosts after revoking stale development certificates.
 That run used the previous certificate-per-run setup. Reuse, automatic renewal,
-API failures, PKCS#12 packaging and keychain cleanup have credential-free local
+API failures, identity preparation and keychain cleanup have credential-free local
 contracts. [Run 38550446299](https://github.com/unwired-dev/product/actions/runs/38550446299)
 issued a matching Apple development certificate, but both hosts failed during
-native signing setup before archiving. That run predates operation-level failure
-diagnostics, so the failed native operation remains unconfirmed. Consecutive CI
+native signing setup before archiving. [Run 38552085152](https://github.com/unwired-dev/product/actions/runs/38552085152)
+reused the same certificate on both hosts and isolated the failure to PKCS#12
+import. The wrapper now imports the key and certificate directly. A native CI
+preflight uses a synthetic self-signed identity to verify import and cleanup
+before production credentials are supplied; it expects Apple's trust check to
+reject that fixture. Protected validation of the direct import and consecutive CI
 archives using the same certificate remain deferred for the reusable identity
 implementation.
 Uploaded-artifact inspection, inspection of processed builds and their TestFlight notes, and installation from

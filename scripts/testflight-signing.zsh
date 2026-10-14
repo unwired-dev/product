@@ -28,7 +28,7 @@ trap 'exit 143' TERM
 print -r -- "$TESTFLIGHT_SIGNING_KEY" > "$directory/key.pem"
 print -r -- "$TESTFLIGHT_CERTIFICATE" > "$directory/certificate.hex"
 unset TESTFLIGHT_SIGNING_KEY TESTFLIGHT_CERTIFICATE
-# The private key and PKCS#12 never reach project build phases or artifacts.
+# The private key never reaches project build phases or artifacts.
 ruby -ropenssl -rsecurerandom - "$directory" <<'RUBY'
 directory = ARGV.fetch(0)
 begin
@@ -39,9 +39,8 @@ begin
   raise 'Invalid identity' unless certificate.check_private_key(key) && certificate.not_before <= Time.now && certificate.not_after > Time.now + 3600
   password = SecureRandom.hex(32)
   File.write("#{directory}/password", password)
-  # macOS security import needs the legacy PKCS#12 algorithms.
-  identity = OpenSSL::PKCS12.create(password, 'TestFlight', key, certificate, nil, 'PBE-SHA1-3DES', 'PBE-SHA1-3DES')
-  File.binwrite("#{directory}/identity.p12", identity.to_der)
+  File.write("#{directory}/key.pem", key.to_pem)
+  File.binwrite("#{directory}/certificate.der", certificate.to_der)
   File.write("#{directory}/fingerprint", OpenSSL::Digest::SHA1.hexdigest(certificate.to_der).upcase)
 rescue StandardError
   warn 'Could not prepare the TestFlight signing identity'
@@ -56,7 +55,8 @@ created=1
 security -i <<< "create-keychain -p $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed create-keychain
 security set-keychain-settings -lut 7200 "$keychain" >/dev/null 2>&1 || signing_failed set-keychain-settings
 security -i <<< "unlock-keychain -p $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed unlock-keychain
-security -i <<< "import ${(q)directory}/identity.p12 -k ${(q)keychain} -P $password -T /usr/bin/codesign -T /usr/bin/security" >/dev/null 2>&1 || signing_failed import
+security -i <<< "import ${(q)directory}/key.pem -f openssl -t priv -k ${(q)keychain} -T /usr/bin/codesign -T /usr/bin/security" >/dev/null 2>&1 || signing_failed import-key
+security -i <<< "import ${(q)directory}/certificate.der -f x509 -t cert -k ${(q)keychain}" >/dev/null 2>&1 || signing_failed import-certificate
 security -i <<< "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed set-key-partition-list
 security list-keychains -d user -s "$keychain" >/dev/null 2>&1 || signing_failed set-search-list
 fingerprint=$(<"$directory/fingerprint")
@@ -65,7 +65,7 @@ if [[ "$identities" != *" $fingerprint "* ]]; then
   print -u2 'The prepared TestFlight identity is not valid for code signing'
   exit 1
 fi
-rm -f "$directory/key.pem" "$directory/identity.p12" "$directory/password"
+rm -f "$directory/key.pem" "$directory/password"
 unset password
 print -r -- "Prepared TestFlight identity: $fingerprint"
 "$@"

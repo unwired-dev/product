@@ -148,6 +148,8 @@ jobs:
           ref: ${{ github.sha }}
           path: artifacts/testflight/signing-tools
           persist-credentials: false
+      - name: Check native signing import without credentials
+        run: ruby artifacts/testflight/signing-tools/scripts/testflight-signing.test.rb --native
       - name: Archive and upload
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}

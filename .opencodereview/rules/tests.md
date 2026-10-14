@@ -132,6 +132,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Evidence is labelled honestly
 
+- `scripts/testflight-signing.test.rb` validating imported signing material only
+  with Ruby OpenSSL while substituting macOS `security`. That proves preparation
+  and orchestration, not Apple's native importer or key-access compatibility.
+  Require the credential-free native preflight before production signing setup
+  and keep trusted identity selection and archive evidence separate; otherwise a
+  passing mock importer can hide a deployment failure in the platform importer.
 - A rendered component test, a Mock Mail Session journey, a runner contract test with tool stubs, or a Hermes export described as native E2E, provider, persistence or device evidence. Each proves only what it exercised.
 - A native runner that reports success with zero selected tests, reuses a shared Simulator by name, or leaves owned devices, DerivedData or temporary directories behind on failure, cancellation or timeout.
 - A mock scenario that accepts anything but a fixed scenario name, or test-only code reachable from a production build.
