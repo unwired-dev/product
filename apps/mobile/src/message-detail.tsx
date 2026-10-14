@@ -53,7 +53,7 @@ import {
   useReaderScrollTo,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions } from './organize.tsx';
+import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -880,6 +880,7 @@ function MailboxMessage({
             </Text>
           )}
           <MessageMetadata message={message} />
+          <MessageActionsNotice id={message.id} />
           <ReaderBody
             key={message.id}
             inbox={actions}

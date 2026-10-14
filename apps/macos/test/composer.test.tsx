@@ -143,6 +143,16 @@ const queuedPress = (label: string, event = 'onPress') => {
   throw new Error('Expected a rendered input handler');
 };
 
+// A persistent reader notice must scroll with content, outside the fixed toolbar.
+function isScrollable(
+  element: ReturnType<typeof screen.getByText> | null,
+): boolean {
+  return (
+    element !== null &&
+    (element.props.onScroll !== undefined || isScrollable(element.parent))
+  );
+}
+
 const ignore = () => undefined;
 
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
@@ -2446,12 +2456,14 @@ function ReaderApp({
   gmail,
   message,
   senders,
+  mailboxes: providedMailboxes,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly gmail: ReturnType<typeof createSyntheticGmail>;
   readonly message: string;
   readonly senders?: ReturnType<typeof mailboxesOf>;
+  readonly mailboxes?: MailboxList;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -2459,8 +2471,9 @@ function ReaderApp({
   );
   const mailboxes = useMemo(
     () =>
+      providedMailboxes ??
       createMailboxes(syntheticConnections({ [alex]: gmail }), registration),
-    [gmail, registration],
+    [gmail, registration, providedMailboxes],
   );
   const [composing, setComposing] = useState<string>();
   return (
@@ -3327,7 +3340,7 @@ describe('replying to and forwarding from the reader', () => {
     });
   });
 
-  it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
+  it('keeps the saved-only notice in reader content and opens Reply All without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -3342,14 +3355,35 @@ describe('replying to and forwarding from the reader', () => {
       },
     });
     const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail }),
+      registration,
+    );
     await render(
       <ReaderApp
         drafts={drafts}
         gmail={gmail}
+        mailboxes={mailboxes}
         message={message}
         registration={registration}
       />,
     );
+    await screen.findByText('Shall we meet on Friday?');
+    const [connection] = mailboxes.getConnections();
+    ok(connection, 'Expected the reader mailbox');
+    const { openMailbox } = gmail.native;
+    gmail.native.openMailbox = async () => ({
+      ...(await openMailbox()),
+      availability: 'retry',
+    });
+    await act(connection.inbox.load);
+    expect(
+      isScrollable(
+        screen.getByText(
+          'Organizing mail waits until Gmail can be checked again. Try again to reconnect.',
+        ),
+      ),
+    ).toBe(true);
     await press('Reply All');
     await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
       'value',

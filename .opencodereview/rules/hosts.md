@@ -42,6 +42,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `organize.tsx.GmailMessageActions` returning saved-only explanations or other
+  persistent notices inside the reader's fixed-height toolbar or iPhone capsule.
+  Trace every capability branch with replies available and organizing disabled:
+  keep response controls in the toolbar and render status through the quiet-fill
+  `Notice` in scrollable reader content. Otherwise offline or pending provider
+  checks clip the explanation or permanently cover message headings and bodies.
+  Opened Labels/More popovers retain their deliberate floating placement.
+
 - `apps/mobile/src/message-detail.tsx` or collaborating reader chrome choosing
   iPhone-only controls from window width alone. Keep the iPhone Back header,
   bottom toolbar and Reply picker in landscape too, and preserve the iPad's

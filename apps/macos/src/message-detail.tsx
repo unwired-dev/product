@@ -42,7 +42,7 @@ import {
   ReaderScrollView,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions } from './organize.tsx';
+import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
@@ -627,6 +627,7 @@ function MailboxMessage({
                 </Text>
               )}
             </View>
+            <MessageActionsNotice id={message.id} />
             <ReaderBody
               key={message.id}
               inbox={actions}

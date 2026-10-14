@@ -38,6 +38,16 @@ jest.mock('react-native-screens/experimental', () => ({
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
+// A persistent reader notice must scroll with content, outside the fixed toolbar.
+function isScrollable(
+  element: ReturnType<typeof screen.getByText> | null,
+): boolean {
+  return (
+    element !== null &&
+    (element.props.onScroll !== undefined || isScrollable(element.parent))
+  );
+}
+
 const ignore = () => undefined;
 
 function Reader({
@@ -73,6 +83,7 @@ function Reader({
 }
 
 describe('iPad reader', () => {
+  /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
   it.each([320, 1024])(
     'keeps direct response actions and a content subject at %i points',
     async (width) => {
@@ -135,6 +146,19 @@ describe('iPad reader', () => {
         await fireEvent.press(
           screen.getByRole('button', { name: 'Hide labels' }),
         );
+        const { openMailbox } = gmail.native;
+        gmail.native.openMailbox = async () => ({
+          ...(await openMailbox()),
+          availability: 'retry',
+        });
+        await act(inbox.load);
+        expect(
+          isScrollable(
+            screen.getByText(
+              'Organizing mail waits until Gmail can be checked again. Try again to reconnect.',
+            ),
+          ),
+        ).toBe(true);
         await fireEvent.press(
           screen.getByRole('button', { name: 'Reply All' }),
         );
@@ -156,4 +180,5 @@ describe('iPad reader', () => {
       }
     },
   );
+  /* oxlint-enable vitest/max-expects */
 });

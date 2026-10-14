@@ -29,7 +29,13 @@ import {
   View,
 } from 'react-native';
 
-import { GlassGroup, GlassPanel, SFSymbol, ToolbarButton } from './design.tsx';
+import {
+  GlassGroup,
+  GlassPanel,
+  Notice,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -160,6 +166,30 @@ export function MessageActions({
       {children}
     </GmailMessageActions>
   );
+}
+
+// Saved mail remains readable and replyable while provider checks are unavailable.
+export function MessageActionsNotice({ id }: { readonly id: string }) {
+  const state = useInbox();
+  const store = useInboxActions();
+  const { t } = useLocalization();
+  const provider = useProviderName();
+  if (
+    'openFolder' in store ||
+    state.kind !== 'ready' ||
+    !('sync' in state) ||
+    !('resolvePending' in store) ||
+    state.organize
+  ) {
+    return null;
+  }
+  const message = state.messages.find((item) => item.id === id);
+  return message !== undefined && canOrganize(message) ? (
+    <Notice
+      icon="info.circle"
+      message={t('gmailActions.savedOnly', { provider })}
+    />
+  ) : null;
 }
 
 type Named = Readonly<{ name: string; label: string; onPress: () => void }>;
@@ -316,7 +346,6 @@ function GmailMessageActions({
   const { t } = useLocalization();
   const [labeling, setLabeling] = useState(false);
   const provider = useMailbox()?.provider ?? 'gmail';
-  const providerName = useProviderName();
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
@@ -330,14 +359,7 @@ function GmailMessageActions({
     return children;
   }
   if (!state.organize) {
-    return (
-      <>
-        {children}
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('gmailActions.savedOnly', { provider: providerName })}
-        </Text>
-      </>
-    );
+    return <View style={styles.toolbar}>{children}</View>;
   }
   const act = (action: GmailAction) => {
     void store.organize(message, action);
