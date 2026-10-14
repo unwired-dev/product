@@ -750,6 +750,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- A primary action such as `inbox-filters.tsx.FiltersSheet` changing its pressed
+  background to `accentInk` while keeping `accentOnFill` text or symbols. Check
+  the held state in both palettes against DESIGN.md's contrast requirements;
+  Dark's light ink token is not a fill for white foregrounds. Preserve the
+  shared primary button's `accentFill` treatment, or the action becomes illegible
+  precisely while it is being activated.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
   not itself `accessible`, such as the Inbox heading row or the composer's top

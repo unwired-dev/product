@@ -316,14 +316,7 @@ function FiltersSheet({
               onPress={() => {
                 onConfirm(edited);
               }}
-              style={({ pressed }) => [
-                styles.confirm,
-                {
-                  backgroundColor: pressed
-                    ? colors.accentInk
-                    : colors.accentFill,
-                },
-              ]}>
+              style={[styles.confirm, { backgroundColor: colors.accentFill }]}>
               <SFSymbol
                 name="checkmark"
                 size={18}

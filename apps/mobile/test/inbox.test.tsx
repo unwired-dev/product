@@ -139,6 +139,49 @@ describe('preview Inbox', () => {
     },
   );
 
+  it.each(['light', 'dark'] as const)(
+    'keeps Apply Filters legible while held in %s appearance',
+    async (appearance) => {
+      expect.hasAssertions();
+      const colors = palette[appearance];
+      const paletteSpy = jest
+        .spyOn(
+          jest.requireActual<{ usePalette: typeof usePalette }>(
+            '../src/theme.ts',
+          ),
+          'usePalette',
+        )
+        .mockReturnValue(colors);
+      try {
+        await render(<InboxJourney />);
+        await screen.findByRole('button', {
+          name: 'Unread. Oliver Park. Saturday, by the river?',
+        });
+        await fireEvent.press(
+          screen.getByRole('togglebutton', { name: 'Filter' }),
+        );
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Filtered by Unread' }),
+        );
+        const confirm = screen.getByRole('button', { name: 'Apply Filters' });
+        await fireEvent(confirm, 'responderGrant', {
+          persist: () => undefined,
+          currentTarget: 1,
+          nativeEvent: {
+            pageX: 0,
+            pageY: 0,
+            locationX: 0,
+            locationY: 0,
+            timestamp: 0,
+          },
+        });
+        expect(confirm).toHaveStyle({ backgroundColor: colors.accentFill });
+      } finally {
+        paletteSpy.mockRestore();
+      }
+    },
+  );
+
   /* oxlint-disable vitest/max-expects -- Each journey proves one search or filter flow end to end. */
   it('opens search over a blank list, marks matches under Top Results, keeps search through edits and closes back to the Inbox', async () => {
     expect.hasAssertions();
