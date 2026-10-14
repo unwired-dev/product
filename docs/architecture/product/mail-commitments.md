@@ -24,6 +24,13 @@ must preserve these requirements through interruption, relaunch and synchronizat
 including stale-result and stale-write rejection. This record selects no new wire
 schema, storage quota or conflict-resolution protocol.
 
+Apply the [automatic-scanning contract](../../product/mail-commitments.md#automatic-scanning)
+to deliberate master Assistance Off separately from involuntary system/model
+interruptions. Preserving a saved scan choice does not admit disabled-period
+history or pre-Off results after re-enable. ADR 0072 records the panel-selected
+new-mail boundary; current consent, saved enablement and source ownership still
+govern new work.
+
 Synchronized human decisions constrain both new processing and materialized local
 queues. Apply the [review-queue contract](../../product/mail-commitments.md#review-queue)
 to persisted proposals, open review, acceptance and in-flight result publication,
@@ -41,7 +48,9 @@ adds no broader manual-record merge policy or identity/storage algorithm.
 
 The [source-removal contract](../../product/mail-commitments.md#source-removal-and-profile-moves)
 also requires disclosure before confirmation, including retained authored state
-and existing deletion choices without revealing locked content. Retention alone
+and existing deletion choices without revealing locked content. Direction is
+separate from lifecycle state and remains part of both retention and disclosure.
+Retention alone
 does not satisfy that requirement.
 
 Profile moves must also apply the canonical move outcome to reminder work already

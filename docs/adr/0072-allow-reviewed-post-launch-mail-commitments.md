@@ -23,6 +23,14 @@ explicit bounded request. Use bounded already-local message text as untrusted
 input, with no model tools, missing-content fetch or cloud fallback. Keep the
 model independent of persistence, provider access and network activity.
 
+The 2026-10-14 decision panel chose a new-mail boundary when master Assistance
+is deliberately disabled and re-enabled. Off cancels active scans, permanently
+rejects their late results and clears proposals while preserving the saved scan
+choice. With informed consent and saved scan On, re-enable admits new eligible
+mail from then; the Off interval requires explicit bounded historical review.
+Saved scan Off remains disabled. Involuntary system/model interruptions permit
+eligible catch-up but cannot override a deliberate Off boundary.
+
 Persist minimal unaccepted suggestions encrypted only on the generating device,
 with source links instead of copied message bodies. Profile Lock hides the queue
 and cancels analysis without deleting these persisted proposals; Assistance Off
@@ -57,14 +65,14 @@ records do not merge merely because they share correspondence. This selects no
 identity, matching, storage or wire algorithm and adds no merge interaction.
 
 Authored commitments survive source-message deletion and Mailbox Connection
-removal. Retain reviewed title, state and dates with unavailable source links;
+removal. Retain reviewed title, direction, state and dates with unavailable source links;
 purge source content and connection-owned proposals. Profile/account deletion
 removes commitments and review decisions. Connection moves preserve one owning
 Profile and require review for mixed-source records, without cross-Profile source
 access or silent copies. The existing lifecycle safety and authorization fences
 remain in force.
 
-Before connection removal is confirmed, disclose retained reviewed title, state,
+Before connection removal is confirmed, disclose retained reviewed title, direction, state,
 dates and configured reminders in the app and Private Sync, purged source content and proposals, and
 unavailable source links. Explain the existing Delete behavior for authored
 content/reminders and its minimal retained decision, and the Profile/account

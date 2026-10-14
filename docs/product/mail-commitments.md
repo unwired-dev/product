@@ -122,8 +122,14 @@ never reopens a completed commitment.
   starts Off. It requires a one-time, explicit confirmation of the new scope on
   that device and Profile before scanning starts. Declining keeps commitment
   scanning off. Preserve an explicit scan-Off choice across upgrades instead of
-  resetting it to the initial default. Turning all assistance off clears proposals,
-  not the saved scan choice; turning assistance back on preserves that choice.
+  resetting it to the initial default. Turning all assistance off cancels active
+  commitment scans, rejects their late results and clears proposals, not the saved
+  scan choice. Turning assistance back on preserves that choice. With saved scan
+  On and current informed consent, scanning starts with new eligible mail from
+  that re-enable boundary; mail received during master Off requires an explicit
+  bounded historical scan and is never silently backfilled. Saved scan Off keeps
+  commitment scanning disabled. This deliberate Off interval is distinct from
+  system/model interruptions that permit eligible catch-up.
 - Confirmation starts scanning with new mail from then. Mail received before
   confirmation requires a bounded explicit historical scan; upgrading or
   confirming consent never silently backfills that interval.
@@ -141,7 +147,8 @@ never reopens a completed commitment.
   edits or dismisses each suggestion before it can enter the active commitment
   list. A request in received mail does not itself establish an accepted obligation.
 - Scanning catches up eligible mail after system/model interruptions when the
-  client can run. Deliberately disabling the automatic scan cancels active scans
+  client can run. Catch-up cannot cross a later deliberate Off boundary or revive
+  cleared proposals or cancelled pre-Off work. Deliberately disabling the automatic scan cancels active scans
   and rejects late results. Re-enabling starts with new mail from then; the
   disabled period requires an explicit historical scan.
 
@@ -197,12 +204,12 @@ unavailable or misses an item. Inference is not required to use the commitment l
 ## Source removal and Profile moves
 
 - Accepted commitments survive source-message deletion and Mailbox Connection
-  removal. Their reviewed title, state and dates remain, with unavailable source
+  removal. Their reviewed title, direction, state and dates remain, with unavailable source
   links. Suggestions and cached source content belonging to the removed
   connection are purged. Mailbox removal alone therefore does not erase accepted
   commitment text.
 - Before confirming Mailbox Connection removal, disclose that any reviewed
-  commitment title, state, dates and configured reminders remain in the mail app
+  commitment title, direction, state, dates and configured reminders remain in the mail app
   and Private Sync, while the connection's suggestions and cached source content
   are purged and its source links become unavailable. Use wording that honors
   Profile Lock without revealing protected titles or other retained content. Explain the existing
@@ -257,6 +264,14 @@ manual fallback remains available elsewhere. Documentation, synthetic results
 and compiled bindings do not establish that qualification.
 
 Representative acceptance scenarios:
+
+- With informed consent and saved scan On, turn master Assistance Off while mail
+  arrives, then re-enable it. Start automatic scanning with new eligible mail
+  from re-enable, require explicit bounded review of the Off interval and reject
+  pre-Off late results; repeat with saved scan Off and involuntary interruptions.
+- Retain both I owe and Waiting for commitments after source deletion and mailbox
+  removal. Preserve their directions separately from lifecycle state and include
+  direction in generic pre-removal disclosure without exposing locked content.
 
 - Track both an owed action and an awaited outcome across two Mailbox Connections
   in one Profile. Review/accept on one device and respect that decision on another.
