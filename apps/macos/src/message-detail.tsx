@@ -1,8 +1,4 @@
-import type {
-  CommandId,
-  CommandTarget,
-} from '@private-email/mail-core/commands';
-import type { MenuItem } from '@private-email/mail-core/context-menu';
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
@@ -11,6 +7,7 @@ import {
   expectedCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
+import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
@@ -539,69 +536,8 @@ function MessageMenu({
 }) {
   const { t } = useLocalization();
   const commands = useMessageCommands(target);
-  const items = (
-    entries: ReadonlyArray<readonly [CommandId, string, string]>,
-  ): MenuItem[] =>
-    entries.flatMap(([id, title, symbol]): MenuItem[] => {
-      const command = commands.find((each) => each.id === id);
-      const choices = (command?.choices ?? []).filter(
-        (choice) => choice.disabled === undefined,
-      );
-      if (choices.length > 0) {
-        return [
-          {
-            title,
-            symbol,
-            items: choices.map((choice) => ({
-              title: choice.title,
-              symbol: choice.icon ?? 'folder',
-              run: choice.run,
-            })),
-          },
-        ];
-      }
-      const run = command?.run;
-      return run === undefined
-        ? []
-        : [
-            {
-              title,
-              symbol,
-              destructive: id === 'trash',
-              run,
-            },
-          ];
-    });
   return (
-    <ContextMenu
-      sections={[
-        {
-          palette: true,
-          items: items([
-            ['reply', t('contextMenu.reply'), 'arrowshape.turn.up.left'],
-            [
-              'replyAll',
-              t('contextMenu.replyAll'),
-              'arrowshape.turn.up.left.2',
-            ],
-            ['forward', t('contextMenu.forward'), 'arrowshape.turn.up.right'],
-          ]),
-        },
-        {
-          items: items([
-            ['read', t('contextMenu.read'), 'envelope.open'],
-            ['unread', t('contextMenu.unread'), 'envelope.badge'],
-            ['star', t('contextMenu.star'), 'flag'],
-            ['unstar', t('contextMenu.unstar'), 'flag.slash'],
-          ]),
-        },
-        {
-          items: items([
-            ['move', t('contextMenu.moveMessage'), 'folder'],
-            ['trash', t('contextMenu.trashMessage'), 'trash'],
-          ]),
-        },
-      ]}>
+    <ContextMenu sections={messageContextMenu(t, commands)}>
       {children}
     </ContextMenu>
   );

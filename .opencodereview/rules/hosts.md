@@ -38,7 +38,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   payloads and malformed messages can mutate Drafts. Keep the host decoder separate
   from page-facing conversion code so Schema/Effect stays outside the packaged page.
 - An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
-- The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
+- The same logic added to both hosts in one change. Compare the added non-React
+  helpers and projections across the hosts, including `ContextMenu` serialization,
+  `MessageMenu` and row-menu action selection, and `useMessageCommands` filtering.
+  Two copies drift in supported actions, ordering or native selection ownership;
+  move the shared logic to `mail-core` unless it depends on a host API. Keep
+  React subscriptions, rendering and native adapters in their host.
 
 #### React correctness
 

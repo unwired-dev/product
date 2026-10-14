@@ -1,9 +1,9 @@
 import type { Message } from '@private-email/mail-core';
-import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 
 import { messageDay } from '@private-email/localization';
+import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -72,41 +72,8 @@ export function MessageRow({
     mailbox,
     status,
   });
-  // The context menu offers the same actions in the design's order, Delete last.
-  const menuItems = (
-    entries: ReadonlyArray<readonly [string, string, string]>,
-  ): MenuItem[] =>
-    entries.flatMap(([name, title, symbol]) => {
-      const action = actions.find((each) => each.name === name);
-      return action === undefined
-        ? []
-        : [
-            {
-              title,
-              symbol,
-              destructive: name === 'trash',
-              run: action.run,
-            },
-          ];
-    });
   return (
-    <ContextMenu
-      sections={[
-        {
-          items: menuItems([
-            ['archive', t('contextMenu.archive'), 'archivebox'],
-          ]),
-        },
-        {
-          items: menuItems([
-            ['star', t('contextMenu.star'), 'flag'],
-            ['unstar', t('contextMenu.unstar'), 'flag.slash'],
-            ['read', t('contextMenu.read'), 'envelope.open'],
-            ['unread', t('contextMenu.unread'), 'envelope.badge'],
-          ]),
-        },
-        { items: menuItems([['trash', t('contextMenu.trash'), 'trash']]) },
-      ]}>
+    <ContextMenu sections={rowContextMenu(t, actions)}>
       <Pressable
         accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
           name,

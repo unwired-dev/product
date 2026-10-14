@@ -1,3 +1,9 @@
+import type { Translate } from '@private-email/localization';
+
+import type { Command, CommandId, CommandTarget } from './commands.ts';
+
+import { mergeCommands } from './commands.ts';
+
 // A context menu's items as the hosts' native menu views receive them: each action gets an ID
 // that stays stable across live updates, so a displayed item never runs another action.
 export type MenuAction = () => void | Promise<void>;
@@ -63,4 +69,116 @@ export const menuState = (
     ids,
     nextId,
   };
+};
+
+// The enabled commands the mounted screens offer for one message now.
+export const messageCommands = (
+  commands: readonly Command[],
+  target: CommandTarget,
+) =>
+  mergeCommands(commands).filter(
+    (command) =>
+      command.target?.id === target.id && command.disabled === undefined,
+  );
+
+// The enabled commands for the open message, in the reader menu's fixed groups.
+export const messageContextMenu = (
+  t: Translate,
+  commands: readonly Command[],
+): readonly MenuSection[] => {
+  const items = (
+    entries: ReadonlyArray<readonly [CommandId, string, string]>,
+  ): MenuItem[] =>
+    entries.flatMap(([id, title, symbol]): MenuItem[] => {
+      const command = commands.find((each) => each.id === id);
+      if (command === undefined) {
+        return [];
+      }
+      const { choices = [], run } = command;
+      const enabled = choices.filter((choice) => choice.disabled === undefined);
+      if (enabled.length > 0) {
+        return [
+          {
+            title,
+            symbol,
+            items: enabled.map((choice) => ({
+              title: choice.title,
+              symbol: choice.icon ?? 'folder',
+              run: choice.run,
+            })),
+          },
+        ];
+      }
+      return run === undefined
+        ? []
+        : [
+            {
+              title,
+              symbol,
+              destructive: id === 'trash',
+              run,
+            },
+          ];
+    });
+  return [
+    {
+      palette: true,
+      items: items([
+        ['reply', t('contextMenu.reply'), 'arrowshape.turn.up.left'],
+        ['replyAll', t('contextMenu.replyAll'), 'arrowshape.turn.up.left.2'],
+        ['forward', t('contextMenu.forward'), 'arrowshape.turn.up.right'],
+      ]),
+    },
+    {
+      items: items([
+        ['read', t('contextMenu.read'), 'envelope.open'],
+        ['unread', t('contextMenu.unread'), 'envelope.badge'],
+        ['star', t('contextMenu.star'), 'flag'],
+        ['unstar', t('contextMenu.unstar'), 'flag.slash'],
+      ]),
+    },
+    {
+      items: items([
+        ['move', t('contextMenu.moveMessage'), 'folder'],
+        ['trash', t('contextMenu.trashMessage'), 'trash'],
+      ]),
+    },
+  ];
+};
+
+// The row's supported organizing actions, with Delete last and Spam omitted.
+export const rowContextMenu = (
+  t: Translate,
+  actions: ReadonlyArray<Readonly<{ name: string; run: MenuAction }>>,
+): readonly MenuSection[] => {
+  const menuItems = (
+    entries: ReadonlyArray<readonly [string, string, string]>,
+  ): MenuItem[] =>
+    entries.flatMap(([name, title, symbol]) => {
+      const action = actions.find((each) => each.name === name);
+      return action === undefined
+        ? []
+        : [
+            {
+              title,
+              symbol,
+              destructive: name === 'trash',
+              run: action.run,
+            },
+          ];
+    });
+  return [
+    {
+      items: menuItems([['archive', t('contextMenu.archive'), 'archivebox']]),
+    },
+    {
+      items: menuItems([
+        ['star', t('contextMenu.star'), 'flag'],
+        ['unstar', t('contextMenu.unstar'), 'flag.slash'],
+        ['read', t('contextMenu.read'), 'envelope.open'],
+        ['unread', t('contextMenu.unread'), 'envelope.badge'],
+      ]),
+    },
+    { items: menuItems([['trash', t('contextMenu.trash'), 'trash']]) },
+  ];
 };

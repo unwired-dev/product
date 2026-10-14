@@ -2,6 +2,7 @@
 '@private-email/mobile': minor
 '@private-email/macos': minor
 '@private-email/localization': patch
+'@private-email/mail-core': patch
 ---
 
 Add native context menus on Mac, iPad and iPhone (#905): long-press on iPhone and

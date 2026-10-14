@@ -25,6 +25,7 @@ import {
   orderCommands,
   sectionTitle,
 } from '@private-email/mail-core/commands';
+import { messageCommands } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
@@ -95,10 +96,7 @@ export function useMessageCommands(target: CommandTarget) {
     registry.subscribe,
     registry.getSnapshot,
   );
-  return mergeCommands(commands).filter(
-    (command) =>
-      command.target?.id === target.id && command.disabled === undefined,
-  );
+  return messageCommands(commands, target);
 }
 
 interface PreferenceModule extends TurboModule, NativePreferences {}
