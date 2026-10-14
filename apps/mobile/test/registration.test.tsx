@@ -1690,6 +1690,25 @@ describe('product registration', () => {
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
 
+    // Provider-only matches still get Top Results and its spoken result count.
+    await search('Studio archive');
+    await waitFor(() => {
+      expect(rows()).toHaveLength(0);
+    });
+    await press('Search mail servers for “Studio archive”');
+    await expect(
+      screen.findByRole('header', {
+        name: 'Top Results. 1 result in All inboxes',
+      }),
+    ).resolves.toBeVisible();
+    expect(rows()).toStrictEqual([
+      'Unread. Maya Chen. Studio archive. In alex@example.invalid',
+    ]);
+    await press('Close Search');
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).not.toBeOnTheScreen();
+
     // Saved results come first; Gmail is searched only when asked, across both mailboxes.
     await search('studio');
     await waitFor(() => {
@@ -1697,7 +1716,7 @@ describe('product registration', () => {
     });
     expect(
       gmail.alex.requests.filter(({ query }) => query.has('q')),
-    ).toStrictEqual([]);
+    ).toHaveLength(1);
     await press('Search mail servers for “studio”');
     await expect(
       screen.findByRole('header', { name: 'From mail servers' }),

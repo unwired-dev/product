@@ -132,13 +132,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   from the mailbox-scoped Thread projection. `ThreadMessages` must count that
   same projection, or the reader mislabels multi-message conversations.
 
-- `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
+- Mac `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
   Inbox state while an explicit online search reports an `offline` failure.
   Trace the online answer as well as the displayed mailbox states: an unreachable
   server must select the documented Offline subtitle instead of a result count,
   while preserving Syncing precedence. Exercise partial failure, fresh retry and
-  query/scope replacement through the real search store on both hosts; otherwise
-  current cached mail makes a failed online search appear connected.
+  query/scope replacement through the real search store; otherwise current cached
+  mail makes a failed online search appear connected. On iPhone and iPad, where
+  search replaces the subtitle with scope controls under #974, preserve each
+  connection's failure under From mail servers instead of requiring that subtitle.
 
 - `sidebar.tsx.FolderRows` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
@@ -146,12 +148,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
   distinct folders appear to be the same Inbox.
 
-- `inbox.tsx.headingOf` retaining the Inbox title while the sidebar selects a
+- `inbox.tsx` retaining the Inbox title while the sidebar selects a
   different IMAP folder. Trace the effective folder from `useImapFolder` into
   the visible and accessible list heading on both hosts, including names with
   embedded newlines and fallback after folder retirement. Otherwise the list
-  labels Archive or another folder's messages as Inbox. Preserve the search
-  title while searching and the aggregate Inbox title for aggregate mail.
+  labels Archive or another folder's messages as Inbox. Preserve the Mac search
+  title while searching, the iPhone/iPad search scope controls under #974, and the
+  aggregate Inbox title for aggregate mail.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.

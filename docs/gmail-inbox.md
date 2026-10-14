@@ -90,14 +90,16 @@ reaches it.
 - **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
   searches only its own mail. A removed mailbox's mail leaves the results at once,
-  as it leaves the Inbox. In a view narrower than every Inbox of the Profile (one
+  as it leaves the Inbox. On iPhone and iPad, in a view narrower than every Inbox of the Profile (one
   mailbox, or one of its folders), search shows **All Mailboxes** and **Current
   Mailbox** at the top. Current Mailbox is chosen when search opens; All Mailboxes
   searches, and asks the mail servers about, every Inbox of the Profile.
-- **Results.** Results are listed in that order under **Top Results**, whose spoken
+- **Results.** On iPhone and iPad, results are listed in that order under **Top Results**, whose spoken
   label also gives the number of saved and online results and where they were found.
   The words of the query are marked in each result's sender and subject with the
-  subtle selection fill, except on the selected row. Each result is an ordinary Inbox row that opens in the reader. While
+  subtle selection fill, except on the selected row. On Mac, the Search heading's
+  subtitle reports the result count, with Syncing and Offline taking precedence,
+  and rows keep their ordinary sender and subject styling. Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
   opens without the server, or **Downloads from the mail server when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
@@ -175,10 +177,12 @@ the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that, with Gmail's
 star as its flag. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
-Offline while the server is being checked or cannot be reached. While
+Offline while the server is being checked or cannot be reached. On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
-not reach says so under **From mail servers**. Opening a message shows its body, as described in
+not reach says so under **From mail servers**. On Mac, search changes the title to
+Search and the subtitle to the displayed saved and online result count, with Syncing
+and Offline still taking precedence. Opening a message shows its body, as described in
 [Reading messages](#reading-messages). The detail view also shows the message's
 own labels and the [organizing actions](#organizing-mail).
 

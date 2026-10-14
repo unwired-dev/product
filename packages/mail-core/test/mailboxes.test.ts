@@ -404,6 +404,18 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(matchedRanges('Studio', ' ')).toStrictEqual([]);
   });
 
+  it.each([
+    ['😀 Maya café', 'maya cafe', ['Maya', 'café']],
+    ['Maya 😀 room', '😀 room', ['😀', 'room']],
+    ['𐐨 studio', '𐐀 stu', ['𐐨', 'stu']],
+    ['Maya\u{1D185} room', 'maya', ['Maya\u{1D185}']],
+  ])('keeps UTF-16 highlights intact in %s', (text, query, expected) => {
+    expect.hasAssertions();
+    expect(
+      matchedRanges(text, query).map(([start, end]) => text.slice(start, end)),
+    ).toStrictEqual(expected);
+  });
+
   it('searches Gmail online across connections, pages and opens results without saving them, and keeps each failure its own', async () => {
     expect.hasAssertions();
     // Holds Other's online searches until released, as a slow network would.

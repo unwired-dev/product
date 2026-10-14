@@ -235,15 +235,27 @@ describe('preview Inbox', () => {
       expect(sheet.queryByText('Include Mail From')).toBeNull();
       const unread = sheet.getByRole('checkbox', { name: 'Unread' });
       expect(unread).toBeChecked();
+      // Leaving the sheet discards its edits and restores the applied criterion.
       await fireEvent.press(unread);
       await fireEvent(
-        sheet.getByLabelText('Only Mail from Today'),
+        screen.getByTestId('filters-sheet'),
+        'accessibilityEscape',
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      const reopened = within(screen.getByTestId('filters-sheet'));
+      expect(reopened.getByRole('checkbox', { name: 'Unread' })).toBeChecked();
+      await fireEvent.press(reopened.getByRole('checkbox', { name: 'Unread' }));
+      await fireEvent(
+        reopened.getByLabelText('Only Mail from Today'),
         'valueChange',
         true,
       );
       expect(screen.queryByRole('button', fieldNotes)).toBeNull();
       await fireEvent.press(
-        sheet.getByRole('button', { name: 'Apply Filters' }),
+        reopened.getByRole('button', { name: 'Apply Filters' }),
       );
       expect(screen.queryByTestId('filters-sheet')).toBeNull();
       expect(

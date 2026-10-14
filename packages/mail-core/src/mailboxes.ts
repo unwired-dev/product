@@ -725,6 +725,42 @@ const folded = (text: string) =>
 
 type Searched = Readonly<{ sender: string; address: string; subject: string }>;
 
+export type InboxFilter = Readonly<{
+  excluded: ReadonlySet<string>;
+  unread: boolean;
+  today: boolean;
+}>;
+
+// Every criterion narrows the list; Today is the list's own UTC day. Only the offered connections
+// can be left out. The host owns the filter's settings and whether it applies.
+export function filterMessages<
+  M extends Readonly<{
+    mailbox: Readonly<{ id: string }>;
+    message: Readonly<{ unread: boolean; receivedAt: string }>;
+  }>,
+>(
+  entries: readonly M[],
+  {
+    filter: { excluded, unread, today },
+    connections,
+    now,
+  }: Readonly<{
+    filter: InboxFilter;
+    connections: ReadonlyArray<Readonly<{ id: string }>>;
+    now: number;
+  }>,
+) {
+  return entries.filter(
+    ({ mailbox, message }) =>
+      !(
+        excluded.has(mailbox.id) &&
+        connections.some(({ id }) => id === mailbox.id)
+      ) &&
+      (!unread || message.unread) &&
+      (!today || messageDay(message.receivedAt, now) === 'today'),
+  );
+}
+
 const queryWords = (query: string) =>
   folded(query)
     .split(/\s+/u)
@@ -758,6 +794,10 @@ const foldedLetters = (text: string) => {
     for (const letter of folded(point)) {
       folds += letter;
       spans.push([at, at + point.length]);
+      // String searches count both UTF-16 units of a supplementary letter.
+      if (letter.length === 2) {
+        spans.push([at, at + point.length]);
+      }
     }
     at += point.length;
   }
@@ -809,8 +849,11 @@ export function matchedRanges(
       const [start] = spans[index] ?? [0, 0];
       let [, end] = spans[index + word.length - 1] ?? [0, text.length];
       // A combining accent belongs to the letter before it.
-      while (/^\p{M}/u.test(text.slice(end))) {
-        end += 1;
+      for (const point of text.slice(end)) {
+        if (!/^\p{M}$/u.test(point)) {
+          break;
+        }
+        end += point.length;
       }
       found.push([start, end]);
     }

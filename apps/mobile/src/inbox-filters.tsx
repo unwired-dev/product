@@ -1,7 +1,8 @@
 import type { Translate } from '@private-email/localization';
+import type { InboxFilter } from '@private-email/mail-core/mailboxes';
 import type { ReactNode } from 'react';
 
-import { messageDay } from '@private-email/localization';
+import { filterMessages } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, useMemo, useState } from 'react';
 import {
@@ -19,47 +20,16 @@ import { FilterControl } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
-// What a filtered Inbox keeps: unread mail, mail from today, and only the connections not left out.
-// The connections apply only to the unified Inbox, the one view that lists several.
-type InboxFilter = Readonly<{
-  excluded: ReadonlySet<string>;
-  unread: boolean;
-  today: boolean;
-}>;
-
 const defaultFilter: InboxFilter = {
   excluded: new Set(),
   unread: true,
   today: false,
 };
 
-type Filtered = Readonly<{
-  mailbox: Readonly<{ id: string }>;
-  message: Readonly<{ unread: boolean; receivedAt: string }>;
-}>;
+type Filtered = Parameters<typeof filterMessages>[0][number];
 type Shown = Readonly<{ id: string; address?: string | undefined }>;
 
 type Connections = ReadonlyArray<Readonly<{ id: string; address: string }>>;
-
-// Every criterion narrows the list; Today is the list's own UTC day. Only the offered connections
-// can be left out.
-const filterMessages = <M extends Filtered>(
-  entries: readonly M[],
-  {
-    filter: { excluded, unread, today },
-    connections,
-    now,
-  }: Readonly<{ filter: InboxFilter; connections: Connections; now: number }>,
-) =>
-  entries.filter(
-    ({ mailbox, message }) =>
-      !(
-        excluded.has(mailbox.id) &&
-        connections.some(({ id }) => id === mailbox.id)
-      ) &&
-      (!unread || message.unread) &&
-      (!today || messageDay(message.receivedAt, now) === 'today'),
-  );
 
 const criteria = (
   t: Translate,

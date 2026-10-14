@@ -562,7 +562,9 @@ function inboxSections<M>({
   return [
     ...(outboxRows.length === 0 ? [] : [{ key: 'outbox', data: outboxRows }]),
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
-    ...searchSections<OutboxItem | DraftItem | M>(messages, online),
+    ...(searching
+      ? searchSections<OutboxItem | DraftItem | M>(messages, online)
+      : messages),
   ];
 }
 
@@ -884,12 +886,12 @@ export function Inbox({
               }
               const [first] = section.data;
               if (searching) {
-                return section.key === 'saved' && first !== undefined ? (
+                const count =
+                  section.data.length + (online.found?.results.length ?? 0);
+                return section.key === 'saved' && count > 0 ? (
                   <Text
                     accessibilityLabel={t('search.topResultsLabel', {
-                      count:
-                        section.data.length +
-                        (online.found?.results.length ?? 0),
+                      count,
                       scope: searchState.searchesAll
                         ? t('inbox.allInboxes')
                         : scopeName,
@@ -940,7 +942,10 @@ export function Inbox({
             }
             ListFooterComponentStyle={styles.listFooter}
             renderSectionFooter={({ section }) =>
-              section.key === 'saved' && ready && results?.length === 0 ? (
+              searching &&
+              section.key === 'saved' &&
+              ready &&
+              results?.length === 0 ? (
                 <Text style={[styles.notice, { color: colors.textSecondary }]}>
                   {t('search.empty', { query: searched })}
                 </Text>
