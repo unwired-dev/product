@@ -23,6 +23,7 @@ import {
   decodeMessageContentHeight,
   decodeRemoteImagePositions,
 } from '@private-email/mail-core/message-body';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   createContext,
   Fragment,
@@ -36,7 +37,6 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Clipboard,
   Linking,
   Pressable,
   ScrollView,
@@ -119,7 +119,6 @@ function LinkConfirmation({
     destructive: { fill: colors.fillQuiet, ink: colors.statusDestructive },
   };
   const copyLink = () => {
-    // oxlint-disable-next-line typescript/no-deprecated -- Core Clipboard remains in both hosts; replacing it adds a native module.
     Clipboard.setString(link.href);
   };
   const choices: ReadonlyArray<

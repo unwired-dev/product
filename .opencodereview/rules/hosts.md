@@ -718,7 +718,7 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   cannot identify the opened message. Check the cue against both palettes and
   the section's padding/radius, and retain increased-contrast native qualification
   as deferred when unavailable; component style assertions do not prove it.
-- A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
+- A component library, navigation library or native module added to either host without checking its owning host's accepted scope. Mobile uses Router's split view and React Native `StyleSheet`; native module additions must update that host's `scripts/verify-native.ts` allowlist and preserve its `scripts/verify-bundle.ts` renderer boundary. Otherwise a dependency can join the native graph without review or bring an incompatible renderer into the shipped bundle.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - `command-palette.tsx.CommandBar` or another Mac overlay that takes focus
   and hands it back on dismissal through `TextInput.State.currentlyFocusedInput`
