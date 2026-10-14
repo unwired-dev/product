@@ -15,11 +15,15 @@ export const styles = StyleSheet.create({
     paddingTop: spacing.l,
     paddingBottom: 10,
   },
-  account: { ...textStyles.body, padding: 14, paddingTop: spacing.l },
   title: { ...textStyles.title3Emphasized },
   subtitle: { flexDirection: 'row' },
   subtitleText: { ...textStyles.subheadline, flexShrink: 1 },
-  list: { paddingHorizontal: 6, flexGrow: 1 },
+  // Rows scroll under the floating bar.
+  list: {
+    paddingHorizontal: 6,
+    paddingBottom: 56,
+    flexGrow: 1,
+  },
   listFooter: { flexGrow: 1 },
   // The 2pt focus ring sits inside the design's 8/9/22/12pt row insets.
   row: {
@@ -85,21 +89,4 @@ export const styles = StyleSheet.create({
   footer: { ...textStyles.subheadline, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.subheadline },
-  search: {
-    ...textStyles.body,
-    minHeight: 28,
-    marginHorizontal: 14,
-    marginBottom: spacing.m,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-  },
 });

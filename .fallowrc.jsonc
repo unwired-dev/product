@@ -1,6 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
+    // Reviewers and the real-Git tests launch this CLI as a subprocess.
+    "scripts/ocr-checkpoint.mjs",
     "scripts/oxlint-effect-imports.mjs",
     "scripts/oxlint-effect-boundaries.mjs",
     // Imported by the ignored Oxlint configuration files.

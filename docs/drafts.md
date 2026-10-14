@@ -12,10 +12,23 @@ Trusted Devices through Private Sync.
 
 ## Composing
 
-- **New Message** in the Inbox column starts a Draft from the mailbox the Inbox
-  shows, or the first usable mailbox under **All inboxes**. It opens the composer in
-  the detail column: a route of its own on iPhone, beside the Inbox on iPad, and in
-  place of the reader in a Mac window. Each Mac window has one composer.
+- **New Message**, in the floating bar under the Inbox list, starts a Draft from the
+  mailbox the Inbox shows, or the first usable mailbox under **All inboxes**. It opens the composer in
+  the detail column: a route of its own on iPhone and a bottom-anchored overlay
+  over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
+  the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
+  height above the keyboard. **Expand** takes the composer over the whole
+  window with the same Draft and **Collapse** returns it; on the Mac, the overlay
+  and the expanded composer stay beneath the window's
+  [command bar](command-palette.md#entry-points). The Inbox column stays
+  interactive beneath the overlay while the covered reader waits. Selecting
+  another message updates that reader without closing the Draft; Close reveals
+  the latest selection. Expanding, collapsing and changing the mobile layout
+  retain the same editor and Undo history. Each window has one composer.
+  The floating search and New Message bar hides while composing. On Mac,
+  **Search Mail** reveals it and collapses an expanded composer without closing
+  the Draft; New Message remains available through the Command Palette and
+  finishes saving before switching the editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
   Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.
@@ -42,14 +55,27 @@ Trusted Devices through Private Sync.
   editing; its title and From choices also use bounded previews and announce
   shortening. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
-- **From** always shows the sending mailbox and lists every mailbox in the Draft's
+- The composer shows the body first, then attachments, then the **Subject**,
+  **To**, **Cc** and **Bcc** fields with right-aligned labels; its header holds
+  Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
+  underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
+  and the file and image controls) sits under the header on Mac and iPad and
+  above the keyboard on iPhone. On touch layouts, Text style stays at the leading
+  edge while the remaining controls scroll horizontally at their full touch size. On Mac, **From** and **Send** share the bottom row;
+  on iPhone and iPad, **From** sits under the header and **Send** in it.
+  These platform control rows stay fixed. Save status, errors and confirmations
+  scroll with the body, assets and fields in one outer scroll view; stacked
+  feedback can scroll away in a short overlay or above the keyboard.
+- **From** is a pop-up that always shows the sending mailbox and lists every
+  mailbox in the Draft's
   [Mail Profile](private-inbox-storage.md#mail-profiles) that can send; a Draft never
   moves to another Profile's mailbox. A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
   needs authorization again, is removed from the account, or changes its address, the Draft keeps it and
   explains why it cannot send; another mailbox is used only after the person chooses
   it. When its address changes, choose that mailbox again in From to use the current
   address. Nothing substitutes a sender silently.
-- **To**, and **Cc** and **Bcc** after **Cc/Bcc**, accept `Name <address>`,
+- **To**, and **Cc** and **Bcc** after the **Cc/Bcc** control at the end of the
+  To row, accept `Name <address>`,
   `"Last, First" <address>` or a bare address. A comma, semicolon, Return or leaving
   the field turns finished entries into removable recipients. Text that is not a
   valid address stays in the field with **Enter a valid email address.** An address
@@ -59,9 +85,10 @@ Trusted Devices through Private Sync.
   interruption or relaunch restores it in that field.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
-  underline, strikethrough and inline code. The formatting toolbar applies marks to
-  the selection, or to the next typed text at the caret, and sets the block kind of
-  every selected block. Moving the caret ends marks toggled for typing, including
+  underline, strikethrough and inline code. The format bar applies marks to
+  the selection, or to the next typed text at the caret, and its **Text style**
+  menu (Body, Heading 1 to 3, Quote, Code block) and list buttons set the block
+  kind of every selected block. Moving the caret ends marks toggled for typing, including
   when text is entered before the composer redraws. Typing `# `, `## `, `### `, `- `, `* `, `1. ` or `> `, or
   three backticks, at the start of a paragraph applies that block kind and removes
   the marker; one **Undo** restores the literal marker. Return continues a list,
@@ -108,7 +135,7 @@ body content or attachments discards it only if no other window has completed it
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
-Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
+Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
 also finishes recipient entry and waits for saving; invalid entry or a save failure
 keeps the current composer open. A failed discard keeps the Draft visible and can
 be retried. A concurrent save from another storage writer is recovered once;

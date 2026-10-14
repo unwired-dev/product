@@ -116,6 +116,7 @@ rounded:
   card: '10px'
   bubble: '20px'
   window: '16px'
+  mailbox-group: '22px'
   settings-detail: '16.923076629638672px'
 spacing:
   xs: '4px'
@@ -334,7 +335,9 @@ styles) so the file stays editable.
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
-  under it behind a 72pt scroll edge fade. It hides while the composer is open.
+  under it behind a 72pt scroll edge fade. It hides while the composer is open;
+  on Mac, explicitly invoking Search Mail reveals it and collapses an expanded
+  composer while keeping the Draft open.
 - **Command Palette:** on the Mac a 36pt glass command input (command
   symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
@@ -371,7 +374,8 @@ styles) so the file stays editable.
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
   reading pane with 12pt outer insets and 70% of the available height, clamped
-  from 420 to 720pt. Expanding it takes over the whole app window with the same
+  from 420 to 720pt. Expanding it takes over the whole app window, beneath the
+  Mac's command bar, with the same
   Draft; there is no separate Compose window and no freeform resizing. Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
@@ -418,6 +422,7 @@ content.
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
+- iPhone Mailboxes uses 22pt rounded groups of 52pt rows, as shown in the Mailboxes frames.
 
 ## Components
 

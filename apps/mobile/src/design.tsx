@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, ViewProps } from 'react-native';
+import type {
+  ColorValue,
+  StyleProp,
+  TextProps,
+  ViewProps,
+  ViewStyle,
+} from 'react-native';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { useState } from 'react';
@@ -22,7 +28,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeGlass = requireNativeComponent<
+export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -52,24 +58,21 @@ const styles = StyleSheet.create({
     borderRadius: groupRadius,
   },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    maxWidth: '100%',
-    paddingLeft: 10,
-    paddingRight: spacing.m,
-    borderRadius: radius.chip,
-    borderCurve: 'continuous',
-  },
-  chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
   toolbarButton: {
     minWidth: 44,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: groupRadius - spacing.xs,
+    borderCurve: 'continuous',
+  },
+  chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
+  buttonTarget: { minHeight: 44, justifyContent: 'center' },
+  buttonFill: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.control,
     borderCurve: 'continuous',
   },
   monogram: {
@@ -135,8 +138,15 @@ export function SFSymbol({
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
-export function GlassGroup({ children }: { readonly children: ReactNode }) {
+export function GlassGroup({
+  children,
+  style,
+}: {
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
+  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
     <View
       style={[
@@ -145,9 +155,12 @@ export function GlassGroup({ children }: { readonly children: ReactNode }) {
           boxShadow: colors.smallGlassShadow,
           backgroundColor: colors.surfaceContent,
         },
+        style,
       ]}>
       <Glass
-        cornerRadius={groupRadius}
+        cornerRadius={
+          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+        }
         style={StyleSheet.absoluteFill}
       />
       {children}
@@ -183,6 +196,9 @@ export function ToolbarButton({
   onPress,
   disabled = false,
   expanded,
+  selected,
+  destructive = false,
+  accessibilityHint,
 }: {
   readonly label: string;
   readonly icon: string;
@@ -190,16 +206,22 @@ export function ToolbarButton({
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;
+  // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{
         disabled,
         ...(expanded === undefined ? {} : { expanded }),
+        ...(selected === undefined ? {} : { selected }),
       }}
       disabled={disabled}
       focusable
@@ -214,18 +236,19 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true
+            pressed || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
-          borderColor: focused ? colors.accentInk : 'transparent',
+          borderColor:
+            focused || selected === true ? colors.accentInk : 'transparent',
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <SFSymbol
         name={icon}
         size={20}
-        color={colors.textPrimary}
+        color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
   );
@@ -258,49 +281,6 @@ export function Monogram({ name }: { readonly name: string }) {
   );
 }
 
-// A selectable filter: the icon and label together carry its meaning.
-export function Chip({
-  label,
-  icon,
-  selected,
-  onPress,
-}: {
-  readonly label: string;
-  readonly icon: string;
-  readonly selected: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={styles.chipTarget}>
-      <View
-        style={[
-          styles.chip,
-          { backgroundColor: selected ? colors.accentFill : colors.fillQuiet },
-        ]}>
-        <SFSymbol
-          name={icon}
-          color={selected ? colors.accentOnFill : colors.textSecondary}
-        />
-        <Text
-          style={[
-            textStyles.subheadline,
-            { flexShrink: 1 },
-            selected && { fontWeight: '600' },
-            { color: selected ? colors.accentOnFill : colors.textPrimary },
-          ]}>
-          {label}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
-
 // A banner beside the content it explains, with its actions stacked under the message. A warning
 // tints its icon; the message is an alert when it reports a failure.
 export function Notice({
@@ -308,6 +288,7 @@ export function Notice({
   iconColor,
   message,
   messageRole,
+  messageActions,
   announce,
   children,
 }: {
@@ -315,6 +296,10 @@ export function Notice({
   readonly iconColor?: ColorValue;
   readonly message: string;
   readonly messageRole?: 'alert';
+  // Accessibility actions on the message, such as a screen header's Open Command Palette.
+  readonly messageActions?:
+    | Pick<TextProps, 'accessibilityActions' | 'onAccessibilityAction'>
+    | undefined;
   // Preserves live-region semantics; native announcement support is platform-specific.
   readonly announce?: 'polite';
   readonly children?: ReactNode;
@@ -330,7 +315,8 @@ export function Notice({
         <Text
           accessibilityLiveRegion={announce}
           accessibilityRole={messageRole}
-          style={[styles.noticeText, { color: colors.textPrimary }]}>
+          style={[styles.noticeText, { color: colors.textPrimary }]}
+          {...messageActions}>
           {message}
         </Text>
       </View>
@@ -341,39 +327,60 @@ export function Notice({
   );
 }
 
-// A push button: the primary one carries the accent fill, others the quiet fill.
+// A push button: the accent fill carries the view's main action, the quiet fill the rest. The
+// compact size is the 28pt pill of the compose format bar and banners inside a 44pt touch target.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
+  size = 'regular',
+  disabled = false,
+  destructive = false,
+  accessibilityLabel,
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly fill?: 'accent' | 'quiet';
+  readonly size?: 'regular' | 'compact';
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
   const primary = fill === 'accent';
+  const compact = size === 'compact';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  let color = primary ? colors.accentOnFill : colors.textPrimary;
+  if (destructive) {
+    color = colors.statusDestructive;
+  }
+  let labelStyle = primary ? textStyles.headline : textStyles.body;
+  if (compact) {
+    labelStyle = textStyles.subheadline;
+  }
+  const fillOf = (pressed: boolean) => ({
+    backgroundColor: pressed && !primary ? colors.accentSelectionSubtle : idle,
+  });
+  const text = <Text style={[labelStyle, { color }]}>{label}</Text>;
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       focusable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor:
-            pressed && !primary ? colors.accentSelectionSubtle : idle,
-        },
+        compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
+        { opacity: disabled ? 0.5 : 1 },
       ]}>
-      <Text
-        style={[
-          primary ? textStyles.headline : textStyles.body,
-          { color: primary ? colors.accentOnFill : colors.textPrimary },
-        ]}>
-        {label}
-      </Text>
+      {({ pressed }) =>
+        compact ? (
+          <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
+        ) : (
+          text
+        )
+      }
     </Pressable>
   );
 }

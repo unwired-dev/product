@@ -3,111 +3,53 @@ import {
   imapFolderName,
   inboxFolder,
 } from '@private-email/mail-core/imap-inbox';
-import { useMemo, useState, useSyncExternalStore } from 'react';
-import { Text, View } from 'react-native';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import type { InboxMailbox } from './private-storage.ts';
-
-import { Chip } from './design.tsx';
-import { styles } from './inbox-styles.ts';
-import { useLocalization } from './localization.ts';
-import { usePalette } from './theme.ts';
-
-// An IMAP mailbox's folders, Inbox first; each window chooses its own.
-export function FolderPicker({
-  mailbox,
-  folder,
-  failed,
-  onFolder,
-}: {
-  // The IMAP mailbox shown on its own, if any.
-  readonly mailbox: InboxMailbox | undefined;
-  readonly folder: string;
-  // The chosen folder could not be read; any cached messages still show.
-  readonly failed: boolean;
-  readonly onFolder: (folder: string) => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const state = mailbox?.state;
-  if (
-    state?.kind !== 'ready' ||
-    !('folders' in state) ||
-    state.folders.length < 2
-  ) {
-    return null;
-  }
-  return (
-    <>
-      <View
-        accessibilityLabel={t('imap.folders')}
-        style={styles.scopes}>
-        {state.folders
-          .filter(({ selectable }) => selectable)
-          .map(({ name }) => (
-            <Chip
-              key={name}
-              icon={name === inboxFolder ? 'tray' : 'folder'}
-              label={name === inboxFolder ? t('inbox.title') : name}
-              selected={name === folder}
-              onPress={() => {
-                onFolder(name);
-              }}
-            />
-          ))}
-      </View>
-      {failed ? (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.notice, { color: colors.textSecondary }]}>
-          {t('imap.foldersUnavailable')}
-        </Text>
-      ) : null}
-    </>
-  );
-}
+import type { MailboxView } from './sidebar.tsx';
 
 const noSubscription = () => () => undefined;
 
-// An IMAP mailbox shown on its own offers its folders; the Inbox is listed otherwise. Each
-// window chooses its own folder.
+// An IMAP mailbox shown on its own lists the folder its view names; the Inbox is listed
+// otherwise. A folder the server no longer offers falls back to the Inbox and drops the choice,
+// so a recreated folder of that name is not reopened from a stale cache.
 export function useImapFolder<E>(
   shown: readonly InboxMailbox[],
   // The Inbox entries listed when no other folder is chosen.
   inbox: readonly E[],
+  {
+    view,
+    onView,
+  }: Readonly<{
+    view: MailboxView;
+    onView: (view: MailboxView) => void;
+  }>,
 ) {
-  const [choice, setChoice] =
-    useState<Readonly<{ mailbox: string; folder: string }>>();
   const [single] = shown;
   const imap =
     shown.length === 1 && single !== undefined && 'openFolder' in single.inbox
       ? single
       : undefined;
   const requested =
-    imap !== undefined && choice?.mailbox === imap.id
-      ? choice.folder
+    imap !== undefined && view.mailbox === imap.id
+      ? (view.folder ?? inboxFolder)
       : inboxFolder;
   const state = imap?.state;
   const folder = imapFolderName(
     state?.kind === 'ready' && 'folders' in state ? state : undefined,
     requested,
   );
-  if (folder !== requested && choice !== undefined) {
-    setChoice(undefined);
-  }
+  const dropped = folder !== requested;
+  useEffect(() => {
+    if (dropped) {
+      onView({ mailbox: view.mailbox });
+    }
+  }, [dropped, onView, view.mailbox]);
   const browsing = useFolderEntries(imap, folder);
   return {
-    imap,
     folder,
     listed: browsing?.entries ?? inbox,
     failed: imapFolderFailed(browsing?.view),
-    chooseFolder: (name: string) => {
-      if (imap === undefined || !('openFolder' in imap.inbox)) {
-        return;
-      }
-      setChoice({ mailbox: imap.id, folder: name });
-      void imap.inbox.openFolder(name);
-    },
   };
 }
 

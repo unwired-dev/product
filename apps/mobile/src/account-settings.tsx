@@ -61,7 +61,7 @@ function Mailboxes({
   }
   return (
     <SettingsGroup
-      title={t('mailboxes.title')}
+      title={t('settings.mailboxConnections')}
       footer={t('mailboxes.description')}>
       {mailboxes.map((mailbox) => {
         const provider = t(`mailProviders.${mailbox.provider}`);

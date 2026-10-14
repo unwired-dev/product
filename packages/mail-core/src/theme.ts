@@ -14,6 +14,7 @@ export const radius = {
   window: 16,
   bubble: 20,
   chip: 14,
+  mailboxGroup: 22,
   // iPhone's Move to… sheet: its top corners, search field and inset row groups.
   sheet: 38,
   searchField: 18,
