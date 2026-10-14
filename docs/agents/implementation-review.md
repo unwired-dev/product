@@ -116,8 +116,14 @@ not itself restrict filesystem or Git-history access.
 
    - For uncommitted work, inspect the staged and unstaged diffs and task-owned
      untracked files. A commit-only diff does not cover this work.
-   - For committed work, pin the starting commit or merge-base and inspect the
-     full task diff, plus any task-owned uncommitted files.
+   - Keep the original starting commit and full task comparison for the
+     thermo-nuclear and design reviewers. For OCR, follow
+     [incremental OCR checkpoints](#incremental-ocr-checkpoints): create a local
+     task snapshot commit, prepare a plan, and include its exact `from`/`to`,
+     mode, reason and prior report in the handoff. The first OCR pass is full;
+     later passes review only the changes since the completed checkpoint.
+     Local snapshot commits are authorized before review; pushing and PR
+     delivery still wait for every required review.
 
 4. Pause all implementer writes to the shared checkout while the OCR reviewer
    owns it. Wait for its final report.
@@ -140,7 +146,13 @@ not itself restrict filesystem or Git-history access.
    the reason in your final report and the PR.
 7. The required reviews form one implementation review. Additional implementation
    edits, including fixes after review or PR feedback, require another pinned
-   review by every required reviewer. Give every reviewer and its children the same ownership boundary: no PR
+   review by every required reviewer. OCR uses its validated checkpoint; the
+   thermo-nuclear and applicable design reviews keep the full task comparison.
+   Changes made by later reviewers are not covered by an earlier OCR checkpoint;
+   before delivery, return those changes to a new OCR reviewer and repeat the
+   later required reviews in sequence. An unchanged valid OCR checkpoint can
+   reuse its completed report without spawning an empty OCR pass. Give every
+   reviewer and its children the same ownership boundary: no PR
    watchers, scheduled work, or writes after their final report. A notification
    cannot renew checkout ownership. Stop any pre-existing review watcher before
    returning the checkout; a later review starts as a new delegated task with a
@@ -157,7 +169,11 @@ not itself restrict filesystem or Git-history access.
    resolving a rule is not evidence that its checks passed. The
    [reviewer-only coverage map](../architecture/open-code-review.md) records the
    migration of the former architecture checklist and source routing.
-3. Review the entire task against its requested behavior and resolved rules.
+3. Review the selected OCR range against the task's requested behavior and
+   resolved rules. An incremental range narrows changed-code coverage, not the
+   context needed to assess it: inspect affected callers, invariants and
+   collaborating modules, and verify prior findings against the new result.
+   A full pass covers the entire task.
    Use the installed `code-review` guidance where applicable, with the handoff's
    actual comparison and specification. For OCR-excluded task-owned files, apply
    the same repository checklist through the appropriate artifact review.
@@ -172,7 +188,10 @@ not itself restrict filesystem or Git-history access.
    the corrected result again. Repeat until there are no unresolved issues within
    the authorized scope. Reviewer fixes remain within this review and do not
    spawn another implementation reviewer.
-6. Return the reviewed scope, OCR version, preview mode and refs, file coverage,
+6. After a successful OCR pass, record its checkpoint under
+   [incremental OCR checkpoints](#incremental-ocr-checkpoints). Return the
+   reviewed scope, checkpoint commit (or why none was recorded), full/incremental
+   mode and reason, OCR version, preview mode and refs, file coverage,
    applicable rule sections and source references with their dispositions,
    findings and their dispositions, files changed,
    checks and results, unavailable checks, and the
@@ -276,6 +295,75 @@ rationales, attempting all three models again. If two matching votes remain
 unavailable, report the model prerequisite as blocked; never apply an option
 without a majority. Continue independent work while the prerequisite is blocked.
 
+## Incremental OCR checkpoints
+
+Only the OCR pass is incremental. The first review covers the full task;
+subsequent reviews cover changes since the last successfully completed OCR
+snapshot. Thermo-nuclear and design reviews retain their full task scope.
+
+1. Fetch the PR's actual target base and use a stable task ID (normally its issue
+   number) for every round on this branch. Commit only task-owned changes to a
+   local snapshot before planning. Preserve unrelated work in its existing
+   checkout and use a separate clean worktree if necessary. The helper rejects
+   staged, unstaged and non-ignored untracked changes, and detached HEADs.
+   Plan/report files belong under the Git directory, not in the task diff:
+
+   ```sh
+   review_dir="$(git rev-parse --absolute-git-dir)/ocr-review"
+   mkdir -p "$review_dir"
+   node scripts/ocr-checkpoint.mjs plan issue-123 origin/main > "$review_dir/plan.json"
+   ```
+
+   Replace `issue-123` and `origin/main` with the actual task and fetched target.
+   Run from the repository root. Retain the original task starting commit for
+   the other reviewers; do not replace it with the OCR checkpoint.
+
+2. Pass the JSON plan to the OCR reviewer. It records immutable `from` and `to`
+   commits, the target base, selection reason and previous completed report.
+   Run OCR preview and rule resolution with those exact refs. Verify preview's
+   merge base equals `from`. Review every selected file, related context and
+   prior finding disposition. The report must distinguish carried-forward
+   coverage from this round's newly reviewed range; a checkpoint never implies
+   that CI or the other review passes have completed.
+
+3. If the reviewer makes fixes, commit only those fixes locally, regenerate the
+   plan and review the corrected range before completing. The prior checkpoint
+   remains unchanged throughout. After all selected files and prior findings
+   are accounted for, fixes are verified, required OCR checks succeed and no
+   unresolved blocking findings remain, save the final report and run:
+
+   ```sh
+   node scripts/ocr-checkpoint.mjs complete "$review_dir/plan.json" "$review_dir/report.md"
+   ```
+
+   `complete` is the reviewer's attestation of successful coverage; the helper
+   cannot judge a report's substance. It rejects an empty report, a dirty
+   workspace, or any plan made stale by changes to HEAD, the base, policy or
+   previous checkpoint. Never run it after a failed, interrupted, cancelled or
+   partial review. Return the final report to the implementer and stop writes.
+
+4. Checkpoints and their reports live in the repository's Git common directory,
+   keyed by task ID and branch, so linked worktrees share them without adding
+   files to commits. A new clone or renamed branch starts with a full review.
+   Missing or malformed records, an unavailable/non-ancestor checkpoint, target
+   base movement, or changes to review instructions and architecture sources
+   cause a full review. The policy fingerprint covers tracked `AGENTS.md` files,
+   `.agents/`, `.opencodereview/`, `.patterns/`, reviewer architecture/ADR/research/
+   qualification/archive sources, `docs/agents/`, and the checkpoint helper.
+   Changes to external skills, the requested behavior or other review inputs
+   not in that fingerprint require `plan <task-id> <base-ref> --full`.
+   Refresh the target base before each new round. Do not edit checkpoint files
+   manually or use OCR's GitHub Action `incremental` option (comment
+   deduplication) as a substitute for this range selection.
+
+5. A plan with reason `unchanged` may reuse its completed OCR report only when
+   the task's requirements and external review inputs are unchanged. Otherwise
+   force a full review. An unavailable helper or an intentionally uncommitted
+   review falls back to the full task plus workspace procedure below, records
+   no checkpoint, and explicitly reports that incremental reuse is unavailable.
+   Missing OCR itself still blocks the review. Never silently drop workspace
+   changes to manufacture a clean snapshot.
+
 ## Open Code Review delegation
 
 Run these commands from the handoff's checkout while the reviewer owns it.
@@ -302,7 +390,9 @@ keep dependencies, generated/build output and task probes out. Inclusion is a
 bypass of default filters, not a whitelist; exclusions still require a recorded
 full-task disposition.
 
-1. Preview the requested scope, preserving the handoff's pinned starting commit.
+1. Preview the requested scope using the checkpoint plan's exact `from`/`to`
+   when available. Without a plan, preserve the handoff's original starting
+   commit and review the full task.
    For task-owned staged, unstaged and untracked changes, use workspace mode:
 
    ```sh
@@ -312,7 +402,7 @@ full-task disposition.
    For committed work, use the pinned starting commit and reviewed head:
 
    ```sh
-   ocr delegate preview --format json --from <starting-commit> --to <reviewed-head>
+   ocr delegate preview --format json --from <plan-from-or-starting-commit> --to <reviewed-head>
    ```
 
    When task-owned workspace changes accompany committed work, run both previews.

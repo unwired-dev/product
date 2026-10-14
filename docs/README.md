@@ -42,7 +42,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, pinned OCR, thermo-nuclear and design review agents](agents/implementation-review.md)
+- [Implementation handoff, incremental OCR checkpoints, thermo-nuclear and design review agents](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
