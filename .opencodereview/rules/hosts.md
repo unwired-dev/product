@@ -46,9 +46,32 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   payloads and malformed messages can mutate Drafts. Keep the host decoder separate
   from page-facing conversion code so Schema/Effect stays outside the packaged page.
 - An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
-- The same logic added to both hosts in one change. Two copies drift; move it to `mail-core` unless it depends on a host API.
+- The same logic added to both hosts in one change. Compare the added non-React
+  helpers and projections across the hosts, including `ContextMenu` serialization,
+  `MessageMenu` and row-menu action selection, and `useMessageCommands` filtering.
+  Two copies drift in supported actions, ordering or native selection ownership;
+  move the shared logic to `mail-core` unless it depends on a host API. Keep
+  React subscriptions, rendering and native adapters in their host.
 
 #### React correctness
+
+- `design.tsx.ContextMenu` assigning action IDs from section/item positions or
+  callback object identity while native menus retain their original IDs. Identify
+  each action by its operation and owning message or destination, and dispatch to
+  its latest committed callback. Reject the ID once that semantic action retires
+  or changes owner; otherwise a live snapshot can make a displayed read or move
+  action execute a different one or silently do nothing. Exercise a recreated
+  callback, a section insertion and a retired choice through the native event boundary.
+
+- Mac context-menu content removing `selectable` text without an accessible
+  labeled replacement, or retaining selectable text that handles secondary
+  clicks before its ancestor menu. Trace the installed paragraph's native event
+  and accessibility behavior; otherwise senders disappear from VoiceOver or the
+  attachment name or `message-detail.tsx`'s received date opens the text menu
+  instead of the attachment or message actions.
+  On iPhone and iPad, also check the paragraph's selectable-text long-press
+  recognizer before retaining `selectable` on an attachment filename; otherwise
+  its Copy menu competes with the attachment's context menu.
 
 - `inbox-bar.tsx.NewMessageButton` falling back to another sender when a specific
   mailbox is selected but cannot send. Only All inboxes chooses the first usable

@@ -89,7 +89,8 @@ path, such as **Inbox / Projects**, so folders with equal names stay apart. A ma
 lists up to 250 folders, stopping at each folder's first provider page, and says
 when some folders were left out. **Undo** moves a message back to
 the Inbox. A Microsoft message lives in one folder, so Gmail's labels and star are
-not offered for it. Archive, Trash and Spam actions are offered only after their
+not offered for it. The row and reader [context menus](gmail-inbox.md#organizing-mail)
+offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus. Archive, Trash and Spam actions are offered only after their
 folder roles are known and present in the mailbox.
 
 Each change shows at once, is saved on this device and is sent to Microsoft in

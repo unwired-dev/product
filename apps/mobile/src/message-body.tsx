@@ -1,4 +1,5 @@
 import type { Translate } from '@private-email/localization';
+import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   GmailInbox,
   ReceivedAttachment,
@@ -48,7 +49,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { Glass, Notice, SFSymbol } from './design.tsx';
+import { ContextMenu, Glass, Notice, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -287,46 +288,72 @@ export function LinkConfirmationProvider({
 function MessageLinks({
   links,
   onChoose,
+  onCopy,
 }: {
   readonly links: readonly BodyLink[];
   readonly onChoose: (link: BodyLink) => void;
+  readonly onCopy: (link: BodyLink) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const [focused, setFocused] = useState<number>();
   return links.map((link, index) => (
-    <Pressable
+    <ContextMenu
       // Links of one body never reorder, and a destination may repeat.
       // oxlint-disable-next-line react/no-array-index-key
       key={index}
-      accessibilityRole="link"
-      accessibilityLabel={t('messageBody.linkLabel', {
-        link: link.text === '' ? link.href : link.text,
-      })}
-      accessibilityHint={link.href}
-      focusable
-      onFocus={() => {
-        setFocused(index);
-      }}
-      onBlur={() => {
-        setFocused(undefined);
-      }}
-      onPress={() => {
-        onChoose(link);
-      }}
-      style={[
-        styles.linkControl,
+      sections={[
         {
-          borderColor:
-            focused === index ? colors.accentInk : colors.surfaceContent,
+          items: [
+            {
+              key: `open\n${link.href}`,
+              title: t('contextMenu.openLink'),
+              symbol: 'safari',
+              run: () => {
+                onChoose(link);
+              },
+            },
+            {
+              key: `copy\n${link.href}`,
+              title: t('contextMenu.copyLink'),
+              symbol: 'doc.on.doc',
+              run: () => {
+                onCopy(link);
+              },
+            },
+          ],
         },
       ]}>
-      <Text style={[styles.secondary, { color: colors.accentInk }]}>
-        {t('messageBody.linkLabel', {
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={t('messageBody.linkLabel', {
           link: link.text === '' ? link.href : link.text,
         })}
-      </Text>
-    </Pressable>
+        accessibilityHint={link.href}
+        focusable
+        onFocus={() => {
+          setFocused(index);
+        }}
+        onBlur={() => {
+          setFocused(undefined);
+        }}
+        onPress={() => {
+          onChoose(link);
+        }}
+        style={[
+          styles.linkControl,
+          {
+            borderColor:
+              focused === index ? colors.accentInk : colors.surfaceContent,
+          },
+        ]}>
+        <Text style={[styles.secondary, { color: colors.accentInk }]}>
+          {t('messageBody.linkLabel', {
+            link: link.text === '' ? link.href : link.text,
+          })}
+        </Text>
+      </Pressable>
+    </ContextMenu>
   ));
 }
 
@@ -334,9 +361,11 @@ function MessageLinks({
 function ReadableText({
   readable,
   onChoose,
+  onCopy,
 }: {
   readonly readable: ReadableBody;
   readonly onChoose: (link: BodyLink) => void;
+  readonly onCopy: (link: BodyLink) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -377,6 +406,7 @@ function ReadableText({
           href === undefined ? [] : [{ href, text }],
         )}
         onChoose={onChoose}
+        onCopy={onCopy}
       />
     </Fragment>
   ));
@@ -593,12 +623,14 @@ function RichDocument({
 export function Presentation({
   presentation,
   onChoose,
+  onCopy,
   onFailure,
   onNear,
   onLoadImages,
 }: {
   readonly presentation: MessagePresentation;
   readonly onChoose: (link: BodyLink) => void;
+  readonly onCopy: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
   // Present while this presentation still needs consent to load its remote images.
@@ -651,6 +683,7 @@ export function Presentation({
         <ReadableText
           readable={readable}
           onChoose={onChoose}
+          onCopy={onCopy}
         />
       ) : (
         <>
@@ -667,6 +700,7 @@ export function Presentation({
           <MessageLinks
             links={rich.links}
             onChoose={onChoose}
+            onCopy={onCopy}
           />
         </>
       )}
@@ -740,6 +774,7 @@ function AttachmentRow({
   const { locator, name, size, state } = attachment;
   const status = attachmentStatus(t, state, provider);
   let actions: ReactNode = null;
+  let menu: readonly MenuSection[] = [];
   if (state.kind === 'available') {
     actions = (
       <Action
@@ -765,25 +800,45 @@ function AttachmentRow({
       />
     );
   } else if (state.kind === 'downloaded') {
+    const open = () => {
+      if (current()) {
+        void inbox.presentAttachment(id, locator, 'open');
+      }
+    };
+    const share = () => {
+      if (current()) {
+        void inbox.presentAttachment(id, locator, 'share');
+      }
+    };
+    menu = [
+      {
+        items: [
+          {
+            key: 'quickLook',
+            title: t('contextMenu.quickLook'),
+            symbol: 'eye',
+            run: open,
+          },
+          {
+            key: 'share',
+            title: t('contextMenu.share'),
+            symbol: 'square.and.arrow.up',
+            run: share,
+          },
+        ],
+      },
+    ];
     actions = (
       <>
         <Action
           label={t('attachment.open')}
           accessibilityLabel={t('attachment.openLabel', { name })}
-          onPress={() => {
-            if (current()) {
-              void inbox.presentAttachment(id, locator, 'open');
-            }
-          }}
+          onPress={open}
         />
         <Action
           label={t('attachment.share')}
           accessibilityLabel={t('attachment.shareLabel', { name })}
-          onPress={() => {
-            if (current()) {
-              void inbox.presentAttachment(id, locator, 'share');
-            }
-          }}
+          onPress={share}
         />
         {attach === undefined ? null : (
           <Action
@@ -814,30 +869,30 @@ function AttachmentRow({
       );
   }
   return (
-    <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
-      <SFSymbol
-        name="doc"
-        color={colors.textSecondary}
-      />
-      <View style={styles.attachmentText}>
-        <Text
-          selectable
-          style={[styles.attachmentName, { color: colors.textPrimary }]}>
-          {name}
-        </Text>
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {fileSize(t, sizeFormat, size)}
-        </Text>
-        {status === undefined ? null : (
-          <Text
-            accessibilityLiveRegion="polite"
-            style={[styles.secondary, { color: colors.textSecondary }]}>
-            {status}
+    <ContextMenu sections={menu}>
+      <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
+        <SFSymbol
+          name="doc"
+          color={colors.textSecondary}
+        />
+        <View style={styles.attachmentText}>
+          <Text style={[styles.attachmentName, { color: colors.textPrimary }]}>
+            {name}
           </Text>
-        )}
-        <View style={styles.actions}>{actions}</View>
+          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+            {fileSize(t, sizeFormat, size)}
+          </Text>
+          {status === undefined ? null : (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.secondary, { color: colors.textSecondary }]}>
+              {status}
+            </Text>
+          )}
+          <View style={styles.actions}>{actions}</View>
+        </View>
       </View>
-    </View>
+    </ContextMenu>
   );
 }
 
@@ -1052,6 +1107,11 @@ export function GmailMessageBody({
         />
       </View>
       <Presentation
+        onCopy={(link) => {
+          if (current()) {
+            void setStringAsync(link.href);
+          }
+        }}
         presentation={
           collapsible && !quotedShown ? withoutQuotedHistory : body.presentation
         }

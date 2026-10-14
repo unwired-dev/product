@@ -1,3 +1,4 @@
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
@@ -6,9 +7,11 @@ import {
   expectedCommands,
   responseCommands,
 } from '@private-email/mail-core/commands';
+import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   createContext,
   use,
@@ -28,8 +31,8 @@ import {
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
-import { RegisterCommands } from './command-palette.tsx';
-import { GlassGroup, ToolbarButton } from './design.tsx';
+import { RegisterCommands, useMessageCommands } from './command-palette.tsx';
+import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -81,7 +84,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
-  fromText: { flex: 1 },
+  fromText: { flex: 1, minHeight: 28 },
   sender: { ...textStyles.bodyEmphasized },
   address: { ...textStyles.body },
   control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
@@ -522,6 +525,24 @@ function ReaderBody({
   );
 }
 
+// The open message's context menu: the commands its reader offers, grouped as the design orders
+// them, with Delete Message last.
+function MessageMenu({
+  target,
+  children,
+}: {
+  readonly target: CommandTarget;
+  readonly children: ReactNode;
+}) {
+  const { t } = useLocalization();
+  const commands = useMessageCommands(target);
+  return (
+    <ContextMenu sections={messageContextMenu(t, target, commands)}>
+      {children}
+    </ContextMenu>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
@@ -635,42 +656,89 @@ function MailboxMessage({
                 style={[styles.subject, { color: colors.textPrimary }]}>
                 {message.subject}
               </Text>
-              <View
-                style={[
-                  styles.metadata,
-                  { borderBottomColor: colors.separator },
-                ]}>
-                <View style={styles.from}>
-                  <Text
-                    selectable
-                    style={[styles.fromText, { color: colors.textSecondary }]}>
+              <MessageMenu target={commandTarget(mailbox?.id, message)}>
+                <View
+                  style={[
+                    styles.metadata,
+                    { borderBottomColor: colors.separator },
+                  ]}>
+                  <View style={styles.from}>
+                    <ContextMenu
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={`${message.sender}, ${message.address}`}
+                      accessibilityActions={[
+                        { name: 'copy', label: t('contextMenu.copyAddress') },
+                      ]}
+                      onAccessibilityAction={({ nativeEvent }) => {
+                        if (nativeEvent.actionName === 'copy') {
+                          Clipboard.setString(message.address);
+                        }
+                      }}
+                      style={styles.fromText}
+                      sections={[
+                        {
+                          items: [
+                            {
+                              key: `copy\n${message.address}`,
+                              title: t('contextMenu.copyAddress'),
+                              symbol: 'doc.on.doc',
+                              run: () => {
+                                Clipboard.setString(message.address);
+                              },
+                            },
+                          ],
+                        },
+                      ]}>
+                      <Text style={{ color: colors.textSecondary }}>
+                        <Text
+                          style={[
+                            styles.sender,
+                            { color: colors.textPrimary },
+                          ]}>
+                          {message.sender}
+                        </Text>
+                        <Text
+                          style={styles.address}>{`  ${message.address}`}</Text>
+                      </Text>
+                    </ContextMenu>
+                    <View
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={t('message.received', {
+                        date: dateFormat.format(new Date(message.receivedAt)),
+                      })}>
+                      <Text
+                        style={[
+                          styles.secondary,
+                          { color: colors.textSecondary },
+                        ]}>
+                        {t('message.received', {
+                          date: dateFormat.format(new Date(message.receivedAt)),
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+                  {address === undefined ? null : (
                     <Text
-                      style={[styles.sender, { color: colors.textPrimary }]}>
-                      {message.sender}
+                      style={[
+                        styles.secondary,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {t('inbox.inMailbox', { mailbox: address })}
                     </Text>
-                    <Text style={styles.address}>{`  ${message.address}`}</Text>
-                  </Text>
-                  <Text
-                    selectable
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {t('message.received', {
-                      date: dateFormat.format(new Date(message.receivedAt)),
-                    })}
-                  </Text>
+                  )}
+                  {labelNames.length === 0 ? null : (
+                    <Text
+                      style={[
+                        styles.secondary,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {t('message.labels', { labels: labelNames.join(', ') })}
+                    </Text>
+                  )}
                 </View>
-                {address === undefined ? null : (
-                  <Text
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {t('inbox.inMailbox', { mailbox: address })}
-                  </Text>
-                )}
-                {labelNames.length === 0 ? null : (
-                  <Text
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {t('message.labels', { labels: labelNames.join(', ') })}
-                  </Text>
-                )}
-              </View>
+              </MessageMenu>
               <MessageActionsNotice id={message.id} />
               <ResponseStatusNotice
                 status={responseStatus}
