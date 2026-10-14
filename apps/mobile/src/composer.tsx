@@ -6,6 +6,7 @@ import type {
 import type {
   AssetPreview,
   Draft,
+  DraftsState,
   PickedFile,
   PickSource,
   RecipientField,
@@ -97,6 +98,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import {
+  CommandInput,
+  CommandInputRow,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -132,6 +138,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.s,
+  },
+  top: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
   },
   grow: { flex: 1 },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
@@ -1509,6 +1522,7 @@ function Editor({
   }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
+  const paletteHeader = usePaletteHeader();
   const discard = async () => {
     if (discarded.current) {
       return;
@@ -1621,12 +1635,12 @@ function Editor({
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <ScrollView
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled">
-        <View style={styles.bar}>
+      {/* The bar stays put while the body scrolls: it is the screen's header, which opens the
+          Command Palette by a downward swipe. */}
+      <View style={styles.top}>
+        <View
+          style={styles.bar}
+          {...paletteHeader.swipe}>
           <Action
             disabled={closing === 'saving'}
             label={t('drafts.close')}
@@ -1642,9 +1656,11 @@ function Editor({
               styles.grow,
               styles.actionText,
               { color: colors.textPrimary, fontWeight: '600' },
-            ]}>
+            ]}
+            {...paletteHeader.action}>
             {title}
           </Text>
+          <CommandInput />
           <Action
             disabled={lockedUnless(history.past.length > 0)}
             label={t('drafts.undo')}
@@ -1677,6 +1693,12 @@ function Editor({
             }}
           />
         </View>
+      </View>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled">
         <Text
           accessibilityLiveRegion="polite"
           style={[styles.status, { color: colors.textSecondary }]}>
@@ -2045,6 +2067,62 @@ function Editor({
   );
 }
 
+// A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
+// keeps the palette entry the editor's top bar has.
+function ComposerFallback({
+  kind,
+  onClose,
+}: {
+  readonly kind: DraftsState['kind'];
+  readonly onClose: () => void;
+}) {
+  const store = useDraftStore();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const paletteHeader = usePaletteHeader();
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      <CommandInputRow />
+      <View
+        style={styles.content}
+        {...paletteHeader.swipe}>
+        {kind === 'loading' ? (
+          <ActivityIndicator
+            accessible
+            accessibilityLabel={t('drafts.loading')}
+            {...paletteHeader.action}
+          />
+        ) : (
+          <>
+            <Text
+              accessibilityRole="header"
+              style={[styles.actionText, { color: colors.textPrimary }]}
+              {...paletteHeader.action}>
+              {kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.unavailable')}
+            </Text>
+            {kind === 'locked' || kind === 'failed' ? (
+              <Action
+                label={t('common.retry')}
+                onPress={() => {
+                  void store.load();
+                }}
+              />
+            ) : null}
+            <Action
+              label={t('drafts.close')}
+              onPress={onClose}
+            />
+          </>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}
+
 // Opens a Draft directly for editing; it has no read-only presentation.
 export function Composer({
   id,
@@ -2057,9 +2135,6 @@ export function Composer({
   readonly onRebind: (id: string) => void;
 }) {
   const state = useDrafts();
-  const store = useDraftStore();
-  const colors = usePalette();
-  const { t } = useLocalization();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
   const [editor, setEditor] = useState({ key: id, followed: id });
   if (editor.followed !== id) {
@@ -2083,38 +2158,10 @@ export function Composer({
       />
     );
   }
-  const waiting = state.kind === 'loading';
   return (
-    <SafeAreaView
-      edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.content}>
-        {waiting ? (
-          <ActivityIndicator accessibilityLabel={t('drafts.loading')} />
-        ) : (
-          <>
-            <Text
-              accessibilityRole="header"
-              style={[styles.actionText, { color: colors.textPrimary }]}>
-              {state.kind === 'locked'
-                ? t('drafts.listLocked')
-                : t('drafts.unavailable')}
-            </Text>
-            {state.kind === 'locked' || state.kind === 'failed' ? (
-              <Action
-                label={t('common.retry')}
-                onPress={() => {
-                  void store.load();
-                }}
-              />
-            ) : null}
-            <Action
-              label={t('drafts.close')}
-              onPress={onClose}
-            />
-          </>
-        )}
-      </View>
-    </SafeAreaView>
+    <ComposerFallback
+      kind={state.kind}
+      onClose={onClose}
+    />
   );
 }

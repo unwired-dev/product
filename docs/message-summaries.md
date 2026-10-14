@@ -48,7 +48,10 @@ On-Device Mail Assistance action, **Summarize**, Draft
   [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
   choice. Readers use their window’s Profile consent, while Account settings and
   Drafts retain the Default consent path until Profile lifecycle arrives. Turning
-  it on starts nothing; each action is still an explicit request.
+  it on starts none of these explicit actions; each still requires a request.
+  Separately confirmed post-launch [Mail Commitments](product/mail-commitments.md#automatic-scanning)
+  explain automatic scanning in their enablement consent and require renewed
+  device/Profile confirmation when earlier consent did not cover that scope.
 - While assistance is on, **Check Apple Intelligence availability** explicitly
   checks whether the system model can run, without generating text or prewarming
   it. The account page reports eligibility, Apple Intelligence configuration,

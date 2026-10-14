@@ -3,7 +3,12 @@ import type {
   ImapAction,
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
+import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
 
+import {
+  commandTarget,
+  organizeCommands,
+} from '@private-email/mail-core/commands';
 import {
   canOrganize,
   gmailAction,
@@ -27,6 +32,7 @@ import {
   View,
 } from 'react-native';
 
+import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -45,6 +51,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   toolbar: { marginBottom: spacing.xl },
+  control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
   button: {
     minHeight: 28,
     flexDirection: 'row',
@@ -119,6 +126,14 @@ export function MessageActions({
   readonly onClose?: (() => void) | undefined;
 }) {
   const store = useInboxActions();
+  if ('setUnread' in store) {
+    return (
+      <PreviewMessageActions
+        id={id}
+        inbox={store}
+      />
+    );
+  }
   return 'openFolder' in store ? (
     <ImapMessageActions
       id={id}
@@ -130,6 +145,61 @@ export function MessageActions({
       id={id}
       onClose={onClose}
     />
+  );
+}
+
+// The preview Inbox's read state, the one action its fixture can change.
+function PreviewMessageActions({
+  inbox,
+  id,
+}: {
+  readonly inbox: PersistentInbox;
+  readonly id: string;
+}) {
+  const state = useInbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const mailbox = useMailbox();
+  const message =
+    state.kind === 'ready'
+      ? state.messages.find((item) => item.id === id)
+      : undefined;
+  if (message === undefined) {
+    return null;
+  }
+  const read = message.unread
+    ? ({ name: 'read', label: t('message.markRead'), action: false } as const)
+    : ({
+        name: 'unread',
+        label: t('message.markUnread'),
+        action: true,
+      } as const);
+  const act = (unread: boolean) => {
+    void inbox.setUnread(message.id, unread);
+  };
+  return (
+    <>
+      <RegisterCommands
+        offer={() =>
+          organizeCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            actions: [read],
+            act,
+            destinations: [],
+          })
+        }
+      />
+      <Pressable
+        style={styles.control}
+        accessibilityRole="button"
+        onPress={() => {
+          act(read.action);
+        }}>
+        <Text style={[styles.secondary, { color: colors.accentInk }]}>
+          {read.label}
+        </Text>
+      </Pressable>
+    </>
   );
 }
 
@@ -146,6 +216,7 @@ function ImapMessageActions({
 }) {
   const state = useInbox();
   const { t } = useLocalization();
+  const mailbox = useMailbox();
   const [moving, setMoving] = useState(false);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
@@ -160,22 +231,38 @@ function ImapMessageActions({
     }
   };
   const targets = imapMoveTargets(message, state);
+  const actions = imapQuickActions(t, message, state);
   return (
     <>
+      <RegisterCommands
+        offer={() =>
+          organizeCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            actions,
+            act,
+            destinations: targets.map(({ name }) => ({
+              id: name,
+              title: name === inboxFolder ? t('inbox.title') : name,
+              icon: name === inboxFolder ? 'tray' : 'folder',
+              run: () => {
+                act({ kind: 'move', destination: name });
+              },
+            })),
+          })
+        }
+      />
       <View style={styles.toolbar}>
         <GlassGroup>
-          {imapQuickActions(t, message, state).map(
-            ({ name, label, action }) => (
-              <ActionButton
-                fill="none"
-                key={name}
-                label={label}
-                onPress={() => {
-                  act(action);
-                }}
-              />
-            ),
-          )}
+          {actions.map(({ name, label, action }) => (
+            <ActionButton
+              fill="none"
+              key={name}
+              label={label}
+              onPress={() => {
+                act(action);
+              }}
+            />
+          ))}
           {targets.length === 0 ? null : (
             <ActionButton
               fill="none"
@@ -221,7 +308,8 @@ function GmailMessageActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const [labeling, setLabeling] = useState(false);
-  const provider = useMailbox()?.provider ?? 'gmail';
+  const mailbox = useMailbox();
+  const provider = mailbox?.provider ?? 'gmail';
   const providerName = useProviderName();
   if (
     state.kind !== 'ready' ||
@@ -250,14 +338,31 @@ function GmailMessageActions({
   const applied = new Set(message.labels);
   // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
   const folders = provider !== 'gmail';
+  const actions = quickActions(t, message, {
+    provider,
+    unavailableActions: state.unavailableActions,
+  });
   return (
     <>
+      <RegisterCommands
+        offer={() =>
+          organizeCommands(t, {
+            target: commandTarget(mailbox?.id, message),
+            actions,
+            act,
+            destinations: state.labels.map((label) => ({
+              id: label.id,
+              title: label.name,
+              run: () => {
+                act(gmailAction.move(label.id));
+              },
+            })),
+          })
+        }
+      />
       <View style={styles.toolbar}>
         <GlassGroup>
-          {quickActions(t, message, {
-            provider,
-            unavailableActions: state.unavailableActions,
-          }).map(({ name, label, action }) => (
+          {actions.map(({ name, label, action }) => (
             <ActionButton
               fill="none"
               key={name}

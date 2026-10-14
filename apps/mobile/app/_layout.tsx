@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import {
   pollGmailWhileActive,
   scheduleGmailFreshness,
@@ -62,7 +63,7 @@ function MailShell() {
   }
 
   return (
-    <>
+    <CommandPaletteProvider>
       <StatusBar style="auto" />
       <SplitView
         ref={splitView}
@@ -107,7 +108,7 @@ function MailShell() {
           />
         </SplitView.Column>
       </SplitView>
-    </>
+    </CommandPaletteProvider>
   );
 }
 

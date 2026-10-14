@@ -1,8 +1,12 @@
+import type { RefObject } from 'react';
+
+import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
 import { use, useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -101,32 +105,43 @@ function NewMessageButton({
     }
   };
   return (
-    <GlassGroup style={{ padding: 0, borderRadius: 20 }}>
-      <Pressable
-        accessibilityLabel={t('drafts.newMessage')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        focusable
-        onBlur={() => {
-          setFocused(false);
-        }}
-        onFocus={() => {
-          setFocused(true);
-        }}
-        onPress={() => {
-          void compose();
-        }}
-        style={[
-          styles.newMessage,
-          { borderColor: focused ? colors.accentInk : 'transparent' },
-        ]}>
-        <SFSymbol
-          name="square.and.pencil"
-          color={disabled ? colors.textSecondary : colors.accentInk}
+    <>
+      {disabled ? null : (
+        <RegisterCommands
+          offer={() => [
+            composeCommand(t, () => {
+              void compose();
+            }),
+          ]}
         />
-      </Pressable>
-    </GlassGroup>
+      )}
+      <GlassGroup style={{ padding: 0, borderRadius: 20 }}>
+        <Pressable
+          accessibilityLabel={t('drafts.newMessage')}
+          accessibilityRole="button"
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          focusable
+          onBlur={() => {
+            setFocused(false);
+          }}
+          onFocus={() => {
+            setFocused(true);
+          }}
+          onPress={() => {
+            void compose();
+          }}
+          style={[
+            styles.newMessage,
+            { borderColor: focused ? colors.accentInk : 'transparent' },
+          ]}>
+          <SFSymbol
+            name="square.and.pencil"
+            color={disabled ? colors.textSecondary : colors.accentInk}
+          />
+        </Pressable>
+      </GlassGroup>
+    </>
   );
 }
 
@@ -137,6 +152,7 @@ export function FloatingBar({
   onQuery,
   onCompose,
   scope,
+  search,
 }: {
   // Search waits for a mailbox to be readable.
   readonly ready: boolean;
@@ -144,6 +160,8 @@ export function FloatingBar({
   readonly onQuery: (query: string) => void;
   readonly onCompose: ((id: string) => void) | undefined;
   readonly scope: string | undefined;
+  // The search field, which the Command Palette's Search Mail focuses.
+  readonly search: RefObject<TextInput | null>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -174,6 +192,7 @@ export function FloatingBar({
               autoComplete="off"
               autoCorrect={false}
               onChangeText={onQuery}
+              ref={search}
               placeholder={t('search.placeholder')}
               placeholderTextColor={colors.textSecondary}
               returnKeyType="search"

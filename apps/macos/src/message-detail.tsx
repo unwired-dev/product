@@ -1,6 +1,11 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
+import {
+  commandTarget,
+  expectedCommands,
+  responseCommands,
+} from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
@@ -22,6 +27,7 @@ import {
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { RegisterCommands } from './command-palette.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
@@ -376,6 +382,14 @@ function ResponseActions({
   ] as const;
   return (
     <View>
+      <RegisterCommands
+        offer={() =>
+          responseCommands(t, commandTarget(mailbox?.id, message), {
+            start,
+            starting: pending !== undefined,
+          })
+        }
+      />
       <View style={styles.responses}>
         {actions.map(([kind, label]) => (
           <Pressable
@@ -557,26 +571,19 @@ function MailboxMessage({
         <LinkConfirmationProvider
           inbox={actions}
           id={message.id}>
+          <RegisterCommands
+            offer={() =>
+              expectedCommands(t, {
+                target: commandTarget(mailbox?.id, message),
+                disabled: t('commands.unavailable'),
+              })
+            }
+          />
           <ReaderScrollView contentContainerStyle={styles.content}>
-            {'setUnread' in actions ? (
-              <Pressable
-                style={styles.control}
-                accessibilityRole="button"
-                onPress={() => {
-                  void actions.setUnread(message.id, !message.unread);
-                }}>
-                <Text style={[styles.secondary, { color: colors.accentInk }]}>
-                  {message.unread
-                    ? t('message.markRead')
-                    : t('message.markUnread')}
-                </Text>
-              </Pressable>
-            ) : (
-              <MessageActions
-                id={message.id}
-                onClose={onClose}
-              />
-            )}
+            <MessageActions
+              id={message.id}
+              onClose={onClose}
+            />
             <Text
               accessibilityRole="header"
               selectable

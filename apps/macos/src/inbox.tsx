@@ -5,7 +5,9 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
+import type { TextInput } from 'react-native';
 
+import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
   quickActions,
@@ -25,6 +27,7 @@ import {
   use,
   useDeferredValue,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -40,6 +43,7 @@ import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { RegisterCommands } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -649,6 +653,7 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
+  const search = useRef<TextInput>(null);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -802,6 +807,32 @@ export function Inbox({
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+        <RegisterCommands
+          offer={() =>
+            inboxCommands(t, {
+              // The search field, once the Inbox can search.
+              search: ready
+                ? () => {
+                    search.current?.focus();
+                  }
+                : undefined,
+              inbox:
+                onClose === undefined
+                  ? undefined
+                  : async () => {
+                      if (await leave()) {
+                        onClose();
+                      }
+                    },
+              account:
+                account === undefined
+                  ? undefined
+                  : () => {
+                      void openAccount(account.openAccount);
+                    },
+            })
+          }
+        />
         <View style={styles.headingRow}>
           {leading}
           <View
@@ -976,6 +1007,7 @@ export function Inbox({
           }}
         />
         <FloatingBar
+          search={search}
           onCompose={onCompose}
           onQuery={setQuery}
           query={query}

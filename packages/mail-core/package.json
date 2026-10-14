@@ -38,7 +38,8 @@
     "./composer-navigation": "./src/composer-navigation.ts",
     "./responses": "./src/responses.ts",
     "./outbox": "./src/outbox.ts",
-    "./outgoing-message": "./src/outgoing-message.ts"
+    "./outgoing-message": "./src/outgoing-message.ts",
+    "./commands": "./src/commands.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

@@ -4,6 +4,7 @@ import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
+import type { TextInput } from 'react-native';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
@@ -24,6 +25,7 @@ import {
   use,
   useDeferredValue,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -49,6 +51,7 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { useImapFolder } from './imap-folders.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
+import { InboxHeading } from './inbox-heading.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
@@ -642,6 +645,7 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
+  const search = useRef<TextInput>(null);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -797,24 +801,17 @@ export function Inbox({
       edges={{ top: true, bottom: true, left: true }}
       style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.heading}>
-          <View style={styles.headingText}>
-            <Text
-              accessibilityRole="header"
-              numberOfLines={1}
-              style={[styles.title, { color: colors.textPrimary }]}>
-              {title}
-            </Text>
-            <View style={styles.subtitle}>
-              <Text
-                accessibilityLiveRegion="polite"
-                numberOfLines={1}
-                style={[styles.subtitleText, { color: colors.textSecondary }]}>
-                {subtitle}
-              </Text>
-            </View>
-          </View>
-        </View>
+        <InboxHeading
+          account={account}
+          detail={selected !== undefined || composing !== undefined}
+          onAccount={openAccount}
+          onClose={onClose}
+          onLeave={leave}
+          search={search}
+          searchable={ready}
+          subtitle={subtitle}
+          title={title}
+        />
         <View style={styles.notices}>
           {failed ? (
             <Notice
@@ -963,6 +960,7 @@ export function Inbox({
           }}
         />
         <FloatingBar
+          search={search}
           onCompose={onCompose}
           onQuery={setQuery}
           query={query}

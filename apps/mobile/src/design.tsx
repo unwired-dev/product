@@ -89,6 +89,16 @@ export function SFSymbol({
   );
 }
 
+// Liquid Glass behind a control or menu on the navigation layer; the owner sets the shadow.
+export function Glass({ cornerRadius }: { readonly cornerRadius: number }) {
+  return (
+    <NativeGlass
+      cornerRadius={cornerRadius}
+      style={StyleSheet.absoluteFill}
+    />
+  );
+}
+
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,

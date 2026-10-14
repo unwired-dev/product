@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
 
+import { CommandBar, CommandPaletteProvider } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
@@ -20,7 +21,8 @@ import { usePalette } from './theme.ts';
 const narrowWindow = 900;
 
 const styles = StyleSheet.create({
-  window: { flex: 1, flexDirection: 'row' },
+  window: { flex: 1 },
+  panes: { flex: 1, flexDirection: 'row' },
   // The floating glass sidebar, inset from the window edges.
   sidebar: {
     alignSelf: 'stretch',
@@ -54,6 +56,23 @@ export function PreviewWindow({
   windowId,
   profile = defaultProfile,
 }: WindowProps) {
+  return (
+    <CommandPaletteProvider windowId={windowId}>
+      <ProfileWindow
+        windowId={windowId}
+        profile={profile}
+      />
+    </CommandPaletteProvider>
+  );
+}
+
+function ProfileWindow({
+  windowId,
+  profile,
+}: {
+  readonly windowId: string;
+  readonly profile: string;
+}) {
   return (
     <InboxProvider>
       <ProfileScope profile={profile}>
@@ -127,70 +146,83 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
         setWidth(nativeEvent.layout.width);
       }}
       style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
-      {sidebarShown ? (
-        <GlassGroup
-          style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
-          <Mailboxes
-            view={view}
-            onView={setView}
-          />
-        </GlassGroup>
-      ) : null}
-      <View
-        style={[
-          styles.list,
-          {
-            backgroundColor: colors.surfaceContent,
-            borderRightColor: colors.separator,
-          },
-        ]}>
-        <Inbox
-          composing={composing}
-          leading={
-            <SidebarToggle
-              shown={sidebarShown}
-              onPress={() => {
-                setSidebar(!sidebarShown);
-              }}
+      <CommandBar />
+      <View style={styles.panes}>
+        {sidebarShown ? (
+          <GlassGroup
+            style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+            <Mailboxes
+              view={view}
+              onView={setView}
             />
-          }
-          selected={selected}
-          onClose={close}
-          onCompose={compose}
-          onSelect={(selection) => {
-            setComposing(undefined);
-            setSelected(selection);
-          }}
-          onView={setView}
-          view={view}
-        />
-      </View>
-      <View style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
-        {composing === undefined ? (
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
+          </GlassGroup>
+        ) : null}
+        <View
+          style={[
+            styles.list,
+            {
+              backgroundColor: colors.surfaceContent,
+              borderRightColor: colors.separator,
+            },
+          ]}>
+          <Inbox
+            composing={composing}
+            leading={
+              <SidebarToggle
+                shown={sidebarShown}
+                onPress={() => {
+                  setSidebar(!sidebarShown);
+                }}
+              />
+            }
+            selected={selected}
             onClose={close}
             onCompose={compose}
-          />
-        ) : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
+            onSelect={(selection) => {
               setComposing(undefined);
+              setSelected(selection);
             }}
-            onRebind={setComposing}
+            onView={setView}
+            view={view}
           />
-        )}
+        </View>
+        <View
+          style={[styles.detail, { backgroundColor: colors.surfaceContent }]}>
+          {composing === undefined ? (
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={close}
+              onCompose={compose}
+            />
+          ) : (
+            <DraftComposer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+              onRebind={setComposing}
+            />
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
-export function InboxWindow(props: WindowProps) {
+export function InboxWindow({
+  windowId,
+  profile = defaultProfile,
+}: WindowProps) {
+  // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
-    <RegistrationGate>
-      <PreviewWindow {...props} />
-    </RegistrationGate>
+    <CommandPaletteProvider windowId={windowId}>
+      <RegistrationGate>
+        <ProfileWindow
+          windowId={windowId}
+          profile={profile}
+        />
+      </RegistrationGate>
+    </CommandPaletteProvider>
   );
 }

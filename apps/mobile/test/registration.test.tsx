@@ -57,6 +57,11 @@ jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The Account page header clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
+
 // The connection list native code reports for one connected synthetic mailbox.
 const connectedTo = (address: SyntheticAddress) =>
   JSON.stringify([

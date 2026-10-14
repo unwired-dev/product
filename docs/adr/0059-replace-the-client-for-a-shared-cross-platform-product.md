@@ -4,6 +4,15 @@ status: accepted
 
 # Replace the client for a shared cross-platform product
 
+## Post-launch Mail Commitments amendment — 2026-10-13
+
+[ADR 0072](0072-allow-reviewed-post-launch-mail-commitments.md) adds a separate
+user-authorized automatic-scan and persistent-review-queue exception for planned
+Mail Commitments. It qualifies the blanket invocation and preview-lifetime
+restrictions below only for that feature; Catch Up retention and all other
+assistance contracts remain unchanged. It adds no launch requirement or claim of
+implementation.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch supersedes the Gmail-only launch, the deferral of optional

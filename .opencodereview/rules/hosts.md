@@ -605,6 +605,80 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `command-palette.tsx.usePaletteHeader` or another hook attaching
+  `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
+  not itself `accessible`, such as the Inbox heading row or the composer's top
+  bar. iOS exposes custom actions only on the focused accessibility element, so
+  VoiceOver never reaches an action on a non-accessible container, while the
+  testing library's `fireEvent` bubbles the event up from a child and keeps the
+  journey green. Attach the action to the header's accessible element (the title
+  `Text` or an `accessible` wrapper) and keep gesture responders on the wider
+  container; otherwise the documented assistive entry point does not exist.
+  `ActivityIndicator` is no carrier either: it gives `style` to an outer wrapper
+  but forwards touch and accessibility props to a spinner-sized native view that
+  is not an accessibility element unless `accessible`. Put the swipe on a
+  full-size wrapper `View` and the action on an `accessible` element.
+- A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
+  `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
+  every other screen the host mounts for the same state, such as
+  `ThreadMessages` behind `app/thread/[id].tsx`. Enumerate the routes under
+  `apps/mobile/app` and the Mac window's panes and check each screen the
+  requirement names (Inbox, message reading, composer, Settings); otherwise a
+  route-specific reader has no palette while the documentation says it does.
+  Within each screen, check every early-return state branch too (loading,
+  `StorageProblem`, `EmptyDetail` and `composer.tsx.ComposerFallback`, the
+  composer's loading, locked, failed and unavailable states), on every route
+  that renders it: on iPhone and in compact iPad layouts each covers the Inbox
+  heading, so a palette entry only in the ready branch leaves no way to open
+  the palette.
+  Each branch needs both entries, the swipe and accessibility action for
+  iPhone and the visible iPad `CommandInput` (`CommandInputRow` where the
+  branch has no header); one without the other leaves that device without
+  its documented entry.
+- A reader control rendered for one store kind, such as the preview Inbox's
+  Mark as read or unread in `organize.tsx.PreviewMessageActions`, without a
+  `RegisterCommands` in the same component offering the same action list and
+  handler as its buttons. Check each `organize.tsx.MessageActions` branch
+  (preview, IMAP, Gmail and Microsoft) against the commands the palette names;
+  otherwise the palette shows the command disabled beside a working button.
+- A palette command left enabled while its matching button is disabled, such as
+  `message-detail.tsx.ResponseActions` passing `responseCommands` a `starting`
+  option not derived from the `pending` state that disables Reply, Reply All
+  and Forward. Derive each command's `disabled` reason, or its omission, from
+  the same state as its button; otherwise choosing the command closes the
+  palette and silently does nothing, or starts the action a second time.
+- `CommandPaletteProvider` or another cross-cutting provider placed relative to
+  `registration-gate.tsx.RegistrationGate`, which replaces its children with the
+  account page or the setup and locked pages. A provider below the gate leaves
+  the account page (the app's Settings) without it unless
+  `account-page.tsx.AccountPage` brings its own, as on iPhone and iPad, whose
+  provider renders the open palette over its children. A provider above the
+  gate, as in the Mac window, outlives every screen, so the open palette, the
+  Command-P listener and the outside-click scrim must live in the mounted
+  `CommandBar` and leave with it. Trace `app/_layout.tsx`, `account-page.tsx` and
+  `window.tsx.InboxWindow` themselves, since test harnesses compose the provider
+  on their own; otherwise the palette disappears from Settings, or an open
+  palette, or Command-P before sign-in, outlives its screen with stale commands
+  or an invisible scrim that swallows the next click.
+- `inbox-heading.tsx` offering Search Mail, or another command that focuses or
+  reveals a control in the Inbox column, without leaving the reader or composer
+  route that covers that column on iPhone and in compact iPad layouts. Trace the
+  command from a collapsed split view: it must leave the detail through the
+  composer leave guard before focusing, and a Jest journey must assert the
+  reader is gone, not only that the field exists; otherwise the command runs
+  with no visible effect. The decision panel chose leaving the detail whenever
+  one is open rather than tracking the alpha split view's collapse events.
+- A floating Mac panel such as the Command Palette's, documented as closing on
+  an outside click, that only handles Escape and Cancel. Render a transparent
+  `Pressable` scrim with an accessible name while the panel is open, and keep it
+  a sibling of the bar with a lower `zIndex`: React Native orders `zIndex`
+  among siblings only, so a scrim mounted elsewhere covers the panel or never
+  covers the content. Press it in the Mac journey; otherwise the documented
+  dismissal does not exist or the panel's rows become unreachable. A panel
+  hanging outside a non-clipping parent's bounds is not itself a defect:
+  react-native-macos `RCTViewComponentView.betterHitTest:` (and Paper
+  `RCTView hitTest:withEvent:`) keep searching children outside the bounds
+  unless the parent sets `overflow: 'hidden'`.
 - `message-detail.tsx.ThreadMessage` or another selected reader section marked
   only by a background color and `accessibilityState.selected`. Require a visible
   non-color cue such as a border, icon or text as well as assistive-technology
@@ -614,6 +688,25 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   as deferred when unavailable; component style assertions do not prove it.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
+- `command-palette.tsx.CommandBar` or another Mac overlay that takes focus
+  and hands it back on dismissal through `TextInput.State.currentlyFocusedInput`
+  alone. React Native tracks only text inputs, while Mac Inbox rows, buttons and
+  the message body are keyboard-focusable, so a palette opened from a focused
+  row returns focus nowhere. Save and restore the window's first responder
+  through `UnwiredCommands.saveFocus`/`restoreFocus`, keyed by the AppKit window
+  identifier. Both calls and the Fabric mount reach the main queue in call order,
+  so saving before the open state change records the pre-palette control, and
+  restoring before the command runs lets a command that focuses a field keep it.
+- `command-palette.tsx.Palette` or another list whose highlighted row moves by
+  keyboard while focus stays in a text field, without scrolling its
+  `ScrollView` itself. Nothing native follows the highlight, so check Up and
+  Down past the visible rows (Move to… with many labels or folders) and every
+  reset of the highlight (a new query, opening the picker, going back) against
+  the scroll offset; otherwise Return runs a row the person cannot see. Row
+  places from `onLayout` are content coordinates only for the content
+  container's direct children, and react-native-macos reports the offset of a
+  `scrollTo` through a later `onScroll`, so a repeated key must not read the
+  previous offset.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
 - A mobile Profile selector whose parameter name disagrees with ADR 0050’s
   `profileId` route contract. Trace targeted entry, in-app message selection,

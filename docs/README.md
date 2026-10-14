@@ -27,11 +27,16 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Sending Drafts through the Outbox](outbox.md)
+- [Command Palette: finding and running actions from any screen](command-palette.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
 - [Planned opt-in analytics and error reporting](telemetry.md)
+
+## Post-launch requirements
+
+- [Mail Commitments: confirmed future-feature requirements](product/mail-commitments.md)
 
 ## Shared policies
 
