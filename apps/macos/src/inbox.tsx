@@ -495,12 +495,22 @@ function statusOf(
   {
     unread,
     searchOffline,
+    waiting,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
+    // The chosen connection while it waits for authorization, whose unread mail is unknown.
+    waiting: Readonly<{ provider: MailProvider }> | undefined;
   }>,
 ) {
+  if (waiting !== undefined) {
+    return waiting.provider === 'imap'
+      ? t('mailboxes.states.imap-authorization')
+      : t('mailboxes.states.authorization', {
+          provider: t(`mailProviders.${waiting.provider}`),
+        });
+  }
   if (shown.some(({ state }) => checking(state))) {
     return t('inbox.syncing');
   }
@@ -706,6 +716,7 @@ export function Inbox({
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
+    waiting: chosenWaiting,
   });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,

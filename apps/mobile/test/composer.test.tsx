@@ -361,7 +361,9 @@ describe('composing Drafts', () => {
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
     ).toBeSelected();
     expect(
-      screen.getByText('alex@example.invalid · No unread messages'),
+      screen.getByText(
+        'alex@example.invalid · Gmail needs your permission again',
+      ),
     ).toBeVisible();
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
     await press('New Message');
