@@ -189,7 +189,10 @@ function LinkConfirmation({
           return;
         }
         const step = event.nativeEvent.shiftKey ? -1 : 1;
-        focusChoice((focusedIndex + step + choices.length) % choices.length);
+        // With no choice focused (after a click on the alert's text), Tab starts at the first
+        // choice and Shift-Tab at the last; the modular step from -1 would skip them.
+        const from = focusedIndex === -1 && step === -1 ? 0 : focusedIndex;
+        focusChoice((from + step + choices.length) % choices.length);
       }}
       style={[styles.confirm, { backgroundColor: colors.surfaceContent }]}>
       <Glass

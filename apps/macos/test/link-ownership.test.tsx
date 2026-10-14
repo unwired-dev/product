@@ -85,6 +85,75 @@ const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) =>
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {
+  it.each([
+    {
+      kind: 'ordinary',
+      text: 'the plan',
+      first: 'Open link',
+      next: 'Cancel',
+      last: 'Cancel',
+      previous: 'Open link',
+    },
+    {
+      kind: 'caution',
+      text: 'https://bank.invalid',
+      first: 'Cancel',
+      next: 'Copy link',
+      last: 'Proceed',
+      previous: 'Copy link',
+    },
+  ])(
+    'keeps Tab cycling inside the $kind alert after a choice loses focus',
+    async ({ text, first, next, last, previous }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        content: { html: `<a href="${oldHref}">${text}</a>` },
+      });
+      const store = createGmailInbox(gmail.native);
+      await store.load();
+      const app = await render(view(store, id));
+      // The preset substitutes native View methods. This checks focus requests, not AppKit focus.
+      const focus = jest.spyOn(View.prototype, 'focus');
+      try {
+        await fireEvent.press(
+          screen.getByRole('link', { name: `Open link: ${text}` }),
+        );
+        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+          screen.getByRole('button', { name: first }).props.onFocus,
+        );
+        for (const [from, event, shiftKey, to] of [
+          [first, 'blur', true, last],
+          [first, 'blur', false, first],
+          [first, 'focus', true, last],
+          [last, 'focus', false, first],
+          [first, 'focus', false, next],
+          [last, 'focus', true, previous],
+        ] as const) {
+          const button = screen.getByRole('button', { name: from });
+          await fireEvent(button, 'focus');
+          await fireEvent(button, event);
+          focus.mockClear();
+          await fireEvent(screen.getByText(oldHref), 'keyDown', {
+            nativeEvent: {
+              key: 'Tab',
+              shiftKey,
+              metaKey: false,
+              ctrlKey: false,
+              altKey: false,
+            },
+          });
+          expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+            screen.getByRole('button', { name: to }).props.onFocus,
+          );
+        }
+      } finally {
+        await app.unmount();
+        focus.mockRestore();
+      }
+    },
+  );
+
   it('copies the inspected destination through the native Clipboard', async () => {
     expect.hasAssertions();
     const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);

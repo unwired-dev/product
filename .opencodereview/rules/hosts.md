@@ -554,6 +554,9 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   and reverse Tab, Escape and activation through the installed view focus command,
   native responder chain and JavaScript key wrapper; otherwise a keyboard action
   can change mail behind the alert or dismiss it without an available choice.
+  Include focus lost to selectable alert text: with no choice focused, Tab must
+  enter at the first choice and Shift-Tab at the last, for both ordinary and
+  caution alerts. A modular step from a missing-index sentinel can skip a choice.
   Keep native keyboard qualification distinct from rendered callback evidence.
 
 - `apps/macos/src/message-body.tsx.LinkConfirmationProvider` or another Mac
