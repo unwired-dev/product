@@ -1,4 +1,4 @@
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
@@ -12,19 +12,34 @@ export const registrationStyles = StyleSheet.create({
     padding: 32,
   },
   content: { maxWidth: 420, width: '100%', gap: 20 },
-  // The account page's fixed title, aligned with the content column below it.
+  // The Settings page's fixed title row.
   accountHeader: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingTop: spacing.l,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
   },
   accountHeading: {
-    maxWidth: 420,
-    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
+    minHeight: 44,
   },
+  back: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
+  // A 44pt control, the 20pt native busy indicator and its spacing balance both sides.
+  phoneHeaderSlot: {
+    width: 44 + 20 + spacing.s,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  phoneAccessory: { justifyContent: 'flex-end' },
+  padTitle: { ...typography.ipadList.title3Emphasized },
+  centered: { textAlign: 'center' },
   grow: { flex: 1 },
   title: { ...textStyles.largeTitle },
   heading: { ...textStyles.headline },

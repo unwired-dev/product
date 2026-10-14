@@ -13,6 +13,16 @@ returns. The account page opens instead while a Recovery Key needs confirming or
 entering, a device approval is waiting on either side, the mailbox is not yet
 saved to private sync, or a sign-out or deletion is unfinished.
 
+With a connected Inbox the account page is Settings, grouped as in the design:
+**Account & Devices** (the account, Private Sync, the Recovery Key, device approval,
+Trusted Devices, sign-in methods, sign-out and deletion), **Email Accounts**
+(Mailbox Connections), **Language** and **Privacy & Data** (Remote Content and Mail
+Assistance). The Mac and iPad show a sidebar of these destinations beside the
+selected one, opening on Account & Devices; iPhone lists them and pushes one at a
+time, opening directly on Account & Devices while setup waits there. Destinations the design shows for features these clients do not implement
+yet, such as Inbox, Rules or Appearance, follow their owning issues. Until [#911](https://github.com/unwired-dev/product/issues/911)
+adds independent presentation, Settings replaces the Inbox in its window.
+
 An explicit choice of **Account** stays through status updates. Choosing **Open
 Inbox** can leave already-pending setup for later, but different pending setup
 that appears afterward, including a renewed device approval code, opens the
@@ -25,7 +35,7 @@ Each Gmail account the person authorizes is one **Mailbox Connection** of the
 Product Account, with its own Gmail credential, verification, encrypted cache,
 waiting changes and synchronization. Adding a mailbox never adds a Product Sign-In.
 
-- **Adding.** The account page's **Mailboxes** section lists every connection, Gmail,
+- **Adding.** Settings' **Email Accounts** lists every Mailbox Connection, Gmail,
   [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
   offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
   mail is configured for this build, **Add a Microsoft mailbox**. Adding Gmail asks Google for an
@@ -218,6 +228,19 @@ Inbox row, and announces each outcome once, however many Mac windows show it. **
 synchronization and kept with the cache. Restoring from Trash or Spam is the
 **Undo** of the latest removal; browsing Trash, Spam or a label is not part of
 this slice.
+
+Inbox rows and the reader also offer native context menus: long-press on iPhone and
+iPad, secondary click with an iPad pointer, and right-click or Control-click on the
+Mac. A row's menu lists the row's own actions in the design's order: **Archive**,
+**Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
+and **Delete** (Move to Trash), placed last on every platform. Report spam stays a
+row accessibility action and a reader action. The
+open message's header lists Reply, Reply All and Forward, its read state and flag,
+**Move Message** with the same destinations as the reader's Move to, and **Delete
+Message**; its sender offers **Copy Address**. A link in the reader's link list
+offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
+downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
+message body and plain-text link spans have no app context menu yet.
 
 A change shows at once with **Saving the change on this device…** until local
 storage confirms it. It then becomes a durable **Pending Provider Action** before
@@ -576,9 +599,9 @@ without credentials becomes a loadable reference; its exact source stays outside
 the document. Other
 sources, including plain HTTP and internationalized host names, stay placeholders.
 
-- **Policies.** The account page's **Remote images** section chooses **Ask** (the
-  default), **Never** or **Always load** for this device, and each Gmail mailbox
-  can use the device setting or its own choice. Choices stay on this device in its
+- **Policies.** The **Remote Content** group in Settings' **Privacy & Data**
+  chooses **Ask** (the default), **Never** or **Always load** for this device, and
+  each Gmail mailbox's row there can use the device setting or its own choice. Choices stay on this device in its
   local defaults and are never synchronized; unreadable settings ask. Until the
   saved choices are read at launch, readers show no remote content and offer no
   **Load images**, so a saved **Never** is never preceded by Ask's cache restoration.

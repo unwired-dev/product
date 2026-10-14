@@ -4,7 +4,7 @@ import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
@@ -26,6 +26,7 @@ import {
 import {
   use,
   useDeferredValue,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -97,8 +98,14 @@ export type Selection = Readonly<{ mailbox: string; id: string }>;
 interface InboxProps {
   readonly selected: Selection | undefined;
   readonly onSelect: (selection: Selection) => void;
+  // A collapsed overlay keeps editing while the reader's selection changes beneath it.
+  readonly onSelectBehindComposer?:
+    | ((selection: Selection) => void)
+    | undefined;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Collapses an expanded composer that covers the Inbox, so Search Mail can show its field.
+  readonly onReveal?: (() => void) | undefined;
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
@@ -243,7 +250,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   }
   const openAccount = async () => {
     if (await leave()) {
-      account?.openAccount();
+      account?.openAccount('mailboxes');
     }
   };
   if (state.status === 'authentication') {
@@ -621,10 +628,40 @@ function headingOf(
   return { title, subtitle, emptyScope: folder ?? scopeName };
 }
 
+function useComposeSearch(
+  composing: string | undefined,
+  search: RefObject<TextInput | null>,
+) {
+  const [presentation, setPresentation] = useState({
+    draft: composing,
+    revealed: false,
+  });
+  if (presentation.draft !== composing) {
+    setPresentation({ draft: composing, revealed: false });
+  }
+  useLayoutEffect(() => {
+    if (presentation.revealed) {
+      search.current?.focus();
+    }
+  }, [presentation, search]);
+  return {
+    hidden: composing !== undefined && !presentation.revealed,
+    reveal: () => {
+      if (composing === undefined || presentation.revealed) {
+        search.current?.focus();
+      } else {
+        setPresentation({ draft: composing, revealed: true });
+      }
+    },
+  };
+}
+
 export function Inbox({
   selected,
   onSelect,
+  onSelectBehindComposer,
   onClose,
+  onReveal,
   onCompose,
   composing,
   view = allInboxes,
@@ -634,6 +671,10 @@ export function Inbox({
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
+    if (onSelectBehindComposer !== undefined) {
+      onSelectBehindComposer(selection);
+      return;
+    }
     if (await leave()) {
       onSelect(selection);
     }
@@ -654,6 +695,7 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
+  const composeSearch = useComposeSearch(composing, search);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -813,7 +855,8 @@ export function Inbox({
               // The search field, once the Inbox can search.
               search: ready
                 ? () => {
-                    search.current?.focus();
+                    onReveal?.();
+                    composeSearch.reveal();
                   }
                 : undefined,
               inbox:
@@ -882,7 +925,9 @@ export function Inbox({
                 address={mailbox.address}
                 onRepair={() => {
                   if (account !== undefined) {
-                    void openAccount(account.openAccount);
+                    void openAccount(() => {
+                      account.openAccount('mailboxes');
+                    });
                   }
                 }}
               />
@@ -1007,6 +1052,7 @@ export function Inbox({
           }}
         />
         <FloatingBar
+          hidden={composeSearch.hidden}
           search={search}
           onCompose={onCompose}
           onQuery={setQuery}

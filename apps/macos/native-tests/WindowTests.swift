@@ -61,8 +61,9 @@ final class WindowTests: XCTestCase {
     func prepare() {
       XCTAssertTrue(first.buttons["Remove iPad"].waitForExistence(timeout: 15))
       first.buttons["Remove iPad"].click()
-      XCTAssertTrue(text("cannot be erased remotely", in: first).waitForExistence(timeout: 15))
-      first.buttons["Remove iPad"].click()
+      XCTAssertTrue(first.alerts.firstMatch.waitForExistence(timeout: 15))
+      XCTAssertTrue(text("cannot be erased remotely", in: first).exists)
+      first.alerts.firstMatch.buttons["Remove iPad"].click()
       XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     }
     prepare()
@@ -153,7 +154,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     // Sign-in connects no mailbox; Gmail and Microsoft mail are offered alike.
     XCTAssertTrue(first.buttons["Connect Microsoft mail"].exists)
-    XCTAssertFalse(text("Gmail connected", in: first).exists)
+    XCTAssertFalse(text("connected on this device", in: first).exists)
     if apple {
       XCTAssertTrue(text("relay@privaterelay.example.invalid", in: first).exists)
     }
@@ -168,7 +169,7 @@ final class WindowTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Mail connected", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
     entry.typeText(String(presented.suffix(4)))
@@ -211,7 +212,7 @@ final class WindowTests: XCTestCase {
     let relaunched = app.windows["Inbox 1"]
     XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
     relaunched.buttons["Account"].click()
-    XCTAssertTrue(text("Mail connected", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
     XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
@@ -224,7 +225,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
     first.buttons["Choose another Google mailbox"].click()
-    XCTAssertTrue(text("Mail connected", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     let entry = first.textFields["Last four characters"]
     entry.click()
     // Confirm each character reached the controlled field before sending the next one.
@@ -243,7 +244,8 @@ final class WindowTests: XCTestCase {
       first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
     first.buttons["Account"].click()
-    first.buttons["Turn on on-device assistance"].click()
+    first.buttons["Privacy & Data"].click()
+    first.switches["Mail Assistance"].click()
     XCTAssertTrue(text("On-device assistance is on.", in: first).waitForExistence(timeout: 15))
     first.buttons["Open Inbox"].click()
     // The disposable Draft belongs to this run's synthetic Product Account only.
@@ -493,7 +495,7 @@ final class WindowTests: XCTestCase {
     first.buttons["Sign in with Apple"].click()
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     first.buttons["Authorize Gmail"].click()
-    XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Only Apple opens this Product Account", in: first).exists)
     first.buttons["Link Google sign-in"].click()
     let linked = "Sign in with Apple or Google to open this Product Account."

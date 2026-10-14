@@ -1,6 +1,17 @@
+import type {
+  MenuSection,
+  NativeMenuItem,
+} from '@private-email/mail-core/context-menu';
 import type { ReactNode } from 'react';
-import type { ColorValue, StyleProp, ViewProps, ViewStyle } from 'react-native';
+import type {
+  ColorValue,
+  NativeSyntheticEvent,
+  StyleProp,
+  ViewProps,
+  ViewStyle,
+} from 'react-native';
 
+import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -25,7 +36,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeGlass = requireNativeComponent<
+export const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -51,6 +62,7 @@ export function Glass({
 const groupRadius = (28 + 2 * spacing.xs) / 2;
 
 const styles = StyleSheet.create({
+  menuContent: { flexGrow: 1 },
   group: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -124,6 +136,47 @@ export function SFSymbol({
   );
 }
 
+const NativeContextMenu = requireNativeComponent<
+  ViewProps & {
+    readonly destructiveColor: ColorValue;
+    readonly sections: ReadonlyArray<
+      Readonly<{
+        palette?: boolean | undefined;
+        items: readonly NativeMenuItem[];
+      }>
+    >;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredContextMenu');
+
+// The system context menu for its children: long-press on iPhone and iPad, secondary click with
+// a pointer or on the Mac. Empty sections are left out.
+export function ContextMenu({
+  sections,
+  children,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const colors = usePalette();
+  const menu = menuState(sections);
+  return (
+    <NativeContextMenu
+      {...props}
+      destructiveColor={colors.statusDestructive}
+      sections={menu.sections}
+      onSelect={({ nativeEvent }) => {
+        void menu.runs.get(nativeEvent.id)?.();
+      }}>
+      {/* React Native's legacy view interop mounts a nested menu without its offset, so another
+          menu never becomes this one's direct native child. */}
+      <View
+        collapsable={false}
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeContextMenu>
+  );
+}
+
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,
@@ -159,16 +212,19 @@ const AnimatedPanel = Animated.createAnimatedComponent(ModalBackground);
 
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
-// Menus float independently of their toolbar, with the deeper menu shadow. They ease out of the
-// toolbar and fade away once closed; Reduce Motion keeps only the fade.
-export function GlassPanel({
+// A menu that eases out of its control and fades away once closed. Closing hides it from
+// VoiceOver and the pointer at once; Reduce Motion keeps only the fade.
+export function MenuPresence({
   open,
+  origin,
+  style,
   children,
-}: {
+  ...props
+}: ViewProps & {
   readonly open: boolean;
-  readonly children: ReactNode;
+  // The corner of its control the menu grows from, as a CSS transform origin.
+  readonly origin: string;
 }) {
-  const colors = usePalette();
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const [reduced, setReduced] = useState(true);
@@ -217,16 +273,14 @@ export function GlassPanel({
   }
   return (
     <AnimatedPanel
-      // A closing menu leaves VoiceOver and the pointer at once; only its picture fades.
+      {...props}
       accessibilityElementsHidden={!open}
       pointerEvents={open ? 'auto' : 'none'}
       style={[
-        styles.panel,
+        style,
         {
-          boxShadow: colors.menuGlassShadow,
-          backgroundColor: colors.surfaceContent,
           opacity: progress,
-          transformOrigin: 'top right',
+          transformOrigin: origin,
           transform: reduced
             ? []
             : [
@@ -239,12 +293,37 @@ export function GlassPanel({
               ],
         },
       ]}>
+      {children}
+    </AnimatedPanel>
+  );
+}
+
+// Menus float independently of their toolbar, with the deeper menu shadow.
+export function GlassPanel({
+  open,
+  children,
+}: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <MenuPresence
+      open={open}
+      origin="top right"
+      style={[
+        styles.panel,
+        {
+          boxShadow: colors.menuGlassShadow,
+          backgroundColor: colors.surfaceContent,
+        },
+      ]}>
       <Glass
         cornerRadius={radius.menu}
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </AnimatedPanel>
+    </MenuPresence>
   );
 }
 
@@ -255,6 +334,9 @@ export function ToolbarButton({
   onPress,
   disabled = false,
   expanded,
+  selected,
+  destructive = false,
+  accessibilityHint,
 }: {
   readonly label: string;
   readonly icon: string;
@@ -262,16 +344,22 @@ export function ToolbarButton({
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;
+  // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
+  readonly selected?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{
         disabled,
         ...(expanded === undefined ? {} : { expanded }),
+        ...(selected === undefined ? {} : { selected }),
       }}
       disabled={disabled}
       focusable
@@ -286,18 +374,19 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true
+            pressed || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
-          borderColor: focused ? colors.accentInk : 'transparent',
+          borderColor:
+            focused || selected === true ? colors.accentInk : 'transparent',
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <SFSymbol
         name={icon}
         size={16}
-        color={colors.textPrimary}
+        color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
   );
@@ -372,23 +461,35 @@ export function Notice({
   );
 }
 
-// A push button: the primary one carries the accent fill, others the quiet fill.
+// A push button, 28pt tall: the accent fill carries the view's main action, the quiet fill the rest.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
+  disabled = false,
+  destructive = false,
+  accessibilityLabel,
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly fill?: 'accent' | 'quiet';
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  let color = primary ? colors.accentOnFill : colors.textPrimary;
+  if (destructive) {
+    color = colors.statusDestructive;
+  }
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       focusable
       onPress={onPress}
       style={({ pressed }) => [
@@ -396,12 +497,13 @@ export function Button({
         {
           backgroundColor:
             pressed && !primary ? colors.accentSelectionSubtle : idle,
+          opacity: disabled ? 0.5 : 1,
         },
       ]}>
       <Text
         style={[
           primary ? textStyles.bodyEmphasized : textStyles.body,
-          { color: primary ? colors.accentOnFill : colors.textPrimary },
+          { color },
         ]}>
         {label}
       </Text>

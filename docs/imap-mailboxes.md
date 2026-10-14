@@ -25,7 +25,7 @@ no mailbox authorization on its own. **Connect your mail** offers:
 Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
 after sign-in; an IMAP password is only ever entered again on the account page. Once
-any mailbox is connected, the account page's **Mailboxes** section also offers **Add an
+any mailbox is connected, Settings' **Email Accounts** also offers **Add an
 IMAP mailbox**.
 
 ## Endpoints and passwords
@@ -100,10 +100,11 @@ reason survives relaunch:
 Adding another IMAP mailbox beside existing ones reports the failure in the form and
 changes nothing. Every launch logs in to each IMAP connection again. A refused password
 marks it **The mail server needs your password again**. **Enter password again**
-opens the account page, where the connection can be repaired immediately without
-relaunching. Password entry is also available for an IMAP connection awaiting a
+opens Settings on **Email Accounts**, where the connection can be repaired
+immediately without relaunching, including when **Open Inbox** has deferred
+Recovery Key setup. Password entry is also available for an IMAP connection awaiting a
 password on this device. Other failures keep its saved Inbox open from this device;
-the account page labels it as saved mail awaiting another server check.
+Email Accounts labels it as saved mail awaiting another server check.
 
 ## Synchronization
 
@@ -192,7 +193,8 @@ unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**
 to** any other selectable folder, including the Inbox. IMAP has no labels or star.
 Archive, Trash and Spam move the message to the folder the server declares with the
 `\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
-not offered, and no folder is guessed by name.
+not offered, and no folder is guessed by name. The row and reader
+[context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus.
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers
