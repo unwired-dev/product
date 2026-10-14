@@ -16,7 +16,7 @@ import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-stor
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { palette } from '@private-email/mail-core/theme';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { AccessibilityInfo, AppState, View } from 'react-native';
+import { AccessibilityInfo, AppState, ScrollView, View } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
@@ -73,6 +73,15 @@ function Windows({
     </View>
   );
 }
+
+// A palette command's row in the list, which native layout places, around its button.
+const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
+  const row = button.parent;
+  if (row === null) {
+    throw new Error('Expected the command row around its button');
+  }
+  return row;
+};
 
 describe('mac window selection with the shared mock mailbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
@@ -261,6 +270,75 @@ describe('mac window selection with the shared mock mailbox', () => {
       }),
     ).resolves.toBeVisible();
     expect(app.getByText('Select a message to start reading.')).toBeVisible();
+  });
+
+  it('scrolls the keyboard-highlighted command into view', async () => {
+    expect.hasAssertions();
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    try {
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      await fireEvent.press(await app.findByRole('button', { name: oliver }));
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      const palette = within(app.getByTestId('command-palette'));
+      // Every row is 40pt tall and the list shows two of them, as native layout would report.
+      const names = [
+        'Reply. Not available for this message',
+        'Forward. Not available for this message',
+        'Archive. Not available for this message',
+        'Move to…. Not available for this message',
+        'Mark as read',
+        'Search Mail',
+        'Inbox',
+      ];
+      for (const [index, name] of names.entries()) {
+        await fireEvent(
+          rowOf(palette.getByRole('button', { name })),
+          'layout',
+          {
+            nativeEvent: { layout: { y: index * 40, height: 40 } },
+          },
+        );
+      }
+      const list = app.getByTestId('command-list');
+      await fireEvent(list, 'layout', {
+        nativeEvent: { layout: { y: 0, height: 80 } },
+      });
+      const input = app.getByPlaceholderText('Type a command');
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      expect(palette.getByRole('button', { name: 'Inbox' })).toBeSelected();
+      // Inbox ends at 280pt, below the visible 80pt, so the list scrolls until it is the last row.
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 200, animated: false });
+      // The wheel then scrolls Search Mail, which starts at 200pt, out of view above.
+      await fireEvent(list, 'scroll', {
+        nativeEvent: { contentOffset: { y: 240 } },
+      });
+      // Up scrolls until Search Mail is the first row; the first enabled command then brings back
+      // the top, with its header and the unavailable commands.
+      scrollTo.mockClear();
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      expect(scrollTo.mock.calls).toStrictEqual([
+        [{ y: 200, animated: false }],
+        [{ y: 0, animated: false }],
+      ]);
+      // A new query highlights its first match, so the list returns to the top to show it.
+      scrollTo.mockClear();
+      await fireEvent.changeText(input, 'in');
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 0, animated: false });
+      expect(palette.getByRole('button', { name: 'Inbox' })).toBeSelected();
+    } finally {
+      scrollTo.mockRestore();
+    }
   });
 
   it("runs the preview reader's read state from the palette", async () => {

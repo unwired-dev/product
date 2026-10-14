@@ -6,6 +6,8 @@ import type {
 import type { ReactNode } from 'react';
 import type {
   KeyEvent,
+  LayoutChangeEvent,
+  LayoutRectangle,
   TextInput as TextInputHandle,
   TurboModule,
 } from 'react-native';
@@ -386,6 +388,26 @@ function Palette({
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
   const input = useRef<TextInputHandle>(null);
+  // Keyboard selection keeps the query focused, so the list scrolls its highlighted row into view
+  // itself: each row's place in the list, and the list's visible part.
+  const list = useRef<ScrollView>(null);
+  const places = useRef(new Map<string, LayoutRectangle>());
+  const visible = useRef({ offset: 0, height: 0 });
+  const place =
+    (id: string) =>
+    ({ nativeEvent }: LayoutChangeEvent) => {
+      places.current.set(id, nativeEvent.layout);
+    };
+  // The scroll event arrives later, so a quickly repeated key already sees the new offset.
+  const scroll = (y: number) => {
+    list.current?.scrollTo({ y, animated: false });
+    visible.current.offset = y;
+  };
+  // A new query, picker or the way back highlights the first row, at the top of the list.
+  const restart = () => {
+    setHighlighted(0);
+    scroll(0);
+  };
   const live = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const vanished = (command: Command): Command =>
     gone.includes(command.id)
@@ -402,11 +424,15 @@ function Palette({
     if (found.choices !== undefined) {
       setChoosing(found);
       setChoiceQuery('');
-      setHighlighted(0);
+      restart();
       return;
     }
     close();
     void found.run?.();
+  };
+  const back = () => {
+    setChoosing(undefined);
+    restart();
   };
   const choose = (choice: CommandChoice) => {
     const found =
@@ -416,15 +442,11 @@ function Palette({
       if (choosing !== undefined) {
         setGone([...gone, choosing.id]);
       }
-      setChoosing(undefined);
+      back();
       return;
     }
     close();
     option.run();
-  };
-  const back = () => {
-    setChoosing(undefined);
-    setHighlighted(0);
   };
   const subject = opened.find(({ target }) => target !== undefined)?.target
     ?.subject;
@@ -437,10 +459,8 @@ function Palette({
   const enabled = rows
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.disabled === undefined);
-  const selected =
-    enabled.length === 0
-      ? undefined
-      : enabled[Math.min(highlighted, enabled.length - 1)];
+  const current = Math.min(highlighted, enabled.length - 1);
+  const selected = enabled[current];
   const submit = () => {
     if (selected === undefined) {
       return;
@@ -451,6 +471,27 @@ function Palette({
       choose(selected.item);
     }
   };
+  // Highlights an enabled row and scrolls it into view when it lies outside the visible part.
+  const highlight = (index: number) => {
+    setHighlighted(index);
+    // The first enabled row shows the top of the list, as on opening: its header and any
+    // unavailable rows above it.
+    if (index === 0) {
+      scroll(0);
+      return;
+    }
+    const id = enabled[index]?.item.id;
+    const row = id === undefined ? undefined : places.current.get(id);
+    if (row === undefined) {
+      return;
+    }
+    const { offset, height } = visible.current;
+    if (row.y < offset) {
+      scroll(row.y);
+    } else if (row.y + row.height > offset + height) {
+      scroll(row.y + row.height - height);
+    }
+  };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     if (nativeEvent.key === 'Escape') {
       if (choosing === undefined) {
@@ -459,9 +500,9 @@ function Palette({
         back();
       }
     } else if (nativeEvent.key === 'ArrowDown') {
-      setHighlighted(Math.min(highlighted + 1, enabled.length - 1));
+      highlight(Math.min(current + 1, enabled.length - 1));
     } else if (nativeEvent.key === 'ArrowUp') {
-      setHighlighted(Math.max(highlighted - 1, 0));
+      highlight(Math.max(current - 1, 0));
     }
   };
   const prompt =
@@ -499,7 +540,7 @@ function Palette({
           key={choosing === undefined ? 'commands' : 'choices'}
           keyDownEvents={handledKeys}
           onChangeText={(text) => {
-            setHighlighted(0);
+            restart();
             if (choosing === undefined) {
               setQuery(text);
             } else {
@@ -561,27 +602,40 @@ function Palette({
             </Text>
           </View>
         )}
-        <ScrollView>
+        <ScrollView
+          onLayout={({ nativeEvent }) => {
+            visible.current.height = nativeEvent.layout.height;
+          }}
+          onScroll={({ nativeEvent }) => {
+            visible.current.offset = nativeEvent.contentOffset.y;
+          }}
+          ref={list}
+          scrollEventThrottle={16}
+          testID="command-list">
           {choices === undefined ? (
             <CommandList
               commands={listed}
               highlighted={selected?.index}
+              onPlace={place}
               onRun={run}
               subject={subject}
             />
           ) : (
             choices.map((choice, index) => (
-              <CommandRow
-                detail={choice.disabled}
-                disabled={choice.disabled !== undefined}
-                highlighted={selected?.index === index}
-                icon={choice.icon ?? 'folder'}
+              <View
                 key={choice.id}
-                onPress={() => {
-                  choose(choice);
-                }}
-                title={choice.title}
-              />
+                onLayout={place(choice.id)}>
+                <CommandRow
+                  detail={choice.disabled}
+                  disabled={choice.disabled !== undefined}
+                  highlighted={selected?.index === index}
+                  icon={choice.icon ?? 'folder'}
+                  onPress={() => {
+                    choose(choice);
+                  }}
+                  title={choice.title}
+                />
+              </View>
             ))
           )}
           {(choices ?? listed).length === 0 ? (
@@ -644,11 +698,14 @@ function Hint({
 function CommandList({
   commands,
   highlighted,
+  onPlace,
   onRun,
   subject,
 }: {
   readonly commands: readonly Command[];
   readonly highlighted: number | undefined;
+  // Records where each command's row sits in the list.
+  readonly onPlace: (id: string) => (event: LayoutChangeEvent) => void;
   readonly onRun: (command: Command) => void;
   readonly subject: string | undefined;
 }) {
@@ -658,7 +715,9 @@ function CommandList({
     const first =
       index === 0 || commands[index - 1]?.section !== command.section;
     return (
-      <View key={command.id}>
+      <View
+        key={command.id}
+        onLayout={onPlace(command.id)}>
         {first ? (
           <Label
             accessibilityRole="header"

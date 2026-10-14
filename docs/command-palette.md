@@ -65,7 +65,7 @@ results never appear in the palette. The vocabulary lives in the
   the Account page included.
   Clicking it, or choosing View › Commands… (Command-P), opens the palette
   beneath it without shifting the window's layout, with the query focused. Up and
-  Down select a command, Return runs it, Escape closes the palette or leaves the
+  Down select a command and scroll it into view, Return runs it, Escape closes the palette or leaves the
   picker; the footer names these keys. The bar shows the Command-P shortcut.
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.

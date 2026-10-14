@@ -647,6 +647,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   identifier. Both calls and the Fabric mount reach the main queue in call order,
   so saving before the open state change records the pre-palette control, and
   restoring before the command runs lets a command that focuses a field keep it.
+- `command-palette.tsx.Palette` or another list whose highlighted row moves by
+  keyboard while focus stays in a text field, without scrolling its
+  `ScrollView` itself. Nothing native follows the highlight, so check Up and
+  Down past the visible rows (Move to… with many labels or folders) and every
+  reset of the highlight (a new query, opening the picker, going back) against
+  the scroll offset; otherwise Return runs a row the person cannot see. Row
+  places from `onLayout` are content coordinates only for the content
+  container's direct children, and react-native-macos reports the offset of a
+  `scrollTo` through a later `onScroll`, so a repeated key must not read the
+  previous offset.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
 - A mobile Profile selector whose parameter name disagrees with ADR 0050’s
   `profileId` route contract. Trace targeted entry, in-app message selection,
