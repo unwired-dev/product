@@ -151,7 +151,9 @@ function isScrollable(
 ): boolean {
   return (
     element !== null &&
-    (element.props.onScroll !== undefined || isScrollable(element.parent))
+    (element.type === 'RCTScrollView' ||
+      element.props.onScroll !== undefined ||
+      isScrollable(element.parent))
   );
 }
 
@@ -853,6 +855,67 @@ describe('composing Drafts', () => {
     );
   });
 
+  it('keeps Close exclusive while saving despite queued Discard and later typing', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Before Close',
+    );
+    await press('Compose actions');
+    const queuedDiscard = queuedPress('Discard');
+    const queuedClose = queuedPress('Close');
+    storage.hold();
+    try {
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Saving on Close',
+      );
+      await press('Close');
+      expect(
+        screen.getByRole('button', { name: 'Compose actions' }),
+      ).toBeDisabled();
+      await act(() => {
+        queuedDiscard();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Discard Draft' }),
+      ).toBeNull();
+      expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Typed while closing',
+      );
+      expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await act(() => {
+        queuedClose();
+      });
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { subject: 'Typed while closing' },
+      ]);
+    } finally {
+      storage.release();
+    }
+  });
+
   it('keeps a Draft open while it cannot be saved', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -873,6 +936,7 @@ describe('composing Drafts', () => {
     );
     await waitFor(() => {
       expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
+      expect(isScrollable(screen.getByText(/Not saved/u))).toBe(true);
     });
     storage.failNextCommit('locked');
     await press('Close');
@@ -881,6 +945,13 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
+    expect(
+      isScrollable(
+        screen.getByText(
+          'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        ),
+      ),
+    ).toBe(true);
     storage.failNextCommit('locked');
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');

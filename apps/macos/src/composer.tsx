@@ -1462,7 +1462,7 @@ function Editor({
       ),
     );
     typingField.current = word ? field : undefined;
-    if (!discarded.current) {
+    if (!discarded.current && lifetime.current.finishing === 0) {
       setClosing(undefined);
     }
     update(next);
@@ -1670,7 +1670,7 @@ function Editor({
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return false;
     }
     // Entries still being typed become recipients; invalid text keeps the Draft open.
@@ -1756,7 +1756,7 @@ function Editor({
     }
   };
   const discard = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const previous = authored.current;
@@ -1798,7 +1798,7 @@ function Editor({
   };
   // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
   const send = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const latest = authored.current;
@@ -1912,33 +1912,14 @@ function Editor({
           />
         )}
         <ComposerActions
-          disabled={sending}
+          disabled={lockedUnless(closing !== 'saving')}
           onDiscard={() => {
-            if (!sendingNow.current) {
+            if (!sendingNow.current && lifetime.current.finishing === 0) {
               setClosing('discard');
             }
           }}
         />
       </View>
-      <View style={styles.bar}>
-        <Notice style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-        </Notice>
-      </View>
-      <ComposerNotices
-        closing={closing}
-        draft={draft}
-        refused={refused}
-        onClose={() => {
-          void close();
-        }}
-        onDiscard={() => {
-          void discard();
-        }}
-        onKeepEditing={() => {
-          setClosing(undefined);
-        }}
-      />
       <FormatBar
         active={active}
         kind={kind}
@@ -2036,6 +2017,25 @@ function Editor({
         />
       </FormatBar>
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.bar}>
+          <Notice style={[styles.status, { color: colors.textSecondary }]}>
+            {t('drafts.status', { status: t(`drafts.save.${save}`) })}
+          </Notice>
+        </View>
+        <ComposerNotices
+          closing={closing}
+          draft={draft}
+          refused={refused}
+          onClose={() => {
+            void close();
+          }}
+          onDiscard={() => {
+            void discard();
+          }}
+          onKeepEditing={() => {
+            setClosing(undefined);
+          }}
+        />
         {captured === undefined ? null : (
           <View style={styles.review}>
             <CapturedAssistance

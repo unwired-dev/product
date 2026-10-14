@@ -18,3 +18,6 @@ Closing or discarding an untouched Mac Draft also clears its composer after remo
 The floating search bar hides while composing; Mac Search Mail reveals it while
 keeping the Draft open. The iPad overlay follows the current reading column as
 native sidebars move or hide.
+Save status and error or confirmation notices scroll with composer content, while
+platform formatting and sender/Send rows remain fixed. Close, Send and Discard
+cannot overlap a pending Close save, including queued callbacks and later typing.

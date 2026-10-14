@@ -63,6 +63,9 @@ Trusted Devices through Private Sync.
   above the keyboard on iPhone. On touch layouts, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size. On Mac, **From** and **Send** share the bottom row;
   on iPhone and iPad, **From** sits under the header and **Send** in it.
+  These platform control rows stay fixed. Save status, errors and confirmations
+  scroll with the body, assets and fields in one outer scroll view; stacked
+  feedback can scroll away in a short overlay or above the keyboard.
 - **From** is a pop-up that always shows the sending mailbox and lists every
   mailbox in the Draft's
   [Mail Profile](private-inbox-storage.md#mail-profiles) that can send; a Draft never

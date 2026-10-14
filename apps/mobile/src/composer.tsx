@@ -1418,7 +1418,7 @@ function Editor({
       ),
     );
     typingField.current = word ? field : undefined;
-    if (!discarded.current) {
+    if (!discarded.current && lifetime.current.finishing === 0) {
       setClosing(undefined);
     }
     update(next);
@@ -1633,7 +1633,7 @@ function Editor({
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return false;
     }
     // Entries still being typed become recipients; invalid text keeps the Draft open.
@@ -1693,7 +1693,7 @@ function Editor({
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const paletteHeader = usePaletteHeader();
   const discard = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const previous = authored.current;
@@ -1735,7 +1735,7 @@ function Editor({
   };
   // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
   const send = async () => {
-    if (discarded.current) {
+    if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
     const latest = authored.current;
@@ -1979,9 +1979,9 @@ function Editor({
             />
           )}
           <ComposerActions
-            disabled={sending}
+            disabled={lockedUnless(closing !== 'saving')}
             onDiscard={() => {
-              if (!sendingNow.current) {
+              if (!sendingNow.current && lifetime.current.finishing === 0) {
                 setClosing('discard');
               }
             }}
@@ -2012,30 +2012,30 @@ function Editor({
             />
           </View>
         </View>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-        </Text>
-        <ComposerNotices
-          closing={closing}
-          draft={draft}
-          refused={refused}
-          onClose={() => {
-            void close();
-          }}
-          onDiscard={() => {
-            void discard();
-          }}
-          onKeepEditing={() => {
-            setClosing(undefined);
-          }}
-        />
         {topBar}
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled">
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.status, { color: colors.textSecondary }]}>
+            {t('drafts.status', { status: t(`drafts.save.${save}`) })}
+          </Text>
+          <ComposerNotices
+            closing={closing}
+            draft={draft}
+            refused={refused}
+            onClose={() => {
+              void close();
+            }}
+            onDiscard={() => {
+              void discard();
+            }}
+            onKeepEditing={() => {
+              setClosing(undefined);
+            }}
+          />
           {captured === undefined ? null : (
             <View style={styles.review}>
               <CapturedAssistance

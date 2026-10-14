@@ -477,12 +477,17 @@ describe('profile-scoped mobile routes', () => {
   /* oxlint-enable vitest/max-expects */
 
   it.each([
-    { draft: 'with content', body: 'Keep this draft.' },
+    { draft: 'with content', body: 'Keep this draft.', command: 'Inbox' },
     // Leaving removes the empty Draft, which unmounts its editor before it finishes closing.
-    { draft: 'untouched', body: '' },
+    { draft: 'untouched', body: '', command: 'Inbox' },
+    {
+      draft: 'expanded via Search Mail',
+      body: 'Keep this draft.',
+      command: 'Search Mail',
+    },
   ])(
-    'leaves an iPad composer overlay $draft for the Inbox from the Command Palette',
-    async ({ body }) => {
+    'leaves an expanded iPad composer $draft for the Inbox from the Command Palette',
+    async ({ body, command }) => {
       expect.hasAssertions();
       split.shown.length = 0;
       const dimensions = jest
@@ -547,15 +552,18 @@ describe('profile-scoped mobile routes', () => {
           await screen.findByLabelText('Message body'),
           body,
         );
+        await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
         await fireEvent(
-          screen.getByRole('header', { name: 'Inbox' }),
+          screen.getByRole('header', {
+            name: 'New Message',
+          }),
           'accessibilityAction',
           { nativeEvent: { actionName: 'openCommandPalette' } },
         );
         await act(async () => {
           await fireEvent.press(
             within(screen.getByTestId('command-palette')).getByRole('button', {
-              name: 'Inbox',
+              name: command,
             }),
           );
         });

@@ -339,6 +339,23 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise refused saving retains dead editors indefinitely, or a pending
   Discard reports success while leaving its rebound version durable.
 
+- `composer.tsx.Editor` or `ComposerActions` allowing Close, Send or Discard to
+  overlap a pending finishing operation. Disable Compose actions as well as
+  Close and Send while closing saves, and guard queued callbacks synchronously
+  with the current operation ownership. Ordinary typing may continue but must
+  not clear the pending state. Exercise a held native commit, an already-open
+  overflow's queued Discard, queued Close and later typing, then durable Close
+  completion; otherwise Discard or an edit re-enables controls and starts a second
+  close, deletion or delivery operation against the same Draft.
+- `composer.tsx.Editor` putting variable-height save status, errors or
+  confirmations outside its single outer content scroll. Verify failed saving,
+  refusal and Discard feedback with the body/fields in that scroll; otherwise
+  stacked banners consume a short overlay or keyboard-reduced viewport and
+  cannot scroll away. Preserve ADR 0057's platform-placement amendment: the
+  fixed mobile From row, Mac From/Send footer, Mac/iPad top format bar and compact
+  iPhone above-keyboard format bar are deliberate exceptions. Do not apply the
+  superseded header-only-fixed constraint to those controls.
+
 - `Editor.close` catching failure only through `createComposerNavigation.leave`.
   The Close button also calls it directly as `void close()`: catch unexpected
   rejection from both `save` and empty-only `discard`, keep the editor open,
@@ -782,6 +799,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   The Mac's expanded composer covers the Inbox column too: `inbox.tsx` Search
   Mail must collapse it through `window.tsx`'s `onReveal` before focusing (a
   #903 panel chose collapsing over leaving), or focus lands in a hidden field.
+  Mobile Search Mail instead awaits the registered composer Close through
+  `onLeave` before `onClose`; `_layout.tsx`'s composer callback clears expansion
+  and `composing.current` before the reader callback chooses its route. Test an
+  expanded regular iPad composer and failed recipient/save guards; do not infer
+  that a Draft remains open from the reader's `onClose` callback alone or impose
+  the Mac reveal policy on mobile.
 - `app/_layout.tsx` asking its split view for a column by its two-column name.
   Mailboxes is the `primary` column and the message list `supplementary`: when a
   reader, Thread or composer closes, including the compact reader's own Back
