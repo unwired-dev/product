@@ -17,34 +17,71 @@ import {
   smtpSecurityOf,
 } from '@private-email/mail-core/imap-setup';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Fragment, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
+import { ProviderList, ProviderRow } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { textStyles, usePalette } from './theme.ts';
 
-const providers = ['icloud', 'fastmail', 'other'] as const;
+const providers = [
+  { provider: 'icloud', letter: 'i' },
+  { provider: 'fastmail', letter: 'F' },
+  { provider: 'other', letter: '@' },
+] as const;
 const securities = ['tls', 'starttls'] as const;
 
-const choiceStyles = StyleSheet.create({
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  choice: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
+// Mac forms align their labels to the trailing edge of a fixed column before each field.
+const labelWidth = 104;
+
+const formStyles = StyleSheet.create({
+  group: { gap: spacing.s },
+  groupTitle: {
+    ...textStyles.subheadline,
+    fontWeight: '600',
+    paddingLeft: labelWidth + spacing.m,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  label: { ...textStyles.body, width: labelWidth, textAlign: 'right' },
+  input: {
+    ...textStyles.body,
+    flex: 1,
+    minHeight: 28,
+    paddingHorizontal: spacing.s,
     borderWidth: 1,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  label: { ...textStyles.subheadline },
+  choices: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  choice: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.chip,
+    borderCurve: 'continuous',
+  },
+  choiceLabel: { ...textStyles.body },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
+  notes: { ...textStyles.subheadline },
 });
 
 // The form's text fields; SMTP security is chosen separately.
 type TextField = Exclude<keyof ImapFields, 'smtpSecurity'>;
 
 type Button = (label: string, action: () => Promise<void>) => ReactNode;
+
+// A text field's row: its short visible label and the field, whose accessibility label names it
+// in full.
+type FieldRow = Readonly<{
+  name: TextField;
+  label: string;
+  // The row's visible label, when shorter than the accessibility label.
+  visible?: string;
+  input?: Partial<ComponentProps<typeof TextInput>>;
+}>;
+type Field = (row: FieldRow) => ReactNode;
 
 // A Standards-Based Mailbox Connection's setup: the provider, the reviewed IMAP and SMTP endpoints
 // and the password, which goes no further than this device. `repair` enters the password of an
@@ -63,6 +100,7 @@ export function ImapSetup({
   readonly onClose?: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [provider, setProvider] = useState<ImapProvider | undefined>(
     repair === undefined ? undefined : 'other',
   );
@@ -86,16 +124,21 @@ export function ImapSetup({
   }
   return (
     <>
-      {providers.map((choice) => (
-        <Fragment key={choice}>
-          {button(
-            t('imap.choose', { provider: t(`imap.providers.${choice}`) }),
-            async () => {
-              setProvider(choice);
-            },
-          )}
-        </Fragment>
-      ))}
+      <ProviderList>
+        {providers.map((choice, index) => (
+          <ProviderRow
+            key={choice.provider}
+            detail={t(`onboarding.providers.${choice.provider}.detail`)}
+            disabled={busy}
+            last={index === providers.length - 1}
+            letter={choice.letter}
+            name={t(`onboarding.providers.${choice.provider}.name`)}
+            onPress={() => {
+              setProvider(choice.provider);
+            }}
+          />
+        ))}
+      </ProviderList>
       {onClose === undefined
         ? null
         : button(t('imap.cancel'), async () => {
@@ -105,10 +148,34 @@ export function ImapSetup({
   );
 }
 
+// An inset group of form rows under an optional title.
+function FormGroup({
+  title,
+  children,
+}: {
+  readonly title?: string;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <>
+      {title === undefined ? null : (
+        <Label
+          accessibilityRole="header"
+          style={[formStyles.groupTitle, { color: colors.textSecondary }]}>
+          {title}
+        </Label>
+      )}
+      <View style={formStyles.group}>{children}</View>
+    </>
+  );
+}
+
 // The chosen provider's fields, its reviewed endpoint and the outcome of the latest attempt.
-function ImapForm({
+export function ImapForm({
   store,
   button,
+  primaryButton = button,
   provider,
   repair,
   onCancel,
@@ -116,6 +183,8 @@ function ImapForm({
 }: {
   readonly store: Registration;
   readonly button: Button;
+  // Connect, where the form is the step's primary action.
+  readonly primaryButton?: Button;
   readonly provider: ImapProvider;
   readonly repair: MailboxConnection | undefined;
   readonly onCancel: () => void;
@@ -128,27 +197,31 @@ function ImapForm({
     store.getSnapshot,
   );
   const [fields, setFields] = useState<ImapFields>(() => imapFields(repair));
-  const field = (
-    name: TextField,
-    label: string,
-    options: Partial<ComponentProps<typeof TextInput>> = {},
-  ) => (
-    <TextInput
-      accessibilityLabel={label}
-      autoCapitalize="none"
-      autoCorrect={false}
-      onChangeText={(value) => {
-        setFields((current) => ({ ...current, [name]: value }));
-      }}
-      placeholder={label}
-      placeholderTextColor={colors.textSecondary}
-      style={[
-        styles.input,
-        { borderColor: colors.separator, color: colors.textPrimary },
-      ]}
-      value={fields[name]}
-      {...options}
-    />
+  const field: Field = ({ name, label, visible = label, input = {} }) => (
+    <View style={formStyles.row}>
+      <Text
+        importantForAccessibility="no"
+        accessibilityElementsHidden
+        style={[formStyles.label, { color: colors.textPrimary }]}>
+        {visible}
+      </Text>
+      <TextInput
+        accessibilityLabel={label}
+        autoCapitalize="none"
+        autoCorrect={false}
+        onChangeText={(value) => {
+          setFields((current) => ({ ...current, [name]: value }));
+        }}
+        placeholder={label}
+        placeholderTextColor={colors.textSecondary}
+        style={[
+          formStyles.input,
+          { borderColor: colors.separator, color: colors.textPrimary },
+        ]}
+        value={fields[name]}
+        {...input}
+      />
+    </View>
   );
   // A repair keeps its saved endpoint, but names its provider and the password it needs.
   const guidance =
@@ -158,6 +231,7 @@ function ImapForm({
   const forgetPassword = () => {
     setFields((current) => ({ ...current, password: '', smtpPassword: '' }));
   };
+  const manual = provider === 'other' && repair === undefined;
   return (
     <View style={styles.device}>
       <Label
@@ -168,21 +242,55 @@ function ImapForm({
       <Label style={[styles.text, { color: colors.textSecondary }]}>
         {t('imap.description')}
       </Label>
-      {repair === undefined
-        ? field('address', t('imap.address'), {
-            autoComplete: 'email',
-            keyboardType: 'email-address',
-            textContentType: 'emailAddress',
-          })
-        : null}
-      {provider === 'other' && repair === undefined ? (
-        <ManualEndpoint field={field} />
+      <FormGroup>
+        {repair === undefined
+          ? field({
+              name: 'address',
+              label: t('imap.address'),
+              input: {
+                autoComplete: 'email',
+                keyboardType: 'email-address',
+                textContentType: 'emailAddress',
+              },
+            })
+          : null}
+        {field({
+          name: 'password',
+          label: t('imap.password'),
+          input: {
+            autoComplete: 'password',
+            secureTextEntry: true,
+            textContentType: 'password',
+          },
+        })}
+      </FormGroup>
+      {manual ? (
+        <FormGroup title={t('imap.incoming')}>
+          {field({
+            name: 'username',
+            label: t('imap.username'),
+            input: {
+              autoComplete: 'username',
+              textContentType: 'username',
+            },
+          })}
+          {field({
+            name: 'host',
+            label: t('imap.host'),
+            visible: t('imap.server'),
+            input: {
+              keyboardType: 'url',
+            },
+          })}
+          {field({
+            name: 'port',
+            label: t('imap.port'),
+            input: {
+              keyboardType: 'number-pad',
+            },
+          })}
+        </FormGroup>
       ) : null}
-      {field('password', t('imap.password'), {
-        autoComplete: 'password',
-        secureTextEntry: true,
-        textContentType: 'password',
-      })}
       {guidance === 'other' || repair?.smtp !== undefined ? (
         <ManualSending
           field={field}
@@ -197,19 +305,21 @@ function ImapForm({
         review={setup}
         failure={imapFailure}
       />
-      {setup === undefined
-        ? null
-        : button(t('imap.connect'), async () => {
-            forgetPassword();
-            await store.connectImap(setup);
-            if (store.getSnapshot().imapFailure === undefined) {
-              onConnected?.();
-            }
-          })}
-      {button(t('imap.cancel'), async () => {
-        forgetPassword();
-        onCancel();
-      })}
+      <View style={formStyles.actions}>
+        {button(t('imap.cancel'), async () => {
+          forgetPassword();
+          onCancel();
+        })}
+        {setup === undefined
+          ? null
+          : primaryButton(t('imap.connect'), async () => {
+              forgetPassword();
+              await store.connectImap(setup);
+              if (store.getSnapshot().imapFailure === undefined) {
+                onConnected?.();
+              }
+            })}
+      </View>
     </View>
   );
 }
@@ -236,19 +346,19 @@ function FormNotes({
   return (
     <>
       {provider === 'other' ? null : (
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
+        <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
           {t('imap.appPassword', {
             provider: t(`imap.providers.${provider}`),
           })}
         </Label>
       )}
-      <Label style={[styles.text, { color: colors.textSecondary }]}>
+      <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
         {review === undefined
           ? t('imap.incomplete')
           : t('imap.review', { host: review.host, port: String(review.port) })}
       </Label>
       {review === undefined ? null : (
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
+        <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
           {t(`imap.sendingReview.${review.smtp.security}`, {
             host: review.smtp.host,
             port: String(review.smtp.port),
@@ -266,29 +376,6 @@ function FormNotes({
   );
 }
 
-// A manual server's user name and endpoint, which the person reviews before connecting.
-function ManualEndpoint({
-  field,
-}: {
-  readonly field: (
-    name: TextField,
-    label: string,
-    options?: Partial<ComponentProps<typeof TextInput>>,
-  ) => ReactNode;
-}) {
-  const { t } = useLocalization();
-  return (
-    <>
-      {field('username', t('imap.username'), {
-        autoComplete: 'username',
-        textContentType: 'username',
-      })}
-      {field('host', t('imap.host'), { keyboardType: 'url' })}
-      {field('port', t('imap.port'), { keyboardType: 'number-pad' })}
-    </>
-  );
-}
-
 // A manual server's SMTP endpoint and how it reaches TLS; its user name and password default to
 // the incoming ones.
 function ManualSending({
@@ -296,79 +383,103 @@ function ManualSending({
   security,
   onSecurity,
 }: {
-  readonly field: (
-    name: TextField,
-    label: string,
-    options?: Partial<ComponentProps<typeof TextInput>>,
-  ) => ReactNode;
+  readonly field: Field;
   readonly security: SmtpSecurity;
   readonly onSecurity: (security: SmtpSecurity) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <>
-      <Label
-        accessibilityRole="header"
-        style={[styles.text, { color: colors.textSecondary }]}>
-        {t('imap.outgoing')}
-      </Label>
-      {field('smtpHost', t('imap.smtpHost'), { keyboardType: 'url' })}
-      {field('smtpPort', t('imap.smtpPort'), { keyboardType: 'number-pad' })}
-      <View
-        accessibilityRole="radiogroup"
-        style={choiceStyles.choices}>
-        {securities.map((choice) => (
-          <Pressable
-            key={choice}
-            accessibilityLabel={`${t('imap.smtpSecurity')}: ${t(`imap.security.${choice}`)}`}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: choice === security }}
-            onPress={() => {
-              onSecurity(choice);
-            }}
-            style={[
-              choiceStyles.choice,
-              {
-                borderColor:
-                  choice === security ? colors.accentInk : colors.separator,
-              },
-            ]}>
-            <Text
-              style={[
-                choiceStyles.label,
-                {
-                  color:
-                    choice === security ? colors.accentInk : colors.textPrimary,
-                  fontWeight: choice === security ? '700' : '400',
-                },
-              ]}>
-              {t(`imap.security.${choice}`)}
-            </Text>
-          </Pressable>
-        ))}
+    <FormGroup title={t('imap.outgoing')}>
+      {field({
+        name: 'smtpHost',
+        label: t('imap.smtpHost'),
+        visible: t('imap.server'),
+        input: {
+          keyboardType: 'url',
+        },
+      })}
+      {field({
+        name: 'smtpPort',
+        label: t('imap.smtpPort'),
+        visible: t('imap.port'),
+        input: {
+          keyboardType: 'number-pad',
+        },
+      })}
+      <View style={formStyles.row}>
+        <Text
+          importantForAccessibility="no"
+          accessibilityElementsHidden
+          style={[formStyles.label, { color: colors.textPrimary }]}>
+          {t('imap.securityLabel')}
+        </Text>
+        <View
+          accessibilityRole="radiogroup"
+          style={formStyles.choices}>
+          {securities.map((choice) => {
+            const selected = choice === security;
+            return (
+              <Pressable
+                key={choice}
+                accessibilityLabel={`${t('imap.smtpSecurity')}: ${t(`imap.security.${choice}`)}`}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                onPress={() => {
+                  onSecurity(choice);
+                }}
+                style={[
+                  formStyles.choice,
+                  {
+                    backgroundColor: selected
+                      ? colors.accentFill
+                      : colors.fillQuiet,
+                  },
+                ]}>
+                <Text
+                  style={[
+                    formStyles.choiceLabel,
+                    {
+                      color: selected
+                        ? colors.accentOnFill
+                        : colors.textPrimary,
+                      fontWeight: selected ? '600' : '400',
+                    },
+                  ]}>
+                  {t(`imap.security.${choice}`)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
-      <Text
-        selectable
-        style={[styles.text, { color: colors.textSecondary }]}>
-        {t('imap.smtpUsername')}
-      </Text>
-      {field('smtpUsername', t('imap.smtpUsername'), {
-        autoComplete: 'username',
-        placeholder: t('imap.username'),
-        textContentType: 'username',
+      {field({
+        name: 'smtpUsername',
+        label: t('imap.smtpUsername'),
+        visible: t('imap.username'),
+        input: {
+          autoComplete: 'username',
+          placeholder: t('imap.sameAsIncoming'),
+          textContentType: 'username',
+        },
       })}
-      <Text
-        selectable
-        style={[styles.text, { color: colors.textSecondary }]}>
-        {t('imap.smtpPassword')}
-      </Text>
-      {field('smtpPassword', t('imap.smtpPassword'), {
-        autoComplete: 'password',
-        placeholder: t('imap.password'),
-        secureTextEntry: true,
-        textContentType: 'password',
+      <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Label>
+      {field({
+        name: 'smtpPassword',
+        label: t('imap.smtpPassword'),
+        visible: t('imap.password'),
+        input: {
+          autoComplete: 'password',
+          placeholder: t('imap.sameAsIncoming'),
+          secureTextEntry: true,
+          textContentType: 'password',
+        },
       })}
-    </>
+      <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Label>
+    </FormGroup>
   );
 }

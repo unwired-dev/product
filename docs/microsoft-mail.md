@@ -15,11 +15,11 @@ Shared and delegated mailboxes are outside the [launch scope](product/power-user
 
 After Google or Apple Product Sign-In and any [device admission](private-product-sync.md),
 nothing asks a provider for mail. The account page shows **Connect your mail** with
-**Authorize Gmail**, **Choose another Google mailbox** and, when Microsoft mail is
-configured for this build, **Connect Microsoft mail**.
+the **Gmail** provider row, **Choose another Google mailbox** and, when Microsoft mail
+is configured for this build, the **Microsoft 365 and Outlook** row.
 A Google sign-in only suggests its own account to Gmail; it is never a Microsoft hint.
 
-**Connect Microsoft mail** opens Microsoft's sign-in page in the system web
+**Microsoft 365 and Outlook** opens Microsoft's sign-in page in the system web
 authentication session and asks for `offline_access User.Read Mail.ReadWrite Mail.Send`,
 so it can read, organize and send mail. The connection is shown only after Graph reads the
 account and its Inbox:
@@ -165,8 +165,8 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
   mise exec -- pnpm native:generate
 ```
 
-The variable is optional: without it the hosts offer neither **Connect Microsoft
-mail** nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
+The variable is optional: without it the hosts offer neither the **Microsoft 365
+and Outlook** row nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
 read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository secret.
 
 ## Deterministic evidence
