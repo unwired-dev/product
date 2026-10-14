@@ -1,5 +1,6 @@
 import type { Command } from '@private-email/mail-core/commands';
 
+import { english } from '@private-email/localization';
 import {
   createCommandRegistry,
   createPaletteHint,
@@ -7,6 +8,7 @@ import {
   mergeCommands,
   offeredCommand,
   orderCommands,
+  responseCommands,
 } from '@private-email/mail-core/commands';
 
 const command = (
@@ -151,6 +153,29 @@ describe('command palette targets', () => {
     unsubscribe();
     registry.register(Symbol('inbox'), [placeholder]);
     expect(seen).toStrictEqual([1, 0]);
+  });
+});
+
+describe('command palette response commands', () => {
+  it('stay listed but disabled while the reader is already starting a response', () => {
+    expect.hasAssertions();
+    const start = () => Promise.resolve();
+    const target = { id: 'message', subject: 'Plans' };
+    const idle = responseCommands(english, target, { start, starting: false });
+    expect(idle.map(({ disabled }) => disabled)).toStrictEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    const starting = responseCommands(english, target, {
+      start,
+      starting: true,
+    });
+    expect(starting.map(({ id, disabled }) => [id, disabled])).toStrictEqual([
+      ['reply', 'Already opening a draft'],
+      ['replyAll', 'Already opening a draft'],
+      ['forward', 'Already opening a draft'],
+    ]);
   });
 });
 

@@ -149,6 +149,7 @@ const styles = StyleSheet.create({
   // Beneath the bar and its panel, over the window's content.
   scrim: { zIndex: 5 },
   panel: {
+    // Hangs beneath the bar, outside its bounds; still clickable, since the bar does not clip.
     position: 'absolute',
     // 6pt beneath the input, which is centered in the bar.
     top: (barHeight + inputHeight) / 2 + 6,

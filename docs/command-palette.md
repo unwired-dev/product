@@ -27,7 +27,9 @@ results never appear in the palette. The vocabulary lives in the
   Inbox returns to the connected Inbox.
 - Reply, Forward, Archive and Move to… stay listed and disabled with a reason
   (Select a conversation, or Not available for this message) when nothing can
-  run them. The palette lists only supported commands; Pin, Snooze, Flag,
+  run them. While the reader is already starting a reply or forward, Reply,
+  Reply All and Forward stay listed and disabled with Already opening a
+  draft, as its buttons are. The palette lists only supported commands; Pin, Snooze, Flag,
   thread-wide and bulk actions arrive with their owning work, such as
   [keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849).
 - The [Thread view](catch-up.md#thread-view) opens the palette from its fixed

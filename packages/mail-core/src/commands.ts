@@ -295,13 +295,18 @@ export const expectedCommands = (
  *
  * @param {Translate} t The current translation.
  * @param {CommandTarget} target The open message.
- * @param {Function} start The reader's response handler.
+ * @param {object} reader The reader's response handler, and whether it is
+ *   already starting a response; the commands are disabled then, as its buttons
+ *   are.
  * @returns {readonly Command[]} The response commands.
  */
 export const responseCommands = (
   t: Translate,
   target: CommandTarget,
-  start: (kind: ResponseKind) => Promise<void>,
+  reader: Readonly<{
+    start: (kind: ResponseKind) => Promise<void>;
+    starting: boolean;
+  }>,
 ): readonly Command[] =>
   (
     [
@@ -315,7 +320,8 @@ export const responseCommands = (
       section: 'selection',
       title: t(title),
       target,
-      run: () => start(kind),
+      disabled: reader.starting ? t('commands.starting') : undefined,
+      run: () => reader.start(kind),
     }),
   );
 

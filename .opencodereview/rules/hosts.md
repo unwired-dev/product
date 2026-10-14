@@ -624,7 +624,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   a sibling of the bar with a lower `zIndex`: React Native orders `zIndex`
   among siblings only, so a scrim mounted elsewhere covers the panel or never
   covers the content. Press it in the Mac journey; otherwise the documented
-  dismissal does not exist or the panel's rows become unreachable.
+  dismissal does not exist or the panel's rows become unreachable. A panel
+  hanging outside a non-clipping parent's bounds is not itself a defect:
+  react-native-macos `RCTViewComponentView.betterHitTest:` (and Paper
+  `RCTView hitTest:withEvent:`) keep searching children outside the bounds
+  unless the parent sets `overflow: 'hidden'`.
 - `message-detail.tsx.ThreadMessage` or another selected reader section marked
   only by a background color and `accessibilityState.selected`. Require a visible
   non-color cue such as a border, icon or text as well as assistive-technology

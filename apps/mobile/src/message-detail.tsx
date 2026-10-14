@@ -422,7 +422,10 @@ function ResponseActions({
     <View>
       <RegisterCommands
         offer={() =>
-          responseCommands(t, commandTarget(mailbox?.id, message), start)
+          responseCommands(t, commandTarget(mailbox?.id, message), {
+            start,
+            starting: pending !== undefined,
+          })
         }
       />
       <View style={styles.responses}>

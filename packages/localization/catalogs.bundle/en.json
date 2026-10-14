@@ -860,6 +860,7 @@
     "selectConversation": "Select a conversation",
     "unavailable": "Not available for this message",
     "gone": "No longer available",
+    "starting": "Already opening a draft",
     "back": "Commands",
     "backLabel": "Back to commands",
     "move": "Move to…",
