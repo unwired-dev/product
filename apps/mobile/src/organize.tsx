@@ -233,6 +233,14 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
+  const [shownPanel, setShownPanel] = useState<'folders' | 'more'>('more');
+  const foldersOpen =
+    folders !== undefined && 'panel' in folders && folders.open;
+  if (foldersOpen && shownPanel !== 'folders') {
+    setShownPanel('folders');
+  } else if (more.open && shownPanel !== 'more') {
+    setShownPanel('more');
+  }
   return (
     <>
       <View style={styles.toolbar}>
@@ -265,17 +273,19 @@ function Toolbar({
           />
         </GlassGroup>
       </View>
-      {folders?.open === true && 'sheet' in folders ? folders.sheet : null}
-      {(folders?.open === true && 'panel' in folders) || more.open ? (
-        <View
-          testID="reader-panels"
-          style={compact ? undefined : styles.floatingPanels}>
-          {folders?.open === true && 'panel' in folders ? (
-            <GlassPanel>{folders.panel}</GlassPanel>
-          ) : null}
-          {more.open ? <GlassPanel>{more.panel}</GlassPanel> : null}
-        </View>
-      ) : null}
+      {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
+      <View
+        pointerEvents="box-none"
+        testID="reader-panels"
+        style={compact ? undefined : styles.floatingPanels}>
+        <GlassPanel open={foldersOpen || more.open}>
+          {shownPanel === 'folders' &&
+          folders !== undefined &&
+          'panel' in folders
+            ? folders.panel
+            : more.panel}
+        </GlassPanel>
+      </View>
     </>
   );
 }
@@ -415,6 +425,7 @@ function ImapMessageActions({
                   ? {
                       sheet: (
                         <MoveSheet
+                          open={panel === 'folders'}
                           destinations={state.folders
                             .filter(({ selectable }) => selectable)
                             .map(({ name, roles }) => ({
@@ -588,6 +599,7 @@ function GmailMessageActions({
             ? {
                 sheet: (
                   <MoveSheet
+                    open={panel === 'folders'}
                     destinations={[
                       // Graph lists only custom move destinations; Inbox is display-only here.
                       {

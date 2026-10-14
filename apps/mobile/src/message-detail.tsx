@@ -23,6 +23,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Modal,
   Platform,
   ScrollView,
@@ -32,7 +33,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
@@ -47,11 +47,10 @@ import {
 import {
   Glass,
   GlassGroup,
-  growEntering,
   Monogram,
   SFSymbol,
   ToolbarButton,
-  useEntering,
+  useMenuMotion,
 } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -498,7 +497,8 @@ function ResponseActions({
   const [origin, setOrigin] = useState(0);
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
-  const entering = useEntering(growEntering);
+  const responseOpen = compact && choosing !== undefined && choosing === source;
+  const motion = useMenuMotion(responseOpen, 'reply');
   const close = () => {
     setChoosing(undefined);
   };
@@ -624,11 +624,11 @@ function ResponseActions({
           />
         </>
       )}
-      {compact && choosing !== undefined && choosing === source ? (
+      {compact && motion.shown ? (
         <Modal
           visible
           transparent
-          animationType="fade"
+          animationType="none"
           onRequestClose={close}
           supportedOrientations={[
             'portrait',
@@ -637,10 +637,16 @@ function ResponseActions({
             'landscape-right',
           ]}>
           <View
-            style={[
-              styles.replyBackdrop,
-              { backgroundColor: colors.scrimTouch },
-            ]}>
+            accessibilityElementsHidden={!responseOpen}
+            pointerEvents={responseOpen ? 'auto' : 'none'}
+            style={styles.replyBackdrop}>
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: colors.scrimTouch },
+                motion.backdropStyle,
+              ]}
+            />
             <Pressable
               accessible={false}
               onPress={close}
@@ -648,10 +654,10 @@ function ResponseActions({
             />
             <Animated.View
               accessibilityViewIsModal
-              entering={entering}
               onAccessibilityEscape={close}
               style={[
                 styles.replySheet,
+                motion.style,
                 {
                   boxShadow: colors.menuGlassShadow,
                   // The sheet grows out of where Reply was pressed.

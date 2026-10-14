@@ -3351,6 +3351,8 @@ describe('replying to and forwarding from the reader', () => {
         'accessibilityState',
         { disabled: false, expanded: false },
       );
+      expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
       expect(screen.queryByLabelText('Subject')).toBeNull();
       await press('Reply');
       await press('Reply All');

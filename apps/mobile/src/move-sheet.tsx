@@ -2,6 +2,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
   Keyboard,
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -11,9 +12,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
 
-import { Glass, SFSymbol, sheetEntering, useEntering } from './design.tsx';
+import { Glass, SFSymbol, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -83,11 +83,13 @@ type Destination = Readonly<{
 // iPhone's Move to… sheet for a mailbox whose messages live in one folder: its folders, the
 // message's current one checked, narrowed by a search. Moving closes it.
 export function MoveSheet({
+  open,
   destinations,
   limited,
   onMove,
   onClose,
 }: {
+  readonly open: boolean;
   readonly destinations: readonly Destination[];
   // Microsoft lists only its first folders; IMAP lists all of them.
   readonly limited: number | undefined;
@@ -116,9 +118,17 @@ export function MoveSheet({
       subscription.remove();
     };
   }, [height]);
-  const entering = useEntering(sheetEntering);
+  const motion = useMenuMotion(open, 'sheet');
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState<string>();
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery('');
+      setFocused(undefined);
+    }
+  }
   const needle = query.trim().toLocaleLowerCase();
   const shown = destinations.filter(({ name }) =>
     name.toLocaleLowerCase().includes(needle),
@@ -128,11 +138,14 @@ export function MoveSheet({
       {text}
     </Text>
   );
+  if (!motion.shown) {
+    return null;
+  }
   return (
     <Modal
       visible
       transparent
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
       supportedOrientations={[
         'portrait',
@@ -141,13 +154,21 @@ export function MoveSheet({
         'landscape-right',
       ]}>
       <View
+        accessibilityElementsHidden={!open}
+        pointerEvents={open ? 'auto' : 'none'}
         style={[
           styles.sheetBackdrop,
           {
-            backgroundColor: colors.scrimTouch,
             height: Math.max(0, height - keyboardHeight),
           },
         ]}>
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: colors.scrimTouch },
+            motion.backdropStyle,
+          ]}
+        />
         <Pressable
           accessible={false}
           onPress={onClose}
@@ -155,10 +176,13 @@ export function MoveSheet({
         />
         <Animated.View
           accessibilityViewIsModal
-          entering={entering}
           onAccessibilityEscape={onClose}
           testID="move-sheet"
-          style={[styles.sheet, { boxShadow: colors.menuGlassShadow }]}>
+          style={[
+            styles.sheet,
+            motion.style,
+            { boxShadow: colors.menuGlassShadow },
+          ]}>
           <Glass
             cornerRadius={radius.sheet}
             style={StyleSheet.absoluteFill}

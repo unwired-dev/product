@@ -8,24 +8,19 @@ import type {
 } from 'react-native';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Pressable,
   Platform,
   requireNativeComponent,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import Animated, {
-  Easing,
-  FadeIn,
-  FadeOut,
-  Keyframe,
-  ReduceMotion,
-  SlideInDown,
-  useReducedMotion,
-} from 'react-native-reanimated';
 
 import { textStyles, usePalette } from './theme.ts';
 
@@ -55,25 +50,87 @@ export function Glass({
   );
 }
 
-// Menus and sheets ease out of where they open and fade away; Reduce Motion keeps only the fades.
-const fadeIn = FadeIn.duration(200).reduceMotion(ReduceMotion.Never);
-const menuExiting = FadeOut.duration(150).reduceMotion(ReduceMotion.Never);
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
-const menuEntering = new Keyframe({
-  0: { opacity: 0, transform: [{ scale: 0.95 }] },
-  100: { opacity: 1, transform: [{ scale: 1 }], easing: easeOut },
-}).duration(200);
-export const sheetEntering = SlideInDown.duration(300).easing(easeSheet);
-// A sheet that grows out of the control that opened it; the sheet's transform origin is the control.
-export const growEntering = new Keyframe({
-  0: { opacity: 0, transform: [{ scale: 0.3 }] },
-  30: { opacity: 1 },
-  100: { opacity: 1, transform: [{ scale: 1 }], easing: easeSheet },
-}).duration(300);
 
-export function useEntering<T>(entering: T) {
-  return useReducedMotion() ? fadeIn : entering;
+// Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
+export function useMenuMotion(open: boolean, kind: 'menu' | 'reply' | 'sheet') {
+  const [shown, setShown] = useState(open);
+  const progress = useMemo(() => new Animated.Value(0), []);
+  const [reduced, setReduced] = useState(true);
+  const { height } = useWindowDimensions();
+  const enteringDuration = kind === 'menu' || reduced ? 200 : 300;
+  if (open && !shown) {
+    setShown(true);
+  }
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? enteringDuration : 150,
+      easing: open && kind !== 'menu' ? easeSheet : easeOut,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !open) {
+        setShown(false);
+      }
+    });
+    return () => {
+      animation.stop();
+    };
+  }, [open, kind, enteringDuration, progress]);
+  const backdropStyle = { opacity: progress };
+  const initialScale = kind === 'reply' ? 0.3 : 0.95;
+  const transform =
+    kind === 'sheet'
+      ? [
+          {
+            translateY: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [height, 0],
+            }),
+          },
+        ]
+      : [
+          {
+            scale: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [initialScale, 1],
+            }),
+          },
+        ];
+  const style = {
+    opacity:
+      kind === 'reply'
+        ? progress.interpolate({
+            inputRange: [0, 0.3, 1],
+            outputRange: [0, 1, 1],
+          })
+        : progress,
+    transform: reduced ? [] : transform,
+  };
+  return { shown: open || shown, style, backdropStyle };
 }
 
 // The iPhone's menus open above its bottom toolbar; elsewhere they hang from the top one.
@@ -193,15 +250,25 @@ export function GlassGroup({
 }
 
 // Menus float independently of their toolbar, with the deeper menu shadow.
-export function GlassPanel({ children }: { readonly children: ReactNode }) {
+export function GlassPanel({
+  open,
+  children,
+}: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
   const colors = usePalette();
-  const entering = useEntering(menuEntering);
+  const motion = useMenuMotion(open, 'menu');
+  if (!motion.shown) {
+    return null;
+  }
   return (
     <Animated.View
-      entering={entering}
-      exiting={menuExiting}
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
       style={[
         styles.panel,
+        motion.style,
         {
           boxShadow: colors.menuGlassShadow,
           backgroundColor: colors.surfaceContent,

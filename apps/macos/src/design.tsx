@@ -155,6 +155,8 @@ export function GlassGroup({
   );
 }
 
+const AnimatedPanel = Animated.createAnimatedComponent(ModalBackground);
+
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
 // Menus float independently of their toolbar, with the deeper menu shadow. They ease out of the
@@ -169,20 +171,28 @@ export function GlassPanel({
   const colors = usePalette();
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useState(true);
   if (open && !shown) {
     setShown(true);
   }
   useEffect(() => {
+    let current = true;
     const read = async () => {
-      setReduced(await AccessibilityInfo.isReduceMotionEnabled());
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
     };
     void read();
     const subscription = AccessibilityInfo.addEventListener(
       'reduceMotionChanged',
-      setReduced,
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
     );
     return () => {
+      current = false;
       subscription.remove();
     };
   }, []);
@@ -190,7 +200,7 @@ export function GlassPanel({
     const animation = Animated.timing(progress, {
       toValue: open ? 1 : 0,
       duration: open ? 200 : 150,
-      easing: open ? easeOut : Easing.linear,
+      easing: easeOut,
       useNativeDriver: true,
     });
     animation.start(({ finished }) => {
@@ -206,7 +216,7 @@ export function GlassPanel({
     return null;
   }
   return (
-    <Animated.View
+    <AnimatedPanel
       // A closing menu leaves VoiceOver and the pointer at once; only its picture fades.
       accessibilityElementsHidden={!open}
       pointerEvents={open ? 'auto' : 'none'}
@@ -234,7 +244,7 @@ export function GlassPanel({
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </Animated.View>
+    </AnimatedPanel>
   );
 }
 

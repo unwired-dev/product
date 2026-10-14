@@ -10,9 +10,8 @@ const expoPreset = require('jest-expo/jest-preset');
 module.exports = {
   preset: 'jest-expo/ios',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
-  // Worklets loads its JavaScript implementation, not the native module, under Jest.
-  resolver: require.resolve('react-native-worklets/jest/resolver'),
   clearMocks: true,
+  setupFilesAfterEnv: ['<rootDir>/test/animations.cjs'],
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
     '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
