@@ -988,7 +988,7 @@
       },
       "other": {
         "name": "Other IMAP Account",
-        "detail": "Any provider with IMAP and SMTP"
+        "detail": "Compatible IMAP and SMTP providers"
       }
     }
   },

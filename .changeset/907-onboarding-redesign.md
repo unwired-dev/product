@@ -14,3 +14,4 @@ Redesign onboarding, account setup and device trust on iPhone, iPad and Mac (#90
 - **Buttons:** setup and trust-card actions use the design's quiet fill, with the accent fill for each step's primary action and destructive text for **Decline**. Other account actions retain grouped Settings controls.
 - **Enrollment codes:** the complete code wraps between monospaced four-character groups, with its original value retained for accessibility and approval.
 - **Mail core:** the theme adds the `appleButton` and `appleOnButton` colors for Sign in with Apple in Light and Dark.
+- **Manual IMAP setup:** the provider row describes compatible IMAP and SMTP providers without promising universal server support.
