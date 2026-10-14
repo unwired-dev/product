@@ -3494,6 +3494,11 @@ describe('replying to and forwarding from the reader', () => {
         .getAllByRole('button', { name: /^(?:Report spam|Move to Trash)$/u })
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Report spam', 'Move to Trash']);
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Star|Mark as read)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Star', 'Mark as read']);
     // Choosing an action runs it and closes the sheet.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
@@ -3501,6 +3506,11 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     await press('Reply');
     expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Remove star|Mark as read)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Remove star', 'Mark as read']);
   });
 
   it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {

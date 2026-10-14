@@ -270,8 +270,10 @@ function Toolbar({
               run: archive,
             },
           ]),
-      ...more.actions
-        .filter(({ name }) => name !== 'trash' && name !== 'spam')
+      ...['star', 'unstar', 'read', 'unread']
+        .flatMap((name) =>
+          more.actions.filter((action) => action.name === name),
+        )
         .map(({ name, label, run }) => ({
           name,
           label,

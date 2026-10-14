@@ -214,7 +214,7 @@ over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
 grows a floating glass sheet out of the button: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
-tiles and the Thread's other actions in grouped rows — read state and star, then
+tiles and the Thread's other actions in grouped rows — star and read state, then
 Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
 beside them.
 Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
