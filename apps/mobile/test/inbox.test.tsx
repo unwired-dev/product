@@ -244,7 +244,7 @@ describe('preview Inbox', () => {
   });
 
   it.each([false, true])(
-    'shows search day dividers only on iPad (isPad=%s)',
+    'shows search day dividers only on iPad and one empty notice (isPad=%s)',
     async (isPad) => {
       expect.hasAssertions();
       const platform = jest.replaceProperty(
@@ -277,6 +277,14 @@ describe('preview Inbox', () => {
             name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
           }),
         ).toBeVisible();
+        await fireEvent.changeText(field, 'no matching mail');
+        await waitFor(() => {
+          expect(
+            screen.getAllByText(
+              'No mail saved on this device matches “no matching mail”.',
+            ),
+          ).toHaveLength(1);
+        });
       } finally {
         clock.mockRestore();
         platform.restore();
@@ -751,6 +759,46 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
 };
 
 describe('connected Gmail Inbox', () => {
+  it.each([false, true])(
+    'shows one Top Results header for provider-only matches (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+        gmail.deliver({ subject: 'Saved Inbox message' });
+        const archived = gmail.deliver({ subject: 'Studio archive' });
+        gmail.archive(archived);
+        await renderConnected(gmail.native).rendered;
+        await screen.findByRole('button', { name: /Saved Inbox message/u });
+        const field = screen.getByLabelText('Search senders and subjects');
+        await fireEvent(field, 'focus');
+        await fireEvent.changeText(field, 'Studio archive');
+        await screen.findAllByText(
+          'No mail saved on this device matches “Studio archive”.',
+        );
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Search mail servers for “Studio archive”',
+          }),
+        );
+        await expect(
+          screen.findByRole('header', { name: /Top Results\. 1 result/u }),
+        ).resolves.toBeVisible();
+        expect(screen.getAllByText('Top Results')).toHaveLength(1);
+        expect(
+          screen.getByRole('button', { name: /Studio archive/u }),
+        ).toBeVisible();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
     expect.hasAssertions();

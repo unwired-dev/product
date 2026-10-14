@@ -627,7 +627,9 @@ export function Inbox({
       searching
         ? [
             { key: 'saved', data: ipad ? [] : (results ?? []) },
-            ...(ipad ? messageDateSections(results ?? [], now) : []),
+            ...(ipad && (results?.length ?? 0) > 0
+              ? messageDateSections(results ?? [], now)
+              : []),
           ]
         : messageDateSections(inboxRows, now),
     [searching, results, inboxRows, now],
