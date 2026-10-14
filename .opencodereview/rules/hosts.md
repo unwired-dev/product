@@ -640,6 +640,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
+- Mobile `app/thread/[id].tsx` or another deep-linkable reader calling
+  `router.back()` unconditionally from its Back control. Check cold entry without
+  history as well as pushed entry: return through history when available and
+  otherwise replace with the Inbox retaining the decoded `profileId`. Exercise
+  the actual route and visible destination with real reading stores; otherwise
+  a cold-opened reader strands the person or falls into another Profile.
 - A mobile Profile selector whose parameter name disagrees with ADR 0050’s
   `profileId` route contract. Trace targeted entry, in-app message selection,
   composing and reader/composer close through the layout’s decoded selector;
