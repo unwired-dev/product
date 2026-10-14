@@ -8,8 +8,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   text pattern after its host changes displayed grouping, whitespace, copy or
   accessibility exposure. Compare every affected locator and caller with the
   rendered producer, including `account-settings.tsx.PrivateSync`, and the
-  native element type and label-versus-value contract. Preserve matching for
-  other formats sharing the helper, such as hyphenated Recovery Keys beside
+  native element type and label-versus-value contract. Scope a sheet choice to
+  its sheet when labels repeat; selecting the last global `Reply` match can
+  activate the reader toolbar behind the sheet. Preserve matching for other
+  formats sharing the helper, such as hyphenated Recovery Keys beside
   space-separated Enrollment Codes; otherwise the packaged journey cannot find
   its target despite passing component tests. Record unavailable native
   execution separately from static or predicate-only evidence.

@@ -727,7 +727,7 @@ final class InboxTests: XCTestCase {
       sheet.name = "Reply sheet"
       sheet.lifetime = .keepAlways
       add(sheet)
-      app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
+      app.scrollViews.containing(.button, identifier: "Reply All").firstMatch.buttons["Reply"].tap()
     }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.
