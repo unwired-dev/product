@@ -738,6 +738,10 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(
+      screen.getByText('This Microsoft mailbox has no folders of its own yet.'),
+    ).toBeVisible();
   });
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
@@ -777,7 +781,27 @@ describe('connected Gmail Inbox', () => {
 
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(
+      within(screen.getByTestId('move-sheet')).getByText(
+        'Microsoft · alex@example.invalid',
+      ),
+    ).toBeVisible();
+    expect(
+      within(screen.getByTestId('move-sheet')).getByRole('button', {
+        name: 'Inbox',
+        selected: true,
+      }),
+    ).toBeDisabled();
     expect(screen.queryByRole('checkbox', { name: 'Travel' })).toBeNull();
+    await fireEvent.changeText(
+      within(screen.getByTestId('move-sheet')).getByLabelText('Search'),
+      'no such folder',
+    );
+    expect(screen.getByText('No folders match your search.')).toBeVisible();
+    await fireEvent(screen.getByTestId('move-sheet'), 'accessibilityEscape');
+    expect(screen.queryByTestId('move-sheet')).toBeNull();
+    expect(graph.folderOf(plans)).toBe('inbox');
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     // A nested folder shows its path.
     expect(
       screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),

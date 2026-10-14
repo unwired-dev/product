@@ -38,6 +38,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
 import { AppState, Pressable, Text } from 'react-native';
@@ -687,9 +688,19 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders.
+    // Move to lists the mailbox's other folders. On iPhone it is a sheet: the current folder is
+    // checked and cannot be chosen again, and a search narrows the rest.
     await press(/Team lunch/u);
     await press('Folders');
+    const sheet = within(screen.getByTestId('move-sheet'));
+    expect(sheet.getByRole('header', { name: 'Move to…' })).toBeVisible();
+    expect(
+      sheet.getByRole('button', { name: 'Inbox', selected: true }),
+    ).toBeDisabled();
+    await act(async () => {
+      await fireEvent.changeText(sheet.getByLabelText('Search'), 'proj');
+    });
+    expect(sheet.queryByRole('button', { name: 'Inbox' })).toBeNull();
     imap.server.loseReply = true;
     await press('Move to Projects');
     await waitFor(() => {
