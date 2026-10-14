@@ -24,7 +24,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   Platform,
@@ -51,6 +51,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MoveSheet } from './move-sheet.tsx';
+import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
@@ -104,6 +105,17 @@ const roleIcons: Readonly<Record<string, string>> = {
   junk: 'xmark.bin',
   trash: 'trash',
 };
+// The SF Symbols the iPhone Reply sheet shows beside each organizing action.
+const actionIcons: Readonly<Record<string, string>> = {
+  read: 'envelope.open',
+  unread: 'envelope.badge',
+  star: 'star',
+  unstar: 'star.slash',
+  spam: 'xmark.bin',
+  trash: 'trash',
+};
+type Named = Readonly<{ name: string; label: string; run: () => void }>;
+
 const folderIcon = (name: string, roles: readonly string[]) => {
   if (name === inboxFolder) {
     return 'tray';
@@ -239,11 +251,67 @@ function Toolbar({
     open: boolean;
     toggle: () => void;
     panel: ReactNode;
+    // The actions More lists, which an iPhone Reply sheet hosts instead.
+    actions: readonly Named[];
   }>;
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
   const [shownPanel, setShownPanel] = useState<'folders' | 'more'>('more');
+  // Reply sheets hosting the actions; while one does, iPhone drops More, as the design shows.
+  const [hosts, setHosts] = useState(0);
+  const claim = useCallback(() => {
+    setHosts((count) => count + 1);
+    return () => {
+      setHosts((count) => count - 1);
+    };
+  }, []);
+  const hosted = compact && hosts > 0;
+  const thread = {
+    actions: [
+      ...(archive === undefined
+        ? []
+        : [
+            {
+              name: 'archive',
+              label: t('gmailActions.label.archive'),
+              icon: 'archivebox',
+              group: 'tile' as const,
+              run: archive,
+            },
+          ]),
+      ...more.actions
+        .filter(({ name }) => name !== 'trash' && name !== 'spam')
+        .map(({ name, label, run }) => ({
+          name,
+          label,
+          icon: actionIcons[name] ?? 'ellipsis',
+          group: 'state' as const,
+          run,
+        })),
+      ...(folders === undefined
+        ? []
+        : [
+            {
+              name: 'move',
+              label: folders.label,
+              icon: 'folder',
+              group: 'place' as const,
+              run: folders.toggle,
+            },
+          ]),
+      ...more.actions
+        .filter(({ name }) => name === 'trash' || name === 'spam')
+        .map(({ name, label, run }) => ({
+          name,
+          label,
+          icon: actionIcons[name] ?? 'ellipsis',
+          group: 'place' as const,
+          run,
+        })),
+    ],
+    claim,
+  };
   const foldersOpen =
     folders !== undefined && 'panel' in folders && folders.open;
   if (foldersOpen && shownPanel !== 'folders') {
@@ -272,15 +340,17 @@ function Toolbar({
               }}
             />
           )}
-          {children}
-          <ToolbarButton
-            icon="ellipsis"
-            label={t('message.more')}
-            expanded={more.open}
-            onPress={() => {
-              more.toggle();
-            }}
-          />
+          <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
+          {hosted ? null : (
+            <ToolbarButton
+              icon="ellipsis"
+              label={t('message.more')}
+              expanded={more.open}
+              onPress={() => {
+                more.toggle();
+              }}
+            />
+          )}
         </GlassGroup>
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
@@ -489,6 +559,15 @@ function ImapMessageActions({
           toggle: () => {
             toggle('more');
           },
+          actions: actions
+            .filter(({ name }) => name !== 'archive')
+            .map(({ name, label, action }) => ({
+              name,
+              label,
+              run: () => {
+                act(action);
+              },
+            })),
           panel: (
             <ScrollView style={styles.panels}>
               <View style={styles.panel}>
@@ -715,6 +794,15 @@ function GmailMessageActions({
           toggle: () => {
             toggle('more');
           },
+          actions: actions
+            .filter(({ name }) => name !== 'archive')
+            .map(({ name, label, action }) => ({
+              name,
+              label,
+              run: () => {
+                act(action);
+              },
+            })),
           panel: (
             <ScrollView style={styles.panels}>
               <View style={styles.panel}>

@@ -3454,6 +3454,50 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('hosts the Thread actions in the iPhone Reply sheet instead of More', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Sheet plans',
+      content: { text: 'Meet on Friday?' },
+      headers: { 'Message-ID': '<sheet@example.invalid>' },
+    });
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Reply' });
+    // As the Thread Actions design shows, the toolbar keeps Archive, Labels and Reply only.
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    await press('Reply');
+    expect(
+      [
+        'Reply',
+        'Forward',
+        'Archive',
+        'Mark as read',
+        'Star',
+        'Labels',
+        'Move to Trash',
+        'Report spam',
+      ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
+    ).toHaveLength(8);
+    // Choosing an action runs it and closes the sheet.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
+    });
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    await press('Reply');
+    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+  });
+
   it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');

@@ -213,8 +213,11 @@ then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
 grows a floating glass sheet out of the button: the sender's initials, name and
-message preview beside a Close button, above Reply, Reply All and Forward tiles.
-Closing it or choosing a response shrinks it back toward the button. For IMAP and
+message preview beside a Close button, then Reply, Reply All, Forward and Archive
+tiles and the Thread's other actions in grouped rows — read state and star, then
+Move, Report spam and Move to Trash, offering only what the provider supports. While
+the sheet hosts them, iPhone's toolbar drops **More**; mail without Reply keeps it.
+Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
 Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
 like Reply: a caption, the mailbox's address with a Close button, the message's sender
 and subject, one row per folder with its role's symbol (the message's current folder

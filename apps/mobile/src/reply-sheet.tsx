@@ -1,7 +1,7 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { createContext, Fragment, use, useLayoutEffect, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -18,6 +18,24 @@ import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const replySheetWidth = 500;
+
+// One of the Thread's organizing actions, as the iPhone Reply sheet lists it: Archive joins the
+// response tiles; the rest are rows grouped by what they change.
+export type ThreadAction = Readonly<{
+  name: string;
+  label: string;
+  icon: string;
+  group: 'tile' | 'state' | 'place';
+  // Where the sheet was opened, so a picker the action opens can grow from the same place.
+  run: (origin: number) => void;
+}>;
+
+// The reader toolbar offers its organizing actions to an iPhone Reply sheet. A sheet that hosts
+// them claims them, and the toolbar then drops its own More menu.
+export const ThreadActionsContext = createContext<
+  | Readonly<{ actions: readonly ThreadAction[]; claim: () => () => void }>
+  | undefined
+>(undefined);
 const responseIcons = {
   reply: 'arrowshape.turn.up.left',
   replyAll: 'arrowshape.turn.up.left.2',
@@ -61,6 +79,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   replyLabel: { ...textStyles.subheadline, textAlign: 'center' },
+  actionGroup: {
+    overflow: 'hidden',
+    borderRadius: radius.insetGroup,
+    borderCurve: 'continuous',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    minHeight: 48,
+    // The focus border counts toward the row's 16pt horizontal and 12pt vertical insets.
+    paddingHorizontal: spacing.l - 2,
+    paddingVertical: spacing.m - 2,
+    borderWidth: 2,
+    borderRadius: radius.insetGroup,
+  },
+  actionLabel: { ...textStyles.body, flex: 1 },
+  actionSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: spacing.l,
+  },
   secondary: { ...textStyles.footnote },
 });
 
@@ -84,6 +123,24 @@ export function ReplySheet({
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
   const motion = useMenuMotion(open, 'grow');
+  const thread = use(ThreadActionsContext);
+  const claim = thread?.claim;
+  useLayoutEffect(() => claim?.(), [claim]);
+  const actions = thread?.actions ?? [];
+  const tiles = [
+    ...(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
+      name: kind,
+      label: t(`message.${kind}`),
+      icon: responseIcons[kind],
+      run: () => {
+        onResponse(kind);
+      },
+    })),
+    ...actions.filter(({ group }) => group === 'tile'),
+  ];
+  const groups = (['state', 'place'] as const)
+    .map((group) => actions.filter((action) => action.group === group))
+    .filter((group) => group.length > 0);
   if (!motion.shown) {
     return null;
   }
@@ -176,20 +233,20 @@ export function ReplySheet({
               </Pressable>
             </View>
             <View style={styles.replyTiles}>
-              {(['reply', 'replyAll', 'forward'] as const).map((kind) => (
+              {tiles.map(({ name, label, icon, run }) => (
                 <Pressable
-                  key={kind}
+                  key={name}
                   accessibilityRole="button"
-                  accessibilityLabel={t(`message.${kind}`)}
+                  accessibilityLabel={label}
                   onFocus={() => {
-                    setFocused(kind);
+                    setFocused(name);
                   }}
                   onBlur={() => {
                     setFocused(undefined);
                   }}
                   onPress={() => {
                     onClose();
-                    onResponse(kind);
+                    run(origin);
                   }}
                   style={({ pressed }) => [
                     styles.replyTile,
@@ -198,21 +255,78 @@ export function ReplySheet({
                         ? colors.accentSelectionSubtle
                         : colors.fillQuiet,
                       borderColor:
-                        focused === kind ? colors.accentInk : 'transparent',
+                        focused === name ? colors.accentInk : 'transparent',
                     },
                   ]}>
                   <SFSymbol
-                    name={responseIcons[kind]}
+                    name={icon}
                     size={22}
                     color={colors.textPrimary}
                   />
                   <Text
                     style={[styles.replyLabel, { color: colors.textPrimary }]}>
-                    {t(`message.${kind}`)}
+                    {label}
                   </Text>
                 </Pressable>
               ))}
             </View>
+            {groups.map((group) => (
+              <View
+                key={group[0]?.group}
+                style={[
+                  styles.actionGroup,
+                  { backgroundColor: colors.fillQuiet },
+                ]}>
+                {group.map(({ name, label, icon, run }, index) => (
+                  <Fragment key={name}>
+                    {index === 0 ? null : (
+                      <View
+                        style={[
+                          styles.actionSeparator,
+                          { backgroundColor: colors.separator },
+                        ]}
+                      />
+                    )}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={label}
+                      onFocus={() => {
+                        setFocused(name);
+                      }}
+                      onBlur={() => {
+                        setFocused(undefined);
+                      }}
+                      onPress={() => {
+                        onClose();
+                        run(origin);
+                      }}
+                      style={({ pressed }) => [
+                        styles.actionRow,
+                        {
+                          backgroundColor: pressed
+                            ? colors.accentSelectionSubtle
+                            : 'transparent',
+                          borderColor:
+                            focused === name ? colors.accentInk : 'transparent',
+                        },
+                      ]}>
+                      <Text
+                        style={[
+                          styles.actionLabel,
+                          { color: colors.textPrimary },
+                        ]}>
+                        {label}
+                      </Text>
+                      <SFSymbol
+                        name={icon}
+                        size={20}
+                        color={colors.textPrimary}
+                      />
+                    </Pressable>
+                  </Fragment>
+                ))}
+              </View>
+            ))}
           </ScrollView>
         </Animated.View>
       </View>
