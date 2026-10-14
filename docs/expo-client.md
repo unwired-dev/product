@@ -43,7 +43,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   its diagnostics run once through Oxlint. The shared
   [Effect lint policy](agents/effect.md#enforcement) applies to every configuration.
 - Vitest tests the shared core; Jest Expo and React Native Testing Library test
-  message selection and unavailable routes. Fallow scans the root and mobile entry points separately.
+  message selection and unavailable routes. Their animation resolver uses the
+  Reanimated and Worklets JavaScript implementations; native motion still needs
+  device qualification. Fallow scans the root and mobile entry points separately.
 
 One root `pnpm-workspace.yaml` and lockfile manage all packages under
 [ADR 0064](adr/0064-isolate-mobile-and-macos-native-dependencies.md). Shared tooling

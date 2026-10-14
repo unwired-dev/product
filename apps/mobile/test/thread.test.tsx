@@ -9,9 +9,10 @@ import {
   screen,
   within,
 } from '@testing-library/react-native';
-import { Dimensions, ScrollView } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet } from 'react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { createWindowBar, WindowBarContext } from '../src/inbox-bar.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
 
@@ -82,6 +83,14 @@ const messageBy = (sender: string) => {
   return section;
 };
 
+const readerContent = () => {
+  let scroll = messageBy('Alex Rivera').parent;
+  while (scroll !== null && scroll.props.contentContainerStyle === undefined) {
+    scroll = scroll.parent;
+  }
+  return StyleSheet.flatten(scroll?.props.contentContainerStyle);
+};
+
 // The rendered Thread view over the real Gmail store; only native scrolling is observed.
 describe('thread view', () => {
   /* oxlint-disable vitest/max-expects -- One Thread journey checks membership, order, highlight, scrolling and quoted history. */
@@ -94,10 +103,12 @@ describe('thread view', () => {
     const store = createGmailInbox(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
-        <ThreadView
-          id={middle}
-          mailbox={alex}
-        />
+        <WindowBarContext value={createWindowBar()}>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </WindowBarContext>
       </InboxProvider>,
     );
     await act(store.load);
@@ -117,6 +128,8 @@ describe('thread view', () => {
 
     // The opened message is highlighted and scrolled to on its first layout only.
     const opened = messageBy('Alex Rivera');
+    // The final Thread body must scroll clear of the window's floating bar.
+    expect(readerContent()).toMatchObject({ paddingBottom: 84 });
     expect(screen.getByText('Alex Rivera')).toHaveProp('accessibilityState', {
       selected: true,
     });

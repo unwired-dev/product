@@ -30,7 +30,14 @@ import {
 } from '@testing-library/react-native';
 import { setStringAsync } from 'expo-clipboard';
 import { useMemo, useState } from 'react';
-import { AccessibilityInfo, AppState, Linking, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Dimensions,
+  Linking,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
@@ -88,6 +95,14 @@ function InboxJourney() {
     </InboxProvider>
   );
 }
+
+const modalFor = (panel: ReturnType<typeof screen.getByTestId>) => {
+  let modal = panel.parent;
+  while (modal !== null && modal.props.animationType === undefined) {
+    modal = modal.parent;
+  }
+  return modal;
+};
 
 describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
@@ -409,13 +424,18 @@ describe('preview Inbox', () => {
 
   it('spans a regular-width window with its bar and opens Filters as a popover above the Filter control', async () => {
     expect.hasAssertions();
+    const window = Dimensions.get('window');
     // The Filter control's place in the window, which the test host cannot lay out.
     const measure = jest
       .spyOn(View.prototype, 'measureInWindow')
       .mockImplementation((measured) => {
         measured(240, 770, 124, 48);
       });
-    function WindowJourney() {
+    function WindowJourney({
+      keyboardLift = 0,
+    }: {
+      readonly keyboardLift?: number;
+    }) {
       const windowBar = useMemo(() => createWindowBar(), []);
       return (
         <WindowBarContext value={windowBar}>
@@ -423,13 +443,14 @@ describe('preview Inbox', () => {
           <WindowBarHost
             windowBar={windowBar}
             readerWidth={500}
-            bottom={20}
+            bottom={20 + keyboardLift}
+            keyboardLift={keyboardLift}
           />
         </WindowBarContext>
       );
     }
     try {
-      await render(<WindowJourney />);
+      const app = await render(<WindowJourney />);
       await screen.findByRole('button', {
         name: 'Unread. Maya Chen. A little more room to think',
       });
@@ -451,14 +472,45 @@ describe('preview Inbox', () => {
         left: 240,
         bottom: 1334 - 770 + 8,
       });
+      // The popover fades on entry only; the native modal must not animate dismissal.
+      expect(modalFor(screen.getByTestId('filters-popover'))).toHaveProp(
+        'animationType',
+        'none',
+      );
       const popover = within(screen.getByTestId('filters-popover'));
       expect(popover.getByRole('header', { name: 'Filters' })).toBeVisible();
+      await fireEvent.press(popover.getByRole('checkbox', { name: 'Unread' }));
+      measure.mockImplementation((measured) => {
+        measured(180, 700, 124, 48);
+      });
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
+      });
+      expect(screen.getByTestId('filters-popover')).toHaveStyle({
+        left: 180,
+        bottom: 768 - 700 + 8,
+      });
+      expect(popover.getByRole('checkbox', { name: 'Unread' })).toHaveProp(
+        'accessibilityState',
+        { checked: false },
+      );
       await fireEvent(
         screen.getByTestId('filters-popover'),
         'accessibilityEscape',
       );
       expect(screen.queryByTestId('filters-popover')).toBeNull();
+      await fireEvent(
+        bar.getByLabelText('Search senders and subjects'),
+        'focus',
+      );
+      await app.rerender(<WindowJourney keyboardLift={280} />);
+      expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
+      const edge = screen
+        .getAllByTestId('scroll-edge')
+        .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);
+      expect(edge).toHaveStyle({ bottom: 280 });
     } finally {
+      Dimensions.set({ window });
       measure.mockRestore();
     }
   });

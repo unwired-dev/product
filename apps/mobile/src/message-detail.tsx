@@ -47,6 +47,7 @@ import {
 } from './command-palette.tsx';
 import { ContextMenu, Glass, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -1069,6 +1070,7 @@ function ThreadMessages({
   const colors = usePalette();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const windowBar = use(WindowBarContext);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1117,7 +1119,10 @@ function ThreadMessages({
             <RegularHeader subject={opened.subject} />
           )}
           <ReaderScrollView
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[
+              styles.content,
+              windowBar === undefined ? null : styles.clearsBar,
+            ]}
             maintainVisibleContentPosition={keepVisibleMessage}>
             <MessageCount count={messages.length} />
             {messages.map((message) => (

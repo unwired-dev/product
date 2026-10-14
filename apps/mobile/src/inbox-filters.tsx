@@ -4,7 +4,14 @@ import type { ReactNode } from 'react';
 
 import { filterMessages } from '@private-email/mail-core/mailboxes';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { Fragment, use, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  use,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Modal,
   Pressable,
@@ -15,6 +22,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass, SFSymbol } from './design.tsx';
@@ -80,6 +88,7 @@ const filterLabel = (
 type Anchor = Readonly<{ x: number; y: number }>;
 
 const popoverWidth = 420;
+const popoverEntry = FadeIn.reduceMotion(ReduceMotion.System);
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end' },
@@ -317,7 +326,7 @@ function Filters({
     <Modal
       visible
       transparent
-      animationType="fade"
+      animationType={anchor === undefined ? 'fade' : 'none'}
       onRequestClose={onClose}
       supportedOrientations={[
         'portrait',
@@ -335,7 +344,8 @@ function Filters({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <Animated.View
+          {...(anchor === undefined ? {} : { entering: popoverEntry })}
           accessibilityViewIsModal
           onAccessibilityEscape={onClose}
           testID={anchor === undefined ? 'filters-sheet' : 'filters-popover'}
@@ -424,7 +434,7 @@ function Filters({
               </Section>
             </View>
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -484,9 +494,27 @@ export function InboxFilterButton({
   const { t } = useLocalization();
   const popover = use(WindowBarContext) !== undefined;
   const control = useRef<View>(null);
+  const { width, height } = useWindowDimensions();
   const [open, setOpen] = useState<
     Readonly<{ anchor: Anchor | undefined }> | undefined
   >();
+  useLayoutEffect(() => {
+    if (!popover) {
+      return;
+    }
+    let current = true;
+    control.current?.measureInWindow((x, y) => {
+      if (current) {
+        setOpen((opened) =>
+          opened === undefined ? opened : { anchor: { x, y } },
+        );
+      }
+    });
+    return () => {
+      current = false;
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A window resize invalidates the native anchor measurement.
+  }, [popover, width, height]);
   return (
     <>
       <FilterControl

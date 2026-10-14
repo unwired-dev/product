@@ -363,6 +363,7 @@ function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {
   return (
     <View
       pointerEvents="none"
+      testID="scroll-edge"
       style={[
         styles.scrollEdge,
         style,
@@ -379,11 +380,14 @@ export function WindowBarHost({
   windowBar,
   readerWidth,
   bottom,
+  keyboardLift,
 }: {
   readonly windowBar: ReturnType<typeof createWindowBar>;
   readonly readerWidth: number;
   // The bar's distance from the window's bottom edge.
   readonly bottom: number;
+  // The edge moves with the bar above a docked keyboard.
+  readonly keyboardLift: number;
 }) {
   const bar = useSyncExternalStore(windowBar.subscribe, windowBar.bar);
   if (bar === null) {
@@ -391,7 +395,12 @@ export function WindowBarHost({
   }
   return (
     <>
-      <ScrollEdge style={[styles.readerEdge, { width: readerWidth }]} />
+      <ScrollEdge
+        style={[
+          styles.readerEdge,
+          { width: readerWidth, bottom: keyboardLift },
+        ]}
+      />
       <View
         pointerEvents="box-none"
         testID="window-bar"

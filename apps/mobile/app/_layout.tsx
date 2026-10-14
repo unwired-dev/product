@@ -241,6 +241,7 @@ function MailShell() {
             <WindowBarHost
               windowBar={windowBar}
               readerWidth={readerWidth}
+              keyboardLift={height - available}
               // The bar sits on the home indicator's inset and rises above a docked keyboard.
               bottom={Math.max(insets.bottom, spacing.l) + height - available}
             />
