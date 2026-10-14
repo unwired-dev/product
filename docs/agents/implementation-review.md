@@ -92,10 +92,12 @@ not itself restrict filesystem or Git-history access.
       changes there, for example as a patch, and leave unrelated ones behind.
    4. Record the starting commit: the branch head, or for a reused PR or branch
       with commits no completed review covered, its merge-base with `main`.
-2. Implement the requested behavior and run the relevant checks under the
+2. When the task needs [design approval](#design-approval), complete it before
+   any code edit.
+3. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
-3. Spawn the OCR reviewer with these explicit arguments:
+4. Spawn the OCR reviewer with these explicit arguments:
 
    ```json
    {
@@ -125,9 +127,9 @@ not itself restrict filesystem or Git-history access.
      Local snapshot commits are authorized before review; pushing and PR
      delivery still wait for every required review.
 
-4. Pause all implementer writes to the shared checkout while the OCR reviewer
+5. Pause all implementer writes to the shared checkout while the OCR reviewer
    owns it. Wait for its final report.
-5. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
+6. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
    `"task_name": "thermo_nuclear_review"`. Write it a separate self-contained
    message with the same context and comparison, plus the OCR reviewer's final
    report. Tell it to read this workflow and follow the
@@ -136,7 +138,7 @@ not itself restrict filesystem or Git-history access.
    starting commit so it covers the implementation and the OCR reviewer's fixes.
    Keep implementer writes paused until its final report. Never run two
    reviewers at once.
-6. When the task changes anything user-visible, then spawn the design reviewer
+7. When the task changes anything user-visible, then spawn the design reviewer
    with the same explicit arguments and `"task_name": "design_review"`. Write it
    a separate self-contained message with the same context and comparison, both
    earlier final reports, the changed screens and states, and the Figma sections
@@ -144,7 +146,7 @@ not itself restrict filesystem or Git-history access.
    [design review](#design-review). Keep implementer writes paused until its
    final report. For other tasks, record "design review: not applicable" with
    the reason in your final report and the PR.
-7. The required reviews form one implementation review. Additional implementation
+8. The required reviews form one implementation review. Additional implementation
    edits, including fixes after review or PR feedback, require another pinned
    review by every required reviewer. OCR uses its validated checkpoint; the
    thermo-nuclear and applicable design reviews keep the full task comparison.
@@ -263,9 +265,36 @@ styles, copy, icons, motion, notifications or accessibility labels.
    findings and their dispositions, files changed, checks and results, deferred
    captures, design follow-ups and any panel outcomes.
 
+## Design approval
+
+A request for visual design or redesign, or any change to how a maintained
+client looks that the Figma frames do not already show, starts in Figma. Code
+waits for the user's approval of the frames. Tasks that do not request visual
+design or redesign may implement existing frames without another approval,
+provided their visual design stays unchanged.
+
+1. Read [DESIGN.md](../../DESIGN.md) and the issue. Through the Figma MCP server,
+   in the
+   [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
+   file, add or update the frames for every affected screen and state on the
+   macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,
+   the file's components and variables, and SF Symbols.
+2. Ask the user to review: link each changed frame, summarize what changed and
+   why, and list open questions. Stop and wait for the answer. This is the one
+   user decision that does not go to the [decision panel](#decision-panel).
+3. Apply requested changes in Figma and ask again. Start code only after the
+   user explicitly approves, and record the approval and approved frame links
+   in the issue and the PR description.
+4. Implement against the approved frames; the [design review](#design-review)
+   compares the result with them.
+
+Missing Figma access blocks the task; report it instead of implementing
+without approved frames.
+
 ## Decision panel
 
-Implementation and review continue without waiting for the user. Any decision
+Implementation and review continue without waiting for the user, except for
+[design approval](#design-approval). Any other decision
 that would otherwise pause the work for a user answer goes to a three-model
 panel instead: ambiguous or missing requirements, scope and product choices,
 competing approaches, and review findings that would change product scope or an
