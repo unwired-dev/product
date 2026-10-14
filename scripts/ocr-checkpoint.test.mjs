@@ -68,6 +68,9 @@ test('only completed reviews advance the range, including across linked worktree
   assert.equal(r.plan().from, r.base);
   assert.equal(r.finish(initial).status, 0);
   assert.equal(r.plan().reason, 'unchanged');
+  // Completing another plan invalidates this plan even when HEAD has not moved.
+  assert.equal(r.finish(initial).status, 1);
+  assert.equal(r.plan().reason, 'unchanged');
   const next = r.commit('source.txt', 'second\n');
   const followup = r.plan();
   assert.equal(followup.mode, 'incremental');
