@@ -24,7 +24,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   Platform,
@@ -251,22 +251,13 @@ function Toolbar({
     open: boolean;
     toggle: () => void;
     panel: ReactNode;
-    // The actions More lists, which an iPhone Reply sheet hosts instead.
+    // The actions More lists, which the iPhone Reply sheet also offers.
     actions: readonly Named[];
   }>;
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
   const [shownPanel, setShownPanel] = useState<'folders' | 'more'>('more');
-  // Reply sheets hosting the actions; while one does, iPhone drops More, as the design shows.
-  const [hosts, setHosts] = useState(0);
-  const claim = useCallback(() => {
-    setHosts((count) => count + 1);
-    return () => {
-      setHosts((count) => count - 1);
-    };
-  }, []);
-  const hosted = compact && hosts > 0;
   const thread = {
     actions: [
       ...(archive === undefined
@@ -310,7 +301,6 @@ function Toolbar({
           run,
         })),
     ],
-    claim,
   };
   const foldersOpen =
     folders !== undefined && 'panel' in folders && folders.open;
@@ -341,16 +331,14 @@ function Toolbar({
             />
           )}
           <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
-          {hosted ? null : (
-            <ToolbarButton
-              icon="ellipsis"
-              label={t('message.more')}
-              expanded={more.open}
-              onPress={() => {
-                more.toggle();
-              }}
-            />
-          )}
+          <ToolbarButton
+            icon="ellipsis"
+            label={t('message.more')}
+            expanded={more.open}
+            onPress={() => {
+              more.toggle();
+            }}
+          />
         </GlassGroup>
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}

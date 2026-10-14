@@ -215,8 +215,8 @@ over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 grows a floating glass sheet out of the button: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — read state and star, then
-Move, Report spam and Move to Trash, offering only what the provider supports. While
-the sheet hosts them, iPhone's toolbar drops **More**; mail without Reply keeps it.
+Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
+beside them.
 Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
 Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
 like Reply: a caption, the mailbox's address with a Close button, the message's sender

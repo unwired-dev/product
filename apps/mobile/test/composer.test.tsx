@@ -3454,7 +3454,7 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
-  it('hosts the Thread actions in the iPhone Reply sheet instead of More', async () => {
+  it('offers the Thread actions in the iPhone Reply sheet beside More', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -3474,8 +3474,8 @@ describe('replying to and forwarding from the reader', () => {
       />,
     );
     await screen.findByRole('button', { name: 'Reply' });
-    // As the Thread Actions design shows, the toolbar keeps Archive, Labels and Reply only.
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    // The owner kept More beside Reply; the sheet repeats its actions.
+    expect(screen.getByRole('button', { name: 'More' })).toBeVisible();
     await press('Reply');
     expect(
       [

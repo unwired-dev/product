@@ -1,7 +1,7 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { createContext, Fragment, use, useLayoutEffect, useState } from 'react';
+import { createContext, Fragment, use, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -30,11 +30,9 @@ export type ThreadAction = Readonly<{
   run: (origin: number) => void;
 }>;
 
-// The reader toolbar offers its organizing actions to an iPhone Reply sheet. A sheet that hosts
-// them claims them, and the toolbar then drops its own More menu.
+// The reader toolbar offers its organizing actions to the iPhone Reply sheet, beside its More menu.
 export const ThreadActionsContext = createContext<
-  | Readonly<{ actions: readonly ThreadAction[]; claim: () => () => void }>
-  | undefined
+  Readonly<{ actions: readonly ThreadAction[] }> | undefined
 >(undefined);
 const responseIcons = {
   reply: 'arrowshape.turn.up.left',
@@ -123,10 +121,7 @@ export function ReplySheet({
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
   const motion = useMenuMotion(open, 'grow');
-  const thread = use(ThreadActionsContext);
-  const claim = thread?.claim;
-  useLayoutEffect(() => claim?.(), [claim]);
-  const actions = thread?.actions ?? [];
+  const actions = use(ThreadActionsContext)?.actions ?? [];
   const tiles = [
     ...(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
       name: kind,
