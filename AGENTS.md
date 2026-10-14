@@ -43,7 +43,9 @@ for every implementation, including later implementation fixes.
   checkpoint; thermo-nuclear and applicable design reviews keep full task scope.
 - Never pause implementation for a user decision. Send it to the workflow's
   [decision panel](docs/agents/implementation-review.md#decision-panel)
-  (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.
+  (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins. The
+  only exception is the user's
+  [design approval](docs/agents/implementation-review.md#design-approval).
 
 ## Coding principles
 
@@ -127,6 +129,11 @@ user-visible change according to them.
   or needed states without a frame, to the
   [decision panel](docs/agents/implementation-review.md#decision-panel) instead
   of inventing a pattern.
+- Design Figma first. When a request asks to design or redesign something, or
+  changes how a client looks beyond what the frames already show, update the
+  Figma frames before writing code, then ask the user to review them. Implement
+  only after the user approves, following the workflow's
+  [design approval](docs/agents/implementation-review.md#design-approval).
 - User-visible changes also pass the
   [design review](docs/agents/implementation-review.md#design-review).
 
