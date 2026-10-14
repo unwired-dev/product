@@ -118,6 +118,9 @@ identity into a temporary keychain, limits the user keychain search list to that
 keychain for the build, and restores the original list and deletes the keychain
 on exit. Loose private-key and PKCS#12 files are removed before the build starts.
 The prepared identity must be valid for code signing before the build starts.
+Native signing setup failures report a fixed operation name and exit code;
+cleanup failures identify search-list restoration or keychain deletion. Raw
+`security` diagnostics remain suppressed because they can contain private data.
 The wrapper refuses certificates with less than an hour remaining; rerun all
 jobs to prepare a fresh certificate if retrying an old run. Signing helpers come
 from the workflow revision even when building an older ref. Local invocations
@@ -256,8 +259,12 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
 successfully uploaded both hosts after revoking stale development certificates.
 That run used the previous certificate-per-run setup. Reuse, automatic renewal,
 API failures, PKCS#12 packaging and keychain cleanup have credential-free local
-contracts. Real Apple issuance and consecutive CI archives using the same
-certificate remain deferred for the reusable identity implementation.
+contracts. [Run 38550446299](https://github.com/unwired-dev/product/actions/runs/38550446299)
+issued a matching Apple development certificate, but both hosts failed during
+native signing setup before archiving. That run predates operation-level failure
+diagnostics, so the failed native operation remains unconfirmed. Consecutive CI
+archives using the same certificate remain deferred for the reusable identity
+implementation.
 Uploaded-artifact inspection, inspection of processed builds and their TestFlight notes, and installation from
 TestFlight on an iPhone and a Mac also remain deferred. They are required before
 claiming #724's release evidence or the qualified beta in #628.

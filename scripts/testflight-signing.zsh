@@ -6,12 +6,17 @@ directory=$(mktemp -d "${RUNNER_TEMP:?}/testflight-signing.XXXXXX")
 keychain="$directory/signing.keychain-db"
 original_keychains=()
 created=0
+signing_failed() {
+  local result=$?
+  print -u2 -- "TestFlight signing failed during $1 (exit $result)"
+  exit "$result"
+}
 cleanup() {
   local result=$?
   trap - EXIT INT TERM
   if (( created )); then
-    security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || result=1
-    security delete-keychain "$keychain" >/dev/null 2>&1 || result=1
+    security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || { print -u2 -- "TestFlight signing cleanup failed during restore-search-list (exit $?)"; result=1; }
+    security delete-keychain "$keychain" >/dev/null 2>&1 || { print -u2 -- "TestFlight signing cleanup failed during delete-keychain (exit $?)"; result=1; }
   fi
   rm -rf "$directory"
   exit "$result"
@@ -44,18 +49,18 @@ rescue StandardError
 end
 RUBY
 password=$(<"$directory/password")
-original_list=$(security list-keychains -d user)
+original_list=$(security list-keychains -d user 2>/dev/null) || signing_failed read-search-list
 original_keychains=("${(@Q)${(z)original_list}}")
 # One command per invocation preserves failures while keeping passwords out of argv.
 created=1
-security -i <<< "create-keychain -p $password ${(q)keychain}" >/dev/null 2>&1
-security set-keychain-settings -lut 7200 "$keychain" >/dev/null 2>&1
-security -i <<< "unlock-keychain -p $password ${(q)keychain}" >/dev/null 2>&1
-security -i <<< "import ${(q)directory}/identity.p12 -k ${(q)keychain} -P $password -T /usr/bin/codesign -T /usr/bin/security" >/dev/null 2>&1
-security -i <<< "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $password ${(q)keychain}" >/dev/null 2>&1
-security list-keychains -d user -s "$keychain" >/dev/null 2>&1
+security -i <<< "create-keychain -p $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed create-keychain
+security set-keychain-settings -lut 7200 "$keychain" >/dev/null 2>&1 || signing_failed set-keychain-settings
+security -i <<< "unlock-keychain -p $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed unlock-keychain
+security -i <<< "import ${(q)directory}/identity.p12 -k ${(q)keychain} -P $password -T /usr/bin/codesign -T /usr/bin/security" >/dev/null 2>&1 || signing_failed import
+security -i <<< "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $password ${(q)keychain}" >/dev/null 2>&1 || signing_failed set-key-partition-list
+security list-keychains -d user -s "$keychain" >/dev/null 2>&1 || signing_failed set-search-list
 fingerprint=$(<"$directory/fingerprint")
-identities=$(security find-identity -v -p codesigning "$keychain" 2>/dev/null)
+identities=$(security find-identity -v -p codesigning "$keychain" 2>/dev/null) || signing_failed find-identity
 if [[ "$identities" != *" $fingerprint "* ]]; then
   print -u2 'The prepared TestFlight identity is not valid for code signing'
   exit 1
