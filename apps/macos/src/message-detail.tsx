@@ -2,6 +2,7 @@ import type {
   CommandId,
   CommandTarget,
 } from '@private-email/mail-core/commands';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
@@ -30,7 +31,6 @@ import {
   View,
 } from 'react-native';
 
-import type { MenuItem } from './design.tsx';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 

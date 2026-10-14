@@ -1,3 +1,7 @@
+import type {
+  MenuSection,
+  NativeMenuItem,
+} from '@private-email/mail-core/context-menu';
 import type { ReactNode } from 'react';
 import type {
   ColorValue,
@@ -7,6 +11,7 @@ import type {
   ViewStyle,
 } from 'react-native';
 
+import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import {
@@ -128,30 +133,6 @@ export function SFSymbol({
   );
 }
 
-type MenuAction = () => void | Promise<void>;
-
-// A context menu item: an action, or a submenu of further items.
-export type MenuItem = Readonly<{
-  title: string;
-  symbol: string;
-  destructive?: boolean;
-}> &
-  (Readonly<{ run: MenuAction }> | Readonly<{ items: readonly MenuItem[] }>);
-
-// A group of items set apart by separators; a palette shows them side by side on iPhone and iPad.
-export type MenuSection = Readonly<{
-  palette?: boolean;
-  items: readonly MenuItem[];
-}>;
-
-type NativeMenuItem = Readonly<{
-  id: string;
-  title: string;
-  symbol: string;
-  destructive?: boolean | undefined;
-  items?: readonly NativeMenuItem[];
-}>;
-
 const NativeContextMenu = requireNativeComponent<
   ViewProps & {
     readonly destructiveColor: ColorValue;
@@ -164,47 +145,6 @@ const NativeContextMenu = requireNativeComponent<
     readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
   }
 >('UnwiredContextMenu');
-
-// Carry action IDs across live menu updates, without retaining retired callbacks.
-const menuState = (
-  sections: readonly MenuSection[],
-  previous?: Readonly<{
-    ids: ReadonlyMap<MenuAction, string>;
-    nextId: number;
-  }>,
-) => {
-  const runs = new Map<string, MenuAction>();
-  const ids = new Map<MenuAction, string>();
-  let { nextId } = previous ?? { nextId: 0 };
-  const native = (item: MenuItem): NativeMenuItem => {
-    const { title, symbol, destructive } = item;
-    if ('run' in item) {
-      let id = ids.get(item.run) ?? previous?.ids.get(item.run);
-      if (id === undefined) {
-        id = String(nextId);
-        nextId += 1;
-      }
-      ids.set(item.run, id);
-      runs.set(id, item.run);
-      return { id, title, symbol, destructive };
-    }
-    return {
-      id: '',
-      title,
-      symbol,
-      items: item.items.map(native),
-    };
-  };
-  return {
-    source: sections,
-    sections: sections
-      .filter(({ items }) => items.length > 0)
-      .map(({ palette, items }) => ({ palette, items: items.map(native) })),
-    runs,
-    ids,
-    nextId,
-  };
-};
 
 // The system context menu for its children: long-press on iPhone and iPad, secondary click with
 // a pointer or on the Mac. Empty sections are left out.

@@ -1,12 +1,11 @@
 import type { Message } from '@private-email/mail-core';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 
 import { messageDay } from '@private-email/localization';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-
-import type { MenuItem } from './design.tsx';
 
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';

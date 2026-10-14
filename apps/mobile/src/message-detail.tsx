@@ -2,6 +2,7 @@ import type {
   CommandId,
   CommandTarget,
 } from '@private-email/mail-core/commands';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
@@ -37,7 +38,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
-import type { MenuItem } from './design.tsx';
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 

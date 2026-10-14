@@ -1,4 +1,5 @@
 import type { Translate } from '@private-email/localization';
+import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   GmailInbox,
   ReceivedAttachment,
@@ -45,8 +46,6 @@ import {
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-
-import type { MenuSection } from './design.tsx';
 
 import { Action } from './action.tsx';
 import { CommandEntryBlockedContext } from './command-palette.tsx';
