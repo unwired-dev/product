@@ -32,6 +32,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -292,18 +293,40 @@ describe('composing Drafts', () => {
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
     await render(
-      <App
-        drafts={drafts}
-        registration={registration}
-        mailboxes={{ ...connections, getSnapshot: connections.getConnections }}
-      />,
+      <CommandPaletteProvider windowId="composer">
+        <CommandBar />
+        <App
+          drafts={drafts}
+          registration={registration}
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}
+        />
+      </CommandPaletteProvider>,
     );
+    // The Command Palette's New Message follows the floating bar's button.
+    const palette = async () => {
+      await press('Open Command Palette');
+      return within(screen.getByTestId('command-palette'));
+    };
     await press('Inbox. In imap@example.invalid');
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
     await press('New Message');
+    const receiveOnly = await palette();
+    expect(
+      receiveOnly.queryByRole('button', { name: 'New Message' }),
+    ).toBeNull();
+    await fireEvent(screen.getByPlaceholderText('Type a command'), 'keyDown', {
+      nativeEvent: { key: 'Escape' },
+    });
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
     await press('All inboxes');
-    await press('New Message');
+    const unified = await palette();
+    const command = unified.getByRole('button', { name: 'New Message' });
+    await act(async () => {
+      await fireEvent.press(command);
+    });
     await expect(
       screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
     ).resolves.toBeSelected();

@@ -623,8 +623,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   every other screen the host mounts for the same state, such as
   `ThreadMessages` behind `app/thread/[id].tsx`. Enumerate the routes under
   `apps/mobile/app` and the Mac window's panes and check each screen the
-  requirement names (Inbox, message reading, composer, Settings); otherwise a
-  route-specific reader has no palette while the documentation says it does.
+  requirement names (Inbox, Mailboxes, message reading, composer, Settings);
+  otherwise a route-specific reader has no palette while the documentation says
+  it does. A split-view column that covers the Inbox on iPhone, such as
+  `sidebar.tsx.Mailboxes`, also needs the header entry, and commands it can run
+  that act on the Inbox column (Search Mail, Go To Inbox) must bring that column
+  forward through `app/_layout.tsx`'s split view `show('supplementary')`;
+  otherwise they run behind the covering column with no visible effect.
   Within each screen, check every early-return state branch too (loading,
   `StorageProblem`, `EmptyDetail` and `composer.tsx.ComposerFallback`, the
   composer's loading, locked, failed and unavailable states), on every route

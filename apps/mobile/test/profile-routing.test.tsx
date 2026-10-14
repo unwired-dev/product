@@ -1,6 +1,8 @@
 import type {
   createElement as ReactCreateElement,
   ReactNode,
+  Ref,
+  useImperativeHandle as ReactUseImperativeHandle,
   useSyncExternalStore as ReactUseSyncExternalStore,
 } from 'react';
 import type { View as NativeView } from 'react-native';
@@ -9,7 +11,13 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
 
 import type MessageRoute from '../app/message/[id].tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -38,12 +46,32 @@ jest.mock('expo-router/unstable-split-view', () => {
   const Secondary = jest.requireActual<{ default: typeof MessageRoute }>(
     '../app/message/[id].tsx',
   ).default;
-  function SplitView({ children }: { readonly children: ReactNode }) {
+  const { useImperativeHandle } = jest.requireActual<{
+    useImperativeHandle: typeof ReactUseImperativeHandle;
+  }>('react');
+  // The columns the shell asked the split view to show, in order.
+  const shown: string[] = [];
+  function SplitView({
+    children,
+    ref,
+  }: {
+    readonly children: ReactNode;
+    readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
+  }) {
+    useImperativeHandle(ref, () => ({
+      show: (column) => {
+        shown.push(column);
+      },
+    }));
     return createElement(View, null, children, createElement(Secondary));
   }
   SplitView.Column = View;
-  return { SplitView };
+  return { SplitView, shown };
 });
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
   const { useSyncExternalStore } = jest.requireActual<{
@@ -84,6 +112,9 @@ jest.mock('react-native-screens/experimental', () => ({
 const route = jest.requireMock<{
   setParams: (params: Readonly<Record<string, unknown>>) => void;
 }>('expo-router');
+const split = jest.requireMock<{ shown: string[] }>(
+  'expo-router/unstable-split-view',
+);
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -168,6 +199,32 @@ describe('profile-scoped mobile routes', () => {
       await app.unmount();
     },
   );
+
+  it('brings the message list forward when Search Mail or Inbox runs from the Mailboxes header', async () => {
+    expect.hasAssertions();
+    showMail(defaultProfile);
+    route.setParams({});
+    await render(<RootLayout />);
+    await screen.findByRole('button', { name: /Garden plan/u });
+    // As on iPhone, where Mailboxes covers the list until a command brings it back.
+    const run = async (name: string) => {
+      await fireEvent(
+        screen.getByRole('header', { name: 'Mailboxes' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      const palette = within(screen.getByTestId('command-palette'));
+      await act(async () => {
+        await fireEvent.press(palette.getByRole('button', { name }));
+      });
+    };
+    split.shown.length = 0;
+    await run('Search Mail');
+    expect(split.shown).toStrictEqual(['supplementary']);
+    await run('Inbox');
+    expect(split.shown).toStrictEqual(['supplementary', 'supplementary']);
+    expect(screen.queryByTestId('command-palette')).toBeNull();
+  });
 
   it('clears the previous Profile’s search and mailbox choice when the same window targets another Profile', async () => {
     expect.hasAssertions();

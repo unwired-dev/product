@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { usePaletteHeader } from './command-palette.tsx';
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -288,6 +289,7 @@ export function Mailboxes({
   const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
+  const header = usePaletteHeader();
   const sidebar = mailboxSidebar({
     mailboxes,
     connections: account?.mailboxes ?? [],
@@ -312,10 +314,14 @@ export function Mailboxes({
         compact && { backgroundColor: colors.surfaceContent },
       ]}>
       <View style={styles.fill}>
-        <View style={styles.heading}>
+        {/* The header opens the Command Palette by a downward swipe or its accessibility action. */}
+        <View
+          style={styles.heading}
+          {...header.swipe}>
           <Text
             accessibilityRole="header"
-            style={[styles.title, { color: colors.textPrimary }]}>
+            style={[styles.title, { color: colors.textPrimary }]}
+            {...header.action}>
             {t('mailboxes.title')}
           </Text>
         </View>

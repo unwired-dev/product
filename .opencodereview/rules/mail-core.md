@@ -880,7 +880,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   reveal must not cancel creation. Otherwise a slow New Message overrides the
   chosen destination, removes its selected composer, or deletes another editor's
   completed content. Keep this coordination shared rather than duplicating it
-  in each host's `DraftList.compose`.
+  in each host's `inbox-bar.tsx.NewMessageButton`.
   Record empty abandonment as a dirty edit even when creation or cleanup saving
   is refused: `createDrafts.abandon` must remove it from memory and retain that
   deletion for the next edit, Save Drafts or Retry. Reusing Discard's leading

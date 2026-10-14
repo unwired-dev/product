@@ -51,8 +51,9 @@ export function InboxHeading({
           inboxCommands(t, {
             search: searchable
               ? async () => {
-                  if (detail && onClose !== undefined) {
-                    if (!(await onLeave())) {
+                  // Closing also brings the list forward when Mailboxes covers it on iPhone.
+                  if (onClose !== undefined) {
+                    if (detail && !(await onLeave())) {
                       return;
                     }
                     onClose();

@@ -95,6 +95,8 @@ function MailShell() {
                 pathname: '/',
                 params: { profileId: shownProfile },
               });
+              // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+              splitView.current?.show('supplementary');
             }}
             onCompose={compose}
             onSelect={selectMessage}
