@@ -1,12 +1,18 @@
+import type {
+  MenuSection,
+  NativeMenuItem,
+} from '@private-email/mail-core/context-menu';
 import type { ReactNode } from 'react';
 import type {
   ColorValue,
+  NativeSyntheticEvent,
   StyleProp,
   TextProps,
   ViewProps,
   ViewStyle,
 } from 'react-native';
 
+import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import {
@@ -50,6 +56,7 @@ export function Glass({
 const groupRadius = (44 + 2 * spacing.xs) / 2;
 
 const styles = StyleSheet.create({
+  menuContent: { flexGrow: 1 },
   group: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -134,6 +141,49 @@ export function SFSymbol({
       color={color}
       style={{ width: size, height: size }}
     />
+  );
+}
+
+const NativeContextMenu = requireNativeComponent<
+  ViewProps & {
+    readonly previewColor: ColorValue;
+    readonly previewRadius: number;
+    readonly sections: ReadonlyArray<
+      Readonly<{
+        palette?: boolean | undefined;
+        items: readonly NativeMenuItem[];
+      }>
+    >;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredContextMenu');
+
+// The system context menu for its children: long-press on iPhone and iPad, secondary click with
+// a pointer or on the Mac. Empty sections are left out.
+export function ContextMenu({
+  sections,
+  children,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const colors = usePalette();
+  const menu = menuState(sections);
+  return (
+    <NativeContextMenu
+      {...props}
+      previewColor={colors.surfaceContent}
+      previewRadius={radius.card}
+      sections={menu.sections}
+      onSelect={({ nativeEvent }) => {
+        void menu.runs.get(nativeEvent.id)?.();
+      }}>
+      {/* React Native's legacy view interop mounts a nested menu without its offset, so another
+          menu never becomes this one's direct native child. */}
+      <View
+        collapsable={false}
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeContextMenu>
   );
 }
 
