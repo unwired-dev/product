@@ -250,7 +250,6 @@ function Toolbar({
   readonly more: Readonly<{
     open: boolean;
     toggle: () => void;
-    panel: ReactNode;
     // The actions More lists, which the iPhone Reply sheet also offers.
     actions: readonly Named[];
   }>;
@@ -349,9 +348,21 @@ function Toolbar({
         <GlassPanel open={foldersOpen || more.open}>
           {shownPanel === 'folders' &&
           folders !== undefined &&
-          'panel' in folders
-            ? folders.panel
-            : more.panel}
+          'panel' in folders ? (
+            folders.panel
+          ) : (
+            <ScrollView style={styles.panels}>
+              <View style={styles.panel}>
+                {more.actions.map(({ name, label, run }) => (
+                  <ActionButton
+                    key={name}
+                    label={label}
+                    onPress={run}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          )}
         </GlassPanel>
       </View>
     </>
@@ -556,23 +567,6 @@ function ImapMessageActions({
                 act(action);
               },
             })),
-          panel: (
-            <ScrollView style={styles.panels}>
-              <View style={styles.panel}>
-                {actions
-                  .filter(({ name }) => name !== 'archive')
-                  .map(({ name, label, action }) => (
-                    <ActionButton
-                      key={name}
-                      label={label}
-                      onPress={() => {
-                        act(action);
-                      }}
-                    />
-                  ))}
-              </View>
-            </ScrollView>
-          ),
         }}>
         {children}
       </Toolbar>
@@ -791,23 +785,6 @@ function GmailMessageActions({
                 act(action);
               },
             })),
-          panel: (
-            <ScrollView style={styles.panels}>
-              <View style={styles.panel}>
-                {actions
-                  .filter(({ name }) => name !== 'archive')
-                  .map(({ name, label, action }) => (
-                    <ActionButton
-                      key={name}
-                      label={label}
-                      onPress={() => {
-                        act(action);
-                      }}
-                    />
-                  ))}
-              </View>
-            </ScrollView>
-          ),
         }}>
         {children}
       </Toolbar>
