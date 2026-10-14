@@ -18,8 +18,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
   refusal leaves a selected folder loading with unreadable rows.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
-  reading that folder. Preserve its previous ready status, including `syncing`
-  for a read queued behind the semaphore, until that folder read settles; retain
+  reading that folder, or discarding a failed first read because no cache entry
+  exists. Preserve failed uncached views and previous ready status, including
+  `syncing` for a read queued behind the semaphore, until that folder read settles; retain
   access-closing and owner-change cleanup. Otherwise an Inbox reload hides a
   different folder's retry or authentication warning.
 - `imap-inbox.ts.open` rebuilding views only from the bounded metadata cache.
@@ -879,7 +880,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   reveal must not cancel creation. Otherwise a slow New Message overrides the
   chosen destination, removes its selected composer, or deletes another editor's
   completed content. Keep this coordination shared rather than duplicating it
-  in each host's `DraftList.compose`.
+  in each host's `inbox-bar.tsx.NewMessageButton`.
   Record empty abandonment as a dirty edit even when creation or cleanup saving
   is refused: `createDrafts.abandon` must remove it from memory and retain that
   deletion for the next edit, Save Drafts or Retry. Reusing Discard's leading
@@ -992,6 +993,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   its Product Account, provider subject or address changes, or after `canOpenInbox`
   becomes false. Invalidate the snapshot immediately and fence late publications;
   address-only rendering checks can expose a previous account's mail.
+
+- `mailbox-views.ts.mailboxSidebar` ordering a connection's sidebar entry by its
+  state, such as appending connections waiting for authorization after the open
+  sections. Keep open and waiting connections in the Profile's saved connection
+  order, without duplicate rows, and exercise an earlier connection lapsing beside
+  a later open one. Otherwise sections jump whenever authorization lapses or
+  recovers.
 
 #### Tests in the same change
 

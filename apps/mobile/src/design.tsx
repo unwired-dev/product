@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
-import type { ColorValue, NativeSyntheticEvent, ViewProps } from 'react-native';
+import type {
+  ColorValue,
+  NativeSyntheticEvent,
+  StyleProp,
+  ViewProps,
+  ViewStyle,
+} from 'react-native';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { useState } from 'react';
@@ -53,18 +59,6 @@ const styles = StyleSheet.create({
     borderRadius: groupRadius,
   },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    maxWidth: '100%',
-    paddingLeft: 10,
-    paddingRight: spacing.m,
-    borderRadius: radius.chip,
-    borderCurve: 'continuous',
-  },
-  chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
   toolbarButton: {
     minWidth: 44,
     minHeight: 44,
@@ -249,8 +243,15 @@ export function ContextMenu({
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
-export function GlassGroup({ children }: { readonly children: ReactNode }) {
+export function GlassGroup({
+  children,
+  style,
+}: {
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
+  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
     <View
       style={[
@@ -259,9 +260,12 @@ export function GlassGroup({ children }: { readonly children: ReactNode }) {
           boxShadow: colors.smallGlassShadow,
           backgroundColor: colors.surfaceContent,
         },
+        style,
       ]}>
       <Glass
-        cornerRadius={groupRadius}
+        cornerRadius={
+          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+        }
         style={StyleSheet.absoluteFill}
       />
       {children}
@@ -369,49 +373,6 @@ export function Monogram({ name }: { readonly name: string }) {
         {initials}
       </Text>
     </View>
-  );
-}
-
-// A selectable filter: the icon and label together carry its meaning.
-export function Chip({
-  label,
-  icon,
-  selected,
-  onPress,
-}: {
-  readonly label: string;
-  readonly icon: string;
-  readonly selected: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={styles.chipTarget}>
-      <View
-        style={[
-          styles.chip,
-          { backgroundColor: selected ? colors.accentFill : colors.fillQuiet },
-        ]}>
-        <SFSymbol
-          name={icon}
-          color={selected ? colors.accentOnFill : colors.textSecondary}
-        />
-        <Text
-          style={[
-            textStyles.subheadline,
-            { flexShrink: 1 },
-            selected && { fontWeight: '600' },
-            { color: selected ? colors.accentOnFill : colors.textPrimary },
-          ]}>
-          {label}
-        </Text>
-      </View>
-    </Pressable>
   );
 }
 

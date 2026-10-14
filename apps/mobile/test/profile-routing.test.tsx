@@ -2,6 +2,8 @@ import type { router as ExpoRouter } from 'expo-router';
 import type {
   createElement as ReactCreateElement,
   ReactNode,
+  Ref,
+  useImperativeHandle as ReactUseImperativeHandle,
   useSyncExternalStore as ReactUseSyncExternalStore,
 } from 'react';
 import type { View as NativeView } from 'react-native';
@@ -10,7 +12,13 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
 
 import type MessageRoute from '../app/message/[id].tsx';
 import type ThreadRoute from '../app/thread/[id].tsx';
@@ -46,7 +54,23 @@ jest.mock('expo-router/unstable-split-view', () => {
   const { usePathname } = jest.requireMock<{ usePathname: () => string }>(
     'expo-router',
   );
-  function SplitView({ children }: { readonly children: ReactNode }) {
+  const { useImperativeHandle } = jest.requireActual<{
+    useImperativeHandle: typeof ReactUseImperativeHandle;
+  }>('react');
+  // The columns the shell asked the split view to show, in order.
+  const shown: string[] = [];
+  function SplitView({
+    children,
+    ref,
+  }: {
+    readonly children: ReactNode;
+    readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
+  }) {
+    useImperativeHandle(ref, () => ({
+      show: (column) => {
+        shown.push(column);
+      },
+    }));
     const pathname = usePathname();
     return createElement(
       View,
@@ -56,8 +80,12 @@ jest.mock('expo-router/unstable-split-view', () => {
     );
   }
   SplitView.Column = View;
-  return { SplitView };
+  return { SplitView, shown };
 });
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The palette sheet clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
   const { useSyncExternalStore } = jest.requireActual<{
@@ -131,6 +159,9 @@ const route = jest.requireMock<{
   setParams: (params: Readonly<Record<string, unknown>>) => void;
   router: typeof ExpoRouter;
 }>('expo-router');
+const split = jest.requireMock<{ shown: string[] }>(
+  'expo-router/unstable-split-view',
+);
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -173,9 +204,11 @@ describe('profile-scoped mobile routes', () => {
     await expect(
       screen.findByText('Synthetic garden body.'),
     ).resolves.toBeVisible();
+    split.shown.length = 0;
     await fireEvent.press(
       screen.getByRole('button', { name: 'Back, 1 unread' }),
     );
+    expect(split.shown).toStrictEqual(['supplementary']);
     expect(screen.queryByText('Synthetic garden body.')).toBeNull();
     expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
     expect(screen.getByRole('button', { name: /Garden plan/u })).toBeVisible();
@@ -216,14 +249,19 @@ describe('profile-scoped mobile routes', () => {
       expect.hasAssertions();
       showMail(profile);
       route.setParams(params);
+      split.shown.length = 0;
       await render(<RootLayout />);
+      expect(split.shown).toStrictEqual(['supplementary']);
       await fireEvent.press(
         await screen.findByRole('button', { name: /Garden plan/u }),
       );
       await expect(
         screen.findByText('Synthetic garden body.'),
       ).resolves.toBeVisible();
+      split.shown.length = 0;
       await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+      // On iPhone the closed reader returns to the message list, not Mailboxes.
+      expect(split.shown).toStrictEqual(['supplementary']);
       // Reader close must leave the same Profile's search control visible, rather than a Default fallback.
       expect(
         screen.queryByRole('header', { name: 'Message unavailable' }),
@@ -263,11 +301,40 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('clears the previous Profile’s search when the same window targets another Profile', async () => {
+  it('brings the message list forward when Search Mail or Inbox runs from the Mailboxes header', async () => {
     expect.hasAssertions();
     showMail(defaultProfile);
     route.setParams({});
     await render(<RootLayout />);
+    await screen.findByRole('button', { name: /Garden plan/u });
+    // As on iPhone, where Mailboxes covers the list until a command brings it back.
+    const run = async (name: string) => {
+      await fireEvent(
+        screen.getByRole('header', { name: 'Mailboxes' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      const palette = within(screen.getByTestId('command-palette'));
+      await act(async () => {
+        await fireEvent.press(palette.getByRole('button', { name }));
+      });
+    };
+    split.shown.length = 0;
+    await run('Search Mail');
+    expect(split.shown).toStrictEqual(['supplementary']);
+    await run('Inbox');
+    expect(split.shown).toStrictEqual(['supplementary', 'supplementary']);
+    expect(screen.queryByTestId('command-palette')).toBeNull();
+  });
+
+  it('clears the previous Profile’s search and mailbox choice when the same window targets another Profile', async () => {
+    expect.hasAssertions();
+    showMail(defaultProfile);
+    route.setParams({});
+    await render(<RootLayout />);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Inbox. In garden' }),
+    );
     await fireEvent.changeText(
       await screen.findByLabelText('Search senders and subjects'),
       'personal search',
@@ -279,8 +346,17 @@ describe('profile-scoped mobile routes', () => {
     await expect(
       screen.findByLabelText('Search senders and subjects'),
     ).resolves.toHaveProp('value', '');
+    expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
     await expect(
       screen.findByRole('button', { name: /Garden plan/u }),
     ).resolves.toBeVisible();
+    showMail(defaultProfile);
+    await act(() => {
+      route.setParams({});
+    });
+    await expect(
+      screen.findByLabelText('Search senders and subjects'),
+    ).resolves.toHaveProp('value', '');
+    expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
   });
 });

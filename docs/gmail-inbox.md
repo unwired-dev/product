@@ -37,9 +37,12 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   newest first. Messages received at the same moment keep the order the mailboxes
   were added, then Gmail's message ID, so rows never reorder between updates. Every
   row, and the reader, names its mailbox (`In alex@example.com`), and VoiceOver
-  reads it with the row. Choosing a mailbox's address above the list shows only that
-  mailbox; **All inboxes** returns. Each window chooses on its own. A removed
-  mailbox's view falls back to **All inboxes**.
+  reads it with the row. Choosing a mailbox's Inbox in the Mailboxes sidebar shows
+  only that mailbox; **All inboxes** returns. Each window chooses on its own. A
+  removed mailbox's view falls back to **All inboxes**. A chosen mailbox whose
+  provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
+  its heading's subtitle shows the same status as its sidebar row, and
+  **New Message** stays unavailable until access is allowed again.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -67,7 +70,8 @@ prefetch in any mailbox yields to an explicit open in any other.
 ## Searching saved mail
 
 [#608](https://github.com/unwired-dev/product/issues/608) searches the Inbox mail
-saved on this device. The field above the list, **Search senders and subjects**,
+saved on this device. The field in the floating bar under the list, **Search senders
+and subjects**,
 matches the **Durable Message Metadata** already in each mailbox's encrypted cache:
 the sender's name and address and the subject. Every word of the query must appear
 in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's
@@ -198,7 +202,11 @@ then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
-opens a glass-backed modal sheet offering Reply, Reply All and Forward. More lists the remaining
+opens a glass-backed modal sheet offering Reply, Reply All and Forward. For IMAP and
+Microsoft mail, iPhone's **Folders** opens a glass **Move to…** sheet: the
+connection's provider and address, a search field that narrows the folders by name,
+and one row per folder, with the message's current folder checked and unavailable.
+Choosing a folder moves the message and closes the sheet. More lists the remaining
 actions as text buttons. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
@@ -538,9 +546,10 @@ or Inbox owner changes, and the current ownership boundary is checked again
 immediately before handoff. No link inspection needs a network lookup, backend,
 persistence or URL logging.
 
-On Mac, confirmation is a window-level glass alert over a dimmed Inbox and
-reading pane. The window's selected mailbox and message gate the presentation;
-background accessibility is hidden while it is open, and Escape dismisses it.
+On Mac, confirmation is a window-level glass alert over the dimmed Mailboxes
+sidebar, Inbox and reading pane. The window's selected mailbox and message gate
+the presentation; background accessibility is hidden while it is open, and
+Escape dismisses it.
 Other windows retain their independent selections and confirmations.
 
 The accepted link inspection additionally compares URL-like visible anchor text

@@ -42,6 +42,10 @@ import { injectedScripts } from './webview.tsx';
 jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The Inbox's keyboard avoidance reads the inset; the host has none here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('@private-email/draft-editor/page', () => ({

@@ -206,7 +206,9 @@ writes the whole message, base64 encoded, to `sendMail` only with a current devi
 proof, refuses non-ASCII text, malformed files and a message over Graph's limit before
 any request, and reports an interrupted request as unknown.
 The `registration-apple` native journey connects the synthetic Microsoft mailbox
-first, then adds Gmail.
+first, then adds Gmail. On iPhone it also searches for a folder with no match in
+the **Move to…** sheet, checks that the search field and explanation stay above
+the software keyboard, dismisses the sheet and reads the message after relaunch.
 
 These are deterministic and mocked evidence. Real Microsoft authorization, tenant
 restrictions and Graph transport on packaged hosts remain release checks, as do

@@ -8,11 +8,13 @@ export function Label({
   accessibilityRole = 'text',
   accessibilityLiveRegion,
   style,
+  numberOfLines,
 }: {
   readonly children: string;
   readonly accessibilityRole?: 'alert' | 'header' | 'text';
   readonly accessibilityLiveRegion?: 'polite' | undefined;
   readonly style: StyleProp<TextStyle>;
+  readonly numberOfLines?: number;
 }) {
   return (
     <View
@@ -20,7 +22,11 @@ export function Label({
       accessibilityLiveRegion={accessibilityLiveRegion}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={children}>
-      <Text style={style}>{children}</Text>
+      <Text
+        style={style}
+        numberOfLines={numberOfLines}>
+        {children}
+      </Text>
     </View>
   );
 }

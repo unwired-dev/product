@@ -34,7 +34,6 @@ import {
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
-import { composeCommand } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -102,7 +101,6 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import {
   CommandInput,
   CommandInputRow,
-  RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
@@ -114,7 +112,6 @@ import {
   useDraftStore,
   useLeaveComposer,
   useOutbox,
-  useProfile,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
@@ -420,75 +417,18 @@ export function useOpenDraft(
   );
 }
 
-// The Inbox list's Draft controls: starting a new message and Drafts storage status. The Draft
-// rows themselves are list items, so a long list stays virtualized.
-export function DraftList({
-  onCompose,
-  scope,
-}: {
-  readonly onCompose: (id: string) => void;
-  // The mailbox the Inbox shows, which a new message sends from when it can.
-  readonly scope: string | undefined;
-}) {
-  const account = use(AccountContext);
+// The Inbox list's Drafts storage status. The Draft rows themselves are list items, so a long
+// list stays virtualized.
+export function DraftList() {
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
-  const navigation = useComposerNavigation();
-  const windowProfile = useProfile();
-  const creating = useRef(false);
-  const [creatingShown, setCreatingShown] = useState(false);
-  if (account === undefined || state.kind === 'closed') {
+  if (state.kind === 'closed') {
     return null;
   }
-  // The unified Inbox sends from the window's Profile.
-  const senders = sendingMailboxes(
-    account.mailboxes,
-    scope === undefined ? windowProfile : profileOf(scope, account.mailboxes),
-  );
-  const sender = senders.find(({ id }) => id === scope) ?? senders[0];
-  // One new Draft at a time: a second press while one is being created does nothing.
-  const compose = async (mailbox: MailboxConnection) => {
-    if (creating.current) {
-      return;
-    }
-    creating.current = true;
-    setCreatingShown(true);
-    // Leaving and creating resolve rather than reject, so the press always settles here.
-    const id = await navigation.create(store, mailbox);
-    creating.current = false;
-    setCreatingShown(false);
-    if (id !== undefined) {
-      onCompose(id);
-    }
-  };
   return (
     <View>
-      {state.kind !== 'ready' ||
-      sender === undefined ||
-      creatingShown ? null : (
-        <RegisterCommands
-          offer={() => [
-            composeCommand(t, () => {
-              void compose(sender);
-            }),
-          ]}
-        />
-      )}
-      <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
-        <Action
-          disabled={
-            state.kind !== 'ready' || sender === undefined || creatingShown
-          }
-          label={t('drafts.newMessage')}
-          onPress={() => {
-            if (sender !== undefined) {
-              void compose(sender);
-            }
-          }}
-        />
-      </View>
       {state.kind === 'locked' || state.kind === 'failed' ? (
         <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
           <Text
