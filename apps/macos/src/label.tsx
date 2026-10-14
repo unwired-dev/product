@@ -6,15 +6,18 @@ import { Text, View } from 'react-native';
 export function Label({
   children,
   accessibilityRole = 'text',
+  accessibilityLiveRegion,
   style,
 }: {
   readonly children: string;
   readonly accessibilityRole?: 'alert' | 'header' | 'text';
+  readonly accessibilityLiveRegion?: 'polite' | undefined;
   readonly style: StyleProp<TextStyle>;
 }) {
   return (
     <View
       accessible
+      accessibilityLiveRegion={accessibilityLiveRegion}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={children}>
       <Text style={style}>{children}</Text>

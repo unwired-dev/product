@@ -32,6 +32,8 @@ implemented.
 - Passwords, app-specific passwords, and OAuth refresh tokens remain in the current device's Keychain
 - **Remove Device Authorization** affects only the current device and preserves the synchronized **Mailbox Connection**
 - **Remove Mailbox Connection Everywhere** removes synchronized connection and product-owned state from all trusted devices but never deletes provider mail
+- The post-launch [Mail Commitments design](mail-commitments.md#source-removal-and-profile-moves) has an explicit authored-record retention exception: accepted commitments retain reviewed title, direction, state, dates and configured reminders in the app and Private Sync after mailbox removal, while that connection's suggestions and cached source content are purged.
+- The future Mail Commitments removal confirmation discloses that retained authored state, including configured reminders, and the existing deletion choices before removal, without exposing protected content under Profile Lock.
 - A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
 - Recreating a removed **Mailbox Connection** with the same **Stable Provider Mailbox Identity** requires reauthorization on devices whose credentials predate its removal.
 - After wake or reconnect, a trusted device applies synchronized connection removals before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection

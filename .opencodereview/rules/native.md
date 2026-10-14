@@ -513,6 +513,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   observer and owner. Check identities before teardown so another window's preview
   remains intact; otherwise AppKit messages a dangling controller or a closed
   window retains presentation state indefinitely.
+- `UnwiredCommands.saveFocus` keeping a responder from an earlier opening when
+  the window's current first responder is not a view, or `restoreFocus`
+  focusing a saved view without checking it is still in that window. Fabric
+  recycles a removed component view and mounts it elsewhere, so a weak
+  reference outlives the control it named, and a palette that left with its
+  screen never cleared its entry. Clear the window's entry on every save;
+  otherwise closing a later palette focuses an unrelated control.
 - Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
 - A composer change reviewed without inventorying native exits in
   `apps/macos/macos/UnwiredMail/AppDelegate.mm`: window close/Command-W and
@@ -527,7 +534,11 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   this Objective-C++ host or exercise its lifecycle delegates.
 - An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
 - A deployment target lowered, or a newer API used without the availability the target requires.
-- A native module added to the Mac host without updating the autolinking assertion in `apps/macos/scripts/verify-bundle.ts`.
+- A native module added to the Mac host without updating the autolinking
+  allowlist in `apps/macos/scripts/verify-native.ts` or preserving the renderer
+  boundary in `apps/macos/scripts/verify-bundle.ts`. Review its tracked native
+  lockfile under `.opencodereview/rules/workspace.md`; otherwise the build can
+  include an unreviewed module or dependency graph.
 
 #### Tests in the same change
 

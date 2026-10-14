@@ -100,6 +100,16 @@ typography:
     fontSize: '13px'
     fontWeight: 400
     lineHeight: '18px'
+  ios-caption-1:
+    fontFamily: 'SF Pro'
+    fontSize: '12px'
+    fontWeight: 400
+    lineHeight: '16px'
+  ios-title-3-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '20px'
+    fontWeight: 600
+    lineHeight: '25px'
 rounded:
   control: '6px'
   row: '7px'
@@ -281,11 +291,18 @@ styles) so the file stays editable.
   semibold for unread senders and primary buttons; Subheadline 11/14 for
   timestamps and section headers; Title 3 Emphasized 15/20 for list and page
   titles.
+- **iPad message list:** the Inbox frames use the Mac recipe at 1.15× in both
+  orientations: Body 14.95/18.4, Subheadline 12.65/16.1 and Title 3 Emphasized
+  17.25/23. Row insets, unread indicators and dividers use the same scale;
+  interactive controls retain at least 44pt touch targets.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
   long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
   reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
 - **iOS:** Large Title 34/41 bold, Headline 17/22 semibold, Body 17/22,
-  Subheadline 15/20 for bubble text, Footnote 13/18 for subjects and times.
+  Subheadline 15/20 for list subjects, timestamps, previews and bubble text,
+  Footnote 13/18 for supporting labels,
+  Caption 1 12/16 for the inline title's subtitle and Title 3 Emphasized 20/25
+  for empty-state titles.
 - UI emphasis comes from weight, not size. Never set long UI text in bold.
   Received message content retains permitted sender formatting, including fonts,
   sizes and emphasis, under the [sanitization contract](docs/gmail-inbox.md#sanitization-contract).
@@ -317,6 +334,17 @@ styles) so the file stays editable.
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
   under it behind a 72pt scroll edge fade. It hides while the composer is open.
+- **Command Palette:** on the Mac a 36pt glass command input (command
+  symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
+  it becomes the focused query with an esc key cap and a 460pt glass panel with
+  the menu shadow beneath it.
+  Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
+  or a chevron for a picker, highlighted in the accent fill; section headers read
+  Selected Message · subject, App and Go To, and a footer names the keys. iPhone
+  and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
+  iPad keeps the command input in the Inbox heading and, pending a compact
+  frame, in the reader and composer headers too; iPhone opens by header swipe
+  with a one-time hint. See the [Command Palette guide](docs/command-palette.md).
 - **Synchronization status:** retain the bottom-anchored, non-blocking progress
   overlay, Retry on failure, aggregate progress with expandable connection details,
   and globally visible refresh and last success from the

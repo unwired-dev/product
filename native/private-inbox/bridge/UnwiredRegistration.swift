@@ -1724,6 +1724,27 @@ extension UnwiredRegistration {
     resolve([:])
   }
 
+  // Small device-local interface preferences, such as a hint already shown; never synchronized.
+  private static func preferenceKey(_ key: String) -> String { "dev.unwired.preference.\(key)" }
+
+  @objc(preference:resolver:rejecter:)
+  func preference(
+    _ key: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let value = UserDefaults.standard.string(forKey: Self.preferenceKey(key))
+    resolve(["value": value.map { $0 as Any } ?? NSNull()])
+  }
+
+  @objc(setPreference:value:resolver:rejecter:)
+  func setPreference(
+    _ key: String, value: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    UserDefaults.standard.set(value, forKey: Self.preferenceKey(key))
+    resolve([:])
+  }
+
   // Mail Assistance Enablement for the signed-in Product Account, which `owner` names.
   @objc(mailAssistance:rejecter:)
   func mailAssistance(

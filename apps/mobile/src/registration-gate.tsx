@@ -49,6 +49,7 @@ import {
   View,
 } from 'react-native';
 
+import { AccountPage } from './account-page.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -853,16 +854,18 @@ function RegistrationPage({
       <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
-  return (
+  const page = (
     <ScrollView
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, { color: colors.textPrimary }]}>
-          {copy.title}
-        </Text>
+        {onInbox === undefined ? (
+          <Text
+            accessibilityRole="header"
+            style={[styles.title, { color: colors.textPrimary }]}>
+            {copy.title}
+          </Text>
+        ) : null}
         <Text style={[styles.text, { color: colors.textSecondary }]}>
           {copy.description}
         </Text>
@@ -938,5 +941,14 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
+  );
+  return onInbox === undefined ? (
+    page
+  ) : (
+    <AccountPage
+      title={copy.title}
+      onInbox={onInbox}>
+      {page}
+    </AccountPage>
   );
 }

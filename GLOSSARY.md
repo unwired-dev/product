@@ -16,15 +16,15 @@ scope. The review agent verifies it against
 
 ## Language
 
-| Topic                                                   | Canonical vocabulary                                          | Observable requirements                                                                    |
-| ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Accounts, Profiles, sign-in and trusted devices         | [Identity](docs/domain/identity.md)                           | [Identity notes](docs/product/identity.md)                                                 |
-| Providers, connections, authorization and mailbox roles | [Mailboxes](docs/domain/mailboxes.md)                         | [Mailbox notes](docs/product/mailboxes.md)                                                 |
-| Threads, drafts, sending identities and Outbox          | [Messages and delivery](docs/domain/messages-and-delivery.md) | [Delivery notes](docs/product/messages-and-delivery.md)                                    |
-| Categories, views, pins and cleanup                     | [Organization](docs/domain/organization.md)                   | [Organization notes](docs/product/organization.md)                                         |
-| Encryption, storage, synchronization and notifications  | [Privacy and sync](docs/domain/privacy-and-sync.md)           | [Privacy and sync notes](docs/product/privacy-and-sync.md)                                 |
-| Compose, response, understanding and translation        | [Assistance](docs/domain/assistance.md)                       | [Assistance notes](docs/product/assistance.md)                                             |
-| Mock sessions, scenarios, harnesses and evidence        | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md) |
+| Topic                                                   | Canonical vocabulary                                          | Observable requirements                                                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Accounts, Profiles, sign-in and trusted devices         | [Identity](docs/domain/identity.md)                           | [Identity notes](docs/product/identity.md)                                                               |
+| Providers, connections, authorization and mailbox roles | [Mailboxes](docs/domain/mailboxes.md)                         | [Mailbox notes](docs/product/mailboxes.md)                                                               |
+| Threads, drafts, sending identities and Outbox          | [Messages and delivery](docs/domain/messages-and-delivery.md) | [Delivery notes](docs/product/messages-and-delivery.md)                                                  |
+| Categories, views, pins, cleanup and commitments        | [Organization](docs/domain/organization.md)                   | [Organization notes](docs/product/organization.md), [Mail Commitments](docs/product/mail-commitments.md) |
+| Encryption, storage, synchronization and notifications  | [Privacy and sync](docs/domain/privacy-and-sync.md)           | [Privacy and sync notes](docs/product/privacy-and-sync.md)                                               |
+| Compose, response, understanding and translation        | [Assistance](docs/domain/assistance.md)                       | [Assistance notes](docs/product/assistance.md)                                                           |
+| Mock sessions, scenarios, harnesses and evidence        | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md)               |
 
 ## Relationships
 

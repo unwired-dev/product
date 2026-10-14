@@ -53,6 +53,11 @@ jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The Account page header clears the status bar itself; the host has no inset here.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
+
 // The connection list native code reports for one connected synthetic mailbox.
 const connectedTo = (address: SyntheticAddress) =>
   JSON.stringify([
@@ -1540,12 +1545,15 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(rows()).toHaveLength(3);
     });
+    // The header reports the unreachable server instead of a result count.
+    expect(screen.getByText(/ · Offline$/u)).toBeVisible();
     // Asking again searches every mailbox afresh.
     await press('Search mail servers again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });
     expect(screen.queryByText(/Gmail could not be reached/u)).toBeNull();
+    expect(screen.queryByText(/ · Offline$/u)).toBeNull();
 
     // A reply for a query that changed meanwhile is never shown.
     let release: () => void = () => undefined;
@@ -1906,7 +1914,8 @@ describe('product registration', () => {
         name: 'Unread. Maya Chen. Synthetic message 0',
       }),
     ).resolves.toBeVisible();
-    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    // The heading's subtitle names the connected mailbox beside its unread count.
+    expect(screen.getByText(/^alex@example\.invalid · /u)).toBeVisible();
     await openAccount();
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),

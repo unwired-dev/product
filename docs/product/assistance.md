@@ -19,7 +19,7 @@ implemented.
 
 ## Assistance inputs, previews and acceptance
 
-- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, is cleared when the Product Account is removed, permits only explicit assistance actions and [Background Message Summaries](../catch-up.md#summaries), and remains usable during **Quiet State**
+- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, is cleared when the Product Account is removed, permits explicit assistance actions, [Background Message Summaries](../catch-up.md#summaries), and the separately confirmed post-launch [Mail Commitment Suggestions](mail-commitments.md#automatic-scanning), and remains usable during **Quiet State**
 - **Compose Assistance** admits only the authored **Semantic Message Document**, current selection, separate subject, and parsed recipient display identities. It excludes signatures, quoted correspondence, attachments, source Thread content, **Remote Message Content**, and delivery actions; proofreading is mechanical, while every rewrite preserves facts, questions, commitments, dates, amounts, links, quotes, meaning, and surrounding formatting or asks for clarification
 - Ask Compose Assistance uses the current selection when present and otherwise only the authored body; Draft from Prompt previews insertion at the caret without overwriting existing text; Rewrite Selection, Proofread, Shorten, and Change Tone require a selection; Suggest Subject reads the authored body and previews a separate subject
 - **Compose Assistance** previews and refinements remain ephemeral outside the editor. Dismissal destroys their transcript, source changes invalidate them, and explicit Insert or Replace creates one undoable authored-body edit. Accepted content becomes ordinary encrypted Draft content without an assistance marker and never sends automatically
@@ -42,4 +42,4 @@ records this exception to explicit invocation and ephemeral summary storage.
 
 ## Profile lock and assistance
 
-- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview
+- Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview. The planned [Commitment Review Queue](mail-commitments.md#review-queue) is a scoped persistence exception: lock preserves and hides its encrypted saved proposals while cancelling active scans and rejecting their late results, even after unlock; it does not preserve resumable pre-lock work.
