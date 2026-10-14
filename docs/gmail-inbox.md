@@ -198,7 +198,11 @@ then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
-opens a glass-backed modal sheet offering Reply, Reply All and Forward. More lists the remaining
+opens a glass-backed modal sheet offering Reply, Reply All and Forward. For IMAP and
+Microsoft mail, iPhone's **Folders** opens a glass **Move to…** sheet: the
+connection's provider and address, a search field that narrows the folders by name,
+and one row per folder, with the message's current folder checked and unavailable.
+Choosing a folder moves the message and closes the sheet. More lists the remaining
 actions as text buttons. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per

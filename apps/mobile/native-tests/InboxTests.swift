@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
@@ -155,6 +156,26 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // A no-match search shrinks the Move sheet; its field and explanation must stay above the keyboard.
+      app.buttons["Folders"].tap()
+      XCTAssertTrue(app.staticTexts["Move to…"].waitForExistence(timeout: 10))
+      let search = app.textFields["Search"]
+      search.tap()
+      let keyboard = app.keyboards.firstMatch
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      for character in "missing folder" { search.typeText(String(character)) }
+      let noMatch = text("No folders match your search.", in: app)
+      XCTAssertTrue(noMatch.waitForExistence(timeout: 5))
+      XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Move sheet no-match search above the keyboard"
+      sheet.lifetime = .keepAlways
+      add(sheet)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+      XCTAssertFalse(app.staticTexts["Move to…"].exists)
+    }
     app.terminate()
     app.launch()
     // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
