@@ -123,6 +123,7 @@ export function ReplySheet({
             motion.style,
             {
               boxShadow: colors.menuGlassShadow,
+              backgroundColor: colors.surfaceContent,
               // The sheet grows out of where Reply was pressed.
               transformOrigin: `${Math.max(0, origin - (width - sheetWidth) / 2)}px 100%`,
             },

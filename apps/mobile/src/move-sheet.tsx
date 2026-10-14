@@ -32,6 +32,7 @@ const styles = StyleSheet.create({
   },
   caption: { ...textStyles.footnote, textAlign: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  titleSpacer: { width: 44 },
   title: { ...textStyles.headline, flex: 1, textAlign: 'center' },
   close: {
     width: 44,
@@ -198,6 +199,7 @@ export function MoveSheet({
             motion.style,
             {
               boxShadow: colors.menuGlassShadow,
+              backgroundColor: colors.surfaceContent,
               // Above the keyboard the search needs no home-indicator inset.
               paddingBottom: keyboardHeight > 0 ? spacing.s : 34,
               // The picker grows out of where Move was pressed, at the bottom of the screen.
@@ -213,7 +215,7 @@ export function MoveSheet({
             {t('gmailActions.moveCaption')}
           </Text>
           <View style={styles.titleRow}>
-            <View style={styles.close} />
+            <View style={styles.titleSpacer} />
             <Text
               accessibilityRole="header"
               numberOfLines={1}
