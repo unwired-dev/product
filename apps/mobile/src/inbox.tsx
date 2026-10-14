@@ -230,7 +230,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   }
   const openAccount = async () => {
     if (await leave()) {
-      account?.openAccount();
+      account?.openAccount('mailboxes');
     }
   };
   if (state.status === 'authentication') {
@@ -854,7 +854,9 @@ export function Inbox({
                 address={mailbox.address}
                 onRepair={() => {
                   if (account !== undefined) {
-                    void openAccount(account.openAccount);
+                    void openAccount(() => {
+                      account.openAccount('mailboxes');
+                    });
                   }
                 }}
               />

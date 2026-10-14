@@ -34,7 +34,8 @@ final class InboxTests: XCTestCase {
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    // Pending setup opens Settings on Account & Devices.
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
@@ -90,7 +91,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     app.buttons["Account"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    openSettings("Account & Devices", in: app)
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
     XCTAssertTrue(
@@ -117,11 +119,13 @@ final class InboxTests: XCTestCase {
     app.launch()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     app.buttons["Connect Microsoft mail"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].exists)
+    openSettings("Email Accounts", in: app)
+    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    openSettings("Account & Devices", in: app)
     // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
     // beside Gmail's.
     let entry = app.textFields["Last four characters"]
@@ -179,7 +183,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 20))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
     app.buttons["Open Inbox"].tap()
@@ -199,7 +203,7 @@ final class InboxTests: XCTestCase {
     // Sign-in connects no mailbox; Gmail is chosen explicitly.
     XCTAssertTrue(app.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     app.buttons["Authorize Gmail"].tap()
-    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(
         NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Product Account")
@@ -211,7 +215,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Mail connected"].exists)
+    XCTAssertTrue(text("connected on this device", in: app).exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Linked Apple and Google sign-in"
     shot.lifetime = .keepAlways
@@ -283,6 +287,18 @@ final class InboxTests: XCTestCase {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
+  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
+  // destinations, then pushes it.
+  private func openSettings(_ destination: String, in app: XCUIApplication) {
+    let back = app.buttons["Back to Settings"]
+    if back.exists {
+      back.tap()
+    }
+    let item = app.buttons[destination]
+    XCTAssertTrue(item.waitForExistence(timeout: 15))
+    item.tap()
+  }
+
   // This device created the keys; removing the account's iPad first proposes a replacement
   // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication) {
@@ -297,8 +313,10 @@ final class InboxTests: XCTestCase {
     func prepare() {
       XCTAssertTrue(app.buttons["Remove iPad"].waitForExistence(timeout: 15))
       app.buttons["Remove iPad"].tap()
-      XCTAssertTrue(text("cannot be erased remotely", in: app).waitForExistence(timeout: 15))
-      app.buttons["Remove iPad"].tap()
+      let dialog = app.otherElements["device-removal-confirmation"]
+      XCTAssertTrue(dialog.waitForExistence(timeout: 15))
+      XCTAssertTrue(text("cannot be erased remotely", in: app).exists)
+      dialog.buttons["Remove iPad"].tap()
       XCTAssertTrue(proposed.waitForExistence(timeout: 15))
     }
     prepare()
@@ -406,7 +424,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     app.buttons["Choose another Google mailbox"].tap()
-    XCTAssertTrue(app.staticTexts["Mail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
     entry.tap()
     // Confirm each character reached the controlled field before sending the next one.
@@ -426,7 +444,10 @@ final class InboxTests: XCTestCase {
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
     app.buttons["Account"].tap()
-    app.buttons["Turn on on-device assistance"].tap()
+    openSettings("Privacy & Data", in: app)
+    let assistance = app.switches["Mail Assistance"]
+    XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+    assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
     // The disposable Draft belongs to this run's synthetic Product Account only.

@@ -27,6 +27,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   every IMAP connection must offer repair, and IMAP waiting rows must never invoke
   Gmail consent. Otherwise refusal strands the connection or grants another provider.
 
+- `RegistrationGate` splitting Account Settings into destinations without tracing
+  the Inbox's targeted entry points. An explicit password-repair request must
+  reach Email Accounts even after Open Inbox defers pending Recovery Key setup;
+  default setup landing must not override that request. Retire the requested
+  destination when its account/Inbox choice becomes invalid, or a later account
+  can inherit the earlier repair destination. Exercise the real gate and repair
+  form with both confirmed and deferred setup on each host.
+
 - Application logic in a component, hook or adapter: decoding a native result, deciding a registration or enrollment transition, retrying, merging or filtering mail state. That logic belongs in a `mail-core` store so both hosts and its tests share it.
 - A store read any way other than `useSyncExternalStore(store.subscribe, store.getSnapshot)`, or store state copied into `useState` and kept in step by an effect. The copy goes stale between the event and the effect.
 - A native module result used in the host before the shared store decodes it. The adapter passes the raw result through; see `src/private-storage.ts`.

@@ -197,7 +197,7 @@ function App({
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
-  readonly openAccount?: () => void;
+  readonly openAccount?: (destination?: string) => void;
   readonly onRebind?: (id: string) => void;
   readonly onCompose?: (id: string) => void;
   readonly initialDraft?: string;
@@ -579,9 +579,13 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
-  it.each(['Account', 'Enter the password for imap@example.invalid again'])(
+  // The password repair opens Settings on Email Accounts.
+  it.each([
+    ['Account', []],
+    ['Enter the password for imap@example.invalid again', ['mailboxes']],
+  ] as const)(
     'opens %s only after leaving an open composer',
-    async (destination) => {
+    async (destination, settings) => {
       expect.hasAssertions();
       const initial = connected(['alex@example.invalid']);
       const registration = account({
@@ -615,7 +619,7 @@ describe('composing Drafts', () => {
         getSnapshot: connections.getConnections,
       };
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const openAccount = jest.fn<undefined, []>();
+      const openAccount = jest.fn<undefined, [string?]>();
       await render(
         <App
           drafts={createDrafts(storage.native, registration)}
@@ -641,7 +645,7 @@ describe('composing Drafts', () => {
         'maya@example.com',
       );
       await press(destination);
-      expect(openAccount).toHaveBeenCalledWith();
+      expect(openAccount).toHaveBeenCalledWith(...settings);
       // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
       expect(openAccount).toHaveBeenCalledTimes(1);
       expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();

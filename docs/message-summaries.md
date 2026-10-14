@@ -43,7 +43,7 @@ On-Device Mail Assistance action, **Summarize**, Draft
 
 - It is off by default on every device. While it is off, none of those actions
   appears and nothing reaches Apple's model or Translation.
-- **On-device assistance** on the account page turns it on or off for the
+- The **Mail Assistance** switch in Settings' **Privacy & Data** turns it on or off for the
   signed-in Product Account's Mail Profile on this device. Only the
   [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
   choice. Readers use their window’s Profile consent, while Account settings and

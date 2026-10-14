@@ -18,10 +18,12 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { TurboModuleRegistry } from 'react-native';
+import { Pressable, Switch, TurboModuleRegistry } from 'react-native';
+
+import type { SettingsButton } from './settings.tsx';
 
 import { Action } from './action.tsx';
-import { Label } from './label.tsx';
+import { OnDeviceMarker } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceContext,
@@ -29,7 +31,7 @@ import {
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
 import { AssistanceContext } from './message-summary.tsx';
-import { registrationStyles as styles } from './registration-styles.ts';
+import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
@@ -132,7 +134,7 @@ export function MailAssistanceSettings({
 }: {
   readonly account: string;
   readonly assistance: NativeAssistance;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly button: SettingsButton;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -150,34 +152,45 @@ export function MailAssistanceSettings({
     return null;
   }
   return (
-    <>
-      <Label
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('mailAssistance.title')}
-      </Label>
-      <Label style={[styles.text, { color: colors.textSecondary }]}>
-        {t('mailAssistance.description')}
-      </Label>
-      <Label style={[styles.text, { color: colors.textPrimary }]}>
-        {t(enabled ? 'mailAssistance.on' : 'mailAssistance.off')}
-      </Label>
-      {button(
-        t(enabled ? 'mailAssistance.turnOff' : 'mailAssistance.turnOn'),
-        () => store.setEnabled(account, defaultProfile, !enabled),
-      )}
-      {saveState === 'idle' ? null : (
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
-          {t(
-            saveState === 'saving'
-              ? 'mailAssistance.saving'
-              : 'mailAssistance.saveFailed',
+    <SettingsGroup
+      title={t('mailAssistance.title')}
+      accessory={<OnDeviceMarker label={t('settings.onDevice')} />}
+      footer={t('mailAssistance.description')}>
+      <SettingsRow
+        title={t('mailAssistance.title')}
+        subtitle={t(
+          (
+            {
+              idle: enabled ? 'mailAssistance.on' : 'mailAssistance.off',
+              saving: 'mailAssistance.saving',
+              failed: 'mailAssistance.saveFailed',
+            } as const
+          )[saveState],
+        )}>
+        <Pressable
+          accessible={false}
+          focusable={false}
+          onPress={() => {
+            void store.setEnabled(account, defaultProfile, !enabled);
+          }}
+          style={{ minHeight: 28, justifyContent: 'center' }}>
+          <Switch
+            accessibilityLabel={t('mailAssistance.title')}
+            onValueChange={(on) => {
+              void store.setEnabled(account, defaultProfile, on);
+            }}
+            trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+            value={enabled}
+          />
+        </Pressable>
+      </SettingsRow>
+      {saveState === 'failed' ? (
+        <SettingsBlock>
+          {button(t('mailAssistance.retrySave'), () =>
+            store.retrySave(account),
           )}
-        </Label>
-      )}
-      {saveState === 'failed'
-        ? button(t('mailAssistance.retrySave'), () => store.retrySave(account))
-        : null}
+        </SettingsBlock>
+      ) : null}
       {enabled ? (
         <AssistanceAvailability
           key={account}
@@ -185,7 +198,7 @@ export function MailAssistanceSettings({
           assistance={assistance}
         />
       ) : null}
-    </>
+    </SettingsGroup>
   );
 }
 
@@ -196,7 +209,6 @@ function AssistanceAvailability({
   readonly account: string;
   readonly assistance: NativeAssistance;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const check = useMemo(
     () => createAssistanceAvailability(assistance),
@@ -214,21 +226,25 @@ function AssistanceAvailability({
   const state = useSyncExternalStore(check.subscribe, () =>
     check.getSnapshot(account),
   );
+  const availability = () => {
+    if (state.kind === 'idle') {
+      return undefined;
+    }
+    if (state.kind === 'unavailable') {
+      return t(
+        state.reason === 'model-not-ready'
+          ? 'summary.model-not-ready'
+          : `mailAssistance.${state.reason}`,
+      );
+    }
+    return t(
+      `mailAssistance.${state.kind === 'checking' || state.kind === 'available' ? state.kind : 'checkFailed'}`,
+    );
+  };
   return (
-    <>
-      {state.kind === 'idle' ? null : (
-        <Label style={[styles.text, { color: colors.textSecondary }]}>
-          {state.kind === 'unavailable'
-            ? t(
-                state.reason === 'model-not-ready'
-                  ? 'summary.model-not-ready'
-                  : `mailAssistance.${state.reason}`,
-              )
-            : t(
-                `mailAssistance.${state.kind === 'checking' || state.kind === 'available' ? state.kind : 'checkFailed'}`,
-              )}
-        </Label>
-      )}
+    <SettingsRow
+      title={t('settings.availability')}
+      subtitle={availability()}>
       <Action
         label={t('mailAssistance.checkAvailability')}
         onPress={() => {
@@ -237,6 +253,6 @@ function AssistanceAvailability({
           }
         }}
       />
-    </>
+    </SettingsRow>
   );
 }

@@ -1,34 +1,21 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
 import type {
-  AccountRemoval,
   InboxChoice,
-  EnrollmentFailure,
-  LinkFailure,
   MailboxConnection,
-  PrivateSync as PrivateSyncState,
-  RecoveryFailure,
-  RecoveryKeyFailure,
   Registration,
-  RemovalFailure,
 } from '@private-email/mail-core/registration';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
-  approvesDevices,
-  linkFailureCopy,
   inboxLanding,
+  inboxSetup,
   mailboxesOf,
-  offersRecovery,
-  otherSignInProvider,
-  privateSyncCopy,
   providerName,
-  recoveryKeyEntry,
   registrationActions,
   registrationCopy,
-  signInMethodsCopy,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
@@ -45,32 +32,39 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
+import type { SettingsDestination } from './settings.tsx';
+
 import { AccountPage } from './account-page.tsx';
+import { AccountActions, AccountSettings } from './account-settings.tsx';
+import { Glass, SFSymbol } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceContext,
   MailAssistanceGate,
-  MailAssistanceSettings,
   mailAssistance as deviceMailAssistance,
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { microsoftMail, registration } from './registration.ts';
 import {
-  MailboxRemoteContent,
-  RemoteContentSettings,
   remoteContent as deviceRemoteContent,
   RemoteContentContext,
 } from './remote-content.tsx';
+import {
+  AccountCard,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsWorkspace,
+  settingsButton,
+  settingsColumns,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext, nativeTranslation } from './translation.tsx';
-import { TrustedDevices } from './trusted-devices.tsx';
 
 // The connected Inbox opens the account page and asks a mailbox's provider for permission again
 // through this.
@@ -78,595 +72,13 @@ export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
-      openAccount: () => void;
+      // Settings opens on the given destination, such as Email Accounts for a password.
+      openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
     }>
   | undefined
 >(undefined);
-
-// Each Mailbox Connection with its state, adding another, and removal after confirmation.
-function Mailboxes({
-  account,
-  button,
-  microsoft,
-  store,
-}: {
-  readonly account: Readonly<{ mailboxes?: string }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly microsoft: boolean;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [confirming, setConfirming] = useState<MailboxConnection['id']>();
-  // The IMAP connection whose password is being entered again, or a new one being added.
-  const [imap, setImap] = useState<
-    { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
-  >();
-  const mailboxes = mailboxesOf(account);
-  if (mailboxes.length === 0) {
-    return null;
-  }
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('mailboxes.title')}
-      </Text>
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {t('mailboxes.description')}
-      </Text>
-      {mailboxes.map((mailbox) => {
-        const provider = t(`mailProviders.${mailbox.provider}`);
-        const imapMailbox = mailbox.provider === 'imap';
-        const repairing = imap?.kind === 'repair' && imap.id === mailbox.id;
-        return (
-          <View
-            key={mailbox.id}
-            style={styles.device}>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {mailbox.address}
-            </Text>
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {t(
-                imapMailbox && mailbox.state !== 'connected'
-                  ? `mailboxes.states.imap-${mailbox.state}`
-                  : `mailboxes.states.${mailbox.state}`,
-                { provider },
-              )}
-            </Text>
-            {/* Saved before SMTP: entering the password again sets up sending. */}
-            {imapMailbox && mailbox.smtp === undefined ? (
-              <Text style={[styles.text, { color: colors.textSecondary }]}>
-                {t('mailboxes.receiveOnly')}
-              </Text>
-            ) : null}
-            {mailbox.state === 'authorization' && !imapMailbox
-              ? button(
-                  t('mailboxes.allow', { address: mailbox.address, provider }),
-                  () => store.authorizeMailbox(mailbox.id),
-                )
-              : null}
-            {imapMailbox && !repairing
-              ? button(
-                  t('mailboxes.enterPassword', { address: mailbox.address }),
-                  async () => {
-                    setImap({ kind: 'repair', id: mailbox.id });
-                  },
-                )
-              : null}
-            {repairing ? (
-              <ImapSetup
-                button={button}
-                onClose={() => {
-                  setImap(undefined);
-                }}
-                repair={mailbox}
-                store={store}
-              />
-            ) : null}
-            {/* Remote Message Content never loads for IMAP mail yet. */}
-            {imapMailbox ? null : <MailboxRemoteContent {...mailbox} />}
-            {confirming === mailbox.id ? (
-              <>
-                <Text style={[styles.text, { color: colors.textPrimary }]}>
-                  {t(
-                    imapMailbox
-                      ? 'mailboxes.confirm_imap'
-                      : 'mailboxes.confirm',
-                    {
-                      address: mailbox.address,
-                      provider,
-                    },
-                  )}
-                </Text>
-                {button(
-                  t('mailboxes.remove', { address: mailbox.address }),
-                  async () => {
-                    setConfirming(undefined);
-                    await store.removeMailbox(mailbox.id);
-                  },
-                )}
-                {button(t('mailboxes.cancel'), async () => {
-                  setConfirming(undefined);
-                })}
-              </>
-            ) : (
-              button(
-                t('mailboxes.remove', { address: mailbox.address }),
-                async () => {
-                  setConfirming(mailbox.id);
-                },
-              )
-            )}
-          </View>
-        );
-      })}
-      {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
-      {microsoft
-        ? button(t('mailboxes.addMicrosoft'), () =>
-            store.addMailbox('microsoft-graph'),
-          )
-        : null}
-      {imap?.kind === 'new' ? (
-        <ImapSetup
-          button={button}
-          onClose={() => {
-            setImap(undefined);
-          }}
-          store={store}
-        />
-      ) : (
-        button(t('mailboxes.addImap'), async () => {
-          setImap({ kind: 'new' });
-        })
-      )}
-      <RemoteContentSettings button={button} />
-    </>
-  );
-}
-
-// End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
-function PrivateSync({
-  account,
-  button,
-  failure,
-  store,
-}: {
-  readonly account: Parameters<typeof privateSyncCopy>[1];
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: RecoveryKeyFailure | undefined;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [entry, setEntry] = useState('');
-  const copy = privateSyncCopy(t, account);
-  if (copy === undefined) {
-    return null;
-  }
-  const { recoveryKey } = copy;
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {copy.title}
-      </Text>
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {copy.description}
-      </Text>
-      {recoveryKey === undefined ? null : (
-        <>
-          <Text
-            selectable
-            testID="recovery-key"
-            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
-            {recoveryKey}
-          </Text>
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {t('recoveryKeyConfirmation.prompt')}
-          </Text>
-          <TextInput
-            accessibilityLabel={t('recoveryKeyConfirmation.label')}
-            autoCapitalize="characters"
-            autoComplete="off"
-            autoCorrect={false}
-            onChangeText={(text) => {
-              setEntry(recoveryKeyEntry(text));
-            }}
-            placeholder={t('recoveryKeyConfirmation.label')}
-            placeholderTextColor={colors.textSecondary}
-            style={[
-              styles.input,
-              { borderColor: colors.separator, color: colors.textPrimary },
-            ]}
-            value={entry}
-          />
-          {failure === undefined ? null : (
-            <Text
-              accessibilityRole="alert"
-              style={[styles.text, { color: colors.textPrimary }]}>
-              {t(`recoveryKeyConfirmation.${failure}`)}
-            </Text>
-          )}
-          {button(t('recoveryKeyConfirmation.confirm'), () =>
-            store.confirmRecoveryKey(entry),
-          )}
-        </>
-      )}
-      {copy.enrollmentCode === undefined ? null : (
-        <>
-          <Text
-            selectable
-            testID="enrollment-code"
-            style={[styles.recoveryKey, { color: colors.textPrimary }]}>
-            {copy.enrollmentCode}
-          </Text>
-          {button(t('enrollment.check'), store.refreshPrivateSync)}
-        </>
-      )}
-      {copy.mailboxes === undefined ? null : (
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {copy.mailboxes}
-        </Text>
-      )}
-      {copy.pending === undefined ? null : (
-        <Text style={[styles.text, { color: colors.textPrimary }]}>
-          {copy.pending}
-        </Text>
-      )}
-    </>
-  );
-}
-
-// Without an available trusted device, the Recovery Key unlocks this one; nothing offers a reset.
-function RecoveryKeyUnlock({
-  account,
-  button,
-  failure,
-  store,
-}: {
-  readonly account: Readonly<{ privateSync?: PrivateSyncState }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: RecoveryFailure | undefined;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [entry, setEntry] = useState('');
-  if (!offersRecovery(account.privateSync)) {
-    return null;
-  }
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('recovery.title')}
-      </Text>
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {t('recovery.description')}
-      </Text>
-      <TextInput
-        accessibilityLabel={t('recovery.label')}
-        autoCapitalize="characters"
-        autoComplete="off"
-        autoCorrect={false}
-        onChangeText={setEntry}
-        placeholder={t('recovery.label')}
-        placeholderTextColor={colors.textSecondary}
-        style={[
-          styles.input,
-          { borderColor: colors.separator, color: colors.textPrimary },
-        ]}
-        value={entry}
-      />
-      {failure === undefined ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
-          {t(`recovery.${failure}`)}
-        </Text>
-      )}
-      {button(t('recovery.unlock'), () => store.recoverWithRecoveryKey(entry))}
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {t('recovery.lost')}
-      </Text>
-    </>
-  );
-}
-
-// A trusted device approves another device only with the code that device shows.
-function DeviceApproval({
-  account,
-  button,
-  failure,
-  store,
-}: {
-  readonly account: Readonly<{
-    privateSync?: PrivateSyncState;
-    enrollmentRequest?: string;
-    enrollmentDevice?: string;
-  }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: EnrollmentFailure | undefined;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [entry, setEntry] = useState('');
-  const { enrollmentRequest: request } = account;
-  if (!approvesDevices(account.privateSync)) {
-    return null;
-  }
-  const alert =
-    failure === undefined ? null : (
-      <Text
-        accessibilityRole="alert"
-        style={[styles.text, { color: colors.textPrimary }]}>
-        {t(`enrollment.${failure}`)}
-      </Text>
-    );
-  if (request === undefined) {
-    return (
-      <>
-        {alert}
-        {button(t('enrollment.find'), store.refreshPrivateSync)}
-      </>
-    );
-  }
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('enrollment.title')}
-      </Text>
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {t('enrollment.description', {
-          device: account.enrollmentDevice ?? t('enrollment.device'),
-        })}
-      </Text>
-      <TextInput
-        accessibilityLabel={t('enrollment.label')}
-        autoCapitalize="characters"
-        autoComplete="off"
-        autoCorrect={false}
-        onChangeText={setEntry}
-        placeholder={t('enrollment.label')}
-        placeholderTextColor={colors.textSecondary}
-        style={[
-          styles.input,
-          { borderColor: colors.separator, color: colors.textPrimary },
-        ]}
-        value={entry}
-      />
-      {alert}
-      {button(t('enrollment.approve'), () =>
-        store.approveEnrollment(request, entry),
-      )}
-      {button(t('enrollment.decline'), () => store.declineEnrollment(request))}
-      {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
-      {button(t('enrollment.find'), store.refreshPrivateSync)}
-    </>
-  );
-}
-
-// Account settings: Linked Sign-Ins never come from a mailbox grant or a matching email.
-function SignInMethods({
-  account,
-  button,
-  failure,
-  store,
-}: {
-  readonly account: Parameters<typeof signInMethodsCopy>[1];
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: LinkFailure | undefined;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const methods = signInMethodsCopy(t, account);
-  const { link } = methods;
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('signInMethods.title')}
-      </Text>
-      <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {methods.description}
-      </Text>
-      {failure === undefined ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
-          {linkFailureCopy(
-            t,
-            failure,
-            otherSignInProvider(account.signInProvider),
-          )}
-        </Text>
-      )}
-      {link === undefined
-        ? null
-        : button(
-            t('signInMethods.link', { provider: providerName(t, link) }),
-            () => store.link(link),
-          )}
-    </>
-  );
-}
-
-// Leaving this device and deleting the Product Account everywhere are distinct, each confirmed
-// here first; deletion then asks for a new sign-in.
-function AccountActions({
-  button,
-  failure,
-  pending,
-  store,
-}: {
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: RemovalFailure | undefined;
-  readonly pending: AccountRemoval | undefined;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [confirming, setConfirming] = useState<AccountRemoval>();
-  const selected = pending ?? confirming;
-  const confirmation =
-    selected === 'sign-out'
-      ? {
-          description: t('accountRemoval.signOutConfirm'),
-          label: t('accountRemoval.signOut'),
-          action: store.signOut,
-        }
-      : {
-          description: t('accountRemoval.deleteConfirm'),
-          label: t('accountRemoval.deletePermanently'),
-          action: store.deleteProductAccount,
-        };
-  return (
-    <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.textPrimary }]}>
-        {t('accountRemoval.title')}
-      </Text>
-      {failure === undefined ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
-          {t(`accountRemoval.${failure}`)}
-        </Text>
-      )}
-      {selected === undefined ? (
-        <>
-          {button(t('accountRemoval.signOut'), async () => {
-            setConfirming('sign-out');
-          })}
-          {button(t('accountRemoval.delete'), async () => {
-            setConfirming('deletion');
-          })}
-        </>
-      ) : (
-        <>
-          <Text style={[styles.text, { color: colors.textPrimary }]}>
-            {confirmation.description}
-          </Text>
-          {button(confirmation.label, confirmation.action)}
-          {pending === undefined
-            ? button(t('accountRemoval.cancel'), async () => {
-                setConfirming(undefined);
-              })
-            : null}
-        </>
-      )}
-    </>
-  );
-}
-
-// A signed-in account's settings; until a trusted device or the Recovery Key admits this device,
-// it offers only that.
-function AccountSettings({
-  assistance,
-  button,
-  microsoft,
-  store,
-}: {
-  readonly assistance: NativeAssistance;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly microsoft: boolean;
-  readonly store: Registration;
-}) {
-  const {
-    snapshot,
-    linkFailure,
-    recoveryKeyFailure,
-    recoveryFailure,
-    enrollmentFailure,
-    revocationFailure,
-  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { t } = useLocalization();
-  if (snapshot.kind === 'signed-out') {
-    return null;
-  }
-  const recovery = (
-    <RecoveryKeyUnlock
-      account={snapshot}
-      button={button}
-      failure={recoveryFailure}
-      store={store}
-    />
-  );
-  if (snapshot.kind === 'device-pending') {
-    return (
-      <>
-        {privateSyncCopy(t, snapshot)?.enrollmentCode === undefined ? (
-          button(t('enrollment.check'), store.refreshPrivateSync)
-        ) : (
-          <PrivateSync
-            account={snapshot}
-            button={button}
-            failure={recoveryKeyFailure}
-            store={store}
-          />
-        )}
-        {recovery}
-      </>
-    );
-  }
-  return (
-    <>
-      <Mailboxes
-        account={snapshot}
-        button={button}
-        microsoft={microsoft}
-        store={store}
-      />
-      {snapshot.removalPending === undefined ? (
-        <MailAssistanceSettings
-          account={snapshot.productAccountId}
-          assistance={assistance}
-          button={button}
-        />
-      ) : null}
-      <PrivateSync
-        key={snapshot.recoveryKey ?? 'confirmed'}
-        account={snapshot}
-        button={button}
-        failure={recoveryKeyFailure}
-        store={store}
-      />
-      {recovery}
-      <DeviceApproval
-        // A code typed for one request never carries over to the next.
-        key={snapshot.enrollmentRequest ?? 'none'}
-        account={snapshot}
-        button={button}
-        failure={enrollmentFailure}
-        store={store}
-      />
-      <TrustedDevices
-        account={snapshot}
-        button={button}
-        failure={revocationFailure}
-        store={store}
-      />
-      <SignInMethods
-        account={snapshot}
-        button={button}
-        failure={linkFailure}
-        store={store}
-      />
-    </>
-  );
-}
 
 export function RegistrationGate({
   children,
@@ -698,10 +110,13 @@ export function RegistrationGate({
   const { t } = useLocalization();
   // The person's choice between the account page and a connected Inbox outlasts status updates.
   const [choice, setChoice] = useState<InboxChoice>();
+  // Where Settings opens when the Inbox asks for a destination.
+  const [start, setStart] = useState<SettingsDestination>();
   const landing = inboxLanding(snapshot, choice);
   const { account: inboxAccount, setup } = landing;
   if (choice !== undefined && !landing.valid) {
     setChoice(undefined);
+    setStart(undefined);
   }
   // Enablement belongs to an admitted Product Account that is not being removed; it is read again
   // whenever that changes, or when locked storage may have become readable.
@@ -722,8 +137,9 @@ export function RegistrationGate({
   const actions = useMemo(
     () => ({
       mailboxes: mailboxesOf(snapshot),
-      openAccount: () => {
+      openAccount: (destination?: SettingsDestination) => {
         if (inboxAccount !== undefined) {
+          setStart(destination);
           setChoice({
             account: inboxAccount,
             destination: 'account',
@@ -782,6 +198,7 @@ export function RegistrationGate({
           <RegistrationPage
             assistance={assistance}
             microsoft={microsoft}
+            start={start}
             store={store}
             onInbox={
               inboxAccount === undefined
@@ -822,14 +239,156 @@ export function RegistrationGate({
   );
 }
 
-function RegistrationPage({
+// A connected Inbox's account page: Settings, one destination at a time.
+function SettingsPage({
   assistance,
   microsoft,
+  start,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
+  readonly start: SettingsDestination | undefined;
+  readonly store: Registration;
+  readonly onInbox: () => void;
+}) {
+  const { snapshot, busy, failed, removalFailure } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+  );
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // An explicit Inbox request wins; otherwise pending setup opens Account & Devices,
+  // then iPad's first destination or iPhone's list of them.
+  const [destination, setDestination] = useState<
+    SettingsDestination | undefined
+  >(() => {
+    if (start !== undefined) {
+      return start;
+    }
+    if (inboxSetup(snapshot) !== '') {
+      return 'account';
+    }
+    return settingsColumns ? 'account' : undefined;
+  });
+  if (snapshot.kind === 'signed-out') {
+    return null;
+  }
+  const copy = registrationCopy(t, snapshot);
+  const actions = registrationActions(snapshot, failed);
+  const button = settingsButton(busy);
+  const name = snapshot.contactEmail ?? t('settings.productAccount');
+  return (
+    <AccountPage onInbox={onInbox}>
+      <SettingsWorkspace
+        account={name}
+        destination={destination}
+        onDestination={setDestination}
+        accessory={
+          <>
+            {busy ? (
+              <ActivityIndicator
+                accessibilityLabel={t('registration.connecting')}
+              />
+            ) : null}
+            {settingsColumns ? (
+              button(t('registration.openInbox'), () => {
+                onInbox();
+                return Promise.resolve();
+              })
+            ) : (
+              <Pressable
+                accessibilityLabel={t('registration.openInbox')}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: busy }}
+                disabled={busy}
+                onPress={onInbox}
+                style={[
+                  styles.back,
+                  {
+                    opacity: busy ? 0.4 : 1,
+                    boxShadow: colors.smallGlassShadow,
+                  },
+                ]}>
+                <Glass cornerRadius={22} />
+                <SFSymbol
+                  name="tray"
+                  size={20}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            )}
+          </>
+        }>
+        {failed || actions.signIn.length > 0 ? (
+          <SettingsGroup>
+            <SettingsBlock>
+              {failed ? (
+                <Text
+                  accessibilityRole="alert"
+                  style={[styles.text, { color: colors.textPrimary }]}>
+                  {t('registration.setupFailed')}
+                </Text>
+              ) : null}
+              {actions.signIn.map(({ offer, provider }) => (
+                <Fragment key={`${offer}-${provider}`}>
+                  {button(
+                    t(`registration.${offer}`, {
+                      provider: providerName(t, provider),
+                    }),
+                    () => store.register(provider),
+                  )}
+                </Fragment>
+              ))}
+              {actions.retry ? button(t('common.retry'), store.restore) : null}
+            </SettingsBlock>
+          </SettingsGroup>
+        ) : null}
+        {destination === 'account' ? (
+          <>
+            <AccountCard
+              name={name}
+              detail={t('registration.account', {
+                provider: providerName(t, snapshot.signInProvider),
+              })}
+            />
+            <SettingsGroup footer={copy.description} />
+          </>
+        ) : null}
+        {destination === 'language' ? <LanguageSelector /> : null}
+        {actions.settings && destination !== undefined ? (
+          <AccountSettings
+            assistance={assistance}
+            button={button}
+            destination={destination}
+            microsoft={microsoft}
+            store={store}
+          />
+        ) : null}
+        {destination === 'account' ? (
+          <AccountActions
+            button={button}
+            failure={removalFailure}
+            pending={snapshot.removalPending}
+            store={store}
+          />
+        ) : null}
+      </SettingsWorkspace>
+    </AccountPage>
+  );
+}
+
+function RegistrationPage({
+  assistance,
+  microsoft,
+  start,
+  store,
+  onInbox,
+}: {
+  readonly assistance: NativeAssistance;
+  readonly microsoft: boolean;
+  readonly start: SettingsDestination | undefined;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
@@ -842,6 +401,18 @@ function RegistrationPage({
   const { t } = useLocalization();
   const copy = registrationCopy(t, snapshot);
   const actions = registrationActions(snapshot, failed);
+  // A connected Inbox's account page is Settings.
+  if (onInbox !== undefined && snapshot.kind !== 'signed-out') {
+    return (
+      <SettingsPage
+        assistance={assistance}
+        microsoft={microsoft}
+        start={start}
+        store={store}
+        onInbox={onInbox}
+      />
+    );
+  }
   const button = (label: string, action: () => Promise<void>) => (
     <Pressable
       accessibilityRole="button"
@@ -854,18 +425,16 @@ function RegistrationPage({
       <Text style={[styles.text, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
-  const page = (
+  return (
     <ScrollView
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
       <View style={styles.content}>
-        {onInbox === undefined ? (
-          <Text
-            accessibilityRole="header"
-            style={[styles.title, { color: colors.textPrimary }]}>
-            {copy.title}
-          </Text>
-        ) : null}
+        <Text
+          accessibilityRole="header"
+          style={[styles.title, { color: colors.textPrimary }]}>
+          {copy.title}
+        </Text>
         <Text style={[styles.text, { color: colors.textSecondary }]}>
           {copy.description}
         </Text>
@@ -879,12 +448,6 @@ function RegistrationPage({
             accessibilityLabel={t('registration.connecting')}
           />
         ) : null}
-        {onInbox === undefined
-          ? null
-          : button(t('registration.openInbox'), () => {
-              onInbox();
-              return Promise.resolve();
-            })}
         {failed ? (
           <Text
             accessibilityRole="alert"
@@ -941,14 +504,5 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
-  );
-  return onInbox === undefined ? (
-    page
-  ) : (
-    <AccountPage
-      title={copy.title}
-      onInbox={onInbox}>
-      {page}
-    </AccountPage>
   );
 }

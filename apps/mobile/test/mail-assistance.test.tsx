@@ -101,6 +101,17 @@ const press = async (name: string) => {
   });
 };
 
+// Mail Assistance is a switch on its Settings row.
+const switchAssistance = async (on: boolean) => {
+  await act(async () => {
+    await fireEvent(
+      screen.getByRole('switch', { name: 'Mail Assistance' }),
+      'valueChange',
+      on,
+    );
+  });
+};
+
 // A rendered journey through the real registration gate, enablement store and reader, over the
 // synthetic registration session; only the Apple model and Translation are substituted.
 const settingsButton = (label: string, action: () => Promise<void>) => (
@@ -165,7 +176,7 @@ describe('account settings availability', () => {
           />
         </MailAssistanceContext>,
       );
-      await press('Turn on on-device assistance');
+      await switchAssistance(true);
       expect(assistance.calls).toStrictEqual([]);
       await press('Check Apple Intelligence availability');
       expect(screen.getByText(copy)).toBeVisible();
@@ -277,7 +288,7 @@ describe('account settings availability', () => {
         </MailAssistanceGate>
       </MailAssistanceContext>,
     );
-    await press('Turn off on-device assistance');
+    await switchAssistance(false);
     expect(
       screen.getByText(
         "This device's assistance choice could not be saved. Try again before leaving this page.",
@@ -344,7 +355,7 @@ describe('account settings availability', () => {
       );
       await off;
     });
-    await press('Turn on on-device assistance');
+    await switchAssistance(true);
     await act(async () => {
       answers[0]?.('available');
     });
@@ -527,15 +538,16 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
       screen.queryByRole('button', { name: 'Translate this message' }),
     ).not.toBeOnTheScreen();
 
-    // Turning it on from the account page starts nothing.
+    // Turning it on from Settings' Privacy & Data starts nothing.
     await press('Account');
+    await press('Privacy & Data');
     expect(screen.getByText('On-device assistance is off.')).toBeVisible();
     expect(
       screen.queryByRole('button', {
         name: 'Check Apple Intelligence availability',
       }),
     ).not.toBeOnTheScreen();
-    await press('Turn on on-device assistance');
+    await switchAssistance(true);
     expect(screen.getByText('On-device assistance is on.')).toBeVisible();
     expect(assistance.calls).toStrictEqual([]);
     await press('Check Apple Intelligence availability');
@@ -618,6 +630,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
       screen.queryByRole('button', { name: 'Summarize this message' }),
     ).not.toBeOnTheScreen();
     await press('Account');
+    await press('Privacy & Data');
     expect(screen.getByText('On-device assistance is off.')).toBeVisible();
   });
 });

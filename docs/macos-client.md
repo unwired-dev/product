@@ -205,7 +205,13 @@ delivery, accessibility and distribution still require their own checks.
 
 ## Interface language
 
-The Inbox, welcome and account pages offer System default and a saved English
+The Inbox, the welcome page and Settings' **Language** offer System default and a saved English
 override, which also titles the native menus and windows. See
 [interface translations](localization.md) for catalogs, adding languages, native
 menu behavior, and language verification.
+
+## Settings
+
+Settings' Mail Assistance switch follows the Mac's system accent. Its graphite
+tint from the design remains a native-host deviation for design capture and
+qualification.
