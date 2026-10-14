@@ -1359,7 +1359,7 @@ describe('command palette', () => {
     expect(screen.getByRole('search')).toBeVisible();
   });
 
-  it('keeps the palette on the account page and returns to the Inbox from it', async () => {
+  it('navigates Settings from the account page, keeps the palette there and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({
@@ -1371,12 +1371,46 @@ describe('command palette', () => {
     await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
-    });
-    await openPalette(
-      await screen.findByRole('header', { name: 'Gmail connected' }),
-    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name }));
+      });
+    };
+    const destinations = [
+      'Account & Devices',
+      'Email Accounts',
+      'Language',
+      'Privacy & Data',
+    ];
+    // The account page opens on the list of Settings destinations.
+    await press('Account');
+    await expect(
+      screen.findByRole('header', { name: 'Settings' }),
+    ).resolves.toBeVisible();
+    for (const name of destinations) {
+      expect(screen.getByRole('button', { name })).toBeVisible();
+    }
+    expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
+    // A destination pushes over the list, and the way back returns to it.
+    await press('Account & Devices');
+    expect(
+      screen.getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText('alex@example.invalid is connected on this device.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Email Accounts' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
+    await press('Back to Settings');
+    expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Account & Devices' }),
+    ).toBeNull();
+    await press('Email Accounts');
+    expect(
+      screen.getByRole('header', { name: 'Mailbox Connections' }),
+    ).toBeVisible();
+    await openPalette(screen.getByRole('header', { name: 'Email Accounts' }));
     expect(
       openedPalette().getByRole('button', {
         name: 'Reply. Select a conversation',
@@ -1388,9 +1422,7 @@ describe('command palette', () => {
       );
     });
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-    expect(
-      screen.queryByRole('header', { name: 'Gmail connected' }),
-    ).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
     await expect(
       screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',

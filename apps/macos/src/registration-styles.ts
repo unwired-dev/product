@@ -12,6 +12,7 @@ export const registrationStyles = StyleSheet.create({
     padding: 32,
   },
   content: { maxWidth: 420, width: '100%', gap: 20 },
+  grow: { flex: 1 },
   title: { ...textStyles.largeTitle },
   heading: { ...textStyles.title3Emphasized },
   text: { ...textStyles.body },

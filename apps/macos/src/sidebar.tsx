@@ -333,10 +333,12 @@ export function Mailboxes({
                   }
                   selected={selected}
                   onPress={() => {
-                    // IMAP needs its password entered again on the account page.
+                    // IMAP needs its password entered again in Settings' Email Accounts.
                     if (imap) {
                       if (account !== undefined) {
-                        void openAccount(account.openAccount);
+                        void openAccount(() => {
+                          account.openAccount('mailboxes');
+                        });
                       }
                     } else {
                       void authorize(connection.id);
