@@ -6,7 +6,7 @@ import { spacing } from '@private-email/mail-core/theme';
 import { use, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { RegisterCommands } from './command-palette.tsx';
+import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -271,6 +271,8 @@ export function SearchField({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const { accessibilityActions, onAccessibilityAction: handlePaletteAction } =
+    usePaletteHeader().action;
   if (!ready) {
     return <View style={styles.searchBar} />;
   }
@@ -281,6 +283,9 @@ export function SearchField({
         color={colors.textSecondary}
       />
       <TextInput
+        // While searching the field replaces the heading, so it also opens the Command Palette.
+        accessibilityActions={accessibilityActions}
+        onAccessibilityAction={handlePaletteAction}
         accessibilityLabel={t('search.label')}
         accessibilityRole="search"
         autoCapitalize="none"

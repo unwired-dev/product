@@ -82,7 +82,8 @@ results never appear in the palette. The vocabulary lives in the
   Inbox heading says Swipe down on the header for commands, and goes away once
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command
-  Palette accessibility action for VoiceOver and other assistive controls. A
+  Palette accessibility action for VoiceOver and other assistive controls; while
+  search replaces the Inbox heading, the search field carries it instead. A
   reader, Thread or composer that is loading, cannot open its storage or has
   no message or Draft to show keeps the same swipe and action, on its title or
   its loading indicator, since it still covers the Inbox.

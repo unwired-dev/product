@@ -1403,6 +1403,26 @@ const listedMessage = (
 };
 
 describe('command palette', () => {
+  it('opens from the search field while search replaces the Inbox heading', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const field = await screen.findByLabelText('Search senders and subjects');
+    await act(async () => {
+      await fireEvent(field, 'focus');
+    });
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    await openPalette(field);
+    expect(
+      openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */
   it('lists contextual commands first, narrows by typing and moves the open message from its picker', async () => {
     expect.hasAssertions();

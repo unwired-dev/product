@@ -393,19 +393,22 @@ export function useInboxFilter<M extends Filtered>({
         : [],
     [scope, mailboxes],
   );
+  // A filter is off once it leaves nothing out here, as when a view drops the connections it excluded.
+  const active = on && narrows(filter, connections);
   const rows = useMemo(
-    () => (on ? filterMessages(listed, { filter, connections, now }) : listed),
-    [on, filter, connections, listed, now],
+    () =>
+      active ? filterMessages(listed, { filter, connections, now }) : listed,
+    [active, filter, connections, listed, now],
   );
   return {
     filter,
     setFilter,
-    on,
+    on: active,
     setOn,
     connections,
     rows,
     // The filter, not an empty mailbox, leaves the list empty.
-    hidesAll: on && listed.length > 0 && rows.length === 0,
+    hidesAll: active && listed.length > 0 && rows.length === 0,
   };
 }
 

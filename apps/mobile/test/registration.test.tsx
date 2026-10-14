@@ -1593,6 +1593,13 @@ describe('product registration', () => {
       'Unread. Maya Chen. Studio review. In alex@example.invalid',
       'Unread. Oliver Park. Café on Saturday. In alex@example.invalid',
     ]);
+    // A mailbox's own view has no mailbox to leave out, so the filter reads as off there.
+    await press('Inbox. In alex@example.invalid');
+    expect(screen.queryByRole('button', { name: /^Filtered by/u })).toBeNull();
+    await press('All inboxes');
+    await expect(
+      screen.findByRole('button', { name: 'Filtered by alex@example.invalid' }),
+    ).resolves.toBeVisible();
     await toggleFilter();
     expect(rows()).toHaveLength(3);
 
