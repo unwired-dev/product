@@ -385,6 +385,24 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
 
       // Removing the iPad, when the proposal still matches the account: its new epoch, or a
       // refusal's status and code as the HTTP route answers.
+      // The rotation carries one envelope, for this device's bound encryption key alone.
+      const sealedForThisDevice = (
+        product: Product,
+        envelopes: (typeof Activation.Type)['keyEnvelopes'],
+      ) => {
+        const [envelope] = envelopes;
+        return (
+          envelopes.length === 1 &&
+          envelope?.trustedDeviceId === product.trustedDeviceId &&
+          envelope.deviceEncryptionPublicKey ===
+            state.deviceKeys[product.trustedDeviceId] &&
+          [
+            envelope.deviceEncryptionPublicKey,
+            envelope.encapsulatedKeyBase64,
+            envelope.ciphertextBase64,
+          ].every(isBase64)
+        );
+      };
       // Why removing the iPad is refused, when it is: the HTTP route's status and code, or the
       // earlier activation's epoch for a repeated proposal.
       const refusedRemoval = (
@@ -412,24 +430,6 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         return wrapped.keyVersion === current + 1 && wrapped.schemaVersion === 3
           ? undefined
           : [400, { code: 'KEY_ROTATION_INVALID' }];
-      };
-      // The rotation carries one envelope, for this device's bound encryption key alone.
-      const sealedForThisDevice = (
-        product: Product,
-        envelopes: (typeof Activation.Type)['keyEnvelopes'],
-      ) => {
-        const [envelope] = envelopes;
-        return (
-          envelopes.length === 1 &&
-          envelope?.trustedDeviceId === product.trustedDeviceId &&
-          envelope.deviceEncryptionPublicKey ===
-            state.deviceKeys[product.trustedDeviceId] &&
-          [
-            envelope.deviceEncryptionPublicKey,
-            envelope.encapsulatedKeyBase64,
-            envelope.ciphertextBase64,
-          ].every(isBase64)
-        );
       };
       // Removes the iPad when the proposal still matches the account, once: its new epoch.
       const removal = (
