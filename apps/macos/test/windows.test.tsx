@@ -1,5 +1,6 @@
 import type { AppStateStatus, TurboModule } from 'react-native';
 
+import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   createMailboxes,
@@ -7,6 +8,8 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
+import { defaultProfile } from '@private-email/mail-core/registration';
+import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -16,7 +19,13 @@ import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-stor
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { palette } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { act, fireEvent, render, within } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  within,
+  waitFor,
+} from '@testing-library/react-native';
 import {
   AccessibilityInfo,
   AppState,
@@ -30,13 +39,18 @@ import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
 import { InboxProvider } from '../src/mailbox.tsx';
-import { RegistrationGate } from '../src/registration-gate.tsx';
+import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
   mailboxes: undefined,
+}));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Inject a real Draft store through the app's singleton boundary.
+jest.mock('../src/registration.ts', () => ({
+  ...jest.requireActual('../src/registration.ts'),
 }));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -154,6 +168,128 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     showMailboxes(singleMailbox(fixture, 'preview'));
   });
+
+  /* oxlint-disable vitest/max-expects -- One editor crosses expansion, reader changes and durable Close. */
+  it('keeps the open Draft and history while selecting the reader beneath its overlay', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: alex,
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const account = {
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: connectedMailboxes,
+      },
+      busy: false,
+      failed: false,
+    } as const;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, {
+      subscribe: () => () => undefined,
+      getSnapshot: () => account,
+    });
+    const replacement = jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const app = await render(
+      <AccountContext
+        value={{
+          mailboxes: [connection],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <InboxWindow windowId="compose" />
+      </AccountContext>,
+    );
+    try {
+      await fireEvent(app.getByTestId('window-panes-compose'), 'layout', {
+        nativeEvent: { layout: { width: 1000, height: 600 } },
+      });
+      await fireEvent.press(await app.findByRole('button', { name: maya }));
+      await waitFor(() => {
+        expect(app.getByRole('button', { name: 'New Message' })).toBeEnabled();
+      });
+      await fireEvent.press(
+        await app.findByRole('button', { name: 'New Message' }),
+      );
+      await expect(app.findByTestId('composer-overlay')).resolves.toHaveStyle({
+        height: 420,
+        left: 604,
+      });
+      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+      expect(app.queryByRole('button', { name: 'New Message' })).toBeNull();
+      await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
+      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 352 });
+      await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 604 });
+      await fireEvent.changeText(
+        app.getByLabelText('Message body'),
+        'Keep this draft.',
+      );
+      await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
+      // The hidden floating bar retains its command, which still guards the current Draft.
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      await fireEvent.press(
+        within(app.getByTestId('command-palette')).getByRole('button', {
+          name: 'New Message',
+        }),
+      );
+      expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
+      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+      // Search Mail collapses the expanded composer to reveal the Inbox search field, keeping the Draft.
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      await act(async () => {
+        await fireEvent.press(
+          within(app.getByTestId('command-palette')).getByRole('button', {
+            name: 'Search Mail',
+          }),
+        );
+      });
+      expect(app.getByLabelText('Search senders and subjects')).toBeVisible();
+      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
+      await fireEvent.press(app.getByRole('button', { name: oliver }));
+      expect(app.getByLabelText('Message body')).toHaveTextContent(
+        'Keep this draft.',
+      );
+      expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      expect(
+        app.getByRole('alert', {
+          name: 'Correct or remove the invalid address to close this Draft.',
+        }),
+      ).toBeVisible();
+      await fireEvent.press(app.getByRole('button', { name: 'Undo' }));
+      await fireEvent.press(app.getByRole('button', { name: 'Undo' }));
+      expect(app.getByLabelText('Message body')).not.toHaveTextContent(
+        'Keep this draft.',
+      );
+      await fireEvent.press(app.getByRole('button', { name: 'Redo' }));
+      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await expect(app.findByText('oliver@example.com')).resolves.toBeVisible();
+      expect(app.queryByLabelText('Message body')).toBeNull();
+      await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
+      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
+      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+    } finally {
+      await app.unmount();
+      replacement.restore();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
 
   it.each(['light', 'dark'] as const)(
     'keeps the selected row legible after focus leaves in %s appearance',

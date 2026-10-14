@@ -339,8 +339,11 @@ as the host acceptance authority. Record the presentation and scope qualified
 on each host; prototype overlay geometry is not a universal replacement requirement.
 
 For the single-scroll presentation, verify that the body grows with its content
-inside the same outer scroll as From, recipients, subject, formatting controls,
-attachments, quoted text and save/error status, with only the compact header fixed.
+inside the same outer scroll as recipients, subject, attachments, quoted text,
+assistance panels and save/error or confirmation status. Preserve the fixed
+platform control rows in the Draft guide and ADR 0057's platform-placement
+amendment, including the compact iPhone format bar above the keyboard and the
+Mac From/Send footer.
 A fixed-height WebView with its own competing vertical scroll does not pass that
 contract. Across adaptive layout and keyboard/split-view changes, and collapsed/expanded
 transitions where the host provides them, preserve the same Draft identity,

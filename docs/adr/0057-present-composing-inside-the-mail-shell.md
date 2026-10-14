@@ -12,6 +12,22 @@ The collapsed overlay spans the detail column with 12-point outer insets and use
 
 Expansion is transient to the open editor and never changes how a later Draft opens. Compose preference schema version 2 ignores and omits the legacy synchronized partial-height or full-screen opening field. Version 1 clients reject that newer payload, so they cannot recreate the retired preference.
 
-Only the compact composer header remains fixed. Its leading control is a visible `x` icon with the accessibility label “Close Composer,” followed by a left-aligned Draft title. The expansion control remains directly visible beside the overflow menu, and Send remains visible at the trailing edge. From identity, recipients, subject, formatting controls, the authored body, attachments, quoted text, and save or error status share one outer scroll view. The rich body editor grows with its content and never owns a competing internal vertical scroll.
+## Platform control placement amendment, 2026-10-14
+
+The #903 review decision panel preserves the platform control placement in
+[the Draft guide](../drafts.md#composing) and the Compose design frames. This
+supersedes the earlier requirement that only the header remain fixed and every
+other control scroll. The compact header remains fixed, with a visible `x`
+Close control labeled "Close Composer," a left-aligned Draft title, overflow and the regular-width
+expansion control. On iPhone and iPad, Send stays at the trailing header edge
+and From in a fixed row beneath it. On Mac, From and Send share the fixed bottom
+row. Formatting controls remain fixed beneath the header on Mac and iPad and
+above the keyboard on compact iPhone.
+
+Recipients, subject, the authored body, attachments, quoted text, assistance
+panels, save status, errors and confirmations share one outer content scroll
+view. Variable-height feedback must scroll away rather than consume the editor
+viewport. The rich body editor grows with its content and never owns a competing
+internal vertical scroll.
 
 Each mail window owns one active composer. The `x` closes the editor only after its latest autosave succeeds and never discards the Draft; Discard remains an explicit destructive overflow action. Starting another message or selecting another product-authored Draft autosaves and parks the current Draft, then switches the same editor to the requested Draft. A save failure blocks closing or switching and remains visible inline.

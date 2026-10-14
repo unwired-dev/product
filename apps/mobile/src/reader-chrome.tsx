@@ -2,7 +2,7 @@ import type { ViewProps } from 'react-native';
 
 import { spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
-import { useState } from 'react';
+import { createContext, useState } from 'react';
 import {
   Pressable,
   requireNativeComponent,
@@ -20,6 +20,11 @@ import { textStyles, usePalette } from './theme.ts';
 const NativeReaderChrome = requireNativeComponent<ViewProps>(
   'UnwiredReaderChrome',
 );
+
+// The compose route reports the native reading column's width to its overlay owner.
+export const ReaderPaneWidthContext = createContext<
+  ((width: number) => void) | undefined
+>(undefined);
 
 const styles = StyleSheet.create({
   header: {

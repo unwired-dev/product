@@ -675,6 +675,10 @@
     "invalidRecipients": "Correct or remove the invalid address to close this Draft.",
     "discardConfirm": "Discard this Draft? It is deleted from this device.",
     "showCcBcc": "Show Cc and Bcc",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "textStyle": "Text style",
+    "actions": "Compose actions",
     "ccBcc": "Cc/Bcc",
     "subject": "Subject",
     "formatting": "Formatting",
@@ -688,6 +692,7 @@
       "code": "Inline code"
     },
     "blocks": {
+      "body": "Body",
       "heading1": "Heading 1",
       "heading2": "Heading 2",
       "heading3": "Heading 3",
