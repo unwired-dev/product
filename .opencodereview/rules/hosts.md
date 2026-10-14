@@ -638,6 +638,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   as deferred when unavailable; component style assertions do not prove it.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
+- `command-palette.tsx.CommandBar` or another Mac overlay that takes focus
+  and hands it back on dismissal through `TextInput.State.currentlyFocusedInput`
+  alone. React Native tracks only text inputs, while Mac Inbox rows, buttons and
+  the message body are keyboard-focusable, so a palette opened from a focused
+  row returns focus nowhere. Save and restore the window's first responder
+  through `UnwiredCommands.saveFocus`/`restoreFocus`, keyed by the AppKit window
+  identifier. Both calls and the Fabric mount reach the main queue in call order,
+  so saving before the open state change records the pre-palette control, and
+  restoring before the command runs lets a command that focuses a field keep it.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
 - A mobile Profile selector whose parameter name disagrees with ADR 0050’s
   `profileId` route contract. Trace targeted entry, in-app message selection,

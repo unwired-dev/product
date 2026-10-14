@@ -45,6 +45,7 @@ import {
   Pressable,
   Text,
   TurboModuleRegistry,
+  View,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -126,13 +127,23 @@ function ConnectedInbox() {
 // The native Commands… menu, whose Command-P names the key window to every window's JavaScript.
 const commandMenu = () => {
   const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  // The windows whose first responder the palette asked AppKit to keep, and to restore.
+  const focus = { saved: [] as string[], restored: [] as string[] };
   const menu: TurboModule &
     Readonly<{
       addListener: () => void;
       removeListeners: () => void;
+      saveFocus: (window: string) => void;
+      restoreFocus: (window: string) => void;
     }> = {
     addListener: () => undefined,
     removeListeners: () => undefined,
+    saveFocus: (window) => {
+      focus.saved.push(window);
+    },
+    restoreFocus: (window) => {
+      focus.restored.push(window);
+    },
   };
   const module = jest
     .spyOn(TurboModuleRegistry, 'get')
@@ -148,6 +159,7 @@ const commandMenu = () => {
         await Promise.resolve();
       });
     },
+    focus,
     restore: () => {
       module.mockRestore();
     },
@@ -806,6 +818,58 @@ describe('product registration', () => {
         screen.findByText('Synthetic message 1'),
       ).resolves.toBeVisible();
     } finally {
+      menu.restore();
+    }
+  });
+
+  it("asks AppKit to keep the window's focused control on opening and restore it on closing", async () => {
+    expect.hasAssertions();
+    const menu = commandMenu();
+    try {
+      await renderBarWindow(barConnected);
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Open Command Palette' }),
+      );
+      expect(menu.focus.saved).toStrictEqual(['inbox-window-bar']);
+      await fireEvent(
+        screen.getByPlaceholderText('Type a command'),
+        'keyDown',
+        {
+          nativeEvent: { key: 'Escape' },
+        },
+      );
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      expect(menu.focus.restored).toStrictEqual(['inbox-window-bar']);
+    } finally {
+      menu.restore();
+    }
+  });
+
+  it('hands focus back to the Command Palette button that opened the palette', async () => {
+    expect.hasAssertions();
+    const menu = commandMenu();
+    const focus = jest.spyOn(View.prototype, 'focus');
+    try {
+      await renderBarWindow(barConnected);
+      const button = await screen.findByRole('button', {
+        name: 'Open Command Palette',
+      });
+      await fireEvent(button, 'focus');
+      await fireEvent.press(button);
+      focus.mockClear();
+      await fireEvent(
+        screen.getByPlaceholderText('Type a command'),
+        'keyDown',
+        {
+          nativeEvent: { key: 'Escape' },
+        },
+      );
+      expect(menu.focus.restored).toStrictEqual([]);
+      expect(
+        focus.mock.contexts.map((view: View) => view.props.accessibilityLabel),
+      ).toStrictEqual(['Open Command Palette']);
+    } finally {
+      focus.mockRestore();
       menu.restore();
     }
   });

@@ -54,8 +54,10 @@ results never appear in the palette. The vocabulary lives in the
 - Commands use the same confirmations, Undo and error reporting as the buttons
   they stand for: an archive from the palette shows the reader's notice and Undo.
 - Running a command closes the palette. Cancel, a tap or click outside, or
-  Escape closes it too and hands focus back to the control that had it. Each
-  opening starts with an empty query.
+  Escape closes it too and hands focus back to the control that had it. On the
+  Mac, AppKit keeps the window's focused control, so focus returns to an Inbox
+  row or a button as well as a text field, and to the command input when it was
+  focused. Each opening starts with an empty query.
 
 ## Entry points
 

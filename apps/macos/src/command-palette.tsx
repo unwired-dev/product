@@ -77,6 +77,9 @@ export function RegisterCommands({
 interface CommandMenu extends TurboModule {
   readonly addListener: (eventName: string) => void;
   readonly removeListeners: (count: number) => void;
+  // The window's first responder, which can be an Inbox row or a button as well as a text field.
+  readonly saveFocus: (window: string) => void;
+  readonly restoreFocus: (window: string) => void;
 }
 
 // The Commands… menu item, Command-P, names the key window it was chosen in.
@@ -242,15 +245,21 @@ export function CommandBar() {
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
   const [opened, setOpened] = useState<readonly Command[]>();
-  // The control focused when the palette opened, which closing hands focus back to.
-  const previous = useRef<ReturnType<
-    typeof TextInput.State.currentlyFocusedInput
-  > | null>(null);
+  // The AppKit window this palette belongs to.
+  const identifier = `inbox-window-${windowId}`;
+  // The bar's button, which the open palette replaces, so closing focuses its replacement itself.
+  const pill = useRef<View>(null);
+  const pillFocused = useRef(false);
+  const refocusPill = useRef(false);
   const open = useCallback(() => {
     if (opened !== undefined) {
       return;
     }
-    previous.current = TextInput.State.currentlyFocusedInput();
+    refocusPill.current = pillFocused.current;
+    pillFocused.current = false;
+    // AppKit keeps the focused control, which closing hands focus back to, since React Native
+    // tracks only text fields.
+    commandMenu()?.saveFocus(identifier);
     const placeholders = expectedCommands(t, {
       disabled: t('commands.selectConversation'),
     });
@@ -259,12 +268,22 @@ export function CommandBar() {
       ...registry.getSnapshot(),
     ]);
     setOpened(orderCommands(commands));
-  }, [registry, opened, t]);
+  }, [registry, opened, t, identifier]);
   const close = () => {
     setOpened(undefined);
-    previous.current?.focus();
-    previous.current = null;
+    if (!refocusPill.current) {
+      commandMenu()?.restoreFocus(identifier);
+    }
   };
+  // The returning button takes focus back, unless the command that ran focused a field of its own.
+  useEffect(() => {
+    if (opened === undefined && refocusPill.current) {
+      refocusPill.current = false;
+      if (TextInput.State.currentlyFocusedInput() === null) {
+        pill.current?.focus();
+      }
+    }
+  }, [opened]);
   // Opens the palette when this window's Commands… menu item, Command-P, is chosen.
   useEffect(() => {
     const menu = commandMenu();
@@ -274,7 +293,7 @@ export function CommandBar() {
     const subscription = new NativeEventEmitter(menu).addListener(
       'openCommandPalette',
       ({ window }: { readonly window: string }) => {
-        if (window === `inbox-window-${windowId}`) {
+        if (window === identifier) {
           open();
         }
       },
@@ -282,7 +301,7 @@ export function CommandBar() {
     return () => {
       subscription.remove();
     };
-  }, [open, windowId]);
+  }, [open, identifier]);
   return (
     <>
       {opened === undefined ? null : (
@@ -309,7 +328,14 @@ export function CommandBar() {
           <Pressable
             accessibilityLabel={t('commands.openPalette')}
             accessibilityRole="button"
+            onBlur={() => {
+              pillFocused.current = false;
+            }}
+            onFocus={() => {
+              pillFocused.current = true;
+            }}
             onPress={open}
+            ref={pill}
             style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
             <Glass cornerRadius={inputHeight / 2} />
             <SFSymbol
