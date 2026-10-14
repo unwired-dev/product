@@ -537,7 +537,7 @@
     "apply": "Apply Filters",
     "filteredBy": "Filtered by",
     "filteredByLabel": "Filtered by {{label}}",
-    "openHint": "Opens the Filters sheet.",
+    "openHint": "Opens Filters.",
     "includeFrom": "Include Mail From",
     "include": "Include",
     "unread": "Unread",

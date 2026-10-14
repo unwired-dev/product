@@ -793,6 +793,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `inbox-bar.tsx.FilterControl` retaining a sheet-specific `accessibilityHint`
+  after a regular-width layout opens a popover. Trace the destination in compact
+  and regular modes; name the common Filters destination or localize each
+  presentation, or VoiceOver announces the wrong presentation.
 - A primary action such as `inbox-filters.tsx.FiltersSheet` changing its pressed
   background to `accentInk` while keeping `accentOnFill` text or symbols. Check
   the held state in both palettes against DESIGN.md's contrast requirements;

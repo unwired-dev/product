@@ -134,7 +134,8 @@ filter's one criterion, or how many apply. On iPhone the field gives way to a
 Pressing the summary opens **Filters**: a full-height sheet on iPhone and in a
 compact-width iPad window, and in a regular-width iPad window a 420pt popover that
 fades in above the Filter control and closes without an exit animation when tapped
-outside. It stays anchored while the window changes size and retains the edited choices:
+outside. Within regular width it stays anchored while the window changes size and
+retains the edited choices:
 
 - **Include Mail From**, in **All inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
