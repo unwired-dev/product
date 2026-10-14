@@ -42,6 +42,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `imap-setup.tsx.ImapSetup` or another registration chooser replacing the
+  registration action helper with a direct provider row that ignores the store's
+  `busy` state. Preserve disabled navigation during pending account/mailbox work
+  and restore it after settlement. Exercise a held native authorization through
+  the real store and an attempted provider selection; otherwise the interface
+  opens a competing setup form while its other registration actions are disabled.
+
 - `inbox-bar.tsx.NewMessageButton` falling back to another sender when a specific
   mailbox is selected but cannot send. Only All inboxes chooses the first usable
   mailbox in the window's Profile; a selected mailbox without authorization or

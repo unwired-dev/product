@@ -381,7 +381,18 @@ final class InboxTests: XCTestCase {
     let key = app.staticTexts["recovery-key"].label
     let entry = app.textFields["Last four characters"]
     entry.tap()
-    entry.typeText(String(key.suffix(4)) + "\n")
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    var confirmation = ""
+    for character in key.suffix(4) {
+      entry.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)],
+          timeout: 5), .completed)
+    }
+    entry.typeText("\n")
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()

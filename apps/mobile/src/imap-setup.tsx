@@ -50,10 +50,10 @@ const formStyles = StyleSheet.create({
   input: { ...textStyles.body, flex: 1, minHeight: 44 },
   choices: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   choice: {
-    minHeight: 32,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
-    borderRadius: radius.chip,
+    borderRadius: 44 / 2,
     borderCurve: 'continuous',
   },
   choiceLabel: { ...textStyles.subheadline },
@@ -99,6 +99,7 @@ export function ImapSetup({
   readonly onClose?: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [provider, setProvider] = useState<ImapProvider | undefined>(
     repair === undefined ? undefined : 'other',
   );
@@ -127,7 +128,7 @@ export function ImapSetup({
           <ProviderRow
             key={choice.provider}
             detail={t(`onboarding.providers.${choice.provider}.detail`)}
-            disabled={false}
+            disabled={busy}
             last={index === providers.length - 1}
             letter={choice.letter}
             name={t(`onboarding.providers.${choice.provider}.name`)}
@@ -481,6 +482,13 @@ function ManualSending({
           textContentType: 'username',
         },
       })}
+      <Text
+        style={[
+          formStyles.notes,
+          { color: colors.textSecondary, paddingHorizontal: spacing.l },
+        ]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Text>
       {field({
         name: 'smtpPassword',
         label: t('imap.smtpPassword'),
@@ -493,6 +501,13 @@ function ManualSending({
         },
         last: true,
       })}
+      <Text
+        style={[
+          formStyles.notes,
+          { color: colors.textSecondary, paddingHorizontal: spacing.l },
+        ]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Text>
     </FormGroup>
   );
 }

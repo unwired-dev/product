@@ -57,7 +57,8 @@ Fastmail require an app-specific password, which signs in to both IMAP and SMTP;
 form says so. The Other IMAP Account form adds an **Incoming (IMAP)** group for the
 user name, server and port, and an **Outgoing (SMTP)** group: server,
 port, **SSL/TLS** or **STARTTLS**, and optionally an SMTP user name and password when
-they differ from the incoming ones. Every connection uses **Secure Mail Transport**:
+they differ from the incoming ones. Wrapping guidance beside each SMTP credential
+field explains the incoming default even after a value is entered. Every connection uses **Secure Mail Transport**:
 TLS 1.2 or newer and certificate verification against the system's trusted roots with
 no override. IMAP uses TLS from the first byte (implicit TLS); STARTTLS and plaintext
 IMAP ports are not offered. SMTP uses implicit TLS, or STARTTLS that the server must

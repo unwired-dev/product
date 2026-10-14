@@ -174,6 +174,59 @@ const noEnrollment = {
 };
 
 describe('product registration', () => {
+  it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: connectedTo('alex@example.invalid'),
+    } as const;
+    let finish: (snapshot: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold native authorization while trying the IMAP provider row.
+    const authorization = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    const store = createRegistration({
+      ...noEnrollment,
+      ...createMockRegistrationSession('registration-success').native,
+      restore: () => Promise.resolve(connected),
+      addMailbox: () => authorization,
+    });
+    const view = await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    try {
+      await openAccount();
+      await press('Add an IMAP mailbox');
+      await press('Add another Gmail mailbox');
+      await press('iCloud Mail');
+      expect(screen.queryByRole('header', { name: 'iCloud Mail' })).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'iCloud Mail' }),
+      ).toBeDisabled();
+      await act(async () => {
+        finish(connected);
+      });
+      await press('iCloud Mail');
+      expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
+    } finally {
+      await act(async () => {
+        finish(connected);
+      });
+      await view.unmount();
+    }
+  });
+
   it.each([
     {
       host: 'imap.example.invalid',
@@ -309,17 +362,22 @@ describe('product registration', () => {
         screen.getByLabelText('SMTP password, same as incoming if blank'),
         smtpPassword,
       );
+      const credentialGuidance = screen.getAllByText(
+        'Same as incoming if blank.',
+      ).length;
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
       });
       expect({
         canConnect,
+        credentialGuidance,
         setups,
         failure: store.getSnapshot().imapFailure,
         password: screen.queryByLabelText('Password'),
         state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
       }).toStrictEqual({
         canConnect: expectedConnect,
+        credentialGuidance: 2,
         setups: [
           expect.objectContaining({
             password: 'replacement-password',
@@ -2192,6 +2250,10 @@ describe('product registration', () => {
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode.replaceAll('-', ' '),
+    );
+    expect(screen.getByTestId('enrollment-code')).toHaveProp(
+      'accessibilityLabel',
       syntheticEnrollmentCode,
     );
     for (const name of [
@@ -2647,7 +2709,7 @@ describe('product registration', () => {
     });
     await expect(
       screen.findByTestId('enrollment-code'),
-    ).resolves.toHaveTextContent(syntheticEnrollmentCode);
+    ).resolves.toHaveTextContent(syntheticEnrollmentCode.replaceAll('-', ' '));
     expect(
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
@@ -2764,7 +2826,9 @@ describe('product registration', () => {
       });
       await expect(
         screen.findByTestId('enrollment-code'),
-      ).resolves.toHaveTextContent(syntheticEnrollmentCode);
+      ).resolves.toHaveTextContent(
+        syntheticEnrollmentCode.replaceAll('-', ' '),
+      );
       expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     },
   );
@@ -2875,6 +2939,10 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Add this device' }),
     ).resolves.toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode.replaceAll('-', ' '),
+    );
+    expect(screen.getByTestId('enrollment-code')).toHaveProp(
+      'accessibilityLabel',
       syntheticEnrollmentCode,
     );
     expect(screen.queryByRole('button', { name: 'Gmail' })).toBeNull();

@@ -35,12 +35,14 @@ const styles = StyleSheet.create({
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...textStyles.body, marginTop: spacing.s, opacity: 0.85 },
   form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  formContent: { width: 320, gap: spacing.m },
+  formContent: { width: '100%', maxWidth: 320, gap: spacing.m },
   title: { fontSize: 22, lineHeight: 26 },
   description: { ...textStyles.body },
   finePrint: { ...textStyles.subheadline, marginTop: spacing.m },
   action: {
     minHeight: 40,
+    flexDirection: 'row',
+    gap: spacing.s,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
@@ -244,6 +246,12 @@ export function OnboardingAction({
         shape,
         { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
       ]}>
+      {fill === 'apple' ? (
+        <SFSymbol
+          name="apple.logo"
+          color={ink}
+        />
+      ) : null}
       <Text style={[type, { color: ink }]}>{label}</Text>
     </Pressable>
   );

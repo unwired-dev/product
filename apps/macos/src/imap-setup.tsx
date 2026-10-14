@@ -104,6 +104,7 @@ export function ImapSetup({
   readonly onClose?: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [provider, setProvider] = useState<ImapProvider | undefined>(
     repair === undefined ? undefined : 'other',
   );
@@ -132,7 +133,7 @@ export function ImapSetup({
           <ProviderRow
             key={choice.provider}
             detail={t(`onboarding.providers.${choice.provider}.detail`)}
-            disabled={false}
+            disabled={busy}
             last={index === providers.length - 1}
             letter={choice.letter}
             name={t(`onboarding.providers.${choice.provider}.name`)}
@@ -467,6 +468,9 @@ function ManualSending({
           textContentType: 'username',
         },
       })}
+      <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Label>
       {field({
         name: 'smtpPassword',
         label: t('imap.smtpPassword'),
@@ -478,6 +482,9 @@ function ManualSending({
           textContentType: 'password',
         },
       })}
+      <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
+        {t('imap.sameAsIncomingIfBlank')}
+      </Label>
     </FormGroup>
   );
 }

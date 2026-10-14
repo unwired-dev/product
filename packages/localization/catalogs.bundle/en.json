@@ -855,7 +855,8 @@
     "foldersUnavailable": "Folders could not be listed. Try again when the mail server can be reached.",
     "incoming": "Incoming (IMAP)",
     "securityLabel": "Security",
-    "sameAsIncoming": "Same as incoming"
+    "sameAsIncoming": "Same as incoming",
+    "sameAsIncomingIfBlank": "Same as incoming if blank."
   },
   "imapSync": {
     "syncing": "Checking the mail server…",
@@ -932,7 +933,7 @@
     "signIn": {
       "title": "Sign in to Unwired",
       "description": "Use the account you already use on your other devices.",
-      "finePrint": "Signing in turns on Private Sync. A new Product Account creates its Recovery Key on this device."
+      "finePrint": "Signing in starts Private Sync setup. A new Product Account creates its Recovery Key on this device."
     },
     "back": "Back",
     "providers": {

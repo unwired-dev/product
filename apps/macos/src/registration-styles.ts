@@ -36,6 +36,7 @@ export const registrationStyles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '600',
+    fontFamily: 'Menlo',
     fontVariant: ['tabular-nums'],
     letterSpacing: 2,
     textAlign: 'center',

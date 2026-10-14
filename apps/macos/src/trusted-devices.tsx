@@ -82,8 +82,10 @@ function RevocationProposal({
           {t('revocation.mismatch')}
         </Label>
       ) : null}
-      {button(t('revocation.remove', { name }), () =>
-        store.confirmRevocation(entry),
+      {button(
+        t('revocation.remove', { name }),
+        () => store.confirmRevocation(entry),
+        'destructive',
       )}
       {button(t('revocation.cancel'), store.cancelRevocation)}
     </View>

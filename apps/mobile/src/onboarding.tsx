@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  palette,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import {
   Platform,
   Pressable,
@@ -11,7 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SFSymbol } from './design.tsx';
+import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -22,16 +27,27 @@ const styles = StyleSheet.create({
   welcome: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: ipad ? 96 : 24,
+    paddingHorizontal: ipad ? 140 : 24,
     paddingVertical: spacing.l,
   },
-  welcomeContent: { maxWidth: 520, gap: 14 },
+  welcomeContent: { maxWidth: ipad ? 598 : 520, gap: 14 },
+  ipadWelcomeContent: { gap: 0 },
   seal: { width: 18, height: 18, borderRadius: 9 },
+  ipadSeal: {
+    width: 20.7,
+    height: 20.7,
+    borderRadius: 10.35,
+    marginBottom: 27.6,
+  },
   headline: { fontSize: 40, lineHeight: 46, fontWeight: '700' },
+  ipadHeadline: { fontSize: 59.8, lineHeight: 66.7, fontWeight: '400' },
   lede: { ...textStyles.body, opacity: 0.8 },
+  ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
+  ipadPoints: { gap: 16.1, marginTop: 41.4, marginBottom: 32.2 },
+  ipadPointText: { fontSize: 17.25, lineHeight: 18.4 },
   footer: {
     paddingHorizontal: spacing.l,
     paddingBottom: spacing.l,
@@ -44,9 +60,10 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   brandPanel: {
-    width: '37%',
+    width: '39%',
     justifyContent: 'flex-end',
-    padding: 40,
+    paddingHorizontal: 64,
+    paddingBottom: 124,
     gap: spacing.s,
     borderRadius: radius.window,
     borderCurve: 'continuous',
@@ -55,7 +72,7 @@ const styles = StyleSheet.create({
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...textStyles.footnote, opacity: 0.85 },
   form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  formContent: { width: '100%', maxWidth: 340, gap: spacing.m },
+  formContent: { width: '100%', maxWidth: 392, gap: spacing.m },
   compactForm: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40, gap: 10 },
   back: {
     width: 44,
@@ -66,12 +83,14 @@ const styles = StyleSheet.create({
     borderRadius: 22,
   },
   title: { ...textStyles.largeTitle },
-  regularTitle: { fontSize: 22, lineHeight: 26 },
+  regularTitle: { fontSize: 25.3, lineHeight: 29.9 },
   description: { ...textStyles.body },
   regularDescription: { ...textStyles.subheadline },
   finePrint: { ...textStyles.footnote, textAlign: 'center' },
   action: {
     minHeight: 52,
+    flexDirection: 'row',
+    gap: spacing.s,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.l,
@@ -79,7 +98,10 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   regularAction: { minHeight: 44, borderRadius: radius.control },
+  regularSignInAction: { minHeight: 46 },
   actionLabel: { ...textStyles.headline },
+  ipadActionLabel: { ...typography.ipadList.body },
+  ipadAppleLabel: { fontSize: 17.25, lineHeight: 18.4, fontWeight: '600' },
   providers: {
     overflow: 'hidden',
     borderRadius: radius.insetGroup,
@@ -122,6 +144,8 @@ const styles = StyleSheet.create({
   },
   cardTitle: { ...textStyles.headline, textAlign: 'center' },
   cardDescription: { ...textStyles.subheadline, textAlign: 'center' },
+  brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
+  brandDescription: { ...textStyles.body, textAlign: 'left' },
 });
 
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
@@ -152,31 +176,42 @@ export function Welcome({ onContinue }: { readonly onContinue: () => void }) {
         },
       ]}>
       <ScrollView contentContainerStyle={styles.welcome}>
-        <View style={styles.welcomeContent}>
-          <View style={[styles.seal, { backgroundColor: colors.brandSeal }]} />
+        <View
+          style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
+          <View
+            style={[
+              styles.seal,
+              ipad && styles.ipadSeal,
+              { backgroundColor: colors.brandSeal },
+            ]}
+          />
           <Text
             accessibilityRole="header"
-            style={[styles.headline, ink]}>
+            style={[styles.headline, ipad && styles.ipadHeadline, ink]}>
             {t('onboarding.welcome.title')}
           </Text>
-          <Text style={[styles.lede, ink]}>
+          <Text style={[styles.lede, ipad && styles.ipadLede, ink]}>
             {t('onboarding.welcome.description')}
           </Text>
-          <View style={styles.points}>
+          <View style={[styles.points, ipad && styles.ipadPoints]}>
             {points.map(({ icon, text }) => (
               <View
                 key={icon}
                 style={styles.point}>
                 <SFSymbol
                   name={icon}
+                  size={ipad ? 18.4 : 16}
                   color={colors.brandOnDeep}
                 />
-                <Text style={[styles.pointText, ink]}>{text}</Text>
+                <Text
+                  style={[styles.pointText, ipad && styles.ipadPointText, ink]}>
+                  {text}
+                </Text>
               </View>
             ))}
           </View>
           {ipad ? (
-            <View style={{ alignSelf: 'flex-start', minWidth: 160 }}>
+            <View style={{ alignSelf: 'flex-start', minWidth: 184 }}>
               {action}
             </View>
           ) : null}
@@ -275,7 +310,14 @@ export function SignIn({
           accessibilityLabel={t('onboarding.back')}
           accessibilityRole="button"
           onPress={onBack}
-          style={[styles.back, { backgroundColor: colors.fillQuiet }]}>
+          style={[
+            styles.back,
+            {
+              backgroundColor: colors.surfaceContent,
+              boxShadow: colors.smallGlassShadow,
+            },
+          ]}>
+          <Glass cornerRadius={22} />
           <SFSymbol
             name="chevron.left"
             color={colors.textPrimary}
@@ -330,9 +372,25 @@ export function OnboardingAction({
       style={[
         styles.action,
         ipad && styles.regularAction,
+        ipad && fill !== 'brand' && styles.regularSignInAction,
         { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
       ]}>
-      <Text style={[styles.actionLabel, { color: ink }]}>{label}</Text>
+      {fill === 'apple' ? (
+        <SFSymbol
+          name="apple.logo"
+          color={ink}
+        />
+      ) : null}
+      <Text
+        style={[
+          styles.actionLabel,
+          ipad &&
+            (fill === 'apple' ? styles.ipadAppleLabel : styles.ipadActionLabel),
+          ipad && fill === 'brand' && { fontWeight: '600' },
+          { color: ink },
+        ]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -411,38 +469,64 @@ export function TrustCard({
   title,
   description,
   children,
+  fill = 'content',
 }: {
   readonly icon: string;
   readonly title: string;
   readonly description: string | undefined;
   readonly children?: ReactNode;
+  readonly fill?: 'content' | 'brand';
 }) {
   const colors = usePalette();
+  const ink = fill === 'brand' ? colors.brandOnDeep : colors.textPrimary;
   return (
     <View
       style={[
         styles.card,
         {
-          backgroundColor: colors.surfaceContent,
+          backgroundColor:
+            fill === 'brand' ? colors.brandDeep : colors.surfaceContent,
           boxShadow: colors.menuShadow,
         },
       ]}>
-      <View style={styles.cardHeader}>
-        <View style={[styles.iconTile, { backgroundColor: colors.fillQuiet }]}>
+      <View
+        style={[
+          styles.cardHeader,
+          fill === 'brand' && { alignItems: 'flex-start' },
+        ]}>
+        <View
+          style={[
+            styles.iconTile,
+            {
+              backgroundColor:
+                fill === 'brand' ? palette.dark.fillQuiet : colors.fillQuiet,
+            },
+          ]}>
           <SFSymbol
             name={icon}
             size={24}
-            color={colors.textPrimary}
+            color={ink}
           />
         </View>
         <Text
           accessibilityRole="header"
-          style={[styles.cardTitle, { color: colors.textPrimary }]}>
+          style={[
+            styles.cardTitle,
+            fill === 'brand' && styles.brandTitle,
+            { color: ink },
+          ]}>
           {title}
         </Text>
         {description === undefined ? null : (
           <Text
-            style={[styles.cardDescription, { color: colors.textSecondary }]}>
+            style={[
+              styles.cardDescription,
+              fill === 'brand' && styles.brandDescription,
+              {
+                color:
+                  fill === 'brand' ? colors.brandOnDeep : colors.textSecondary,
+              },
+            ]}>
             {description}
           </Text>
         )}
