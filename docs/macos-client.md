@@ -70,6 +70,12 @@ not expose plain nonselectable `Text` to accessibility: wrap it in an accessible
 its label, or make it selectable so it becomes a native text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
+Link confirmations move keyboard focus to their first choice and cycle Tab and
+Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
+explicitly restore focus to the originating link because that control is not
+tracked. Focus return, the complete native keyboard journey and VoiceOver behavior
+remain accessibility qualification gaps.
+
 ## Build and run
 
 Use the [mise Node/pnpm toolchain](../README.md#local-development), Xcode 27, and

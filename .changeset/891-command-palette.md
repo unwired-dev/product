@@ -17,3 +17,8 @@ accessibility action; iPad also keeps the input in those headers. On iPhone and
 iPad, Search Mail leaves an open reader or composer before focusing the Inbox
 search field. The palette also stays available on the Account page, with the way
 back to the Inbox.
+
+On the Mac, Command-P leaves an active link confirmation in control of its
+window until the confirmation closes; other windows keep their palette entry.
+
+The iPad command input has a 44pt touch target in every header.

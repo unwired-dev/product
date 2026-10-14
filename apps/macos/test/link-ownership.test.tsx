@@ -5,7 +5,7 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View } from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import {
@@ -85,6 +85,75 @@ const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) =>
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {
+  it.each([
+    {
+      kind: 'ordinary',
+      text: 'the plan',
+      first: 'Open link',
+      next: 'Cancel',
+      last: 'Cancel',
+      previous: 'Open link',
+    },
+    {
+      kind: 'caution',
+      text: 'https://bank.invalid',
+      first: 'Cancel',
+      next: 'Copy link',
+      last: 'Proceed',
+      previous: 'Copy link',
+    },
+  ])(
+    'keeps Tab cycling inside the $kind alert after a choice loses focus',
+    async ({ text, first, next, last, previous }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        content: { html: `<a href="${oldHref}">${text}</a>` },
+      });
+      const store = createGmailInbox(gmail.native);
+      await store.load();
+      const app = await render(view(store, id));
+      // The preset substitutes native View methods. This checks focus requests, not AppKit focus.
+      const focus = jest.spyOn(View.prototype, 'focus');
+      try {
+        await fireEvent.press(
+          screen.getByRole('link', { name: `Open link: ${text}` }),
+        );
+        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+          screen.getByRole('button', { name: first }).props.onFocus,
+        );
+        for (const [from, event, shiftKey, to] of [
+          [first, 'blur', true, last],
+          [first, 'blur', false, first],
+          [first, 'focus', true, last],
+          [last, 'focus', false, first],
+          [first, 'focus', false, next],
+          [last, 'focus', true, previous],
+        ] as const) {
+          const button = screen.getByRole('button', { name: from });
+          await fireEvent(button, 'focus');
+          await fireEvent(button, event);
+          focus.mockClear();
+          await fireEvent(screen.getByText(oldHref), 'keyDown', {
+            nativeEvent: {
+              key: 'Tab',
+              shiftKey,
+              metaKey: false,
+              ctrlKey: false,
+              altKey: false,
+            },
+          });
+          expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+            screen.getByRole('button', { name: to }).props.onFocus,
+          );
+        }
+      } finally {
+        await app.unmount();
+        focus.mockRestore();
+      }
+    },
+  );
+
   it('copies the inspected destination through the native Clipboard', async () => {
     expect.hasAssertions();
     const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);
@@ -210,6 +279,70 @@ describe('queued message link privacy', () => {
 describe.each(['gmail', 'imap'] as const)(
   '%s message link ownership at commit',
   (provider) => {
+    it.each(['message', 'account'] as const)(
+      'keeps the replacement reader confirmation through old passive cleanup after %s changes',
+      async (transition) => {
+        expect.hasAssertions();
+        const mailbox = linkMailbox(provider);
+        const id = mailbox.deliver(
+          `<a href="${oldHref}">https://bank.invalid</a>`,
+        );
+        const nextHref = 'https://next.invalid/reader';
+        const next = mailbox.deliver(`<a href="${nextHref}">Next link</a>`);
+        const other = linkMailbox(provider, 'another@example.invalid');
+        const sameId = other.deliver(`<a href="${nextHref}">Next link</a>`);
+        await mailbox.store.load();
+        await other.store.load();
+        const replacement = {
+          message: { store: mailbox.store, id: next },
+          account: { store: other.store, id: sameId },
+        }[transition];
+        const app = await render(
+          <LinkConfirmationProvider
+            inbox={mailbox.store}
+            id={id}>
+            <View key="old">{reader(mailbox.store, id)}</View>
+            <View key="replacement">
+              {reader(replacement.store, replacement.id)}
+            </View>
+          </LinkConfirmationProvider>,
+        );
+        try {
+          expect(sameId).toBe(id);
+          await screen.findByRole('link', {
+            name: 'Open link: https://bank.invalid',
+          });
+          const chooseNext = pressHandler(
+            await screen.findByRole('link', { name: 'Open link: Next link' }),
+          );
+          const retainedAtCommit: boolean[] = [];
+          await app.rerender(
+            <LinkConfirmationProvider
+              inbox={replacement.store}
+              id={replacement.id}>
+              <View key="replacement">
+                {reader(replacement.store, replacement.id)}
+              </View>
+              <CommitProbe
+                inspect={() => {
+                  retainedAtCommit.push(
+                    mailbox.store.messageBody(id)?.kind === 'ready',
+                  );
+                  chooseNext();
+                }}
+              />
+            </LinkConfirmationProvider>,
+          );
+          expect(retainedAtCommit).toStrictEqual([true]);
+          expect(screen.getByText(nextHref)).toBeVisible();
+          await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+          expect(screen.queryByText(nextHref)).toBeNull();
+        } finally {
+          await app.unmount();
+        }
+      },
+    );
+
     it.each(['message', 'account'] as const)(
       'hides the old destination and rejects queued input before passive cleanup after %s changes',
       async (transition) => {

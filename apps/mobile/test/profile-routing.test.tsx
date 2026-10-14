@@ -1,3 +1,4 @@
+import type { router as ExpoRouter } from 'expo-router';
 import type {
   createElement as ReactCreateElement,
   ReactNode,
@@ -12,6 +13,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import type MessageRoute from '../app/message/[id].tsx';
+import type ThreadRoute from '../app/thread/[id].tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
 import RootLayout from '../app/_layout.tsx';
@@ -38,8 +40,20 @@ jest.mock('expo-router/unstable-split-view', () => {
   const Secondary = jest.requireActual<{ default: typeof MessageRoute }>(
     '../app/message/[id].tsx',
   ).default;
+  const Thread = jest.requireActual<{ default: typeof ThreadRoute }>(
+    '../app/thread/[id].tsx',
+  ).default;
+  const { usePathname } = jest.requireMock<{ usePathname: () => string }>(
+    'expo-router',
+  );
   function SplitView({ children }: { readonly children: ReactNode }) {
-    return createElement(View, null, children, createElement(Secondary));
+    const pathname = usePathname();
+    return createElement(
+      View,
+      null,
+      children,
+      createElement(pathname === '/thread/[id]' ? Thread : Secondary),
+    );
   }
   SplitView.Column = View;
   return { SplitView };
@@ -50,6 +64,8 @@ jest.mock('expo-router', () => {
     useSyncExternalStore: typeof ReactUseSyncExternalStore;
   }>('react');
   let params: Readonly<Record<string, unknown>> = {};
+  let pathname = '/';
+  let previous: typeof params | undefined = undefined;
   const listeners = new Set<() => void>();
   const setParams = (next: typeof params) => {
     params = next;
@@ -66,12 +82,42 @@ jest.mock('expo-router', () => {
   const getSnapshot = () => params;
   const useParams = () => useSyncExternalStore(subscribe, getSnapshot);
   return {
-    setParams,
+    setParams: (next: typeof params) => {
+      pathname = '/';
+      previous = undefined;
+      setParams(next);
+    },
+    usePathname: () => {
+      useParams();
+      return pathname;
+    },
     useGlobalSearchParams: useParams,
     useLocalSearchParams: useParams,
     router: {
-      replace: ({ params: next }: { readonly params?: typeof params }) =>
-        setParams(next ?? {}),
+      replace: ({
+        pathname: nextPath,
+        params: next,
+      }: {
+        readonly pathname: string;
+        readonly params?: typeof params;
+      }) => {
+        pathname = nextPath;
+        setParams(next ?? {});
+      },
+      push: ({ params: next }: { readonly params: typeof params }) => {
+        previous = params;
+        pathname = '/thread/[id]';
+        setParams(next);
+      },
+      canGoBack: () => previous !== undefined,
+      back: () => {
+        if (previous !== undefined) {
+          pathname = '/message/[id]';
+          const restored = previous;
+          previous = undefined;
+          setParams(restored);
+        }
+      },
     },
   };
 });
@@ -83,11 +129,12 @@ jest.mock('react-native-screens/experimental', () => ({
 
 const route = jest.requireMock<{
   setParams: (params: Readonly<Record<string, unknown>>) => void;
+  router: typeof ExpoRouter;
 }>('expo-router');
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
-  gmail.deliver({
+  const id = gmail.deliver({
     subject: 'Garden plan',
     content: { text: 'Synthetic garden body.' },
   });
@@ -110,9 +157,56 @@ function showMail(profile: string) {
     'mailboxes',
     mailboxes,
   );
+  return id;
 }
 
 describe('profile-scoped mobile routes', () => {
+  it('returns a cold-opened Thread to its Work Profile Inbox when Back has no history', async () => {
+    expect.hasAssertions();
+    const id = showMail('work');
+    route.setParams({});
+    route.router.replace({
+      pathname: '/thread/[id]',
+      params: { profileId: 'work', mailbox: 'garden', id },
+    });
+    await render(<RootLayout />);
+    await expect(
+      screen.findByText('Synthetic garden body.'),
+    ).resolves.toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Back, 1 unread' }),
+    );
+    expect(screen.queryByText('Synthetic garden body.')).toBeNull();
+    expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Garden plan/u })).toBeVisible();
+  });
+
+  it('returns a pushed Thread to the previous reader instead of replacing it with the Inbox', async () => {
+    expect.hasAssertions();
+    const id = showMail('work');
+    route.setParams({ profileId: 'work', mailbox: 'garden', id });
+    await render(<RootLayout />);
+    await expect(
+      screen.findByRole('button', { name: 'Archive' }),
+    ).resolves.toBeVisible();
+    await act(() => {
+      route.router.push({
+        pathname: '/thread/[id]',
+        params: { profileId: 'work', mailbox: 'garden', id },
+      });
+    });
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Back, 1 unread' }),
+    );
+    await expect(
+      screen.findByRole('button', { name: 'Archive' }),
+    ).resolves.toBeVisible();
+    await expect(
+      screen.findByText('Synthetic garden body.'),
+    ).resolves.toBeVisible();
+  });
+
   it.each([
     { name: 'legacy Default', profile: defaultProfile, params: {} },
     { name: 'Work', profile: 'work', params: { profileId: 'work' } },

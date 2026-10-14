@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { ColorValue, ViewProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
+import { useState } from 'react';
 import {
   Pressable,
   requireNativeComponent,
@@ -25,6 +26,24 @@ const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
+export const ModalBackground = requireNativeComponent<ViewProps>(
+  'UnwiredModalBackground',
+);
+
+export function Glass({
+  cornerRadius,
+  style = StyleSheet.absoluteFill,
+  ...props
+}: ViewProps & { readonly cornerRadius: number }) {
+  return (
+    <NativeGlass
+      {...props}
+      cornerRadius={cornerRadius}
+      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+    />
+  );
+}
+
 // Toolbar buttons are 28pt; the group adds a 4pt inset and takes half its height.
 const groupRadius = (28 + 2 * spacing.xs) / 2;
 
@@ -36,6 +55,7 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  panel: { borderRadius: radius.menu, maxWidth: '100%' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -47,6 +67,23 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     borderCurve: 'continuous',
   },
+  toolbarButton: {
+    minWidth: 32,
+    minHeight: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: groupRadius - spacing.xs,
+    borderCurve: 'continuous',
+  },
+  monogram: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
@@ -95,26 +132,126 @@ export function SFSymbol({
   );
 }
 
-// Liquid Glass behind a control or menu on the navigation layer; the owner sets the shadow.
-export function Glass({ cornerRadius }: { readonly cornerRadius: number }) {
-  return (
-    <NativeGlass
-      cornerRadius={cornerRadius}
-      style={StyleSheet.absoluteFill}
-    />
-  );
-}
-
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({ children }: { readonly children: ReactNode }) {
   const colors = usePalette();
   return (
-    <View style={[styles.group, { boxShadow: colors.smallGlassShadow }]}>
-      <NativeGlass
+    <View
+      style={[
+        styles.group,
+        {
+          boxShadow: colors.smallGlassShadow,
+          backgroundColor: colors.surfaceContent,
+        },
+      ]}>
+      <Glass
         cornerRadius={groupRadius}
         style={StyleSheet.absoluteFill}
       />
       {children}
+    </View>
+  );
+}
+
+// Menus float independently of their toolbar, with the deeper menu shadow.
+export function GlassPanel({ children }: { readonly children: ReactNode }) {
+  const colors = usePalette();
+  return (
+    <View
+      style={[
+        styles.panel,
+        {
+          boxShadow: colors.menuGlassShadow,
+          backgroundColor: colors.surfaceContent,
+        },
+      ]}>
+      <Glass
+        cornerRadius={radius.menu}
+        style={StyleSheet.absoluteFill}
+      />
+      {children}
+    </View>
+  );
+}
+
+// An icon button on a toolbar's glass: the label is for accessibility, the SF Symbol for sight.
+export function ToolbarButton({
+  label,
+  icon,
+  onPress,
+  disabled = false,
+  expanded,
+}: {
+  readonly label: string;
+  readonly icon: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  // A control that reveals a panel reports whether the panel is open.
+  readonly expanded?: boolean;
+}) {
+  const colors = usePalette();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{
+        disabled,
+        ...(expanded === undefined ? {} : { expanded }),
+      }}
+      disabled={disabled}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.toolbarButton,
+        {
+          backgroundColor:
+            pressed || expanded === true
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+          borderWidth: 2,
+          borderColor: focused ? colors.accentInk : 'transparent',
+          opacity: disabled ? 0.4 : 1,
+        },
+      ]}>
+      <SFSymbol
+        name={icon}
+        size={16}
+        color={colors.textPrimary}
+      />
+    </Pressable>
+  );
+}
+
+// Neutral initials for a sender without a contact photo; never a generated color.
+export function Monogram({ name }: { readonly name: string }) {
+  const colors = usePalette();
+  const initials = name
+    .split(/\s+/u)
+    .filter((word) => word !== '')
+    .slice(0, 2)
+    .map((word) => [...word][0]?.toLocaleUpperCase() ?? '')
+    .join('');
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        styles.monogram,
+        {
+          backgroundColor: colors.surfaceBubble,
+          borderColor: colors.separator,
+        },
+      ]}>
+      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
+        {initials}
+      </Text>
     </View>
   );
 }

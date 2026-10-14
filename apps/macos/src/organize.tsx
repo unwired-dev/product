@@ -4,6 +4,7 @@ import type {
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import type { ReactNode } from 'react';
 
 import {
   commandTarget,
@@ -27,13 +28,20 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
-import { GlassGroup, SFSymbol } from './design.tsx';
+import {
+  GlassGroup,
+  GlassPanel,
+  Notice,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -50,10 +58,17 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     marginBottom: spacing.xl,
   },
-  toolbar: { marginBottom: spacing.xl },
-  control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  panels: { maxHeight: 280, flexGrow: 0 },
+  floatingPanels: {
+    position: 'absolute',
+    top: 36 + spacing.m,
+    right: spacing.l,
+  },
   button: {
     minHeight: 28,
+    minWidth: 28,
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -62,30 +77,31 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  label: { ...textStyles.body },
-  panel: { gap: 4, marginBottom: spacing.xl },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
-  labelName: { flex: 1 },
+  label: { ...textStyles.body, flexShrink: 1 },
+  panel: { gap: 4, padding: spacing.l },
+  labelRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  labelName: { flexGrow: 1, flexShrink: 1, minWidth: 28 },
   secondary: { ...textStyles.body },
   status: { paddingHorizontal: spacing.xl, paddingBottom: spacing.s },
 });
 
 // A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
-// Buttons on a toolbar's glass have no fill of their own.
 function ActionButton({
   label,
   onPress,
   checked,
-  fill = 'quiet',
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly checked?: boolean;
-  readonly fill?: 'quiet' | 'none';
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
-  const idle = fill === 'quiet' ? colors.fillQuiet : 'transparent';
   return (
     <Pressable
       accessibilityLabel={label}
@@ -102,7 +118,9 @@ function ActionButton({
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor: pressed ? colors.accentSelectionSubtle : idle,
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.fillQuiet,
           borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
@@ -117,13 +135,27 @@ function ActionButton({
   );
 }
 
-// The reader's actions for the message's provider.
+// The SF Symbol for each organizing action.
+const icons: Readonly<Record<string, string>> = {
+  read: 'envelope.open',
+  unread: 'envelope.badge',
+  star: 'flag',
+  unstar: 'flag.fill',
+  archive: 'archivebox',
+  trash: 'trash',
+  spam: 'xmark.bin',
+};
+
+// The reader's actions for the message's provider: glass groups of Archive, Delete and Move,
+// the response actions passed as children, then the remaining actions.
 export function MessageActions({
   id,
   onClose,
+  children,
 }: {
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
+  readonly children?: ReactNode;
 }) {
   const store = useInboxActions();
   if ('setUnread' in store) {
@@ -138,13 +170,102 @@ export function MessageActions({
     <ImapMessageActions
       id={id}
       inbox={store}
-      onClose={onClose}
-    />
+      onClose={onClose}>
+      {children}
+    </ImapMessageActions>
   ) : (
     <GmailMessageActions
       id={id}
-      onClose={onClose}
+      onClose={onClose}>
+      {children}
+    </GmailMessageActions>
+  );
+}
+
+// Saved mail remains readable and replyable while provider checks are unavailable.
+export function MessageActionsNotice({ id }: { readonly id: string }) {
+  const state = useInbox();
+  const store = useInboxActions();
+  const { t } = useLocalization();
+  const provider = useProviderName();
+  if (
+    'openFolder' in store ||
+    state.kind !== 'ready' ||
+    !('sync' in state) ||
+    !('resolvePending' in store) ||
+    state.organize
+  ) {
+    return null;
+  }
+  const message = state.messages.find((item) => item.id === id);
+  return message !== undefined && canOrganize(message) ? (
+    <Notice
+      icon="info.circle"
+      message={t('gmailActions.savedOnly', { provider })}
     />
+  ) : null;
+}
+
+type Named = Readonly<{ name: string; label: string; onPress: () => void }>;
+
+// The toolbar groups and the folder panel its Move button opened.
+function Toolbar({
+  actions,
+  folders,
+  children,
+}: {
+  readonly actions: readonly Named[];
+  readonly folders:
+    | Readonly<{
+        label: string;
+        open: boolean;
+        toggle: () => void;
+        panel: ReactNode;
+      }>
+    | undefined;
+  readonly children: ReactNode;
+}) {
+  const button = ({ name, label, onPress }: Named) => (
+    <ToolbarButton
+      key={name}
+      icon={icons[name] ?? 'ellipsis'}
+      label={label}
+      onPress={onPress}
+    />
+  );
+  const placing = actions.filter(
+    ({ name }) => name === 'archive' || name === 'trash',
+  );
+  const rest = actions.filter(
+    ({ name }) => name !== 'archive' && name !== 'trash',
+  );
+  return (
+    <>
+      <View style={styles.toolbar}>
+        {placing.length === 0 && folders === undefined ? null : (
+          <GlassGroup>
+            {placing.map(button)}
+            {folders === undefined ? null : (
+              <ToolbarButton
+                icon="folder"
+                label={folders.label}
+                expanded={folders.open}
+                onPress={() => {
+                  folders.toggle();
+                }}
+              />
+            )}
+          </GlassGroup>
+        )}
+        {children}
+        {rest.length === 0 ? null : <GlassGroup>{rest.map(button)}</GlassGroup>}
+      </View>
+      {folders?.open === true ? (
+        <View style={styles.floatingPanels}>
+          <GlassPanel>{folders.panel}</GlassPanel>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -157,7 +278,6 @@ function PreviewMessageActions({
   readonly id: string;
 }) {
   const state = useInbox();
-  const colors = usePalette();
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const message =
@@ -189,16 +309,17 @@ function PreviewMessageActions({
           })
         }
       />
-      <Pressable
-        style={styles.control}
-        accessibilityRole="button"
-        onPress={() => {
-          act(read.action);
-        }}>
-        <Text style={[styles.secondary, { color: colors.accentInk }]}>
-          {read.label}
-        </Text>
-      </Pressable>
+      <View style={styles.toolbar}>
+        <GlassGroup>
+          <ToolbarButton
+            icon={read.name === 'read' ? 'envelope.open' : 'envelope.badge'}
+            label={read.label}
+            onPress={() => {
+              act(read.action);
+            }}
+          />
+        </GlassGroup>
+      </View>
     </>
   );
 }
@@ -209,10 +330,12 @@ function ImapMessageActions({
   inbox,
   id,
   onClose,
+  children,
 }: {
   readonly inbox: ImapInbox;
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
+  readonly children: ReactNode;
 }) {
   const state = useInbox();
   const { t } = useLocalization();
@@ -251,46 +374,46 @@ function ImapMessageActions({
           })
         }
       />
-      <View style={styles.toolbar}>
-        <GlassGroup>
-          {actions.map(({ name, label, action }) => (
-            <ActionButton
-              fill="none"
-              key={name}
-              label={label}
-              onPress={() => {
-                act(action);
-              }}
-            />
-          ))}
-          {targets.length === 0 ? null : (
-            <ActionButton
-              fill="none"
-              label={t(
-                moving ? 'gmailActions.hideFolders' : 'gmailActions.folders',
-              )}
-              onPress={() => {
-                setMoving(!moving);
-              }}
-            />
-          )}
-        </GlassGroup>
-      </View>
-      {moving && targets.length > 0 ? (
-        <View style={styles.panel}>
-          {targets.map(({ name }) => (
-            <ActionButton
-              key={name}
-              label={t('gmailActions.moveTo', {
-                label: name === inboxFolder ? t('inbox.title') : name,
-              })}
-              onPress={() => {
-                act({ kind: 'move', destination: name });
-              }}
-            />
-          ))}
-        </View>
-      ) : null}
+      <Toolbar
+        actions={actions.map(({ name, label, action }) => ({
+          name,
+          label,
+          onPress: () => {
+            act(action);
+          },
+        }))}
+        folders={
+          targets.length === 0
+            ? undefined
+            : {
+                label: t(
+                  moving ? 'gmailActions.hideFolders' : 'gmailActions.folders',
+                ),
+                open: moving,
+                toggle: () => {
+                  setMoving(!moving);
+                },
+                panel: (
+                  <ScrollView
+                    style={styles.panels}
+                    contentContainerStyle={styles.panel}>
+                    {targets.map(({ name }) => (
+                      <ActionButton
+                        key={name}
+                        label={t('gmailActions.moveTo', {
+                          label: name === inboxFolder ? t('inbox.title') : name,
+                        })}
+                        onPress={() => {
+                          act({ kind: 'move', destination: name });
+                        }}
+                      />
+                    ))}
+                  </ScrollView>
+                ),
+              }
+        }>
+        {children}
+      </Toolbar>
     </>
   );
 }
@@ -299,9 +422,11 @@ function ImapMessageActions({
 function GmailMessageActions({
   id,
   onClose,
+  children,
 }: {
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
+  readonly children: ReactNode;
 }) {
   const state = useInbox();
   const store = useInboxActions();
@@ -310,7 +435,6 @@ function GmailMessageActions({
   const [labeling, setLabeling] = useState(false);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
-  const providerName = useProviderName();
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
@@ -319,15 +443,12 @@ function GmailMessageActions({
     return null;
   }
   const message = state.messages.find((item) => item.id === id);
+  // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {
-    return null;
+    return children;
   }
   if (!state.organize) {
-    return (
-      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t('gmailActions.savedOnly', { provider: providerName })}
-      </Text>
-    );
+    return <View style={styles.toolbar}>{children}</View>;
   }
   const act = (action: GmailAction) => {
     void store.organize(message, action);
@@ -360,80 +481,76 @@ function GmailMessageActions({
           })
         }
       />
-      <View style={styles.toolbar}>
-        <GlassGroup>
-          {actions.map(({ name, label, action }) => (
-            <ActionButton
-              fill="none"
-              key={name}
-              label={label}
-              onPress={() => {
-                act(action);
-              }}
-            />
-          ))}
-          <ActionButton
-            fill="none"
-            label={
-              folders
-                ? t(
-                    labeling
-                      ? 'gmailActions.hideFolders'
-                      : 'gmailActions.folders',
-                  )
-                : t(
-                    labeling
-                      ? 'gmailActions.hideLabels'
-                      : 'gmailActions.labels',
-                  )
-            }
-            onPress={() => {
-              setLabeling(!labeling);
-            }}
-          />
-        </GlassGroup>
-      </View>
-      {labeling ? (
-        <View style={styles.panel}>
-          {state.labels.length === 0 ? (
-            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-              {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
-            </Text>
-          ) : null}
-          {state.labelsLimited === true ? (
-            <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-              {t('gmailActions.foldersLimited', { count: state.labels.length })}
-            </Text>
-          ) : null}
-          {state.labels.map((label) => (
-            <View
-              key={label.id}
-              style={styles.labelRow}>
-              {folders ? null : (
-                <View style={styles.labelName}>
+      <Toolbar
+        actions={actions.map(({ name, label, action }) => ({
+          name,
+          label,
+          onPress: () => {
+            act(action);
+          },
+        }))}
+        folders={{
+          label: folders
+            ? t(labeling ? 'gmailActions.hideFolders' : 'gmailActions.folders')
+            : t(labeling ? 'gmailActions.hideLabels' : 'gmailActions.labels'),
+          open: labeling,
+          toggle: () => {
+            setLabeling(!labeling);
+          },
+          panel: (
+            <ScrollView
+              style={styles.panels}
+              contentContainerStyle={styles.panel}>
+              {state.labels.length === 0 ? (
+                <Text
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
+                  {t(
+                    folders
+                      ? 'gmailActions.noFolders'
+                      : 'gmailActions.noLabels',
+                  )}
+                </Text>
+              ) : null}
+              {state.labelsLimited === true ? (
+                <Text
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
+                  {t('gmailActions.foldersLimited', {
+                    count: state.labels.length,
+                  })}
+                </Text>
+              ) : null}
+              {state.labels.map((label) => (
+                <View
+                  key={label.id}
+                  style={styles.labelRow}>
+                  {folders ? null : (
+                    <View style={styles.labelName}>
+                      <ActionButton
+                        checked={applied.has(label.id)}
+                        label={label.name}
+                        onPress={() => {
+                          act(
+                            applied.has(label.id)
+                              ? gmailAction.unlabel(label.id)
+                              : gmailAction.label(label.id),
+                          );
+                        }}
+                      />
+                    </View>
+                  )}
                   <ActionButton
-                    checked={applied.has(label.id)}
-                    label={label.name}
+                    label={t('gmailActions.moveTo', { label: label.name })}
                     onPress={() => {
-                      act(
-                        applied.has(label.id)
-                          ? gmailAction.unlabel(label.id)
-                          : gmailAction.label(label.id),
-                      );
+                      act(gmailAction.move(label.id));
                     }}
                   />
                 </View>
-              )}
-              <ActionButton
-                label={t('gmailActions.moveTo', { label: label.name })}
-                onPress={() => {
-                  act(gmailAction.move(label.id));
-                }}
-              />
-            </View>
-          ))}
-        </View>
-      ) : null}
+              ))}
+            </ScrollView>
+          ),
+        }}>
+        {children}
+      </Toolbar>
     </>
   );
 }

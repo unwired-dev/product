@@ -8,7 +8,7 @@ import type {
   MessagePresentation,
   ReadableBody,
 } from '@private-email/mail-core/message-body';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { LayoutChangeEvent, ScrollViewProps } from 'react-native';
 import type {
   ShouldStartLoadRequest,
@@ -40,13 +40,15 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { Notice } from './design.tsx';
+import { CommandEntryBlockedContext } from './command-palette.tsx';
+import { Glass, ModalBackground, Notice, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -71,8 +73,14 @@ interface PendingLink {
 
 const noSubscription = () => () => undefined;
 
+// Discards a pending confirmation chosen in one message's body, keeping one another message of
+// the same window owns.
+export const withoutLinkFrom =
+  (inbox: object, id: string) => (pending: PendingLink | undefined) =>
+    pending?.inbox === inbox && pending.id === id ? undefined : pending;
+
 export const LinkConfirmationContext = createContext<
-  ((pending: PendingLink | undefined) => void) | undefined
+  Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
 async function openLink(href: string) {
@@ -98,17 +106,119 @@ function LinkConfirmation({
   const colors = usePalette();
   const { t } = useLocalization();
   const reasons = inspectLink(link.href, link.text);
+  const [focused, setFocused] = useState<string>();
   const proceed = () => {
     onDone();
     if (current()) {
       void openLink(link.href);
     }
   };
+  const tones = {
+    primary: { fill: colors.accentFill, ink: colors.accentOnFill },
+    secondary: { fill: colors.fillQuiet, ink: colors.textPrimary },
+    destructive: { fill: colors.fillQuiet, ink: colors.statusDestructive },
+  };
+  const copyLink = () => {
+    Clipboard.setString(link.href);
+  };
+  const choices: ReadonlyArray<
+    Readonly<{ label: string; onPress: () => void; tone: keyof typeof tones }>
+  > =
+    reasons.length === 0
+      ? [
+          {
+            label: t('messageBody.openLink'),
+            onPress: proceed,
+            tone: 'primary',
+          },
+          { label: t('common.cancel'), onPress: onDone, tone: 'secondary' },
+        ]
+      : [
+          { label: t('common.cancel'), onPress: onDone, tone: 'primary' },
+          {
+            label: t('messageBody.copyLink'),
+            onPress: () => {
+              onDone();
+              if (current()) {
+                copyLink();
+              }
+            },
+            tone: 'secondary',
+          },
+          {
+            label: t('messageBody.proceed'),
+            onPress: proceed,
+            tone: 'destructive',
+          },
+        ];
+  // The alert owns keyboard focus while it is open: it takes focus as it appears, and Tab cycles
+  // through its choices instead of reaching the covered reader.
+  const buttons = useRef<Array<View | null>>([]);
+  const focusChoice = (index: number) => {
+    const button = buttons.current[index];
+    // Jest renders no native view, so a ref without focus is left alone.
+    if (button !== null && button !== undefined && 'focus' in button) {
+      button.focus();
+    }
+  };
+  // Only on appearance; later focus moves come from the keys below.
+  useEffect(() => {
+    const [first] = buttons.current;
+    if (first !== null && first !== undefined && 'focus' in first) {
+      first.focus();
+    }
+  }, []);
+  const focusedIndex = choices.findIndex(({ label }) => label === focused);
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={[styles.confirm, { borderColor: colors.separator }]}>
-      <Text style={[styles.secondary, { color: colors.textPrimary }]}>
+      accessibilityViewIsModal
+      onAccessibilityEscape={onDone}
+      keyDownEvents={[
+        { key: 'Escape' },
+        { key: 'Tab' },
+        { key: 'Tab', shiftKey: true },
+      ]}
+      onKeyDown={(event) => {
+        // Escape dismisses from inside the alert; the keys below move within it.
+        if (event.nativeEvent.key === 'Escape') {
+          onDone();
+          return;
+        }
+        if (event.nativeEvent.key !== 'Tab') {
+          return;
+        }
+        const step = event.nativeEvent.shiftKey ? -1 : 1;
+        // With no choice focused (after a click on the alert's text), Tab starts at the first
+        // choice and Shift-Tab at the last; the modular step from -1 would skip them.
+        const from = focusedIndex === -1 && step === -1 ? 0 : focusedIndex;
+        focusChoice((from + step + choices.length) % choices.length);
+      }}
+      style={[styles.confirm, { backgroundColor: colors.surfaceContent }]}>
+      <Glass
+        cornerRadius={styles.confirm.borderRadius}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.iconTile, { backgroundColor: colors.fillQuiet }]}>
+        <SFSymbol
+          name={reasons.length === 0 ? 'link' : 'exclamationmark.shield'}
+          size={28}
+          color={
+            reasons.length === 0 ? colors.textSecondary : colors.statusWarning
+          }
+        />
+      </View>
+      {reasons.length === 0 ? null : (
+        <Text
+          accessibilityRole="header"
+          selectable
+          style={[styles.confirmTitle, { color: colors.textPrimary }]}>
+          {t('messageBody.cautionTitle')}
+        </Text>
+      )}
+      <Text
+        selectable
+        style={[styles.confirmText, { color: colors.textPrimary }]}>
         {reasons.length === 0
           ? t('messageBody.confirmLink')
           : t('messageBody.cautionLink')}
@@ -116,85 +226,114 @@ function LinkConfirmation({
       {reasons.map((reason) => (
         <Text
           key={reason}
-          style={[styles.secondary, { color: colors.textPrimary }]}>
+          selectable
+          style={[styles.confirmText, { color: colors.textPrimary }]}>
           {t('messageBody.warning', { warning: t(`linkWarnings.${reason}`) })}
         </Text>
       ))}
       <Text
         selectable
-        style={[styles.secondary, { color: colors.textSecondary }]}>
+        style={[styles.confirmText, { color: colors.textPrimary }]}>
         {link.href}
       </Text>
-      <View style={styles.actions}>
-        {reasons.length === 0 ? (
-          <Action
-            label={t('messageBody.openLink')}
-            onPress={proceed}
-          />
-        ) : (
-          <>
-            <Action
-              label={t('messageBody.copyLink')}
-              onPress={() => {
-                onDone();
-                if (current()) {
-                  Clipboard.setString(link.href);
-                }
-              }}
-            />
-            <Action
-              label={t('messageBody.proceed')}
-              onPress={proceed}
-            />
-          </>
-        )}
-        <Action
-          label={t('common.cancel')}
-          onPress={onDone}
-        />
+      <View style={styles.choices}>
+        {choices.map(({ label, onPress, tone }, index) => (
+          <Pressable
+            key={label}
+            ref={(node) => {
+              buttons.current[index] = node;
+            }}
+            accessibilityRole="button"
+            focusable
+            onFocus={() => {
+              setFocused(label);
+            }}
+            onBlur={() => {
+              setFocused(undefined);
+            }}
+            onPress={onPress}
+            style={[
+              styles.choice,
+              {
+                backgroundColor: tones[tone].fill,
+                borderWidth: 2,
+                borderColor:
+                  focused === label ? colors.accentInk : 'transparent',
+              },
+            ]}>
+            <Text
+              style={[
+                styles.choiceLabel,
+                tone === 'primary' && styles.choiceEmphasized,
+                { color: tones[tone].ink },
+              ]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
     </View>
   );
 }
 
-// Shows link confirmations below the reader's scrolling content, so a link chosen anywhere in a
-// long message is confirmed in view.
+// Confirms a link above the reader, keeping its choice visible at every scroll position.
 export function LinkConfirmationProvider({
   children,
   inbox,
   id,
 }: {
   readonly children: ReactNode;
-  readonly inbox: object;
-  readonly id: string;
+  readonly inbox: object | undefined;
+  readonly id: string | undefined;
 }) {
   const colors = usePalette();
   const [pending, setPending] = useState<PendingLink>();
   // Compare the render owner too: layout cleanup has not invalidated the old reader yet.
   const shown = useSyncExternalStore(
     pending?.subscribe ?? noSubscription,
-    () => pending?.inbox === inbox && pending?.id === id && pending.current(),
+    () =>
+      pending !== undefined &&
+      pending.inbox === inbox &&
+      pending.id === id &&
+      pending.current(),
   );
   return (
     <LinkConfirmationContext value={setPending}>
-      <View style={styles.fill}>
-        {children}
+      <View
+        keyDownEvents={[{ key: 'Escape' }]}
+        onKeyDown={(event) => {
+          if (shown && event.nativeEvent.key === 'Escape') {
+            setPending((value) => (value === pending ? undefined : value));
+          }
+        }}
+        style={styles.fill}>
+        <ModalBackground
+          accessibilityElementsHidden={shown}
+          style={styles.fill}>
+          <CommandEntryBlockedContext value={shown}>
+            {children}
+          </CommandEntryBlockedContext>
+        </ModalBackground>
         {pending === undefined || !shown ? null : (
+          // react-native-macos has no native Modal host, so the window owns this overlay.
           <View
+            accessibilityViewIsModal
             style={[
-              styles.bar,
-              {
-                borderTopColor: colors.separator,
-                backgroundColor: colors.surfaceContent,
-              },
+              StyleSheet.absoluteFill,
+              styles.modalBackdrop,
+              { backgroundColor: colors.scrimMac },
             ]}>
-            <LinkConfirmation
-              link={pending.link}
-              current={pending.current}
-              onDone={() => {
-                setPending(undefined);
-              }}
-            />
+            <ScrollView style={styles.alertScroll}>
+              <LinkConfirmation
+                link={pending.link}
+                current={pending.current}
+                onDone={() => {
+                  setPending((value) =>
+                    value === pending ? undefined : value,
+                  );
+                }}
+              />
+            </ScrollView>
           </View>
         )}
       </View>
@@ -719,23 +858,29 @@ function AttachmentRow({
       );
   }
   return (
-    <View style={styles.attachment}>
-      <Text
-        selectable
-        style={[styles.attachmentName, { color: colors.textPrimary }]}>
-        {name}
-      </Text>
-      <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-        {fileSize(t, sizeFormat, size)}
-      </Text>
-      {status === undefined ? null : (
+    <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
+      <SFSymbol
+        name="doc"
+        color={colors.textSecondary}
+      />
+      <View style={styles.attachmentText}>
         <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.secondary, { color: colors.textSecondary }]}>
-          {status}
+          selectable
+          style={[styles.attachmentName, { color: colors.textPrimary }]}>
+          {name}
         </Text>
-      )}
-      <View style={styles.actions}>{actions}</View>
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {fileSize(t, sizeFormat, size)}
+        </Text>
+        {status === undefined ? null : (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.secondary, { color: colors.textSecondary }]}>
+            {status}
+          </Text>
+        )}
+        <View style={styles.actions}>{actions}</View>
+      </View>
     </View>
   );
 }
@@ -781,16 +926,18 @@ function ReceivedAttachments({
         style={[styles.secondary, { color: colors.textSecondary }]}>
         {t('attachment.count', { count: attachments.length })}
       </Text>
-      {attachments.slice(0, shown).map((attachment) => (
-        <AttachmentRow
-          key={attachment.locator}
-          inbox={inbox}
-          id={id}
-          attachment={attachment}
-          current={current}
-          provider={provider}
-        />
-      ))}
+      <View style={styles.attachmentList}>
+        {attachments.slice(0, shown).map((attachment) => (
+          <AttachmentRow
+            key={attachment.locator}
+            inbox={inbox}
+            id={id}
+            attachment={attachment}
+            current={current}
+            provider={provider}
+          />
+        ))}
+      </View>
       {attachments.length > shown ? (
         <Action
           label={t('attachment.more', {
@@ -880,9 +1027,9 @@ export function GmailMessageBody({
       return undefined;
     }
     return () => {
-      confirm?.(undefined);
+      confirm?.(withoutLinkFrom(inbox, id));
     };
-  }, [body, confirm]);
+  }, [body, confirm, inbox, id]);
 
   if (body === undefined || body.kind === 'loading') {
     return (
