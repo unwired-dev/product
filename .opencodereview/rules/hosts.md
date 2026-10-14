@@ -597,6 +597,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   handler as its buttons. Check each `organize.tsx.MessageActions` branch
   (preview, IMAP, Gmail and Microsoft) against the commands the palette names;
   otherwise the palette shows the command disabled beside a working button.
+- A palette command left enabled while its matching button is disabled, such as
+  `message-detail.tsx.ResponseActions` passing `responseCommands` a `starting`
+  option not derived from the `pending` state that disables Reply, Reply All
+  and Forward. Derive each command's `disabled` reason, or its omission, from
+  the same state as its button; otherwise choosing the command closes the
+  palette and silently does nothing, or starts the action a second time.
 - `CommandPaletteProvider` or another cross-cutting provider placed relative to
   `registration-gate.tsx.RegistrationGate`, which replaces its children with the
   account page or the setup and locked pages. A provider below the gate leaves
