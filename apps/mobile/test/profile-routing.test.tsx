@@ -436,6 +436,17 @@ describe('profile-scoped mobile routes', () => {
         route.router.setParams({ draft: open });
       });
       expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
+      // A conflict copy rebinds the open composer in place; its keyboard stays raised.
+      await act(() => {
+        keyboard('keyboardWillChangeFrame', 794, 400);
+      });
+      await act(() => {
+        route.router.setParams({ draft: `${open}-copy` });
+      });
+      expect(overlay()).toHaveStyle({ bottom: 412 });
+      await act(() => {
+        route.router.setParams({ draft: open });
+      });
       await act(() => {
         keyboard('keyboardWillHide', 1194, 0);
       });
