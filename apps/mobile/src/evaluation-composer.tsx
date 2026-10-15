@@ -330,7 +330,9 @@ function EvaluationEditor({
       !mounted.current ||
       busy.current ||
       !assistanceEnabled() ||
-      reported === undefined
+      reported === undefined ||
+      // The selection must describe the body this editor holds.
+      reported.revision !== bodyRevision.current
     ) {
       return;
     }
@@ -353,6 +355,7 @@ function EvaluationEditor({
       !mounted.current ||
       busy.current ||
       reported === undefined ||
+      reported.revision !== bodyRevision.current ||
       captured === undefined ||
       captureNow.current !== captured ||
       !sameDraftAssistanceSource(captured.draft, latest, captured.purpose)

@@ -3,10 +3,20 @@ import { ok } from 'node:assert/strict';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { imagesOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
+import {
+  createMockMailSession,
+  syntheticRewrite,
+} from '@private-email/mail-core/testing/mock-session';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 
+import { AssistanceContext } from '../src/message-summary.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
-import { lastAdded, press, simulatedPage } from './evaluation-page.ts';
+import {
+  lastAdded,
+  lastCommand,
+  press,
+  simulatedPage,
+} from './evaluation-page.ts';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -55,6 +65,37 @@ describe('evaluation Draft save ordering', () => {
       ]);
     },
   );
+
+  it('captures writing tools only once the body at the selection revision arrives', async () => {
+    expect.hasAssertions();
+    const mock = createMockMailSession('open-read-relaunch');
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <AssistanceContext value={mock.assistance}>
+        <App drafts={createDrafts(storage.native, registration)} />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const { report, typed } = simulatedPage();
+    await typed('One');
+    // The selection of revision 2 arrives before its body; the editor still holds revision 1.
+    await report({ revision: 2, selection: { start: 7, end: 7 } });
+    const before = lastCommand();
+    await press('Writing tools');
+    await press('Rewrite the message body');
+    expect(lastCommand()).toBe(before);
+    expect(screen.queryByText(syntheticRewrite)).toBeNull();
+    // Once that body arrives, the capture describes it and replaces it at its revision.
+    await report({
+      revision: 2,
+      document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }],
+    });
+    await press('Writing tools');
+    await press('Rewrite the message body');
+    await screen.findByText(syntheticRewrite);
+    await press('Replace your text with this rewrite');
+    expect(lastCommand()).toContain('"type":"replace","revision":2');
+  });
 
   it('keeps the surviving Draft and its image when Don’t Save races an import', async () => {
     expect.hasAssertions();
