@@ -112,6 +112,7 @@ import {
 import {
   Notice as Banner,
   Button,
+  ContextMenu,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -326,7 +327,7 @@ const markStyle = (marks: readonly Mark[] = []): TextStyle => {
 };
 
 // What keeps the composer from closing, or asks before it does.
-type Closing =
+export type Closing =
   | 'saving'
   | 'blocked'
   | 'discard-blocked'
@@ -583,7 +584,7 @@ export function DraftHeading() {
 
 // The From pop-up: the retained sending mailbox, with the Draft's Profile's other senders in
 // its menu. Why it cannot send, if it cannot, is explained by SendingNotice.
-function SendingMailbox({
+export function SendingMailbox({
   draft,
   onChange,
   editable,
@@ -669,7 +670,7 @@ function SendingNotice({ draft }: { readonly draft: Draft }) {
   );
 }
 
-function Recipients({
+export function Recipients({
   draft,
   getDraft,
   field,
@@ -955,6 +956,8 @@ function AssetRow({
   running,
   onRemove,
   onCancel,
+  onConvert,
+  onPreview,
 }: {
   readonly asset: Asset;
   readonly inline: boolean;
@@ -962,6 +965,9 @@ function AssetRow({
   readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
+  readonly onConvert?: ((id: string) => void) | undefined;
+  // An editor that shows Inline Images itself receives each verified thumbnail.
+  readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -970,12 +976,22 @@ function AssetRow({
     [settings.locale],
   );
   const { preview, retry } = usePreview(asset, inline);
+  const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
+  useEffect(() => {
+    if (inline) {
+      onPreview?.(asset.id, uri ?? null);
+    }
+  }, [asset.id, inline, onPreview, uri]);
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
     preview,
   });
-  return (
+  const toAttachment = inline ? 'toAttachment' : 'toInline';
+  // An editor that converts offers it, with Remove, from the chip's context menu.
+  const convertible =
+    onConvert !== undefined && (inline || asset.type.startsWith('image/'));
+  const chip = (
     <View style={[styles.assetChip, { backgroundColor: colors.fillQuiet }]}>
       {preview?.kind === 'ready' ? (
         <Image
@@ -998,6 +1014,21 @@ function AssetRow({
           name: asset.name,
           status,
         })}
+        {...(convertible && editable
+          ? {
+              accessibilityActions: [
+                {
+                  name: 'convert',
+                  label: t(`drafts.assets.${toAttachment}Label`, {
+                    name: asset.name,
+                  }),
+                },
+              ],
+              onAccessibilityAction: () => {
+                onConvert?.(asset.id);
+              },
+            }
+          : {})}
         style={styles.assetMeta}>
         <Text
           numberOfLines={1}
@@ -1042,19 +1073,55 @@ function AssetRow({
       />
     </View>
   );
+  return convertible && editable ? (
+    <ContextMenu
+      sections={[
+        {
+          items: [
+            {
+              key: `convert:${asset.id}`,
+              title: t(`drafts.assets.${toAttachment}`),
+              symbol: inline ? 'paperclip' : 'photo',
+              run: () => {
+                onConvert?.(asset.id);
+              },
+            },
+            {
+              key: `remove:${asset.id}`,
+              title: t('drafts.assets.remove'),
+              symbol: 'trash',
+              destructive: true,
+              run: () => {
+                onRemove(asset.id);
+              },
+            },
+          ],
+        },
+      ]}>
+      {chip}
+    </ContextMenu>
+  ) : (
+    chip
+  );
 }
 
-// A Draft's attachments and inline images, with what can still be done to each.
-function DraftAssets({
+// A Draft's attachments and inline images, with what can still be done to each. An editor that
+// converts between the two offers that too.
+export function DraftAssets({
   draft,
   editable,
   onRemove,
   onCancel,
+  onConvert,
+  onPreview,
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
+  readonly onConvert?: ((id: string) => void) | undefined;
+  // An editor that shows Inline Images itself receives each verified thumbnail.
+  readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
@@ -1079,6 +1146,8 @@ function DraftAssets({
         editable={editable}
         inline={inline}
         onCancel={onCancel}
+        onConvert={onConvert}
+        onPreview={onPreview}
         onRemove={onRemove}
         running={running.has(asset.id)}
       />
@@ -1220,7 +1289,7 @@ export function CapturedAssistance({
 }
 
 // Why the composer stays open, or what it asks before discarding, above the format bar.
-function ComposerNotices({
+export function ComposerNotices({
   closing,
   draft,
   refused,
@@ -2325,3 +2394,6 @@ export function Composer({
     </View>
   );
 }
+
+// The evaluation editor composes the same layout around its own body.
+export { styles as composerStyles };

@@ -9,6 +9,7 @@ export const radius = {
   row: 7,
   card: 10,
   menu: 12,
+  formatPanel: 34,
   alertMac: 22,
   alertTouch: 32,
   window: 16,

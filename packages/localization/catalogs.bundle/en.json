@@ -709,6 +709,15 @@
     },
     "discardDraft": "Discard Draft",
     "keepEditing": "Keep Editing",
+    "deleteDraft": "Delete Draft",
+    "saveDraft": "Save Draft",
+    "saveQuestion": "Do you want to save this message as a draft?",
+    "saveQuestionDetail": "If you don’t save, this draft is deleted.",
+    "saveAction": "Save",
+    "dontSave": "Don’t Save",
+    "format": "Format",
+    "closeFormat": "Close Format",
+    "writingTools": "Writing tools",
     "status": "Draft · {{status}}",
     "save": {
       "saved": "Saved on this device",
@@ -770,6 +779,10 @@
       "cancelLabel": "Cancel adding {{name}}",
       "remove": "Remove",
       "removeLabel": "Remove {{name}}",
+      "toAttachment": "Attach Instead",
+      "toAttachmentLabel": "Attach {{name}} instead of showing it inline",
+      "toInline": "Show Inline",
+      "toInlineLabel": "Show {{name}} inline at the cursor",
       "pastedImage": "Pasted image",
       "status": {
         "adding": "Adding…",
@@ -796,10 +809,7 @@
       "hideQuoted": "Hide quoted text"
     },
     "evaluation": {
-      "title": "Evaluation editor",
-      "saveBlocked": "This Draft could not be saved, so it stays open. Try again once storage is available.",
-      "unsupported": "The evaluation editor does not open Drafts with inline images yet, so this Draft stays unchanged. Close it to return to the Inbox.",
-      "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
+      "stopped": "The evaluation editor stopped. Close this Draft to save or delete it, then open it again."
     }
   },
   "outbox": {

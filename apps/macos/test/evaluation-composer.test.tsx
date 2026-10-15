@@ -2,25 +2,21 @@ import { ok } from 'node:assert/strict';
 
 import type { Command } from '@private-email/draft-editor/messages';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
-import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
-  createSyntheticGmail,
-  syntheticConnections,
-} from '@private-email/mail-core/testing/gmail-mailbox';
+  AssetSchema,
+  imagesOf,
+} from '@private-email/mail-core/semantic-document';
+import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createMockMailSession,
   syntheticReply,
   syntheticRewrite,
   syntheticTranslation,
 } from '@private-email/mail-core/testing/mock-session';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,
   fireEvent,
@@ -28,14 +24,13 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { useMemo, useState } from 'react';
+import * as Schema from 'effect/Schema';
+import { View } from 'react-native';
 
-import { DraftComposer } from '../src/evaluation-composer.tsx';
-import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
-import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { App, alex, registration } from './evaluation-app.tsx';
+import { lastCommand, press, simulatedPage } from './evaluation-page.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -44,128 +39,187 @@ jest.mock('@private-email/draft-editor/page', () => ({
   editorPage: '<!doctype html><title>Tiptap evaluation page</title>',
 }));
 
-const alex = syntheticMailboxes['alex@example.invalid'];
-const registration = {
-  getSnapshot: () => ({
-    snapshot: {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state: 'connected' },
-      ]),
-    } satisfies RegistrationSnapshot,
-    busy: false,
-    failed: false,
+// That command as the page receives it.
+const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
+const Previews = Schema.optionalKey(
+  Schema.Record(Schema.String, Schema.NullOr(Schema.String)),
+);
+const SentSchema = Schema.fromJsonString(
+  Schema.Struct({
+    type: Schema.String,
+    id: Schema.optionalKey(Schema.String),
+    images: Assets,
+    attachments: Assets,
+    previews: Previews,
   }),
-  subscribe: () => () => undefined,
+);
+const lastSent = () => {
+  const [, json] =
+    /^globalThis\.draftCommand\?\.\((?<json>.*)\); true;$/su.exec(
+      lastCommand() ?? '',
+    ) ?? [];
+  return json === undefined ? undefined : Schema.decodeSync(SentSchema)(json);
 };
-
-function App({ drafts }: { readonly drafts: ReturnType<typeof createDrafts> }) {
-  const mailboxes = useMemo(
-    () =>
-      createMailboxes(
-        syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
-        registration,
-      ),
-    [],
-  );
-  const [composing, setComposing] = useState<string>();
-  return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
-        openAccount: () => undefined,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <Inbox
-          composing={composing}
-          onCompose={setComposing}
-          onSelect={() => undefined}
-          selected={undefined}
-        />
-        {composing === undefined ? null : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
-          />
-        )}
-      </InboxProvider>
-    </AccountContext>
-  );
-}
-
-const press = async (name: string | RegExp) => {
-  const button = await screen.findByRole('button', { name });
+// Chooses `title` in the system context menu around `element`.
+const choose = async (
+  element: ReturnType<typeof screen.getByText>,
+  title: string,
+) => {
+  let menu = element.parent;
+  while (menu !== null && menu.type !== 'UnwiredContextMenu') {
+    menu = menu.parent;
+  }
+  ok(menu, 'Expected a context menu');
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title);
+  ok(item, `Expected ${title}`);
+  const select: (event: { nativeEvent: { id: string } }) => void =
+    menu.props.onSelect;
   await act(async () => {
-    await fireEvent.press(button);
+    select({ nativeEvent: { id: item.id } });
   });
 };
+const saveBlocked =
+  'This Draft could not be saved, so it stays open. Try again, or discard it.';
+// The assets the host last asked the page to add.
+const lastAdded = () => {
+  const sent = lastSent();
+  ok(sent?.type === 'add', 'Expected the page to add assets');
+  return { images: sent.images ?? [], attachments: sent.attachments ?? [] };
+};
 
-// The packaged page, as the host sees it: after each edit or selection change it reports its
-// state, with the whole body after an edit. `revision` counts its body edits.
-function simulatedPage() {
-  let revision = 0;
-  const report = async (
-    state: Readonly<{
-      document?: SemanticDocument;
-      selection?: Readonly<{ start: number; end: number }>;
-      marks?: readonly string[];
-      kind?: string;
-    }>,
-  ) => {
-    revision += state.document === undefined ? 0 : 1;
+// Reopens a saved Draft while its native import is pending, then completes it before an exit.
+async function settledImport(action: 'save' | 'delete' | 'unchanged') {
+  const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+  const drafts = createDrafts(storage.native, registration);
+  await drafts.load();
+  const id = await drafts.create({ id: alex, address: 'alex@example.invalid' });
+  ok(id, 'Expected a Draft');
+  const [original] = draftsOf(drafts.getSnapshot());
+  ok(original, 'Expected the created Draft');
+  storage.addFile('file:///pending.png', 'pending');
+  const asset = drafts.prepare({ name: 'pending.png', type: 'image/png' });
+  await drafts.update({ ...original, attachments: [asset] }, original);
+  storage.holdImports();
+  const importing = drafts.importAsset(asset, {
+    kind: 'file',
+    uri: 'file:///pending.png',
+  });
+  await render(<App drafts={drafts} />);
+  await press(/^Draft\./u);
+  await act(async () => {
+    storage.releaseImports();
+    await importing;
+  });
+  if (action !== 'unchanged') {
     await act(async () => {
-      await fireEvent(screen.getByTestId('message-webview'), 'message', {
-        nativeEvent: {
-          data: JSON.stringify({
-            type: 'update',
-            revision,
-            selection: { start: 0, end: 0 },
-            marks: [],
-            kind: 'paragraph',
-            undo: revision > 0,
-            redo: false,
-            ...state,
-          }),
-        },
-      });
+      fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Edited after import',
+      );
     });
-  };
-  return {
-    report,
-    typed: async (text: string) =>
-      report({ document: [{ kind: 'paragraph', spans: [{ text }] }] }),
-    revision: () => revision,
-  };
+  }
+  await press('Close');
+  if (action !== 'unchanged') {
+    await press(action === 'save' ? 'Save' : 'Don’t Save');
+  }
+  return { drafts, id };
 }
-// The command the host last sent its page.
-const lastCommand = () => injectedScripts.at(-1);
 
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
-  it('saves page edits through the Draft store and reopens them after relaunch', async () => {
+
+  it('keeps background composer controls out of the save decision', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { typed } = simulatedPage();
+    await typed('An unsaved message');
+    const send = screen.getByRole('button', { name: 'Send' });
+    const focus = jest.spyOn(View.prototype, 'focus');
+    try {
+      await press('Close');
+      // Native View methods are substituted here; these are focus requests, not AppKit evidence.
+      expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+        screen.getByRole('button', { name: 'Save' }).props.onFocus,
+      );
+      for (const [from, event, shiftKey, to] of [
+        ['Save', 'focus', true, 'Cancel'],
+        ['Cancel', 'focus', false, 'Save'],
+        ['Save', 'blur', false, 'Save'],
+        ['Save', 'blur', true, 'Cancel'],
+      ] as const) {
+        const button = screen.getByRole('button', { name: from });
+        await fireEvent(button, 'focus');
+        await fireEvent(button, event);
+        focus.mockClear();
+        await fireEvent(
+          screen.getByText('Do you want to save this message as a draft?'),
+          'keyDown',
+          {
+            nativeEvent: {
+              key: 'Tab',
+              shiftKey,
+              metaKey: false,
+              ctrlKey: false,
+              altKey: false,
+            },
+          },
+        );
+        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+          screen.getByRole('button', { name: to }).props.onFocus,
+        );
+      }
+      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await act(async () => {
+        await fireEvent.press(send);
+      });
+      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [] },
+      ]);
+      await fireEvent(
+        screen.getByText('Do you want to save this message as a draft?'),
+        'keyDown',
+        {
+          nativeEvent: {
+            key: 'Escape',
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+          },
+        },
+      );
+      expect(screen.getByRole('button', { name: 'Send' })).toBeOnTheScreen();
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      await press('Close');
+      await press('Save');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [{ text: 'An unsaved message' }] },
+      ]);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
+  it('keeps edits in the editor until Save, and reopens them after relaunch', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const first = await render(
-      <App drafts={createDrafts(storage.native, registration)} />,
-    );
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
     await press('New Message');
     const { typed } = simulatedPage();
-    await expect(
-      screen.findByText('Evaluation editor'),
-    ).resolves.toBeOnTheScreen();
-    // The Draft row and the composer both name the sending mailbox.
-    expect(screen.getAllByText('From alex@example.invalid')).toHaveLength(2);
-    const page = screen.getByTestId('message-webview');
+    const page = await screen.findByTestId('message-webview');
     // A non-persistent, cache-free WebKit view that never leaves its packaged page.
     expect(page).toHaveProp('incognito', true);
     expect(page).toHaveProp('cacheEnabled', false);
@@ -185,15 +239,15 @@ describe('the Tiptap evaluation composer', () => {
       }),
     ]).toStrictEqual([false]);
     expect(page.props.injectedJavaScriptBeforeContentLoaded).toBe(
-      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"label":"Message body"}; true;',
+      'window.draftEditor = {"document":[{"kind":"paragraph","spans":[]}],"attachments":[],"label":"Message body"}; true;',
     );
 
+    // Edits stay in the editor: nothing is saved, and no saving status is shown.
     await typed('Hello from Tiptap');
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    expect(screen.queryByText(/^Draft · /u)).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [] },
+    ]);
     // A page message that is not a valid body changes nothing.
     await act(async () => {
       await fireEvent(page, 'message', {
@@ -202,32 +256,19 @@ describe('the Tiptap evaluation composer', () => {
         },
       });
     });
-    // Locked storage is visible, keeps the edit in memory, and blocks Close until a retry saves.
-    storage.failNextCommit('locked');
-    await typed('Hello from Tiptap, again');
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          'Draft · Not saved while private storage is locked. Unlock your device.',
-        ),
-      ).toBeOnTheScreen();
-    });
-    storage.failNextCommit('locked');
+    // Close asks first; a Save Draft that storage refuses keeps the editor open to try again.
     await press('Close');
-    expect(
-      screen.getByText(
-        'This Draft could not be saved, so it stays open. Try again once storage is available.',
-      ),
-    ).toBeOnTheScreen();
-    // Editing again clears the failed Close's notice.
+    storage.setLocked(true);
+    await press('Save');
+    expect(screen.getByText(saveBlocked)).toBeOnTheScreen();
+    expect(page).toBeOnTheScreen();
+    // Editing again clears the notice, and the unsaved edit still asks on Close.
     await typed('Hello from Tiptap, again');
-    expect(
-      screen.queryByText(
-        'This Draft could not be saved, so it stays open. Try again once storage is available.',
-      ),
-    ).not.toBeOnTheScreen();
+    expect(screen.queryByText(saveBlocked)).not.toBeOnTheScreen();
+    storage.setLocked(false);
     await press('Close');
-    expect(screen.queryByText('Evaluation editor')).not.toBeOnTheScreen();
+    await press('Save');
+    expect(screen.queryByTestId('message-webview')).toBeNull();
     // WebKit can queue a callback before Close removes the page. Retired pages cannot edit.
     await act(async () => {
       page.props.onMessage({
@@ -262,9 +303,107 @@ describe('the Tiptap evaluation composer', () => {
       screen.getByTestId('message-webview').props
         .injectedJavaScriptBeforeContentLoaded,
     ).toContain('"spans":[{"text":"Hello from Tiptap, again"}]');
+    // An unchanged Draft closes without asking.
+    await press('Close');
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    expect(draftsOf(reopened.getSnapshot())).toHaveLength(1);
   });
 
-  it('formats through page commands and applies reviewed assistance as one page edit', async () => {
+  it('includes queued page edits before Save and locks editing until storage finishes', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.typed('Before Close');
+    storage.hold();
+    await press('Close');
+    await press('Save', false);
+    // WebKit may still have a text update queued when the native Save control is pressed.
+    await page.typed('Last queued edit');
+    await page.report({ frozen: true });
+    expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+    await act(async () => {
+      storage.release();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Last queued edit' }] },
+    ]);
+  });
+
+  it('asks to save a queued edit instead of discarding an apparently empty Draft', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.report({});
+    await press('Close', false);
+    await page.typed('Queued before Close');
+    await page.report({ frozen: true });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+    await press('Don’t Save');
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+  });
+
+  it.each([
+    ['save', ['Edited after import']],
+    ['delete', []],
+    ['unchanged', ['']],
+  ] as const)(
+    'keeps the saved baseline current when an import finishes before %s',
+    async (action, subjects) => {
+      expect.hasAssertions();
+      const { drafts, id } = await settledImport(action);
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+      const saved = draftsOf(drafts.getSnapshot());
+      expect(saved.map(({ subject }) => subject)).toStrictEqual(subjects);
+      expect(
+        saved.map(({ id: current, conflict }) => [current, conflict]),
+      ).toStrictEqual(subjects.map(() => [id, undefined]));
+    },
+  );
+
+  it('removes an empty Draft on Close, deletes an edited one, and stores a refused Send', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    await screen.findByTestId('message-webview');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    await press('Close');
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+
+    await press('New Message');
+    await simulatedPage().typed('Never mind');
+    await press('Close');
+    await press('Don’t Save');
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+
+    // Send without recipients stays open with its reason, and the shown version is stored.
+    await press('New Message');
+    await simulatedPage().typed('Hello');
+    await press('Send');
+    expect(
+      screen.getByText('Add a recipient before sending.'),
+    ).toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Hello' }] },
+    ]);
+  });
+
+  it('formats through page commands and applies reviewed writing tools as one page edit', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const mock = createMockMailSession('open-read-relaunch');
@@ -314,6 +453,7 @@ describe('the Tiptap evaluation composer', () => {
 
     // Rewrite without a selection captures the whole body; the result replaces it in the page,
     // for the body revision it was captured from.
+    await press('Writing tools');
     await press('Rewrite the message body');
     await screen.findByText(syntheticRewrite);
     await press('Replace your text with this rewrite');
@@ -328,6 +468,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
+    await press('Writing tools');
     await press('Translate the selected text');
     await fireEvent.press(
       await screen.findByRole('radio', { name: 'Translate into German' }),
@@ -341,6 +482,7 @@ describe('the Tiptap evaluation composer', () => {
       { kind: 'quote', spans: [{ text: 'Hola amigos' }] },
     ];
     await report({ document: latest, selection: { start: 5, end: 11 } });
+    await press('Writing tools');
     await press('Translate the selected text');
     await fireEvent.press(
       await screen.findByRole('radio', { name: 'Translate into German' }),
@@ -356,15 +498,12 @@ describe('the Tiptap evaluation composer', () => {
         selection: { start: replaced.length, end: replaced.length },
       }),
     );
-    // The page's next update carries the replacement, which saves like any edit.
+    // The page's next update carries the replacement, which Save Draft stores like any edit.
     await report({
       document: [{ kind: 'quote', spans: [{ text: replaced }] }],
     });
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    await press('Close');
+    await press('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
       { kind: 'quote', spans: [{ text: replaced }] },
     ]);
@@ -386,6 +525,7 @@ describe('the Tiptap evaluation composer', () => {
       await press('New Message');
       const { typed } = simulatedPage();
       await typed('Keep this body');
+      await press('Writing tools');
       await press('Rewrite the message body');
       await screen.findByText(syntheticRewrite);
       const apply = screen.getByRole('button', {
@@ -393,7 +533,6 @@ describe('the Tiptap evaluation composer', () => {
       });
       const page = screen.getByTestId('message-webview');
       const scripts = injectedScripts.length;
-      const before = draftsOf(drafts.getSnapshot())[0]?.body;
       // Failure and already-queued callbacks can arrive before React removes the page/panel.
       await act(async () => {
         page.props[event]();
@@ -418,7 +557,12 @@ describe('the Tiptap evaluation composer', () => {
       expect(screen.queryByText(syntheticRewrite)).toBeNull();
       expect(screen.queryByTestId('message-webview')).toBeNull();
       expect(injectedScripts).toHaveLength(scripts);
-      expect(draftsOf(drafts.getSnapshot())[0]?.body).toBe(before);
+      // The body the page last reported can still be saved.
+      await press('Close');
+      await press('Save');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [{ text: 'Keep this body' }] },
+      ]);
     },
   );
 
@@ -435,6 +579,7 @@ describe('the Tiptap evaluation composer', () => {
     );
     await press('New Message');
     await simulatedPage().report({});
+    await press('Writing tools');
     expect(
       screen.queryByRole('button', {
         name: 'Suggest a reply to the quoted message',
@@ -464,6 +609,7 @@ describe('the Tiptap evaluation composer', () => {
     // The reopened page starts again at its first body revision.
     await press(/^Draft\./u);
     await simulatedPage().report({});
+    await press('Writing tools');
     await press('Suggest a reply to the quoted message');
     await screen.findByText(syntheticReply);
     await press('Replace your reply with this suggestion');
@@ -480,6 +626,7 @@ describe('the Tiptap evaluation composer', () => {
       document: [{ kind: 'paragraph', spans: [{ text: syntheticReply }] }],
     });
     await press('Close');
+    await press('Save');
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     const [saved] = draftsOf(reopened.getSnapshot());
@@ -491,45 +638,330 @@ describe('the Tiptap evaluation composer', () => {
     });
   });
 
-  it('leaves a Draft with an Inline Image unchanged instead of opening it', async () => {
+  it('adds, converts and removes Inline Images and Attachments through native imports', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    const pick = press;
+    // The photo goes inline at the page's selection; native code imports it meanwhile.
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await pick('Insert Image…');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    const body = (...spans: SemanticDocument[number]['spans']) =>
+      [{ kind: 'paragraph', spans }] as const;
+    await report({
+      document: body({ text: 'Hi ' }, { text: '￼', image: chart }),
+      attachments: [],
+    });
+    await screen.findByLabelText('chart.png, Adding…');
+    // Typing while the import completes keeps the edit, and the page's older copy of the asset
+    // cannot undo its completion.
+    await report({
+      document: body(
+        { text: 'Hi ' },
+        { text: '￼', image: chart },
+        { text: ' there' },
+      ),
+      attachments: [],
+    });
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await report({
+      document: body(
+        { text: 'Hi ' },
+        { text: '￼', image: chart },
+        { text: ' there!' },
+      ),
+      attachments: [],
+    });
+    // The page receives only the native thumbnail of verified bytes.
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+    // A file from the Files picker is attached; converting and removing are page edits.
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await pick('Attach Files…');
+    const attached = lastAdded();
+    const [plan] = attached.attachments;
+    ok(plan, 'Expected the attached file');
+    // Secondary-clicking the image offers Attach Instead, and VoiceOver offers it as an action.
+    const chip = screen.getByLabelText(/^chart\.png, /u);
+    await choose(chip, 'Attach Instead');
+    const converted = lastSent();
+    await act(async () => {
+      await fireEvent(chip, 'accessibilityAction', {
+        nativeEvent: { actionName: 'convert' },
+      });
+    });
+    expect(lastSent()).toStrictEqual(converted);
+    // The page refused a paste carrying images; the Mac adds nothing for it yet.
+    await act(async () => {
+      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+        nativeEvent: { data: '{"type":"paste"}' },
+      });
+    });
+    const pasted = lastSent();
+    // The page can name only assets the host gave it.
+    const forged = {
+      id: 'forged000001',
+      name: 'forged.png',
+      type: 'image/png',
+      state: 'complete',
+      size: 1,
+      digest: 'f'.repeat(64),
+    } as const;
+    await report({
+      document: body({ text: 'Hi ' }, { text: '￼', image: forged }),
+      attachments: [plan, chart, forged],
+    });
+    await press('Remove plan.pdf');
+    const removed = lastSent();
+    await press('Close');
+    await press('Save');
+    expect({
+      attached: attached.images,
+      converted,
+      pasted,
+      removed,
+      stored: draftsOf(drafts.getSnapshot())[0],
+    }).toMatchObject({
+      attached: [],
+      converted: { type: 'convert', id: chart.id },
+      pasted: converted,
+      removed: { type: 'remove', id: plan.id },
+      stored: {
+        body: body({ text: 'Hi ' }),
+        attachments: [
+          { name: 'plan.pdf', state: 'complete' },
+          { id: chart.id, state: 'complete' },
+        ],
+      },
+    });
+    await first.unmount();
+    // Reopening gives the page the stored body and Attachments, with the same asset identities.
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    await render(<App drafts={reopened} />);
+    await press(/^Draft\./u);
+    const injected = String(
+      screen.getByTestId('message-webview').props
+        .injectedJavaScriptBeforeContentLoaded,
+    );
+    expect(injected).toContain(`"id":"${chart.id}"`);
+  });
+
+  it('cancels imports, shows damaged bytes and completes an import after Save', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    const insert = async (name: string) => {
+      storage.addFile(`file:///${name}`, name);
+      storage.pickNext('photos', [
+        { uri: `file:///${name}`, name, type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      const [image] = lastAdded().images;
+      ok(image, 'Expected the photo');
+      return image;
+    };
+    storage.holdImports();
+    const cancelled = await insert('cancelled.png');
+    await report({
+      document: [
+        {
+          kind: 'paragraph',
+          spans: [{ text: '￼', image: cancelled }],
+        },
+      ],
+      attachments: [],
+    });
+    await press('Cancel adding cancelled.png');
+    await screen.findByLabelText('cancelled.png, Not added: cancelled');
+    const late = await insert('late.png');
+    await report({
+      document: [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: '￼', image: cancelled },
+            { text: '￼', image: late },
+          ],
+        },
+      ],
+      attachments: [],
+    });
+    // Save Draft waits only for the save; the import completes into the stored Draft.
+    await press('Close');
+    await press('Save');
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      const [stored] = draftsOf(drafts.getSnapshot());
+      ok(stored, 'Expected the stored Draft');
+      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
+        'cancelled',
+        'complete',
+      ]);
+    });
+    await first.unmount();
+    // Bytes that no longer verify are listed as damaged, and the page gets no thumbnail.
+    storage.damage(late.id);
+    injectedScripts.length = 0;
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    await render(<App drafts={reopened} />);
+    await press(/^Draft\./u);
+    await simulatedPage().report({});
+    await screen.findByLabelText('late.png, 8 bytes · Damaged on this device');
+    expect(
+      injectedScripts.filter((script) => script.includes('"previews"')),
+    ).toStrictEqual([]);
+  });
+
+  it('sends the page a thumbnail once a locked image can be read again', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
     await render(<App drafts={drafts} />);
     await press('New Message');
-    const [draft] = draftsOf(drafts.getSnapshot());
-    ok(draft, 'Expected a Draft');
-    const withImage = {
-      ...draft,
-      body: [
-        {
-          kind: 'paragraph',
-          spans: [
-            {
-              text: '\uFFFC',
-              image: {
-                id: 'abcdefgh',
-                name: 'a.png',
-                type: 'image/png',
-                state: 'importing',
-              },
-            },
-          ],
-        },
-      ] as const,
-    };
-    await act(async () => {
-      await drafts.update(withImage, draft);
+    const { report } = simulatedPage();
+    await report({});
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    await report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
     });
-    await expect(
-      screen.findByText(
-        'The evaluation editor does not open Drafts with inline images yet, so this Draft stays unchanged. Close it to return to the Inbox.',
-      ),
-    ).resolves.toBeOnTheScreen();
-    expect(screen.queryByTestId('message-webview')).not.toBeOnTheScreen();
-    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
-      withImage.body,
+    await press('Close');
+    await press('Save');
+    // Reopened while private storage is locked, the image cannot be checked yet.
+    storage.setLocked(true);
+    injectedScripts.length = 0;
+    await press(/^Draft\./u);
+    await simulatedPage().report({});
+    const retry = await screen.findByRole('button', {
+      name: 'Check chart.png again',
+    });
+    expect(
+      injectedScripts.filter((script) => script.includes('"previews"')),
+    ).toStrictEqual([]);
+    // The row's Try again reads it again, and the page shows the same thumbnail.
+    storage.setLocked(false);
+    await act(async () => {
+      await fireEvent.press(retry);
+    });
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+    await choose(screen.getByText('chart.png'), 'Attach Instead');
+    const nextPage = simulatedPage();
+    await nextPage.report({
+      document: [{ kind: 'paragraph', spans: [] }],
+      attachments: [chart],
+    });
+    storage.setLocked(true);
+    await choose(screen.getByText('chart.png'), 'Show Inline');
+    await nextPage.report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
+    });
+    await screen.findByLabelText(
+      'chart.png, 5 bytes · Not checked while private storage is locked',
     );
+    expect(lastSent()).toStrictEqual({
+      type: 'previews',
+      previews: { [chart.id]: null },
+    });
+    storage.setLocked(false);
+    await press('Check chart.png again');
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+  });
+
+  it('keeps an import that a queued Cancel reaches after Save starts', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    await report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
+    });
+    const cancel = await screen.findByRole('button', {
+      name: 'Cancel adding chart.png',
+    });
+    await press('Close');
+    // A Cancel queued before React disables the row arrives after Save has started.
+    const queued: (event: object) => void = cancel.props.onClick;
+    const save = await screen.findByRole('button', { name: 'Save' });
+    await act(async () => {
+      fireEvent.press(save);
+      queued({ nativeEvent: {} });
+    });
+    await report({ frozen: true });
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      const [stored] = draftsOf(drafts.getSnapshot());
+      ok(stored, 'Expected the stored Draft');
+      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
+        'complete',
+      ]);
+    });
   });
 });

@@ -3,6 +3,31 @@
 
 // The Commands… menu item, Command-P, tells the key window's JavaScript to open its Command Palette.
 NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette";
+// Closing a window whose composer holds unsaved edits asks its JavaScript first.
+NSNotificationName const UnwiredWindowShouldClose = @"UnwiredWindowShouldClose";
+
+// The windows whose composer holds edits that closing them would lose.
+static NSMutableSet<NSString *> *guardedWindows(void)
+{
+  static NSMutableSet<NSString *> *windows;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ windows = [NSMutableSet set]; });
+  return windows;
+}
+
+// Called on the main thread by the window and application delegates.
+BOOL UnwiredCloseGuarded(NSString *identifier)
+{
+  return identifier != nil && [guardedWindows() containsObject:identifier];
+}
+
+NSString *UnwiredGuardedWindow(void)
+{
+  for (NSWindow *window in NSApp.windows) {
+    if (UnwiredCloseGuarded(window.identifier)) return window.identifier;
+  }
+  return nil;
+}
 
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
 @end
@@ -12,12 +37,14 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"windowShouldClose"]; }
 
 - (void)startObserving
 {
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(openCommandPalette:)
       name:UnwiredOpenCommandPalette object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShouldClose:)
+      name:UnwiredWindowShouldClose object:nil];
 }
 
 - (void)stopObserving
@@ -28,6 +55,11 @@ RCT_EXPORT_MODULE()
 - (void)openCommandPalette:(NSNotification *)notification
 {
   [self sendEventWithName:@"openCommandPalette" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)windowShouldClose:(NSNotification *)notification
+{
+  [self sendEventWithName:@"windowShouldClose" body:@{@"window": notification.object ?: @""}];
 }
 
 // The control that had keyboard focus in each window when its Command Palette opened, which
@@ -64,6 +96,27 @@ RCT_EXPORT_METHOD(saveFocus:(NSString *)identifier)
   if ([responder isKindOfClass:NSView.class]) {
     [savedResponders() setObject:(NSView *)responder forKey:window];
   }
+}
+
+// The composer marks its window while closing it would lose edits.
+RCT_EXPORT_METHOD(guardClose:(NSString *)identifier guarded:(BOOL)guarded)
+{
+  if (guarded) {
+    [guardedWindows() addObject:identifier];
+  } else {
+    [guardedWindows() removeObject:identifier];
+  }
+}
+
+// A refused close also cancels any Quit waiting for this composer.
+RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
+{
+  if (!allowed) {
+    [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredWindowCloseCancelled" object:identifier];
+    return;
+  }
+  [guardedWindows() removeObject:identifier];
+  [windowNamed(identifier) performClose:nil];
 }
 
 RCT_EXPORT_METHOD(restoreFocus:(NSString *)identifier)

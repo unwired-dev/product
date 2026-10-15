@@ -3,12 +3,14 @@ const path = require('node:path');
 
 const { buildSync } = require('esbuild');
 
-// Bundles the editor into one HTML page that loads nothing: its script and styles are inline,
-// and its Content Security Policy refuses every other source and connection.
+// Bundles the editor into one HTML page that loads nothing: its script and styles are inline, its
+// images are the `data:` thumbnails the host sends, and its Content Security Policy refuses every
+// other source and connection.
 const policy = [
   "default-src 'none'",
   "script-src 'unsafe-inline'",
   "style-src 'unsafe-inline'",
+  'img-src data:',
 ].join('; ');
 const style = `
 :root { color-scheme: light dark; }
@@ -26,6 +28,9 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror pre { margin: 0; padding: 0 8px; background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; }
 .ProseMirror pre + :not(pre) { margin-top: 0.75em; }
 .ProseMirror code, .ProseMirror pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
+.ProseMirror img { max-width: 100%; max-height: 256px; vertical-align: bottom; border-radius: 6px; }
+.ProseMirror img:not([src]) { box-sizing: border-box; width: 44px; height: 44px; border: 1px dashed rgba(128, 128, 128, 0.6); }
+.ProseMirror img.ProseMirror-selectednode { outline: 2px solid Highlight; }
 `;
 
 function pageHtml() {

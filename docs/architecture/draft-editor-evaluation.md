@@ -30,6 +30,16 @@ each authored edit. The shared message decoder validates every update, including
 its optional body, against Effect Schema; a malformed message changes nothing. The page never receives encryption
 keys, account identifiers or other Drafts.
 
+Before Close, Save or Send inspects the Draft, the host makes the page read-only
+and waits for an ordered acknowledgement of its final document. Native fields and
+asset controls are disabled during that operation. A refused finish restores editing;
+page termination or editor teardown cancels an outstanding acknowledgement. This
+keeps queued WebKit edits inside the version that is saved or admitted to the Outbox.
+An acknowledgement at the already-reported revision is not another authored edit.
+Asset settlement patches both the editor and its stored baseline, preserving their
+shared identity when the person has made no edit. Navigation waits for the close
+choice and resumes only after a successful save or deletion.
+
 `src/conversion.ts` is the only boundary between the Semantic Message Document and
 Tiptap's JSON. Drafts store only the Semantic Message Document; Tiptap JSON, HTML or
 Markdown are never stored. The object replacement character that marks an Inline
