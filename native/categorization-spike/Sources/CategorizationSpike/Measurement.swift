@@ -58,15 +58,16 @@ public enum Measurement {
       peak = footprintBytes()
       let timer = DispatchSource.makeTimerSource(queue: queue)
       timer.schedule(deadline: .now(), repeating: .milliseconds(10))
-      timer.setEventHandler { [unowned self] in
+      // A tick or probe can still be queued after stop() releases the sampler; each does nothing then.
+      timer.setEventHandler { [weak self] in
+        guard let self else { return }
         peak = max(peak, footprintBytes())
         guard !pending else { return }
         pending = true
         let sent = ContinuousClock.now
-        // A probe can still be queued on a delayed main thread after stop(); it must not outlive us.
         DispatchQueue.main.async { [weak self] in
           let lag = Candidate.milliseconds(ContinuousClock.now - sent)
-          self?.queue.async {
+          self?.queue.async { [weak self] in
             self?.lags.append(lag)
             self?.pending = false
           }

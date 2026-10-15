@@ -34,6 +34,18 @@ SYSTEM_CATEGORIES = ["Orders", "Newsletters & Promotions", "Invites", "Flights",
 MODELS = ROOT / "work" / "models"
 RESULTS = ROOT / "results"
 UNITS = ("CPU_ONLY", "CPU_AND_GPU", "CPU_AND_NE", "ALL")
+# The bundle pins weights only; these tokenizers reproduced every golden input id (native
+# categorization-spike golden tests), so a supplied tokenizer must match them byte for byte.
+TOKENIZER_SHA256 = {
+    "deberta-xsmall-body256": "40b244adff13af033491ed93e56c53ecfc9c652cde898ac62c09eebcad940f34",
+    "deberta-mdeberta-body512": "c118b4d331e6757fbadddbd45b0fe1f6c4f7463850261acc295ca8d1d34bdb4f",
+    "xsmall-zs-adapted-body256-description": (
+        "2c070ff353c36f85e20919da787a30e1e8e52b626d0e026e044f373378f6d0bf"
+    ),
+    "mdeberta-nli-adapted-body256-description": (
+        "15a6f27254a090d31147948ab770d723afc81f55cb4bad42f6f54c79014004f6"
+    ),
+}
 # Largest absolute probability difference from the fp32 golden outputs that each export may show.
 TOLERANCE = {"fp16": 0.02, "int8": 0.05}
 
@@ -211,6 +223,9 @@ def export(run: str, weights: Path) -> None:
     found = sha256_file(weights / "model.safetensors")
     if found != entry["weights_sha256"]:
         raise SystemExit(f"{run}: weights {found} differ from the frozen bundle")
+    tokenizer = sha256_file(weights / "tokenizer.json")
+    if tokenizer != TOKENIZER_SHA256[run]:
+        raise SystemExit(f"{run}: tokenizer {tokenizer} differs from the golden-verified one")
     config = json.loads((weights / "config.json").read_text())
     labels = {
         "entailment": int(config["label2id"].get(entry.get("entailment_label"), -1)),

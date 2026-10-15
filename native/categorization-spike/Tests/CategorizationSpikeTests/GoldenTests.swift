@@ -76,3 +76,17 @@ func fp16MatchesGolden(run: String) throws {
   }
   #expect(passes == 3)
 }
+
+// A main-thread probe still queued when the sampler stops and is released must not touch it.
+@Test func samplerReleasedWithQueuedProbesDoesNotCrash() async throws {
+  for _ in 0..<20 {
+    var sampler: CategorizationSpike.Measurement.Sampler? = .init()
+    try await Task.sleep(for: .milliseconds(15))
+    _ = sampler?.stop()
+    sampler = nil
+    #expect(sampler == nil)
+  }
+  // Let the queued probes run against the released samplers.
+  for _ in 0..<5 { await MainActor.run {} }
+  try await Task.sleep(for: .milliseconds(50))
+}

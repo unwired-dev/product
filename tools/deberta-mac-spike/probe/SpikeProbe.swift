@@ -34,12 +34,26 @@ final class SpikeProbe: XCTestCase {
     item.click()
   }
 
-  // Runs one action and waits until the page accepts actions again.
+  // The app's evidence file: one JSON line per finished request, cancellation or release.
+  private func evidenceLines() -> Int {
+    let bundle = environment["SPIKE_BUNDLE"] ?? ""
+    let file = FileManager.default.homeDirectoryForCurrentUser
+      .appending(path: "Library/Containers/\(bundle)/Data/tmp/categorization-spike.jsonl")
+    let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+    return text.split(separator: "\n").count
+  }
+
+  // Runs one action and waits until the app has recorded its outcome and accepts actions again;
+  // an enabled button alone can be sampled before the request has even started.
   private func run(_ action: String, timeout: TimeInterval = 1800) {
+    let before = evidenceLines()
     window.buttons[action].click()
+    let recorded = NSPredicate { [unowned self] _, _ in evidenceLines() > before }
+    expectation(for: recorded, evaluatedWith: nil)
+    waitForExpectations(timeout: timeout)
     let ready = NSPredicate(format: "exists == true AND isEnabled == true")
     expectation(for: ready, evaluatedWith: window.buttons["Classify"])
-    waitForExpectations(timeout: timeout)
+    waitForExpectations(timeout: 60)
     XCTAssertFalse(label("could not run on this Mac").exists, action)
   }
 

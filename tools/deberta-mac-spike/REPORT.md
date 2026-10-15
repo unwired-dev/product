@@ -18,10 +18,15 @@ mDeBERTa; INT8 weight quantization is not worth adopting.**
   pass. Core ML plans its relative-position `gather_along_axis` and `select`
   operations on the CPU (88 CPU operations), so most of the model waits on the
   CPU. It needs a different relative-position export before it can be judged.
-- **INT8** halves the download but gives no latency gain, uses as much or more
-  peak memory than FP16 here, widens probability drift (up to 0.12 in the host,
-  0.50 for Custom XSmall on CPU+GPU in the export check) and changes one System
-  XSmall decision. The first load of INT8 System mDeBERTa took 29.5 minutes.
+- **INT8** halves the download but gives no latency gain, widens probability
+  drift (up to 0.12 in the host, 0.50 for Custom XSmall on CPU+GPU in the export
+  check) and changes one System XSmall decision. Its peak memory is mixed: higher
+  than FP16 for System XSmall (523 against 348 MB) and Custom mDeBERTa at 5 and
+  20 categories (1,676 against 928 MB), lower for Custom XSmall (564 against
+  650–1,182 MB) and Custom mDeBERTa at 50 (339 against 434 MB). The peaks are
+  whole-process samples taken right after switching models, so they show no
+  consistent INT8 memory saving rather than a clean per-model comparison. The
+  first load of INT8 System mDeBERTa took 29.5 minutes.
 
 Mac results do not establish feasibility on the limiting standard iPhone; that
 evidence belongs to [#830](https://github.com/unwired-dev/product/issues/830).
