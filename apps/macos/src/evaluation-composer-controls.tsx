@@ -337,7 +337,9 @@ export function SaveSheet({
         }
       }}
       style={styles.sheet}>
-      <GlassPanel>
+      <GlassPanel
+        open
+        origin="top">
         <View style={styles.sheetContent}>
           <Text
             selectable

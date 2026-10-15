@@ -302,15 +302,18 @@ export function MenuPresence({
 export function GlassPanel({
   open,
   children,
+  origin = 'top right',
 }: {
   readonly open: boolean;
   readonly children: ReactNode;
+  // Where the panel grows from: the control or window edge that opened it.
+  readonly origin?: string;
 }) {
   const colors = usePalette();
   return (
     <MenuPresence
       open={open}
-      origin="top right"
+      origin={origin}
       style={[
         styles.panel,
         {
