@@ -47,10 +47,19 @@ def test_custom_synthetic_has_no_training_split_and_no_shared_senders():
         assert not senders["validation"] & senders["test"]
 
 
-def test_ambiguous_names_have_a_hard_negative_in_every_split():
+def test_ambiguous_categories_keep_positive_and_negative_evaluation_coverage():
+    records = custom_synthetic.generate()
+    labels = custom.load_labels(records)
     for theme in ("statements", "club-membership", "project-updates"):
-        for templates in custom_synthetic.TEMPLATES[theme]:
-            assert len(templates) == 4  # positive and negative for validation, then for test
+        for language in ("en", "cs"):
+            for split in ("validation", "test"):
+                members = [
+                    row[custom.CONCEPTS.index(theme)]
+                    for record, row in zip(records, labels)
+                    if record["template"].startswith(f"custom-{language}-{theme}-")
+                    and record["split"] == split
+                ]
+                assert any(members) and not all(members), (theme, language, split)
 
 
 def test_every_message_has_valid_labels():
