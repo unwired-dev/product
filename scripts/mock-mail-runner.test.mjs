@@ -213,9 +213,27 @@ if (command === 'xcodebuild') {
   });
 }
 
+// Each scenario's Metro resolution of `moduleName`: a substituted source file or the normal module.
+const seedScript = (moduleName, platform) =>
+  `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '${moduleName}', '${platform}')));`;
+function expectResolutions(moduleName, platform, cases) {
+  for (const [scenario, expected] of cases) {
+    const result = spawnSync(
+      process.execPath,
+      ['-e', seedScript(moduleName, platform)],
+      {
+        cwd: root,
+        env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseJson(result.stdout).type, expected);
+  }
+}
+
 test('build selection resolves only explicit test scenarios and production keeps its normal seed', () => {
-  const script = `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '@private-email/mail-core/inbox-seed', 'ios')));`;
-  for (const [scenario, expected] of [
+  expectResolutions('@private-email/mail-core/inbox-seed', 'ios', [
     ['', 'normal'],
     ['open-read-relaunch', 'sourceFile'],
     ['mail-unavailable', 'sourceFile'],
@@ -231,48 +249,30 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-revoked', 'normal'],
     ['registration-removal', 'normal'],
     ['registration-draft-editor', 'normal'],
-  ]) {
-    const result = spawnSync(process.execPath, ['-e', script], {
-      cwd: root,
-      env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(parseJson(result.stdout).type, expected);
-  }
+    ['categorization-spike', 'sourceFile'],
+  ]);
   // Only the evaluation scenario substitutes the packaged Tiptap page for the empty default.
-  const page = `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '@private-email/draft-editor/page', 'ios')));`;
-  for (const [scenario, expected] of [
+  expectResolutions('@private-email/draft-editor/page', 'ios', [
     ['', 'normal'],
     ['registration-apple', 'normal'],
     ['registration-draft-editor', 'sourceFile'],
-  ]) {
-    const result = spawnSync(process.execPath, ['-e', page], {
-      cwd: root,
-      env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(parseJson(result.stdout).type, expected);
-  }
+  ]);
+  // Only the categorization spike substitutes its research page for the empty default.
+  expectResolutions('./categorization-spike.ts', 'macos', [
+    ['', 'normal'],
+    ['open-read-relaunch', 'normal'],
+    ['categorization-spike', 'sourceFile'],
+  ]);
   // Registration scenarios answer the native vault from the synthetic layers, except enrollment,
   // whose synthetic trusted device still answers natively.
-  const relay = `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '@private-email/mail-core/synthetic-registration', 'ios')));`;
-  for (const [scenario, expected] of [
+  expectResolutions('@private-email/mail-core/synthetic-registration', 'ios', [
     ['', 'normal'],
     ['open-read-relaunch', 'normal'],
     ['registration-apple', 'sourceFile'],
     ['registration-draft-editor', 'sourceFile'],
     ['registration-enrollment', 'normal'],
-  ]) {
-    const result = spawnSync(process.execPath, ['-e', relay], {
-      cwd: root,
-      env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(parseJson(result.stdout).type, expected);
-  }
+  ]);
+  const script = seedScript('@private-email/mail-core/inbox-seed', 'ios');
   const invalid = spawnSync(process.execPath, ['-e', script], {
     cwd: root,
     env: { ...process.env, UNWIRED_MOCK_SCENARIO: '../../production' },

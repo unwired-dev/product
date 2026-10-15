@@ -1,0 +1,26 @@
+[project]
+name = "deberta-mac-spike"
+version = "1.0.0"
+description = "Spike #831: export the frozen DeBERTa candidates to Core ML for the native Mac host"
+requires-python = "==3.12.*"
+dependencies = [
+  # coremltools 9.0 is tested up to torch 2.7.0; newer torch fails its frontend checks.
+  "coremltools==9.0",
+  # coremltools 9.0 converts size-1 arrays to scalars, which NumPy 2.4 and later reject.
+  "numpy<2.4",
+  "safetensors",
+  "torch==2.7.0",
+  "transformers==5.19.0",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

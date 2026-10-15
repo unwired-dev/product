@@ -1,0 +1,90 @@
+{
+  "run": "xsmall-zs-adapted-body256-description",
+  "mode": "custom",
+  "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4",
+  "tolerance": {
+    "fp16": 0.02,
+    "int8": 0.05
+  },
+  "convert_seconds": 6.6,
+  "exports": {
+    "fp16": {
+      "package_bytes": 152499419,
+      "compiled_bytes": 152509336,
+      "zipped_compiled_bytes": 138261994,
+      "quantization": null,
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.015797,
+          "decision_changes": [],
+          "python_predict_ms_median": 23.9
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.005816,
+          "decision_changes": [],
+          "python_predict_ms_median": 8.4
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.017793,
+          "decision_changes": [],
+          "python_predict_ms_median": 12.5
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.023155,
+          "decision_changes": [],
+          "python_predict_ms_median": 12.8
+        }
+      }
+    },
+    "int8": {
+      "package_bytes": 77593942,
+      "compiled_bytes": 77607307,
+      "zipped_compiled_bytes": 67470781,
+      "quantization": {
+        "quantized_tensors": 98,
+        "quantized_elements": 75290112,
+        "dense_tensors": ["var_248_to_uint16", "var_273_to_uint16"],
+        "dense_elements": 786432,
+        "word_embeddings_quantized": true
+      },
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.036908,
+          "decision_changes": [],
+          "python_predict_ms_median": 25.3
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.500399,
+          "decision_changes": [
+            {
+              "message": "synthetic:cs-hard-not-people-2:17",
+              "category": "flights-booked",
+              "member": false
+            },
+            {
+              "message": "synthetic:cs-hard-not-people-2:17",
+              "category": "kids-school",
+              "member": false
+            },
+            {
+              "message": "synthetic:cs-flights-5:13",
+              "category": "kids-school",
+              "member": false
+            }
+          ],
+          "python_predict_ms_median": 9.8
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.042257,
+          "decision_changes": [],
+          "python_predict_ms_median": 12.5
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.040783,
+          "decision_changes": [],
+          "python_predict_ms_median": 13.4
+        }
+      }
+    }
+  }
+}

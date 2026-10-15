@@ -101,6 +101,10 @@ In `registration-draft-editor`, the journey signs in like Google registration, t
 types a new Draft into the Tiptap evaluation editor, rotates or resizes it, closes it
 and reopens it after relaunch. It is the only registration scenario whose
 JavaScript differs from production: its bundles substitute the packaged editor page.
+The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
+adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
+reader. It has no native journey; its evidence comes from the page and the Swift
+package's golden tests.
 
 The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.

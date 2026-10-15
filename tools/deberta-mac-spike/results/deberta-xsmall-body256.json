@@ -1,0 +1,94 @@
+{
+  "run": "deberta-xsmall-body256",
+  "mode": "system",
+  "weights_sha256": "615ac04a05d4a9c35d1fb5f94b3cabee4a0d124170be6ef5e0d06f3205bc5896",
+  "tolerance": {
+    "fp16": 0.02,
+    "int8": 0.05
+  },
+  "convert_seconds": 5.7,
+  "exports": {
+    "fp16": {
+      "package_bytes": 152501729,
+      "compiled_bytes": 152511676,
+      "zipped_compiled_bytes": 137908778,
+      "quantization": null,
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.003049,
+          "decision_changes": [],
+          "python_predict_ms_median": 24.6
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.001996,
+          "decision_changes": [],
+          "python_predict_ms_median": 8.4
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.008096,
+          "decision_changes": [],
+          "python_predict_ms_median": 12.5
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.008862,
+          "decision_changes": [],
+          "python_predict_ms_median": 13.0
+        }
+      }
+    },
+    "int8": {
+      "package_bytes": 77596252,
+      "compiled_bytes": 77609647,
+      "zipped_compiled_bytes": 67450682,
+      "quantization": {
+        "quantized_tensors": 98,
+        "quantized_elements": 75290112,
+        "dense_tensors": ["var_248_to_uint16", "var_273_to_uint16"],
+        "dense_elements": 786432,
+        "word_embeddings_quantized": true
+      },
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.029852,
+          "decision_changes": [
+            {
+              "message": "synthetic:en-overlap-orders-flights-2:4",
+              "categories": ["Flights"]
+            }
+          ],
+          "python_predict_ms_median": 26.8
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.029639,
+          "decision_changes": [
+            {
+              "message": "synthetic:en-overlap-orders-flights-2:4",
+              "categories": ["Flights"]
+            }
+          ],
+          "python_predict_ms_median": 10.3
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.031428,
+          "decision_changes": [
+            {
+              "message": "synthetic:en-overlap-orders-flights-2:4",
+              "categories": ["Flights"]
+            }
+          ],
+          "python_predict_ms_median": 12.8
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.031204,
+          "decision_changes": [
+            {
+              "message": "synthetic:en-overlap-orders-flights-2:4",
+              "categories": ["Flights"]
+            }
+          ],
+          "python_predict_ms_median": 13.1
+        }
+      }
+    }
+  }
+}
