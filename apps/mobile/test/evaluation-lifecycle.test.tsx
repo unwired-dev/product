@@ -211,6 +211,52 @@ describe('evaluation composer lifetime', () => {
     ]);
   });
 
+  it('stores nothing from an open editor once another Product Account opens', async () => {
+    expect.hasAssertions();
+    let productAccount = 'synthetic-product-account';
+    const listeners = new Set<() => void>();
+    let snapshot = registration.getSnapshot();
+    const session = {
+      getSnapshot: () => snapshot,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+    const storage = createSyntheticDrafts(() => productAccount);
+    const drafts = createDrafts(storage.native, session);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const [created] = draftsOf(drafts.getSnapshot());
+    ok(created, 'Expected the created Draft');
+    await simulatedPage().typed('Written before the account changed');
+    // Another Product Account signs in on this device while the editor is open.
+    productAccount = 'next-product-account';
+    snapshot = {
+      ...snapshot,
+      snapshot: { ...snapshot.snapshot, productAccountId: productAccount },
+    };
+    await act(async () => {
+      for (const listener of listeners) {
+        listener();
+      }
+      await drafts.load();
+    });
+    await press('Close');
+    await press('Save Draft');
+    // The editor's version belongs to neither account's storage now.
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    const next = createDrafts(storage.native, session);
+    await next.load();
+    expect(draftsOf(next.getSnapshot())).toStrictEqual([]);
+    productAccount = 'synthetic-product-account';
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    expect(draftsOf(previous.getSnapshot())).toStrictEqual([created]);
+  });
+
   it.each([
     {
       size: 'compact',

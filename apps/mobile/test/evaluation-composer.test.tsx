@@ -269,6 +269,34 @@ describe('the Tiptap evaluation composer', () => {
     ]);
   });
 
+  it('keeps the newest page revision when an earlier report arrives late', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report, typed } = simulatedPage();
+    const first = [{ kind: 'paragraph', spans: [{ text: 'One' }] }] as const;
+    await typed('One');
+    await typed('One two');
+    // WebKit delivers the first edit's report after the second; it cannot replace the newer body.
+    await report({ revision: 1, document: first });
+    await press('Close');
+    await press('Save Draft', false);
+    // Nor while Save Draft waits for the page to acknowledge its last edit.
+    await report({ revision: 1, document: first });
+    expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+    await report({ frozen: true });
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'One two' }] },
+    ]);
+  });
+
   it('asks to save a queued edit instead of discarding an apparently empty Draft', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -956,6 +984,82 @@ describe('the Tiptap evaluation composer', () => {
       expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
         'complete',
       ]);
+    });
+  });
+
+  it('keeps the surviving Draft and its image when Delete Draft races an import', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    await drafts.create({ id: alex, address: 'alex@example.invalid' });
+    const [created] = draftsOf(drafts.getSnapshot());
+    ok(created, 'Expected the created Draft');
+    storage.addFile('file:///kept.png', 'kept');
+    const kept = drafts.prepare({ name: 'kept.png', type: 'image/png' });
+    await drafts.update(
+      {
+        ...created,
+        body: [{ kind: 'paragraph', spans: [{ text: '\uFFFC', image: kept }] }],
+      },
+      created,
+    );
+    await drafts.importAsset(kept, { kind: 'file', uri: 'file:///kept.png' });
+    await drafts.save();
+    await render(<App drafts={drafts} />);
+    await press(/^Draft\./u);
+    const { report } = simulatedPage();
+    await report({});
+    // Another device changes the Draft while this editor is open.
+    const other = createDrafts(storage.native, registration);
+    await other.load();
+    const [current] = draftsOf(other.getSnapshot());
+    ok(current, 'Expected the stored Draft');
+    await other.update({ ...current, subject: 'Other writer' }, current);
+    // A new image is still importing when the person deletes this editor's version.
+    storage.holdImports();
+    storage.addFile('file:///late.png', 'late');
+    storage.pickNext('photos', [
+      { uri: 'file:///late.png', name: 'late.png', type: 'image/png' },
+    ]);
+    await press('Add files');
+    await press('Insert Image');
+    const [late] = lastAdded().images;
+    ok(late, 'Expected the inline photo');
+    await report({
+      document: [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: '\uFFFC', image: kept },
+            { text: '\uFFFC', image: late },
+          ],
+        },
+      ],
+      attachments: [],
+    });
+    await press('Close');
+    await press('Delete Draft');
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const survivors = draftsOf(reopened.getSnapshot());
+    expect(survivors).toMatchObject([
+      { id: created.id, subject: 'Other writer' },
+    ]);
+    const [survivor] = survivors;
+    ok(survivor, 'Expected the surviving Draft');
+    expect(
+      imagesOf(survivor.body).map((image) => [image.id, image.state]),
+    ).toStrictEqual([[kept.id, 'complete']]);
+    // The surviving Draft keeps its bytes; the abandoned import keeps none.
+    await waitFor(() => {
+      expect(storage.assets()).toStrictEqual([kept.id]);
     });
   });
 });

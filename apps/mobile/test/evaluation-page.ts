@@ -11,6 +11,9 @@ import { injectedScripts } from './webview.tsx';
 // The command the host last sent its page.
 export const lastCommand = () => injectedScripts.at(-1);
 
+// Each open page's body revision, which only grows until the page closes.
+const revisions = new WeakMap<object, number>();
+
 export const press = async (name: string | Readonly<RegExp>, flush = true) => {
   const button = await screen.findByRole('button', { name });
   await act(async () => {
@@ -29,7 +32,7 @@ export const press = async (name: string | Readonly<RegExp>, flush = true) => {
             data: JSON.stringify({
               type: 'update',
               frozen: true,
-              revision: 0,
+              revision: revisions.get(page) ?? 0,
               selection: { start: 0, end: 0 },
               marks: [],
               kind: 'paragraph',
@@ -45,10 +48,13 @@ export const press = async (name: string | Readonly<RegExp>, flush = true) => {
 
 // The packaged page, as the host sees it: after each edit or selection change it reports its
 // state, with the whole body after an edit. `revision` counts its body edits.
-export function simulatedPage() {
-  let revision = 0;
+export function simulatedPage(
+  target = () => screen.getByTestId('message-webview'),
+) {
   const report = async (
     state: Readonly<{
+      // An earlier revision, for a report WebKit delivers late.
+      revision?: number;
       frozen?: boolean;
       document?: SemanticDocument;
       attachments?: readonly Asset[];
@@ -57,9 +63,13 @@ export function simulatedPage() {
       kind?: string;
     }>,
   ) => {
-    revision += state.document === undefined ? 0 : 1;
+    const page = target();
+    const latest = revisions.get(page) ?? 0;
+    const revision =
+      state.revision ?? latest + (state.document === undefined ? 0 : 1);
+    revisions.set(page, Math.max(latest, revision));
     await act(async () => {
-      await fireEvent(screen.getByTestId('message-webview'), 'message', {
+      await fireEvent(page, 'message', {
         nativeEvent: {
           data: JSON.stringify({
             type: 'update',
@@ -79,6 +89,6 @@ export function simulatedPage() {
     report,
     typed: async (text: string) =>
       report({ document: [{ kind: 'paragraph', spans: [{ text }] }] }),
-    revision: () => revision,
+    revision: () => revisions.get(target()) ?? 0,
   };
 }

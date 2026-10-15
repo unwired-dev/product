@@ -641,6 +641,10 @@ function EvaluationEditor({
                 if (message === undefined || message.type === 'paste') {
                   return;
                 }
+                // A delayed report of an earlier body revision never replaces a newer one.
+                if (message.revision < (pageNow.current?.revision ?? 0)) {
+                  return;
+                }
                 const {
                   document: reported,
                   attachments: attached = [],

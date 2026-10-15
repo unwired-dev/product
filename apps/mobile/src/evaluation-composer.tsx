@@ -700,6 +700,10 @@ function EvaluationEditor({
                     void add('paste', true);
                     return;
                   }
+                  // A delayed report of an earlier body revision never replaces a newer one.
+                  if (message.revision < (pageNow.current?.revision ?? 0)) {
+                    return;
+                  }
                   const {
                     document: reported,
                     attachments: attached = [],

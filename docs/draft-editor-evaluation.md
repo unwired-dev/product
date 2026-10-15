@@ -66,18 +66,29 @@ their controls stop accepting input and leave VoiceOver immediately.
   open editors and then stops the app; **Cancel** or a failed finish cancels Quit.
 - **Removal elsewhere.** A Draft deleted on another device while open keeps this
   editor's version; **Save Draft** stores it as a conflicting copy.
+- **Two windows.** When two Mac windows edit one Draft and one saves first, **Save**
+  in the other keeps its version as a conflicting copy. That window stays on the
+  copy with the same page and Undo history, even when storage refuses the save, and
+  its later edits, **Save** and **Don’t Save** change only the copy.
 - **Finishing.** Close, Save Draft and Send finish queued body edits before inspecting
   the Draft. Editing pauses while saving or sending, and resumes if the operation
   cannot finish. Queued formatting, history and file actions cannot change the
   paused page. A pending navigation continues after the chosen save or deletion.
   A deletion already in progress still removes this editor's conflicting copy if
   its window closes before storage finishes.
+- **Ordering.** The page numbers its body edits. The editor keeps the newest body it
+  has received and ignores a late report of an earlier edit, also while Close,
+  Save Draft or Send waits for the page.
+- **Durability.** Edits live only in the open editor until **Save Draft** or **Send**
+  stores them; ending the app loses them, and reopening shows the stored version.
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
   resume editing.
 - **Account.** Drafts belong to the signed-in Product Account. Locked or unavailable
   Draft storage shows the current composer's **Drafts are locked** and **Try again**.
+  When another Product Account opens while the editor is open, **Save Draft** closes
+  it without storing its version in either account.
 
 ## Formatting and history
 
@@ -414,8 +425,8 @@ reopening) type-checks; it was not run, for the signing reason above.
 Outstanding before any adoption decision: the Mac native journey with a signed
 mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
-the Inline Image checks that remain outstanding [below](#inline-images-820); and save
-ordering under delayed page messages ([#821](https://github.com/unwired-dev/product/issues/821)).
+the Inline Image checks that remain outstanding [below](#inline-images-820); and the
+native save-ordering checks that remain outstanding [below](#save-ordering-821).
 Simulator runs do not qualify devices.
 
 ### Inline Images (#820)
@@ -496,6 +507,42 @@ host, which need native interception in the web view (the page refuses both unre
 which this journey does not exercise; a network capture of the journey beyond the
 page's refusal of networking and navigation; and physical iPhone and iPad runs.
 
+### Save ordering (#821)
+
+[#821](https://github.com/unwired-dev/product/issues/821) was written for an editor
+that saved while the person typed. Since #820, nothing is saved until **Save Draft**,
+**Save** or **Send**, and editing pauses while that finishes, so no typing continues
+during a save. Its ordering risks remain: page reports arriving after newer ones,
+edits still queued in WebKit when a native control is pressed, failed saves, another
+account, competing windows and imports.
+
+Component journeys on both hosts send page messages through the real Draft store with
+synthetic storage. In addition to the [#820](#inline-images-820) journeys, which cover
+an edit queued in WebKit before the page acknowledges a finishing command, a refused
+save with **Try again**, locked storage and reopening, they check that:
+
+- a late report of an earlier body revision, before or during **Save Draft**, never
+  replaces the newer body, and the stored Draft is the newest one;
+- with two Mac windows on one Draft, the window that saves second keeps its version as
+  a conflicting copy without remounting its page, even when storage refuses that save;
+  its later edit and **Save** then store only the copy, and **Don’t Save** deletes
+  only the copy;
+- when **Delete Draft** (**Don’t Save** on Mac) races an image import after another
+  device changed the Draft, the other device's version and its image bytes survive,
+  and the abandoned import keeps no bytes;
+- after another Product Account opens, **Save Draft** stores the open editor's version
+  in neither account, and the earlier account keeps its stored version.
+
+Page tests in `happy-dom` already check that the page refuses a replacement computed
+for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
+simulated at the host boundary.
+
+Outstanding for #821: the Mac two-window journey and the Command-W, window close and
+**Quit** questions natively, which need a signed mock profile; iPhone system **Back**,
+which [#778](https://github.com/unwired-dev/product/issues/778) owns for both
+composers; and edits lost when the app ends before **Save Draft**, which is the
+evaluation editor's save model rather than the current composer's autosave.
+
 ## Finding
 
 **Proceed** to the dependent evaluations (#819–#822) on iPhone and iPad. A
@@ -521,3 +568,9 @@ simulators, and the page receives only native thumbnails. Image paste and drop i
 the page need native web-view work before they match the current composer on Mac,
 and drops on every host. The current composer does not offer conversion yet. This
 does not approve adoption; #823 owns that decision.
+
+**#821 finding.** In component journeys on both hosts, **Save Draft** stores the
+newest body the page reported even when an earlier report arrives late, conflicting
+Mac windows keep separate copies, and racing imports, failed saves and account
+changes lose no surviving content. Native Mac windows and iPhone **Back** remain outstanding. This does not
+approve adoption; #823 owns that decision.
