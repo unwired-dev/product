@@ -517,8 +517,10 @@ block. A declaration starts with an identifier and a colon. A declaration with a
 bad string or URL token, or a string the end of the attribute interrupts, is
 removed. `packages/mail-core/test/webkit-css.json` records how macOS WebKit reads
 every sanitizer fixture style and adversarial CSS, and a test compares the parsed
-declarations with it; after adding styles or changing the parser, rerecord it on
-a Mac with `pnpm --filter @private-email/mail-core record:webkit-css`. Filtered inline CSS may preserve borders and border spacing/collapse, display,
+declarations with it. When adding fixture styles, also add their `style` entries
+to that JSON file; the recorder reads that list rather than collecting fixtures.
+After adding entries or changing the parser, rerecord it on a Mac with
+`pnpm --filter @private-email/mail-core record:webkit-css`. Filtered inline CSS may preserve borders and border spacing/collapse, display,
 font family/size/style/weight, dimensions and min/max dimensions, letter spacing,
 line height, margins, padding, alignment, decoration, indent, text transform,
 vertical alignment, white space and word wrapping/breaking. Both property names
