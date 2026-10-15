@@ -12,6 +12,12 @@ catalogs:
     '@convex-dev/eslint-plugin':
       specifier: ^5.0.0
       version: 5.0.0
+    '@csstools/css-parser-algorithms':
+      specifier: 4.0.2
+      version: 4.0.2
+    '@csstools/css-tokenizer':
+      specifier: 4.0.2
+      version: 4.0.2
     '@effect/tsgo':
       specifier: 0.48.0
       version: 0.48.0
@@ -706,6 +712,12 @@ importers:
 
   packages/mail-core:
     dependencies:
+      '@csstools/css-parser-algorithms':
+        specifier: 'catalog:'
+        version: 4.0.2(@csstools/css-tokenizer@4.0.2)
+      '@csstools/css-tokenizer':
+        specifier: 'catalog:'
+        version: 4.0.2
       '@exodus/bytes':
         specifier: 'catalog:'
         version: 1.16.0
@@ -1324,6 +1336,16 @@ packages:
     resolution: {integrity: sha512-UFhZ7bJBo4mTfa829/mntoAwyC9aKwXe6dxCV7PianSdAfFIbdCwCjWPBmhqn1hNlpqhVU385C/vjL8CXfxA2Q==}
     peerDependencies:
       convex: ^1.43.0
+
+  '@csstools/css-parser-algorithms@4.0.2':
+    resolution: {integrity: sha512-40cSKyMvK+tq4qz6Awrlye2WGuOKt3FwPgtGg6KTfbHOWNw+Rk1rzbAtZnZ6IBhsY491HLRnDXwoyBAijmmILA==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      '@csstools/css-tokenizer': ^4.0.2
+
+  '@csstools/css-tokenizer@4.0.2':
+    resolution: {integrity: sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw==}
+    engines: {node: '>=20.19.0'}
 
   '@edge-runtime/primitives@6.0.0':
     resolution: {integrity: sha512-FqoxaBT+prPBHBwE1WXS1ocnu/VLTQyZ6NMUBAdbP7N2hsFTTxMC/jMu2D/8GAlMQfxeuppcPuCUk/HO3fpIvA==}
@@ -7627,6 +7649,12 @@ snapshots:
       - eslint
       - supports-color
       - typescript
+
+  '@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2)':
+    dependencies:
+      '@csstools/css-tokenizer': 4.0.2
+
+  '@csstools/css-tokenizer@4.0.2': {}
 
   '@edge-runtime/primitives@6.0.0': {}
 

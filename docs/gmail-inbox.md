@@ -508,10 +508,17 @@ syntax, and an escaped digit never forms a number. An escape in the importance
 identifier does not invalidate a literal numeric value. Values with decoded
 delimiters or quotes are not emitted. Hex escapes consume
 up to six digits and one following CSS whitespace character; escaped newlines
-inside strings are continuations. Inline styles split into declarations at semicolons outside quoted strings and
-matching parentheses or square brackets; mismatched closing brackets do not end
-an open block. A declaration whose quoted string a line break or the end of the
-attribute interrupts is removed. Filtered inline CSS may preserve borders and border spacing/collapse, display,
+inside strings are continuations. Inline styles are tokenized and parsed as CSS
+Syntax Level 3 component values with `@csstools/css-tokenizer` and
+`@csstools/css-parser-algorithms`, then split into declarations at semicolons
+outside strings, URL tokens, functions and parenthesis, square-bracket or curly
+blocks, as WebKit reads them; mismatched closing brackets do not end an open
+block. A declaration starts with an identifier and a colon. A declaration with a
+bad string or URL token, or a string the end of the attribute interrupts, is
+removed. `packages/mail-core/test/webkit-css.json` records how macOS WebKit reads
+every sanitizer fixture style and adversarial CSS, and a test compares the parsed
+declarations with it; after adding styles or changing the parser, rerecord it on
+a Mac with `pnpm --filter @private-email/mail-core record:webkit-css`. Filtered inline CSS may preserve borders and border spacing/collapse, display,
 font family/size/style/weight, dimensions and min/max dimensions, letter spacing,
 line height, margins, padding, alignment, decoration, indent, text transform,
 vertical alignment, white space and word wrapping/breaking. Both property names

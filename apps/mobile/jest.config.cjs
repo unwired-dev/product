@@ -20,10 +20,12 @@ module.exports = {
     '^react($|/.*)': `${path.dirname(require.resolve('react/package.json'))}$1`,
     '^@react-native/virtualized-lists($|/.*)': `${path.dirname(nativeRequire.resolve('@react-native/virtualized-lists/package.json'))}$1`,
   },
+  // @csstools publishes only ES modules, as .mjs files.
+  transform: { '\\.mjs$': expoPreset.transform[String.raw`\.[jt]sx?$`] },
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
     pattern.replace(
       '|standard-navigation',
-      '|standard-navigation|@private-email|@exodus|effect|parse5|entities',
+      '|standard-navigation|@private-email|@exodus|@csstools|effect|parse5|entities',
     ),
   ),
 };

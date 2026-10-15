@@ -1,6 +1,24 @@
+import type { ComponentValue } from '@csstools/css-parser-algorithms';
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- parse5 tree nodes are mutable library types; the sanitizer only reads them. */
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
+import {
+  isTokenNode,
+  isWhiteSpaceOrCommentNode,
+  parseListOfComponentValues,
+} from '@csstools/css-parser-algorithms';
+import {
+  isTokenBadString,
+  isTokenBadURL,
+  isTokenColon,
+  isTokenComment,
+  isTokenDelim,
+  isTokenIdent,
+  isTokenSemicolon,
+  isTokenString,
+  ParseErrorMessage,
+  tokenize,
+} from '@csstools/css-tokenizer';
 import { html as htmlSpec, parse } from 'parse5';
 
 import type { ImageFacts } from './inline-images.ts';
@@ -356,73 +374,6 @@ interface FilteredStyle {
   // The declarations WebKit receives; dimensions and readable text use these values.
   readonly retained: ReadonlyMap<string, string>;
 }
-
-// Declarations end at semicolons outside quoted strings and brackets, as WebKit reads them. A
-// string that a line break or the end of the attribute interrupts would swallow the declarations
-// after it once reserialized, so its declaration is dropped.
-interface StyleScan {
-  quote: string | undefined;
-  endings: string[];
-  broken: boolean;
-}
-
-const scanQuoted = (scan: StyleScan, char: string) => {
-  if (char === scan.quote) {
-    scan.quote = undefined;
-  } else if (/[\n\r\f]/u.test(char)) {
-    scan.broken = true;
-    scan.quote = undefined;
-  }
-  return false;
-};
-
-// Whether this character ends the declaration.
-const scanUnquoted = (scan: StyleScan, char: string) => {
-  if (char === '"' || char === "'") {
-    scan.quote = char;
-  } else if (char === '(' || char === '[') {
-    scan.endings.push(char === '(' ? ')' : ']');
-  } else if (char === scan.endings.at(-1)) {
-    scan.endings.pop();
-  }
-  return char === ';' && scan.endings.length === 0;
-};
-
-const splitDeclarations = (style: string) => {
-  const declarations: string[] = [];
-  let start = 0;
-  let scan: StyleScan = {
-    quote: undefined,
-    endings: [],
-    broken: false,
-  };
-  const end = (at: number) => {
-    if (!scan.broken && scan.quote === undefined) {
-      declarations.push(style.slice(start, at));
-    }
-    start = at + 1;
-    scan = { quote: undefined, endings: [], broken: false };
-  };
-  for (let at = 0; at < style.length; at += 1) {
-    const char = style.charAt(at);
-    if (char === '\\') {
-      // Hex escapes consume up to six digits and one optional whitespace character, including
-      // a newline. Other escapes consume one character without changing string/block state.
-      at +=
-        /^(?:[0-9a-f]{1,6}(?:\r\n|[\t\n\f\r ])?|\r\n|[\s\S])/iu.exec(
-          style.slice(at + 1),
-        )?.[0].length ?? 0;
-    } else if (
-      scan.quote === undefined
-        ? scanUnquoted(scan, char)
-        : scanQuoted(scan, char)
-    ) {
-      end(at);
-    }
-  }
-  end(style.length);
-  return declarations;
-};
 
 // Content no one sees: hidden preheaders, zero-sized or off-canvas text.
 const hiddenBy: ReadonlyArray<
@@ -920,10 +871,6 @@ const acceptedDeclaration = (name: string, value: string) =>
         acceptedOffset(name, value) &&
         (hidingGrammar.get(name)?.test(value) ?? true)));
 
-// Duplicates resolve as the cascade does: an important declaration wins over later normal ones,
-// and a rejected one changes nothing.
-const trimCSS = (value: string) =>
-  value.replaceAll(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '');
 // CSS escapes as WebKit decodes them: up to six hex digits and one optional whitespace, or any
 // other character taken literally. Invalid code points become U+FFFD.
 const cssEscape =
@@ -954,130 +901,166 @@ const identStart = String.raw`(?:[a-z_\u0080-\u{10FFFF}]|${identEscape})`;
 const identRest = String.raw`(?:[\w\u0080-\u{10FFFF}-]|${identEscape})`;
 const identSource = `(?:--|-?${identStart})${identRest}*`;
 const sourceCSSIdentifier = new RegExp(`^${identSource}$`, 'iu');
-const importance = new RegExp(
-  `![\\t\\n\\f\\r ]*(?<identifier>${identSource})$`,
-  'iu',
-);
-
-// Preprocess CSS newlines, then recognize strings, identifiers and unquoted URL tokens before
-// comments. A comment separates tokens; preserve that trivia for source math validation.
-const stringEscape = String.raw`(?:${identEscape}|\\\n)`;
-const cssLexeme = new RegExp(
-  String.raw`"(?:[^"\\\n]|${stringEscape})*"?|'(?:[^'\\\n]|${stringEscape})*'?|(${identSource})(\()?|\\[\s\S]|\/\*[\s\S]*?(?:\*\/|$)`,
-  'giu',
-);
-// Whether an identifier followed by "(" opens a URL token. A URL spelling inside a dimension, hash
-// or at-keyword is not one.
-const opensURL = (style: string, match: RegExpExecArray) =>
-  match[2] === '(' &&
-  !/[\w@#-]/u.test(style.charAt(match.index - 1)) &&
-  unescapeCSS(match[1] ?? '').toLowerCase() === 'url';
-
-// Where scanning resumes after a URL token's opening "(": past the closing parenthesis of an
-// unquoted URL, where even a bad URL ends and /* is URL text, or unchanged before a quoted one.
-const unquotedURLEnd = (style: string, from: number) => {
-  let at = from;
-  while (/[\t\n ]/u.test(style.charAt(at))) {
-    at += 1;
-  }
-  if (style.charAt(at) === '"' || style.charAt(at) === "'") {
-    return from;
-  }
-  while (at < style.length && style.charAt(at) !== ')') {
-    at +=
-      style.charAt(at) === '\\'
-        ? (/^(?:[0-9a-f]{1,6}[\t\n ]?|[\s\S])/iu.exec(style.slice(at + 1))?.[0]
-            .length ?? 0)
-        : 0;
-    at += 1;
-  }
-  return Math.min(at + 1, style.length);
-};
-
-const withoutCSSComments = (source: string, trivia = '  ') => {
-  const style = source
-    .replaceAll(/\r\n?|\f/gu, '\n')
-    .replaceAll('\0', '\uFFFD');
-  const chunks: string[] = [];
-  let from = 0;
-  cssLexeme.lastIndex = 0;
-  for (
-    let match = cssLexeme.exec(style);
-    match !== null;
-    match = cssLexeme.exec(style)
-  ) {
-    if (match[0].startsWith('/*')) {
-      // One space can be consumed by a preceding hex escape and join the next token.
-      chunks.push(style.slice(from, match.index), trivia);
-      from = cssLexeme.lastIndex;
-    } else if (opensURL(style, match)) {
-      cssLexeme.lastIndex = unquotedURLEnd(style, cssLexeme.lastIndex);
-    }
-  }
-  chunks.push(style.slice(from));
-  return chunks.join('');
-};
-const commentTrivia = String.raw`(?:[\t\n\f\r ]|\/\*\*\/)*`;
-const commentedImportance = new RegExp(
-  `!${commentTrivia}${identSource}${commentTrivia}$`,
-  'iu',
-);
-
-const readValue = (source: string) => {
-  const marker = importance.exec(source);
-  const important =
-    marker !== null &&
-    unescapeCSS(marker[1] ?? '').toLowerCase() === 'important';
-  const raw = important ? trimCSS(source.slice(0, marker.index)) : source;
-  // Trim only source whitespace: escaped whitespace belongs to the identifier.
-  const value = unescapeCSS(raw);
-  return {
-    value,
-    important,
-    valid:
-      !raw.includes('\\') ||
-      (sourceCSSIdentifier.test(raw) && plainCSSIdentifier.test(value)),
-  };
-};
-
 // A declaration that used escapes is emitted only when its decoded value cannot change how the
 // emitted style splits or quotes.
 const plainEscapedValue = /^[^;:"'\\\n\r\f]*$/u;
 
-// One declaration's decoded name and value, or nothing when WebKit would reject it.
-const readDeclaration = (source: string) => {
-  const declaration = withoutCSSComments(source);
-  const colon = declaration.indexOf(':');
-  const name = unescapeCSS(trimCSS(declaration.slice(0, colon))).toLowerCase();
-  const { value, important, valid } = readValue(
-    trimCSS(declaration.slice(colon + 1)),
+// Declaration source with comments replaced by trivia and newlines preprocessed as WebKit does.
+// Source math validation keeps comments as empty ones; values replace them with spaces.
+const sourceOf = (nodes: readonly ComponentValue[], comment: string) =>
+  nodes
+    // An unclosed block or function has no end token.
+    .flatMap((node) => node.tokens().filter((token) => token !== undefined))
+    .map((token) => (isTokenComment(token) ? comment : token[1]))
+    .join('')
+    .replaceAll(/\r\n?|\f/gu, '\n')
+    .replaceAll('\0', '\uFFFD');
+
+const trimNodes = (nodes: readonly ComponentValue[]) => {
+  let start = 0;
+  let end = nodes.length;
+  while (start < end && isWhiteSpaceOrCommentNode(nodes[start])) {
+    start += 1;
+  }
+  while (end > start && isWhiteSpaceOrCommentNode(nodes[end - 1])) {
+    end -= 1;
+  }
+  return nodes.slice(start, end);
+};
+
+const tokenAt = (nodes: readonly ComponentValue[], at: number) => {
+  const node = nodes[at];
+  return node !== undefined && isTokenNode(node) ? node.value : undefined;
+};
+
+// A string a line break interrupts is a bad string, and so is one the end of the attribute
+// interrupts: reserialized, it would swallow the declarations after it.
+const broken = (
+  nodes: readonly ComponentValue[],
+  unterminated: ReadonlySet<number>,
+) =>
+  nodes.some((node) =>
+    node
+      .tokens()
+      .some(
+        (token) =>
+          token !== undefined &&
+          (isTokenBadString(token) ||
+            isTokenBadURL(token) ||
+            (isTokenString(token) && unterminated.has(token[2]))),
+      ),
   );
-  const sourceMath = withoutCSSComments(source, '/**/')
-    .slice(source.indexOf(':') + 1)
-    .replace(important ? commentedImportance : /$^/u, '')
-    .replaceAll(new RegExp(`^${commentTrivia}|${commentTrivia}$`, 'gu'), '');
-  const validMath =
-    name !== 'opacity' ||
-    !/^(?:calc|min|max|clamp)\(/iu.test(value) ||
-    opacityNumber(sourceMath) !== undefined;
-  return colon > 0 && valid && validMath && acceptedDeclaration(name, value)
+
+// A value without its trailing `!important`, which comments and whitespace may interrupt.
+const withoutImportance = (value: readonly ComponentValue[]) => {
+  const last = tokenAt(value, value.length - 1);
+  const bang = trimNodes(value.slice(0, -1)).length - 1;
+  const marker = tokenAt(value, bang);
+  const important =
+    last !== undefined &&
+    isTokenIdent(last) &&
+    last[4].value.toLowerCase() === 'important' &&
+    marker !== undefined &&
+    isTokenDelim(marker) &&
+    marker[4].value === '!';
+  return {
+    value: important ? trimNodes(value.slice(0, bang)) : value,
+    important,
+  };
+};
+
+// A declaration's lowercased name and the value after its colon, or nothing without both.
+const nameAndValue = (declaration: readonly ComponentValue[]) => {
+  const name = tokenAt(declaration, 0);
+  const [colon] = trimNodes(declaration.slice(1));
+  return name !== undefined &&
+    isTokenIdent(name) &&
+    colon !== undefined &&
+    isTokenNode(colon) &&
+    isTokenColon(colon.value)
     ? {
-        name,
-        value,
-        important,
-        unsafe: declaration.includes('\\') && !plainEscapedValue.test(value),
+        name: name[4].value.toLowerCase(),
+        value: trimNodes(declaration.slice(declaration.indexOf(colon) + 1)),
       }
     : undefined;
 };
 
+// The decoded value, or nothing when WebKit would reject it. Escapes are admitted only where the
+// decoded value is a plain identifier.
+const decodedValue = (name: string, value: readonly ComponentValue[]) => {
+  const raw = sourceOf(value, '  ');
+  const decoded = unescapeCSS(raw);
+  const valid =
+    !raw.includes('\\') ||
+    (sourceCSSIdentifier.test(raw) && plainCSSIdentifier.test(decoded));
+  const validMath =
+    name !== 'opacity' ||
+    !/^(?:calc|min|max|clamp)\(/iu.test(decoded) ||
+    opacityNumber(sourceOf(value, '/**/')) !== undefined;
+  return valid && validMath && acceptedDeclaration(name, decoded)
+    ? decoded
+    : undefined;
+};
+
+// One declaration's decoded name and value, or nothing when WebKit would reject it.
+const readDeclaration = (
+  nodes: readonly ComponentValue[],
+  unterminated: ReadonlySet<number>,
+) => {
+  const declaration = trimNodes(nodes);
+  const parts = nameAndValue(declaration);
+  if (parts === undefined || broken(declaration, unterminated)) {
+    return undefined;
+  }
+  const { value, important } = withoutImportance(parts.value);
+  const decoded = decodedValue(parts.name, value);
+  return decoded === undefined
+    ? undefined
+    : {
+        name: parts.name,
+        value: decoded,
+        important,
+        unsafe:
+          sourceOf(declaration, '  ').includes('\\') &&
+          !plainEscapedValue.test(decoded),
+      };
+};
+
+// Declarations end at semicolons outside blocks, functions, strings and URLs, as CSS Syntax and
+// WebKit read them.
+const readDeclarations = (style: string) => {
+  // Where strings the end of the attribute interrupts start.
+  const unterminated = new Set<number>();
+  const declarations: ComponentValue[][] = [[]];
+  for (const node of parseListOfComponentValues(
+    tokenize(
+      { css: style },
+      {
+        onParseError: (error) => {
+          if (error.message === ParseErrorMessage.UnexpectedEOFInString) {
+            unterminated.add(error.sourceStart);
+          }
+        },
+      },
+    ),
+  )) {
+    if (isTokenNode(node) && isTokenSemicolon(node.value)) {
+      declarations.push([]);
+    } else {
+      declarations.at(-1)?.push(node);
+    }
+  }
+  return declarations.map((nodes) => readDeclaration(nodes, unterminated));
+};
+
 // Names and values are decoded before classification, so an escaped name hides what it names.
-const parseDeclarations = (style: string) => {
+// Duplicates resolve as the cascade does: an important declaration wins over later normal ones,
+// and a rejected one changes nothing.
+export const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
   const important = new Set<string>();
   const unsafe = new Set<string>();
-  for (const declaration of splitDeclarations(
-    withoutCSSComments(style, '/**/'),
-  ).map(readDeclaration)) {
+  for (const declaration of readDeclarations(style)) {
     if (
       declaration !== undefined &&
       (declaration.important || !important.has(declaration.name))
