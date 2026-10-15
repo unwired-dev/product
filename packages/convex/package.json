@@ -11,7 +11,8 @@
   "dependencies": {
     "@private-email/contracts": "workspace:*",
     "convex": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

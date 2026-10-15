@@ -97,7 +97,11 @@ const userIdentityToken = createGoogleIdentityToken(
   'gmail-user-001',
 );
 
-function appleIdToken(subject: string, audience = 'dev.unwired.mail'): string {
+function appleIdToken(
+  subject: string,
+  audience = 'dev.unwired.mail',
+  overrides: Readonly<Record<string, unknown>> = {},
+): string {
   const header = Buffer.from(
     JSON.stringify({ alg: 'RS256', kid: 'apple-identity-test-key' }),
   ).toString('base64url');
@@ -107,6 +111,7 @@ function appleIdToken(subject: string, audience = 'dev.unwired.mail'): string {
       exp: Math.floor(Date.now() / 1000) + 300,
       iss: 'https://appleid.apple.com',
       sub: subject,
+      ...overrides,
     }),
   ).toString('base64url');
   const signingInput = `${header}.${claims}`;
@@ -3820,7 +3825,13 @@ describe('gmail operational connection registration', () => {
       ).rejects.toThrow(
         'Apple authorization revocation is temporarily unavailable',
       );
-      await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(60_000));
+      // Signing settles in real time, so the clock moves only between scheduled functions;
+      // moving it during the recovery would expire its lease and start a second one.
+      // Ten lease periods cover the whole recovery and deletion chain.
+      for (let step = 0; step < 10; step += 1) {
+        vi.advanceTimersByTime(60_000);
+        await t.finishInProgressScheduledFunctions();
+      }
 
       // The exchange, the failed revocation and its recovery each use the replacement client.
       const appleForms = fetchMock.mock.calls
@@ -3947,6 +3958,45 @@ describe('gmail operational connection registration', () => {
         authorizationCode: 'unverifiable-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects an expired or foreign Apple identity token', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    // The tokens are correctly signed but expired or issued by another provider.
+    const deleteWithAppleClaims = async (
+      overrides: Readonly<Record<string, unknown>>,
+    ) => {
+      fetchMock.mockImplementationOnce(async () =>
+        Response.json({
+          id_token: appleIdToken(appleIdentity.subject, undefined, overrides),
+          refresh_token: 'apple-refresh-token',
+        }),
+      );
+      fetchMock.mockImplementationOnce(async () =>
+        Response.json({ keys: [appleIdentitySigningKey] }),
+      );
+      return asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'stale-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+    };
+    await expect(
+      deleteWithAppleClaims({ exp: Math.floor(Date.now() / 1000) }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      deleteWithAppleClaims({ iss: 'https://accounts.google.com' }),
     ).rejects.toThrow('Apple authorization exchange failed');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),

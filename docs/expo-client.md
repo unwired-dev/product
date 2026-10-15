@@ -30,7 +30,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
 
-- Expo 57.0.29, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.27.
+- Expo 57.0.30, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.28.
 - Route parameters identify the selected message.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild

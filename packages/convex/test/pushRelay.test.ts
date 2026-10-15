@@ -3628,7 +3628,7 @@ describe('gmail push relay', () => {
         }),
       });
 
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitUntil(() => apnsMock.requests.length > 0);
       expect(apnsMock.requests).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(delivery).resolves.toBeNull();
@@ -3756,6 +3756,8 @@ describe('gmail push relay', () => {
       });
 
       apnsMock.status = 500;
+      // The provider token is signed through Web Crypto, which settles in real time, so each
+      // delivery waits for its APNs request before fake timers release the mocked response.
       const failedDelivery = t.action(
         internal.apns.deliverMicrosoftGraphWakeup,
         {
@@ -3763,6 +3765,7 @@ describe('gmail push relay', () => {
           scheduledAt: pendingWakeups[0]!.scheduledAt,
         },
       );
+      await vi.waitUntil(() => apnsMock.requests.length > 0);
       await vi.advanceTimersByTimeAsync(0);
       await failedDelivery;
       const retainedWakeups = await t.run((ctx) =>
@@ -3791,7 +3794,7 @@ describe('gmail push relay', () => {
           scheduledAt: retainedWakeups[0]!.scheduledAt,
         },
       );
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitUntil(() => apnsMock.requests.length > 1);
       await vi.advanceTimersByTimeAsync(10_000);
       await timedOutDelivery;
       apnsMock.stallResponseBody = false;
@@ -3861,6 +3864,7 @@ describe('gmail push relay', () => {
           scheduledAt: permanentWakeup!.scheduledAt,
         },
       );
+      await vi.waitUntil(() => apnsMock.requests.length > 3);
       await vi.advanceTimersByTimeAsync(0);
       await permanentDelivery;
       await t.finishAllScheduledFunctions(vi.runAllTimers);
