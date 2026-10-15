@@ -141,14 +141,11 @@ def messages() -> list[dict]:
 
 
 def provenance() -> dict:
-    """Conservatively identify all inputs and code, preserving declared run variants."""
-    files = (
-        "custom.py",
-        "custom_benchmark.py",
-        "custom_report.py",
-        "custom_synthetic.py",
-        "synthetic.py",
-    )
+    """Identify the inputs and the code that produce scores and metrics.
+
+    Report and bundle rendering (custom_report.py) is excluded, as #828 excludes report.py.
+    """
+    files = ("custom.py", "custom_benchmark.py", "custom_synthetic.py", "synthetic.py")
     benchmark = b"\0".join((ROOT / name).read_bytes() for name in files)
     benchmark += run.benchmark_sha256().encode()
     records = run.load_corpus()["train"] + messages()

@@ -903,7 +903,7 @@ Thresholds tuned and scored on the same validation sample, so only the compariso
 
 ## Future Learning Signals
 
-Test messages replayed in arrival order; every error is corrected by a simulated User Override, which records a per-sender signal for that category.
+Test messages replayed in arrival order; every error is corrected by a simulated User Override, which records a per-sender signal for that category. The real stream pools many Enron mailboxes (the corpus keeps no owner), so signals are not scoped to one account.
 
 | Run | Slice | Messages | Signals + / − | Decisions changed | Changed correctly | Earlier assignments left unchanged | Micro-F1 model → with signals |
 |---|---|---|---|---|---|---|---|

@@ -81,7 +81,10 @@ number comes from [custom/tables.md](custom/tables.md).
     Micro-F1 still rose from 0.37 to 0.43, because a corrected false negative adds
     a true positive. Templated synthetic mail rises from 0.50 to 0.90 because
     senders repeat one template. Another 427 earlier assignments that a later
-    signal contradicted stayed as assigned.
+    signal contradicted stayed as assigned. The real replay pools Enron mail sent
+    to many employees, and the corpus keeps no mailbox owner, so a signal learned
+    from one person's correction also reaches other people's mail: the real-mail
+    figures overstate how often an account-scoped signal would fire.
 
 ## Frozen candidate bundle
 
@@ -141,8 +144,9 @@ for run in "xsmall-zs body256 description" "xsmall-zs body256 name" \
     "xsmall-zs-adapted body256 description" "xsmall-zs-adapted body256 name" \
     "xsmall-zs-adapted minimized description" "xsmall-zs-adapted body512 description" \
     "mdeberta-nli-adapted body256 description"; do
-  mise exec -- uv run python custom.py score ${=run}        # work/custom-scores/<run>.npz
-  mise exec -- uv run python custom.py evaluate ${run// /-}  # custom/results/<run>.json
+  read -r candidate input mode <<<"$run"  # works in Bash and zsh
+  mise exec -- uv run python custom.py score "$candidate" "$input" "$mode"      # work/custom-scores/
+  mise exec -- uv run python custom.py evaluate "$candidate-$input-$mode"       # custom/results/
 done
 for run in xsmall-zs-adapted-body256-description mdeberta-nli-adapted-body256-description; do
   mise exec -- uv run python custom.py overrides $run
@@ -159,15 +163,20 @@ against all 52 Custom Category hypotheses and the five System Category
 hypotheses; `evaluate` calibrates and scores it, so updated labels can reuse the
 model scores. Cached scores and adaptation artifacts record
 full-record corpus, category-definition and benchmark digests. The benchmark
-digest includes `custom.py`, `custom_benchmark.py`, `custom_report.py`,
-`custom_synthetic.py`, `synthetic.py` and the #828 shared experiment digest, so
-even formatting changes invalidate saved experiments.
+digest includes `custom.py`, `custom_benchmark.py`, `custom_synthetic.py`,
+`synthetic.py` and the #828 shared experiment digest, so even formatting changes
+to code that produces scores or metrics invalidate saved experiments. Like #828's
+`report.py`, `custom_report.py` (tables and the golden bundle) is excluded.
 `evaluate`, `overrides`, `golden` and `tables` refuse incompatible artifacts;
 reports also check annotation digests, and artifact consumers verify adapted
 weights. After changing those inputs or code, regenerate the affected experiments
 instead of replacing their digests. The original runs' digests were backfilled
 after a review audit of execution logs and local source snapshots; predictions,
-weights and measured timings were retained, and evaluations were rerun.
+weights and measured timings were retained, and evaluations were rerun. A second
+backfill followed the removal of `custom_report.py` from the digest (decision
+panel, 2–0): `git diff` against the stamped commit `5d96e0a9d` showed no change to
+scoring or evaluation code, every cache carried that commit's digest, and all
+evaluations were rerun.
 `golden` needs the #828 System candidate artifacts in `work/runs/` (from
 `run.py deberta xsmall body256` and `run.py deberta mdeberta body512`) and rejects
 System results with an incompatible corpus or shared experiment digest before
@@ -274,7 +283,9 @@ Every wrong decision is corrected by a simulated User Override on that message,
 which records a positive or negative signal for the sender address and category;
 later messages from that sender use the signal instead of the model for that
 category. Signals are local correction state: no model weights change, and an
-assignment made before a signal is never revisited.
+assignment made before a signal is never revisited. Product signals belong to one
+account, but corpus v2 records no mailbox owner for Enron mail, so the real-mail
+replay shares signals across all recipients.
 
 **System Categories through NLI.** The same pipeline scores the five System
 Category definitions with per-category thresholds and People as the fallback, to
@@ -299,7 +310,8 @@ measure what replacing #828's dedicated classifiers with one NLI model would cos
 - Thresholds are chosen per message language, which assumes the language is
   known before classification.
 - The override replay corrects every error immediately and learns only per sender
-  and category; real users correct some errors, later.
+  and category; real users correct some errors, later. Its real-mail stream pools
+  many Enron mailboxes, so signals are not scoped to one account.
 - Bootstrap intervals resample messages, not templates, senders or categories.
 - Runs not made because of host load: mDeBERTa with a 512-token body, minimized
   input or a paraphrase, and the adapted models without descriptions beyond

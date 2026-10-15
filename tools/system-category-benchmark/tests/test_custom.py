@@ -163,3 +163,30 @@ def test_golden_refuses_stale_system_results_before_loading_models(tmp_path, mon
     monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
     with pytest.raises(ValueError, match="#828 .*stale corpus or benchmark"):
         custom_report.golden()
+
+
+def test_golden_refuses_system_thresholds_that_differ_from_the_committed_result(
+    tmp_path, monkeypatch
+):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    result = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        "thresholds": {"Orders": 0.4},
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(result))
+    (tmp_path / "work" / "runs" / name).mkdir(parents=True)
+    (tmp_path / "work" / "runs" / name / "thresholds.json").write_text('{"Orders": 0.5}')
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "WORK", tmp_path / "work")
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("mismatched thresholds must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="thresholds differ"):
+        custom_report.golden()

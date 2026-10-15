@@ -142,10 +142,12 @@ def golden(*custom_runs: str) -> None:
     for name in SYSTEM_RUNS:
         result = load_system_result(name)
         path = WORK / "runs" / name
+        thresholds = json.loads((path / "thresholds.json").read_text())
+        if thresholds != result["thresholds"]:  # work/runs is ignored and may hold another run
+            raise ValueError(f"{name}: work/runs thresholds differ from the committed result")
         tokenizer = AutoTokenizer.from_pretrained(path)
         model = AutoModelForSequenceClassification.from_pretrained(path, dtype=torch.float32)
         model.eval()
-        thresholds = json.loads((path / "thresholds.json").read_text())
         max_length = run.INPUTS[name.rsplit("-", 1)[1]]
         outputs = []
         for record in records:
@@ -446,7 +448,8 @@ def tables() -> None:
     out.append("\n## Future Learning Signals\n")
     out.append(
         "Test messages replayed in arrival order; every error is corrected by a simulated User "
-        "Override, which records a per-sender signal for that category.\n\n"
+        "Override, which records a per-sender signal for that category. The real stream pools many "
+        "Enron mailboxes (the corpus keeps no owner), so signals are not scoped to one account.\n\n"
     )
     rows = []
     for n, r in extra.items():
