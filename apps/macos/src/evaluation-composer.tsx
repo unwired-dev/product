@@ -55,6 +55,7 @@ import { Button, ToolbarButton } from './design.tsx';
 import {
   PageFormatBar,
   DraftFields,
+  SaveBackground,
   SaveSheet,
 } from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
@@ -487,6 +488,13 @@ function EvaluationEditor({
       answerLeave(false);
     }
   }, [answerLeave, open]);
+  useEffect(() => {
+    if (open === 'save') {
+      run({ type: 'editable', editable: false });
+    } else if (!busy.current) {
+      run({ type: 'editable', editable: true });
+    }
+  }, [open, run]);
   const title = clip(draft.subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < draft.subject.length
@@ -498,200 +506,202 @@ function EvaluationEditor({
   const shown = stopped || closing === 'saving' ? undefined : pageState;
   return (
     <View style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={s.header}>
-        <ToolbarButton
-          disabled={closing === 'saving'}
-          icon="xmark"
-          label={t('drafts.close')}
-          onPress={() => {
-            void close();
-          }}
-        />
-        <View
-          accessible
-          accessibilityLabel={titleLabel}
-          accessibilityRole="header"
-          style={s.grow}>
-          <Text
-            numberOfLines={1}
-            style={[s.title, { color: colors.textPrimary }]}>
-            {title}
-          </Text>
-        </View>
-        {onExpand === undefined ? null : (
+      <SaveBackground active={open === 'save'}>
+        <View style={s.header}>
           <ToolbarButton
-            icon={
-              expanded
-                ? 'arrow.down.right.and.arrow.up.left'
-                : 'arrow.up.left.and.arrow.down.right'
-            }
-            label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-            onPress={onExpand}
+            disabled={closing === 'saving'}
+            icon="xmark"
+            label={t('drafts.close')}
+            onPress={() => {
+              void close();
+            }}
+          />
+          <View
+            accessible
+            accessibilityLabel={titleLabel}
+            accessibilityRole="header"
+            style={s.grow}>
+            <Text
+              numberOfLines={1}
+              style={[s.title, { color: colors.textPrimary }]}>
+              {title}
+            </Text>
+          </View>
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              icon={
+                expanded
+                  ? 'arrow.down.right.and.arrow.up.left'
+                  : 'arrow.up.left.and.arrow.down.right'
+              }
+              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+              onPress={onExpand}
+            />
+          )}
+        </View>
+        {shown === undefined ? null : (
+          <PageFormatBar
+            draft={draft}
+            page={shown}
+            tools={open === 'tools'}
+            run={run}
+            onTools={(next) => {
+              setOpen(next ? 'tools' : undefined);
+            }}
+            onAdd={(from, inline) => {
+              void add(from, inline);
+            }}
+            onCapture={capture}
           />
         )}
-      </View>
-      {shown === undefined ? null : (
-        <PageFormatBar
+        <ComposerNotices
+          closing={closing}
           draft={draft}
-          page={shown}
-          tools={open === 'tools'}
-          run={run}
-          onTools={(next) => {
-            setOpen(next ? 'tools' : undefined);
+          refused={refused}
+          onClose={() => {
+            void saveDraft();
           }}
-          onAdd={(from, inline) => {
-            void add(from, inline);
+          onDiscard={() => {
+            void deleteDraft();
           }}
-          onCapture={capture}
+          onKeepEditing={() => {
+            setClosing(undefined);
+          }}
         />
-      )}
-      <ComposerNotices
-        closing={closing}
-        draft={draft}
-        refused={refused}
-        onClose={() => {
-          void saveDraft();
-        }}
-        onDiscard={() => {
-          void deleteDraft();
-        }}
-        onKeepEditing={() => {
-          setClosing(undefined);
-        }}
-      />
-      {stopped ? (
-        <Notice
-          alert
-          style={[s.notice, { color: colors.textPrimary }]}>
-          {t('drafts.evaluation.stopped')}
-        </Notice>
-      ) : null}
-      {captured === undefined ? null : (
-        <View style={s.review}>
-          <CapturedAssistance
-            key={captured.id}
-            captured={captured}
-            assistance={assistance}
-            translation={translation}
-            onApply={applyCaptured}
-            onClose={forget}
-          />
-        </View>
-      )}
-      {/* The body, files and fields scroll together in a short window. */}
-      <ScrollView contentContainerStyle={styles.scroll}>
         {stopped ? (
-          <View style={s.fill} />
-        ) : (
-          <WebView
-            ref={view}
-            allowsInlineMediaPlayback={false}
-            allowsLinkPreview={false}
-            cacheEnabled={false}
-            dataDetectorTypes="none"
-            incognito
-            injectedJavaScriptBeforeContentLoaded={injected}
-            javaScriptCanOpenWindowsAutomatically={false}
-            mediaPlaybackRequiresUserAction
-            onContentProcessDidTerminate={stop}
-            onError={stop}
-            onMessage={({ nativeEvent }) => {
-              if (!mounted.current || pageStopped.current) {
-                return;
-              }
-              const message = decodeMessage(nativeEvent.data);
-              // The page refused a paste carrying files; the Mac has no native pasteboard import
-              // for the page, so pasted images are not added here.
-              if (message === undefined || message.type === 'paste') {
-                return;
-              }
-              const {
-                document: reported,
-                attachments: attached = [],
-                type: _,
-                frozen,
-                ...next
-              } = message;
-              const flushed =
-                frozen && next.revision === pageNow.current?.revision;
-              pageNow.current = next;
-              setPageState(next);
-              if (reported === undefined || flushed) {
+          <Notice
+            alert
+            style={[s.notice, { color: colors.textPrimary }]}>
+            {t('drafts.evaluation.stopped')}
+          </Notice>
+        ) : null}
+        {captured === undefined ? null : (
+          <View style={s.review}>
+            <CapturedAssistance
+              key={captured.id}
+              captured={captured}
+              assistance={assistance}
+              translation={translation}
+              onApply={applyCaptured}
+              onClose={forget}
+            />
+          </View>
+        )}
+        {/* The body, files and fields scroll together in a short window. */}
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {stopped ? (
+            <View style={s.fill} />
+          ) : (
+            <WebView
+              ref={view}
+              allowsInlineMediaPlayback={false}
+              allowsLinkPreview={false}
+              cacheEnabled={false}
+              dataDetectorTypes="none"
+              incognito
+              injectedJavaScriptBeforeContentLoaded={injected}
+              javaScriptCanOpenWindowsAutomatically={false}
+              mediaPlaybackRequiresUserAction
+              onContentProcessDidTerminate={stop}
+              onError={stop}
+              onMessage={({ nativeEvent }) => {
+                if (!mounted.current || pageStopped.current) {
+                  return;
+                }
+                const message = decodeMessage(nativeEvent.data);
+                // The page refused a paste carrying files; the Mac has no native pasteboard import
+                // for the page, so pasted images are not added here.
+                if (message === undefined || message.type === 'paste') {
+                  return;
+                }
+                const {
+                  document: reported,
+                  attachments: attached = [],
+                  type: _,
+                  frozen,
+                  ...next
+                } = message;
+                const flushed =
+                  frozen && next.revision === pageNow.current?.revision;
+                pageNow.current = next;
+                setPageState(next);
+                if (reported === undefined || flushed) {
+                  if (frozen) {
+                    paused.current?.(true);
+                  }
+                  return;
+                }
+                // Editing again retires captured text, as in the current composer.
+                forget();
+                const previous = authored.current;
+                const { body, attachments } = knownAssets(known.current, {
+                  document: reported,
+                  attachments: attached,
+                });
+                change({
+                  ...previous,
+                  body,
+                  ...(attachments.length === 0 &&
+                  previous.attachments === undefined
+                    ? {}
+                    : { attachments }),
+                });
                 if (frozen) {
                   paused.current?.(true);
                 }
-                return;
+              }}
+              // Only the page itself loads; every navigation it could start is cancelled.
+              onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                url === 'about:blank' && navigationType === 'other'
               }
-              // Editing again retires captured text, as in the current composer.
-              forget();
-              const previous = authored.current;
-              const { body, attachments } = knownAssets(known.current, {
-                document: reported,
-                attachments: attached,
-              });
-              change({
-                ...previous,
-                body,
-                ...(attachments.length === 0 &&
-                previous.attachments === undefined
-                  ? {}
-                  : { attachments }),
-              });
-              if (frozen) {
-                paused.current?.(true);
-              }
+              pointerEvents={closing === 'saving' ? 'none' : 'auto'}
+              originWhitelist={['*']}
+              setSupportMultipleWindows={false}
+              source={source}
+              style={[styles.body, { backgroundColor: colors.surfaceContent }]}
+            />
+          )}
+          <DraftAssets
+            draft={owned}
+            editable={shown !== undefined}
+            onCancel={(id) => {
+              void store.cancelImport(id);
             }}
-            // Only the page itself loads; every navigation it could start is cancelled.
-            onShouldStartLoadWithRequest={({ url, navigationType }) =>
-              url === 'about:blank' && navigationType === 'other'
-            }
-            pointerEvents={closing === 'saving' ? 'none' : 'auto'}
-            originWhitelist={['*']}
-            setSupportMultipleWindows={false}
-            source={source}
-            style={[styles.body, { backgroundColor: colors.surfaceContent }]}
+            onConvert={(id) => {
+              run({ type: 'convert', id });
+            }}
+            onPreview={showPreview}
+            onRemove={removeAsset}
           />
-        )}
-        <DraftAssets
-          draft={owned}
-          editable={shown !== undefined}
-          onCancel={(id) => {
-            void store.cancelImport(id);
-          }}
-          onConvert={(id) => {
-            run({ type: 'convert', id });
-          }}
-          onPreview={showPreview}
-          onRemove={removeAsset}
-        />
-        <DraftFields
-          draft={draft}
-          getDraft={getDraft}
-          editable={closing !== 'saving' && !sending}
-          onChange={change}
-          onCaretMove={() => {
-            setOpen(undefined);
-          }}
-        />
-      </ScrollView>
-      <View style={[s.actions, { borderTopColor: colors.separator }]}>
-        <SendingMailbox
-          draft={draft}
-          editable={closing !== 'saving' && !sending}
-          onChange={(mailbox) => {
-            change(withSender(authored.current, mailbox));
-          }}
-        />
-        <View style={s.grow} />
-        <Button
-          disabled={closing === 'saving'}
-          label={t('drafts.send')}
-          fill="accent"
-          onPress={() => {
-            void send();
-          }}
-        />
-      </View>
+          <DraftFields
+            draft={draft}
+            getDraft={getDraft}
+            editable={closing !== 'saving' && !sending}
+            onChange={change}
+            onCaretMove={() => {
+              setOpen(undefined);
+            }}
+          />
+        </ScrollView>
+        <View style={[s.actions, { borderTopColor: colors.separator }]}>
+          <SendingMailbox
+            draft={draft}
+            editable={closing !== 'saving' && !sending}
+            onChange={(mailbox) => {
+              change(withSender(authored.current, mailbox));
+            }}
+          />
+          <View style={s.grow} />
+          <Button
+            disabled={closing === 'saving'}
+            label={t('drafts.send')}
+            fill="accent"
+            onPress={() => {
+              void send();
+            }}
+          />
+        </View>
+      </SaveBackground>
       {open === 'save' ? (
         <SaveSheet
           onSave={() => {

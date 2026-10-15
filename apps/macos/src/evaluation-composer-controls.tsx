@@ -13,7 +13,7 @@ import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { FormatBar, MenuItem, PopUp } from './composer-controls.tsx';
@@ -23,7 +23,12 @@ import {
   Recipients,
   rewriteLabel,
 } from './composer.tsx';
-import { Button, GlassPanel, ToolbarButton } from './design.tsx';
+import {
+  Button,
+  GlassPanel,
+  ModalBackground,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -264,6 +269,24 @@ export function DraftFields({
   );
 }
 
+// Only the save choices remain interactive and accessible while the question is open.
+export function SaveBackground({
+  active,
+  children,
+}: {
+  readonly active: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <ModalBackground
+      accessibilityElementsHidden={active}
+      pointerEvents={active ? 'none' : 'auto'}
+      style={s.fill}>
+      {children}
+    </ModalBackground>
+  );
+}
+
 // Asks whether to keep changed Draft content, as Mail does when a message window closes.
 export function SaveSheet({
   onSave,
@@ -276,33 +299,74 @@ export function SaveSheet({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const buttons = useRef<Array<View | null>>([]);
+  const [focused, setFocused] = useState<number>();
+  const choices = [
+    { label: t('drafts.saveAction'), onPress: onSave },
+    { label: t('drafts.dontSave'), onPress: onDelete },
+    { label: t('common.cancel'), onPress: onCancel },
+  ];
+  const focusChoice = (index: number) => {
+    const button = buttons.current[index];
+    if (button !== null && button !== undefined && 'focus' in button) {
+      button.focus();
+    }
+  };
+  useEffect(() => {
+    const [first] = buttons.current;
+    if (first !== null && first !== undefined && 'focus' in first) {
+      first.focus();
+    }
+  }, []);
   return (
     <View
       accessibilityViewIsModal
+      onAccessibilityEscape={onCancel}
+      keyDownEvents={[
+        { key: 'Escape' },
+        { key: 'Tab' },
+        { key: 'Tab', shiftKey: true },
+      ]}
+      onKeyDown={({ nativeEvent }) => {
+        if (nativeEvent.key === 'Escape') {
+          onCancel();
+        } else if (nativeEvent.key === 'Tab') {
+          const step = nativeEvent.shiftKey ? -1 : 1;
+          const from = focused ?? (step === -1 ? 0 : -1);
+          focusChoice((from + step + choices.length) % choices.length);
+        }
+      }}
       style={styles.sheet}>
       <GlassPanel>
         <View style={styles.sheetContent}>
           <Text
+            selectable
             accessibilityRole="header"
             style={[styles.sheetTitle, { color: colors.textPrimary }]}>
             {t('drafts.saveQuestion')}
           </Text>
-          <Text style={[styles.sheetDetail, { color: colors.textSecondary }]}>
+          <Text
+            selectable
+            style={[styles.sheetDetail, { color: colors.textSecondary }]}>
             {t('drafts.saveQuestionDetail')}
           </Text>
-          <Button
-            fill="accent"
-            label={t('drafts.saveAction')}
-            onPress={onSave}
-          />
-          <Button
-            label={t('drafts.dontSave')}
-            onPress={onDelete}
-          />
-          <Button
-            label={t('common.cancel')}
-            onPress={onCancel}
-          />
+          {choices.map(({ label, onPress }, index) => (
+            <Button
+              key={label}
+              ref={(button) => {
+                buttons.current[index] = button;
+              }}
+              onFocus={() => {
+                setFocused(index);
+              }}
+              onBlur={() => {
+                setFocused(undefined);
+              }}
+              fill={index === 0 ? 'accent' : 'quiet'}
+              label={label}
+              onPress={onPress}
+            />
+          ))}
         </View>
       </GlassPanel>
     </View>

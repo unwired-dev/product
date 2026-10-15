@@ -37,6 +37,7 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { useMemo, useState } from 'react';
+import { View } from 'react-native';
 
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -298,6 +299,84 @@ async function settledImport(action: 'save' | 'delete' | 'unchanged') {
 
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
+  it('keeps background composer controls out of the save decision', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { typed } = simulatedPage();
+    await typed('An unsaved message');
+    const send = screen.getByRole('button', { name: 'Send' });
+    const focus = jest.spyOn(View.prototype, 'focus');
+    try {
+      await press('Close');
+      // Native View methods are substituted here; these are focus requests, not AppKit evidence.
+      expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+        screen.getByRole('button', { name: 'Save' }).props.onFocus,
+      );
+      for (const [from, event, shiftKey, to] of [
+        ['Save', 'focus', true, 'Cancel'],
+        ['Cancel', 'focus', false, 'Save'],
+        ['Save', 'blur', false, 'Save'],
+        ['Save', 'blur', true, 'Cancel'],
+      ] as const) {
+        const button = screen.getByRole('button', { name: from });
+        await fireEvent(button, 'focus');
+        await fireEvent(button, event);
+        focus.mockClear();
+        await fireEvent(
+          screen.getByText('Do you want to save this message as a draft?'),
+          'keyDown',
+          {
+            nativeEvent: {
+              key: 'Tab',
+              shiftKey,
+              metaKey: false,
+              ctrlKey: false,
+              altKey: false,
+            },
+          },
+        );
+        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
+          screen.getByRole('button', { name: to }).props.onFocus,
+        );
+      }
+      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await act(async () => {
+        await fireEvent.press(send);
+      });
+      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [] },
+      ]);
+      await fireEvent(
+        screen.getByText('Do you want to save this message as a draft?'),
+        'keyDown',
+        {
+          nativeEvent: {
+            key: 'Escape',
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+          },
+        },
+      );
+      expect(screen.getByRole('button', { name: 'Send' })).toBeOnTheScreen();
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      await press('Close');
+      await press('Save');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [{ text: 'An unsaved message' }] },
+      ]);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
   it('keeps edits in the editor until Save, and reopens them after relaunch', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;

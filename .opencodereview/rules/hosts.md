@@ -328,6 +328,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   damaged, or permanently hides an Inline Image after storage unlocks. Fence
   retry, replacement and unmount results as for image previews, and remove
   foreground subscriptions when their row no longer needs them.
+- `evaluation-composer.tsx` displaying an Inline Image through a page while
+  `composer.tsx.usePreview` owns the row's verified thumbnail. Trace explicit
+  retry and foreground recovery to every presentation, including a page that
+  becomes ready after the read. Share the successful result or give each reader
+  a real retry trigger; deleting a request marker alone does not rerun an effect.
+  Otherwise the row recovers while the page keeps its placeholder until an
+  unrelated edit. Exercise locked storage, unlock and the visible retry on both
+  hosts, and preserve ordinary composers that do not render images in a page.
 - `composer.tsx.transferred` or picker handlers constructing a prepared asset,
   starting an import or mounting a row for every selected file before applying
   `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
@@ -726,7 +734,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores.
+  that rendered tests recognize but the native host ignores. Apply the same native
+  suppression to `evaluation-composer.tsx`'s background while `SaveSheet` is open;
+  keep its choices keyboard-owned and pause the page, or background edits and
+  Send remain reachable during the save decision.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for
