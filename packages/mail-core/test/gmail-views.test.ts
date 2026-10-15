@@ -85,6 +85,53 @@ const interruptedView = (
   return { native, arrived: () => arrived };
 };
 
+// An interrupted label listing observes an arrival while another full view needs a refill.
+const interruptedRefill = (
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  {
+    travel,
+    receipts,
+    receipt,
+  }: Readonly<{
+    travel: string;
+    receipts: string;
+    receipt: string;
+  }>,
+) => {
+  let failing = false;
+  let arrived: string | undefined = undefined;
+  const native: typeof gmail.native = {
+    ...gmail.native,
+    gmailRequest: (path, query, mailbox) => {
+      const label = query.find(([name]) => name === 'labelIds')?.[1];
+      if (failing && path === 'messages') {
+        if (label === travel && query.some(([name]) => name === 'pageToken')) {
+          if (arrived === undefined) {
+            arrived = gmail.deliver({ subject: 'Arrived during interruption' });
+            gmail.setLabel(arrived, travel, true);
+            gmail.setLabel(receipt, receipts, false);
+          }
+          return Promise.resolve({ status: 503, body: '{}' });
+        }
+        if (arrived !== undefined && label === receipts) {
+          return Promise.resolve({ status: 503, body: '{}' });
+        }
+      }
+      return gmail.native.gmailRequest(path, query, mailbox);
+    },
+  };
+  return {
+    native,
+    arrived: () => arrived,
+    interrupt: () => {
+      failing = true;
+    },
+    resume: () => {
+      failing = false;
+    },
+  };
+};
+
 describe('browsing Gmail views other than the Inbox', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one view's path end to end. */
   it('lists labels, All Mail, Spam and Trash and keeps them current through history and relaunch', async () => {
@@ -245,6 +292,51 @@ describe('browsing Gmail views other than the Inbox', () => {
     await moving;
     expect(ids(view(inbox, travel).messages)).toContain(id);
     expect(gmail.modifies.at(-1)).toMatchObject({ add: [travel], remove: [] });
+  });
+
+  it('replays the earliest history when two interrupted view listings resume after relaunch', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const receipts = gmail.createLabel('Receipts');
+    const receiptIds = Array.from({ length: 200 }, (_, index) => {
+      const id = gmail.deliver({ subject: `Receipt ${index}` });
+      gmail.setLabel(id, receipts, true);
+      return id;
+    });
+    for (let index = 0; index < 51; index += 1) {
+      const id = gmail.deliver({ subject: `Flight ${index}` });
+      gmail.setLabel(id, travel, true);
+    }
+    const interrupted = interruptedRefill(gmail, {
+      travel,
+      receipts,
+      receipt: first(receiptIds),
+    });
+    const { native } = interrupted;
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    await inbox.openView(receipts);
+    interrupted.interrupt();
+    await inbox.openView(travel);
+    expect(view(inbox, travel).status).toBe('failed');
+    expect(view(inbox, receipts).status).toBe('failed');
+    expect(ids(view(inbox, travel).messages)).toContain(interrupted.arrived());
+    inbox.forget();
+
+    interrupted.resume();
+    const relaunched = createGmailInbox(native);
+    await relaunched.load();
+    expect(view(relaunched, travel).status).toBe('current');
+    expect(view(relaunched, receipts).status).toBe('current');
+    expect(ids(view(relaunched, travel).messages)).toContain(
+      interrupted.arrived(),
+    );
+    expect(view(relaunched, travel).messages).toHaveLength(52);
+    await relaunched.load();
+    expect(ids(view(relaunched, travel).messages)).toContain(
+      interrupted.arrived(),
+    );
   });
 
   it('keeps a view whose read fails with its saved messages, and drops a label Gmail removed', async () => {

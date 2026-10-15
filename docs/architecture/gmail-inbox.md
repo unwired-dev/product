@@ -64,6 +64,9 @@ beside its seen IDs and next page token. The mailbox may apply history while a
 view's listing is interrupted; completing that listing replays mailbox history
 from the view's saved start so list-page reconciliation cannot discard a newer
 history addition permanently. Expired history restarts the Inbox and view listings.
+When several listings complete before history runs, their shared checkpoint keeps
+the earliest required replay ID; a newer listing cannot advance past changes an
+earlier one still needs to replay.
 
 The [native cache companion](private-inbox-storage.md#gmail-mailbox-cache) owns
 encryption and compare-and-swap. The sync loop and action intake each serialize with a semaphore; compare-and-swap
@@ -444,8 +447,8 @@ Private Application Support files are grouped by connection and opaque UUID, wit
 a confined filename, iOS complete protection and backup exclusion. The 250 MiB
 store evicts least recently used files; preview refreshes their modification date.
 Files have shorter ownership than the encrypted body: the last reader closing,
-the message leaving the Inbox, or the Inbox closing or changing owner discards
-them.
+the message leaving the Inbox and every other cached view, or the Inbox closing
+or changing owner discards them.
 
 For system preview/share, the native bridge retains a counted presentation lease
 per file. Reader, message and Inbox discards wait for the last lease; deferred deletion
@@ -475,16 +478,19 @@ sections of one virtualized list. Native requests run to completion; stale answe
 discarded.
 
 Result metadata stays in the connection's memory-only `found` map until forget, allowing
-the ordinary isolated reader to open mail outside the cached Inbox. These bodies retain
+the ordinary isolated reader to open mail outside every cached view. These bodies retain
 the existing presentation and image bounds and never enter the encrypted body cache
-unless the message is also listed in that Inbox. Search neither persists a body index
-nor calls Convex. Controlled TypeScript pagination/failure journeys and native
+unless the message is also listed in the Inbox or another cached view. Mail-server
+results use Inbox organizing context and offer organizing actions only for messages
+listed in that exact view. Search neither persists a body index nor calls Convex.
+Controlled TypeScript pagination/failure journeys and native
 URLSession search-page responses remain separate from protected live-Gmail evidence.
 
 Received attachments use the same readable-message boundary for explicit downloads
-and system presentation, including results outside the cached Inbox. Search membership
-does not extend downloaded-file ownership when a listed message leaves the Inbox:
+and system presentation, including results outside every cached view. Search membership
+does not extend downloaded-file ownership when a listed message leaves the Inbox
+and every other cached view:
 that transition discards its downloads while preserving the search reader's body
 and descriptors. An explicit download can then acquire a new file. Synchronization
-does not discard an already off-Inbox result's files; its last reader closing or
+does not discard an already unlisted result's files; its last reader closing or
 Inbox owner invalidation still cancels work and discards them.

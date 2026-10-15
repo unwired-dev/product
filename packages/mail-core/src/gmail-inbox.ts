@@ -1420,13 +1420,18 @@ export function createGmailInbox(
     };
     return Option.some({
       ...document,
-      // History may have advanced while this listing was interrupted. Replay from its start
-      // after completion so unseen history additions discarded by listedPage return.
+      // History may have advanced while this listing was interrupted. Preserve any earlier
+      // replay another completed listing needs so unseen additions discarded by listedPage return.
       ...(next.listing === undefined
         ? {
             checkpoint: {
               kind: 'current' as const,
-              historyId: listing.historyId,
+              historyId:
+                document.checkpoint.kind === 'current' &&
+                BigInt(document.checkpoint.historyId) <
+                  BigInt(listing.historyId)
+                  ? document.checkpoint.historyId
+                  : listing.historyId,
             },
           }
         : {}),

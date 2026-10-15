@@ -411,6 +411,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.continueView` replacing the shared history checkpoint with a
+  completed listing's start after another listing already requested an earlier
+  replay. Preserve the earliest required numeric history ID until history runs,
+  including multiple interrupted listings resumed after relaunch; otherwise a
+  newer refill skips additions discarded by an older listing while both views
+  report current. Exercise the two-listing ordering through the public store.
+
 - `gmail-inbox.ts.readListingPage` selecting Spam or Trash by `labelIds` alone.
   Check the provider's exclusion flags as well as label membership: these views
   require `includeSpamTrash=true`, while ordinary label and All Mail listings
