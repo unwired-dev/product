@@ -18,6 +18,9 @@ catalogs:
     '@effect/vitest':
       specifier: 4.0.0
       version: 4.0.0
+    '@exodus/bytes':
+      specifier: 1.16.0
+      version: 1.16.0
     '@rajzik/oxfmt-config':
       specifier: ^4.0.4
       version: 4.0.4
@@ -697,6 +700,9 @@ importers:
 
   packages/mail-core:
     dependencies:
+      '@exodus/bytes':
+        specifier: 'catalog:'
+        version: 1.16.0
       '@private-email/localization':
         specifier: workspace:*
         version: link:../localization
@@ -1711,6 +1717,15 @@ packages:
   '@eslint/plugin-kit@0.7.2':
     resolution: {integrity: sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
+
+  '@exodus/bytes@1.16.0':
+    resolution: {integrity: sha512-IcpW84uEn3N7ETtNZMlxKhfl6Pec8rUNGOTBtWbK1FKhJxIFAptZyVrvVRVBimAJxJCgc3PxepxkdWWG4DVzfA==}
+    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
+    peerDependencies:
+      '@noble/hashes': ^1.8.0 || ^2.0.0
+    peerDependenciesMeta:
+      '@noble/hashes':
+        optional: true
 
   '@expo-google-fonts/material-symbols@0.4.48':
     resolution: {integrity: sha512-aZztj44PyA/sj3TXSwwpLJwqMlTUJ49okbZJYURzEcuERxMQB0KbX7RrLBi8WJnuWz5HFOLlTRxORrJfNnUPNQ==}
@@ -7835,6 +7850,8 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
+
+  '@exodus/bytes@1.16.0': {}
 
   '@expo-google-fonts/material-symbols@0.4.48': {}
 

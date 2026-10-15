@@ -23,7 +23,7 @@ module.exports = {
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
     pattern.replace(
       '|standard-navigation',
-      '|standard-navigation|@private-email|effect|parse5|entities',
+      '|standard-navigation|@private-email|@exodus|effect|parse5|entities',
     ),
   ),
 };

@@ -49,6 +49,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@exodus/bytes": "catalog:",
     "@private-email/localization": "workspace:*",
     "effect": "catalog:",
     "parse5": "catalog:"

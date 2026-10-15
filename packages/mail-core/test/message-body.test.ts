@@ -202,6 +202,31 @@ describe('reading Gmail message bodies', () => {
     ).toStrictEqual([`messages/${plain}/attachments/part-0-0`]);
   });
 
+  it('decodes Czech legacy charsets without the host decoder', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const czech = 'Příliš žluťoučký kůň úpěl ďábelské ódy.';
+    const windows = gmail.deliver({
+      content: { text: czech, charset: 'windows-1250' },
+    });
+    const iso = gmail.deliver({
+      content: { html: `<p>${czech}</p>`, charset: 'iso-8859-2' },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    // Hosts may only know UTF-8: native Expo and the Mac host's decoder polyfill.
+    vi.stubGlobal('TextDecoder', Utf8OnlyDecoder);
+
+    expect(readyBody(await read(inbox, windows))).toStrictEqual({
+      paragraphs: [[{ text: czech }]],
+      hidesImages: false,
+    });
+    expect(readyBody(await read(inbox, iso))).toStrictEqual({
+      paragraphs: [[{ text: czech }]],
+      hidesImages: false,
+    });
+  });
+
   it('recognizes quoted reply history only where it ends the message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

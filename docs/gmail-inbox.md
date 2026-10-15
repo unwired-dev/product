@@ -388,9 +388,12 @@ selection or attachment admission. A separately served body part is shown and sa
 arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
-only the presentation, never the encrypted source body. The current decoder's
-qualified charset coverage is UTF-8 and Latin-1; its UTF-8 fallback for other legacy
-charsets remains a compatibility limit, not evidence of correct decoding.
+only the presentation, never the encrypted source body. Every single-byte legacy
+charset, including Czech `windows-1250` and `iso-8859-2`, decodes through a
+bundled WHATWG decoder, independent of the host's UTF-8-only decoder. Multi-byte
+CJK charsets (`gbk`, `gb18030`, `big5`, `euc-jp`, `iso-2022-jp`, `shift_jis`) and
+unknown labels fall back to UTF-8; that fallback remains a compatibility limit, not
+evidence of correct decoding.
 
 ### Isolated rich presentation
 
@@ -1174,7 +1177,7 @@ mailbox reselection and log privacy. The #605 body reading cases cover:
 - untrusted HTML sanitized into the CSP-bound document, with vetted links, sender
   colors and remote loads removed, tracking pixels dropped and hidden preheaders
   excluded;
-- plain text, Latin-1, separately served parts, partial-body rejection, plain
+- plain text, Latin-1, Czech `windows-1250` and `iso-8859-2`, separately served parts, partial-body rejection, plain
   fallback and forwarded-part exclusion;
 - inline images within their bounds (animated, oversized, truncated, hidden and
   unreferenced parts refused or never fetched), kept for provider-free opens and

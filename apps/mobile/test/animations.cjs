@@ -1,4 +1,9 @@
+const { TextDecoder } = require('node:util');
 const { Animated, Modal } = require('react-native');
+
+// The preset installs Expo's UTF-8-only decoder beside Node's Buffer, a pairing no device has;
+// @exodus/bytes then trusts it as native and fails to load. Packaged builds verify device decoding.
+globalThis.TextDecoder = TextDecoder;
 
 // The preset's native Modal substitute omits iOS's dismissal-completion event.
 Modal.prototype.componentDidUpdate = function (previous) {

@@ -1,3 +1,4 @@
+import { createSinglebyteEncoder } from '@exodus/bytes/single-byte.js';
 import * as Arr from 'effect/Array';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
@@ -32,7 +33,7 @@ interface SyntheticMessage {
 export interface SyntheticContent {
   readonly html?: string;
   readonly text?: string;
-  readonly charset?: 'utf8' | 'latin1';
+  readonly charset?: 'utf8' | 'latin1' | 'windows-1250' | 'iso-8859-2';
   readonly separate?: boolean;
   readonly single?: boolean;
   // Content-Disposition headers on the readable parts, as some senders send; a list repeats
@@ -61,15 +62,18 @@ export interface SyntheticContent {
 // The default attached file every multipart message carries.
 export const notesText = 'Notes here.\n';
 
+const encoded = (text: string, charset: SyntheticContent['charset']) =>
+  charset === undefined || charset === 'utf8'
+    ? new TextEncoder().encode(text)
+    : createSinglebyteEncoder(charset === 'latin1' ? 'iso-8859-1' : charset)(
+        text,
+      );
+
 const base64Url = (text: string, charset: SyntheticContent['charset']) =>
-  Base64Url.encode(
-    charset === 'latin1'
-      ? Uint8Array.from(text, (character) => character.codePointAt(0) ?? 0)
-      : text,
-  );
+  Base64Url.encode(encoded(text, charset));
 
 const byteSize = (text: string, charset: SyntheticContent['charset']) =>
-  charset === 'latin1' ? text.length : new TextEncoder().encode(text).length;
+  encoded(text, charset).length;
 
 type HistoryKind =
   | 'messagesAdded'
