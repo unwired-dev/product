@@ -28,6 +28,7 @@ import type {
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
+import { folded, queryWords } from './mailbox-matching.ts';
 import {
   canOpenInbox,
   defaultProfile,
@@ -35,6 +36,8 @@ import {
   unavailableProfile,
 } from './registration.ts';
 
+export { filterMessages, matchedRanges } from './mailbox-matching.ts';
+export type { InboxFilter } from './mailbox-matching.ts';
 export type { MailboxProblem } from './mailbox-views.ts';
 export {
   failedFolders,
@@ -712,17 +715,6 @@ export function messageDateSections<
     : [...groups].map(([key, data]) => ({ key, data }));
 }
 
-// Normalize and strip accents before casing to expose compatibility letters. Lowercase so `ẞ` joins `ß`,
-// then uppercase to expand sharp S and keep sigma independent of its position in a word.
-const folded = (text: string) =>
-  text
-    .normalize('NFKD')
-    .replaceAll(/\p{M}/gu, '')
-    .toLowerCase()
-    .toUpperCase()
-    .normalize('NFKD')
-    .replaceAll(/\p{M}/gu, '');
-
 type Searched = Readonly<{ sender: string; address: string; subject: string }>;
 
 // The listed messages whose sender name, address or subject holds every word of the query, in the
@@ -731,9 +723,7 @@ export function searchMessages<L extends Listing>(
   entries: ReadonlyArray<MailboxMessage<L>>,
   query: string,
 ): ReadonlyArray<MailboxMessage<L>> {
-  const words = folded(query)
-    .split(/\s+/u)
-    .filter((word) => word.length > 0);
+  const words = queryWords(query);
   if (words.length === 0) {
     return entries;
   }

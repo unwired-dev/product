@@ -1,8 +1,7 @@
-import type { RefObject } from 'react';
-import type { TextInput } from 'react-native';
+import type { ReactNode } from 'react';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import {
   CommandInput,
@@ -14,22 +13,98 @@ import { styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
+// The Inbox's title and status line.
+export function HeadingTitle({
+  title,
+  subtitle,
+}: {
+  readonly title: string;
+  readonly subtitle: string;
+}) {
+  const colors = usePalette();
+  const header = usePaletteHeader();
+  return (
+    <View style={styles.heading}>
+      <View style={styles.headingText}>
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={[styles.title, { color: colors.textPrimary }]}
+          {...header.action}>
+          {title}
+        </Text>
+        <View style={styles.subtitle}>
+          <Text
+            accessibilityLiveRegion="polite"
+            numberOfLines={1}
+            style={[styles.subtitleText, { color: colors.textSecondary }]}>
+            {subtitle}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Search's choice between the shown mailbox and every Inbox of the Profile.
+export function SearchScope({
+  all,
+  onAll,
+}: {
+  readonly all: boolean;
+  readonly onAll: (all: boolean) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const segment = (label: string, selected: boolean, value: boolean) => (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      hitSlop={4}
+      onPress={() => {
+        onAll(value);
+      }}
+      style={[
+        styles.segment,
+        selected && { backgroundColor: colors.accentFill },
+      ]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.segmentLabel,
+          selected
+            ? { color: colors.accentOnFill, fontWeight: '600' }
+            : { color: colors.textPrimary },
+        ]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+  return (
+    <View
+      accessibilityRole="tablist"
+      style={[styles.segments, { backgroundColor: colors.fillQuiet }]}>
+      {segment(t('search.allMailboxes'), all, true)}
+      {segment(t('search.currentMailbox'), !all, false)}
+    </View>
+  );
+}
+
 // The Inbox heading, which opens the Command Palette by a downward swipe, its accessibility
 // action or, on iPad, its command input, with the one-time hint beneath it; and the app-wide and
 // navigation commands the Inbox offers while each of their controls is available.
 export function InboxHeading({
-  title,
-  subtitle,
+  children,
   detail,
   account,
   onAccount,
   onClose,
   onLeave,
-  search,
-  searchable,
+  onSearch,
 }: {
-  readonly title: string;
-  readonly subtitle: string;
+  // The title, or search's scope while searching.
+  readonly children: ReactNode;
   // Whether a reader or composer is open; Search Mail leaves it first, since on iPhone and in
   // compact iPad layouts it covers the Inbox.
   readonly detail: boolean;
@@ -37,11 +112,9 @@ export function InboxHeading({
   readonly onAccount: (open: () => void) => Promise<void>;
   readonly onClose: (() => void) | undefined;
   readonly onLeave: () => Promise<boolean>;
-  // The search field, which Search Mail focuses while the Inbox can search.
-  readonly search: RefObject<TextInput | null>;
-  readonly searchable: boolean;
+  // Opens search; absent until the Inbox can search.
+  readonly onSearch: (() => void) | undefined;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const header = usePaletteHeader();
   return (
@@ -49,18 +122,19 @@ export function InboxHeading({
       <RegisterCommands
         offer={() =>
           inboxCommands(t, {
-            search: searchable
-              ? async () => {
-                  // Closing also brings the list forward when Mailboxes covers it on iPhone.
-                  if (onClose !== undefined) {
-                    if (detail && !(await onLeave())) {
-                      return;
+            search:
+              onSearch === undefined
+                ? undefined
+                : async () => {
+                    // Closing also brings the list forward when Mailboxes covers it on iPhone.
+                    if (onClose !== undefined) {
+                      if (detail && !(await onLeave())) {
+                        return;
+                      }
+                      onClose();
                     }
-                    onClose();
-                  }
-                  search.current?.focus();
-                }
-              : undefined,
+                    onSearch();
+                  },
             inbox:
               onClose === undefined
                 ? undefined
@@ -80,25 +154,7 @@ export function InboxHeading({
       />
       <View {...header.swipe}>
         <CommandInput style={styles.commands} />
-        <View style={styles.heading}>
-          <View style={styles.headingText}>
-            <Text
-              accessibilityRole="header"
-              numberOfLines={1}
-              style={[styles.title, { color: colors.textPrimary }]}
-              {...header.action}>
-              {title}
-            </Text>
-            <View style={styles.subtitle}>
-              <Text
-                accessibilityLiveRegion="polite"
-                numberOfLines={1}
-                style={[styles.subtitleText, { color: colors.textSecondary }]}>
-                {subtitle}
-              </Text>
-            </View>
-          </View>
-        </View>
+        {children}
       </View>
       <PaletteHint />
     </>

@@ -504,8 +504,6 @@
   },
   "search": {
     "title": "Search",
-    "subtitleCompact_one": "{{count}} result in {{scope}}",
-    "subtitleCompact_other": "{{count}} results in {{scope}}",
     "subtitleRegular_one": "{{count}} message · {{scope}}",
     "subtitleRegular_other": "{{count}} messages · {{scope}}",
     "label": "Search senders and subjects",
@@ -524,7 +522,32 @@
       "failed": "The search did not finish. Try again."
     },
     "foldersLimited": "Some folders or older matches were not searched. The search covers the newest 50 matches in each of up to 50 folders including the Inbox, without Trash and Spam.",
-    "placeholder": "Search"
+    "placeholder": "Search",
+    "close": "Close Search",
+    "allMailboxes": "All Mailboxes",
+    "currentMailbox": "Current Mailbox",
+    "topResults": "Top Results",
+    "topResultsLabel_one": "Top Results. {{count}} result in {{scope}}",
+    "topResultsLabel_other": "Top Results. {{count}} results in {{scope}}"
+  },
+  "filters": {
+    "filter": "Filter",
+    "title": "Filters",
+    "apply": "Apply Filters",
+    "filteredBy": "Filtered by",
+    "filteredByLabel": "Filtered by {{label}}",
+    "openHint": "Opens Filters.",
+    "includeFrom": "Include Mail From",
+    "include": "Include",
+    "unread": "Unread",
+    "today": "Today",
+    "onlyToday": "Only Mail from Today",
+    "mailboxes_one": "{{count}} Mailbox",
+    "mailboxes_other": "{{count}} Mailboxes",
+    "several_one": "{{count}} Filter",
+    "several_other": "{{count}} Filters",
+    "none": "None",
+    "emptyDetail": "No mail matches the filters. Turn off Filter to see all mail."
   },
   "imapActions": {
     "uncertain": "The mail server has not confirmed where “{{subject}}” moved. Check its folders, then discard this change to continue. It will not be sent again."

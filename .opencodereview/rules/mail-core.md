@@ -937,7 +937,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   downloads. Trace `downloadAttachment`'s late-save fence and `presentAttachment`
   after refresh; otherwise a replacement at the same position appears downloaded
   and Open/Share serves the previous file, or a cancelled save restores stale bytes.
-- `mailboxes.ts.folded` implementing case-insensitive sender/subject search with
+- `mailbox-matching.ts.folded` implementing case-insensitive sender/subject search with
   lowercasing alone or ordering normalization, accent removal and case mapping so equivalent
   text gets different search keys. Check sharp S in both cases, dotted/dotless I,
   compatibility letters exposed by normalization, and sigma in partial words;

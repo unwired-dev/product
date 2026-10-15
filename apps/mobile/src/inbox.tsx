@@ -4,6 +4,7 @@ import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
+import type { ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
@@ -19,28 +20,14 @@ import {
   messageDateSections,
   profileMailboxes,
   resultKey,
-  searchMessages,
 } from '@private-email/mail-core/mailboxes';
-import {
-  use,
-  useDeferredValue,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  SectionList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { use, useMemo, useRef, useSyncExternalStore } from 'react';
+import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { RowAction } from './inbox-rows.tsx';
+import type { useGmailSearch } from './mailbox.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
@@ -52,16 +39,21 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { useImapFolder } from './imap-folders.tsx';
-import { FloatingBar } from './inbox-bar.tsx';
-import { InboxHeading } from './inbox-heading.tsx';
+import { useInboxFilter } from './inbox-filters.tsx';
+import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import {
+  InboxBar,
+  OnlineResults,
+  SearchHeading,
+  useInboxSearch,
+} from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailboxScope,
   useDrafts,
-  useGmailSearch,
   useInbox,
   useInboxActions,
   useLeaveComposer,
@@ -348,70 +340,6 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
   return saved ? t('search.saved') : t('search.download');
 };
 
-// Gmail's own search, asked for explicitly below the results saved on this device, which it never
-// replaces. Each mailbox that Gmail could not search says why.
-function OnlineResults({
-  search,
-  query,
-}: {
-  readonly search: ReturnType<typeof useGmailSearch>;
-  readonly query: string;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const { found, searching } = search;
-  if (!search.available) {
-    return null;
-  }
-  if (found === undefined && !searching) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
-    );
-  }
-  return (
-    <View>
-      {found?.results.length === 0 && found.failures.length === 0 ? (
-        <Text style={[styles.notice, { color: colors.textSecondary }]}>
-          {t('search.onlineEmpty', { query })}
-        </Text>
-      ) : null}
-      {searching ? (
-        <ActivityIndicator accessibilityLabel={t('search.searching')} />
-      ) : null}
-      {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
-      ) : null}
-      {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 // The online section announces its source and each connection's failure before its rows.
 function OnlineHeading({
   search,
@@ -568,7 +496,9 @@ function inboxSections<M>({
   return [
     ...(outboxRows.length === 0 ? [] : [{ key: 'outbox', data: outboxRows }]),
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
-    ...searchSections<OutboxItem | DraftItem | M>(messages, online),
+    ...(searching
+      ? searchSections<OutboxItem | DraftItem | M>(messages, online)
+      : messages),
   ];
 }
 
@@ -583,41 +513,32 @@ const hasNoMail = ({
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
   search.found?.failures.some(({ reason }) => reason === 'offline') === true;
 
-function headingOf(
-  t: Translate,
-  {
-    scope,
-    folder,
-    scopeName,
-    status,
-    shown,
-    results,
-    search,
-  }: Readonly<{
-    scope: string | undefined;
-    folder: string | undefined;
-    scopeName: string;
-    status: string;
-    shown: readonly InboxMailbox[];
-    results: readonly unknown[] | undefined;
-    search: ReturnType<typeof useGmailSearch>;
-  }>,
-) {
-  const title =
-    results === undefined
-      ? (folder ??
-        t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title'))
-      : t('search.title');
-  const subtitle =
-    results === undefined ||
-    searchOffline(search) ||
-    shown.some(({ state }) => checking(state) || offline(state))
-      ? t('inbox.subtitleLabel', { scope: scopeName, status })
-      : t(ipad ? 'search.subtitleRegular' : 'search.subtitleCompact', {
-          count: results.length + (search.found?.results.length ?? 0),
-          scope: scopeName,
-        });
-  return { title, subtitle, emptyScope: folder ?? scopeName };
+// Below the Inbox: its empty state, loading rows, the Language control and the storage note.
+function InboxFooter({
+  empty,
+  syncing,
+  connected,
+  children,
+}: {
+  readonly empty: boolean;
+  readonly syncing: boolean;
+  // Whether a signed-in account's mail, rather than sample messages, is listed.
+  readonly connected: boolean;
+  // The empty state.
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <>
+      {empty ? children : null}
+      {syncing ? <SkeletonRows /> : null}
+      <LanguageSelector />
+      <Text style={[styles.footer, { color: colors.textSecondary }]}>
+        {connected ? t('inbox.footerConnected') : t('inbox.footer')}
+      </Text>
+    </>
+  );
 }
 
 export function Inbox({
@@ -674,9 +595,6 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
-  const [query, setQuery] = useState('');
-  // Typing stays responsive while the list catches up with the latest query.
-  const searched = useDeferredValue(query.trim());
   const inboxListed = useMemo(
     () => inboxMessages(mailboxes, scoped),
     [mailboxes, scoped],
@@ -685,22 +603,36 @@ export function Inbox({
     view,
     onView,
   });
-  // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
-  const results = useMemo(
-    () => (searched === '' ? undefined : searchMessages(listed, searched)),
-    [listed, searched],
-  );
+  const searchState = useInboxSearch(search, {
+    mailboxes,
+    shown,
+    listed,
+    profile,
+    scoped,
+    several,
+    folder,
+  });
+  const { searching, searched, results, online } = searchState;
   // Asked again when a result is opened or the reader closes, since opening saves the body.
   const saved = useSavedBodies(
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
-  const online = useGmailSearch(shown, searched, scoped);
-  const messages = results ?? listed;
   const now = useNow();
+  const filtering = useInboxFilter({ scope, mailboxes, listed, now });
+  const inboxRows = filtering.rows;
+  // Search keeps iPad's day groups beneath Top Results; iPhone lists matches without dividers.
   const dated = useMemo(
-    () => messageDateSections(messages, now),
-    [messages, now],
+    () =>
+      searching
+        ? [
+            { key: 'saved', data: ipad ? [] : (results ?? []) },
+            ...(ipad && (results?.length ?? 0) > 0
+              ? messageDateSections(results ?? [], now)
+              : []),
+          ]
+        : messageDateSections(inboxRows, now),
+    [searching, results, inboxRows, now],
   );
   const sections = inboxSections({
     outbox,
@@ -708,7 +640,7 @@ export function Inbox({
     drafts,
     messages: dated,
     online,
-    searching: results !== undefined,
+    searching,
   });
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
@@ -727,15 +659,11 @@ export function Inbox({
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
   });
-  const { title, subtitle, emptyScope } = headingOf(t, {
-    scope,
-    folder: folder === inboxFolder ? undefined : folder,
-    scopeName,
-    status,
-    shown,
-    results,
-    search: online,
-  });
+  const folderName = folder === inboxFolder ? undefined : folder;
+  const title =
+    folderName ??
+    t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
+
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
     mailbox: InboxMailbox,
@@ -786,28 +714,25 @@ export function Inbox({
     }
     return [];
   };
-  const empty =
-    results === undefined ? (
-      <View style={styles.empty}>
-        <View style={styles.emptyIcon}>
-          <SFSymbol
-            name="tray.2"
-            size={emptySymbolSize}
-            color={colors.textSecondary}
-          />
-        </View>
-        <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
-          {t('inbox.empty')}
-        </Text>
-        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-          {t('inbox.emptyDetail', { scope: emptyScope })}
-        </Text>
+  const empty = (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <SFSymbol
+          name="tray.2"
+          size={emptySymbolSize}
+          color={colors.textSecondary}
+        />
       </View>
-    ) : (
-      <Text style={[styles.notice, { color: colors.textSecondary }]}>
-        {t('search.empty', { query: searched })}
+      <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+        {t('inbox.empty')}
       </Text>
-    );
+      <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+        {filtering.hidesAll
+          ? t('filters.emptyDetail')
+          : t('inbox.emptyDetail', { scope: folderName ?? scopeName })}
+      </Text>
+    </View>
+  );
   return (
     // The floating bar rises above the software keyboard while its search field is in use. The safe
     // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it.
@@ -825,11 +750,17 @@ export function Inbox({
             onAccount={openAccount}
             onClose={onClose}
             onLeave={leave}
-            search={search}
-            searchable={ready}
-            subtitle={subtitle}
-            title={title}
-          />
+            onSearch={ready ? searchState.open : undefined}>
+            <SearchHeading search={searchState}>
+              <HeadingTitle
+                title={title}
+                subtitle={t('inbox.subtitleLabel', {
+                  scope: scopeName,
+                  status,
+                })}
+              />
+            </SearchHeading>
+          </InboxHeading>
           <View style={styles.notices}>
             {failed ? (
               <Notice
@@ -895,6 +826,27 @@ export function Inbox({
                 );
               }
               const [first] = section.data;
+              if (searching && section.key === 'saved') {
+                const count =
+                  (results?.length ?? 0) + (online.found?.results.length ?? 0);
+                return count > 0 ? (
+                  <Text
+                    accessibilityLabel={t('search.topResultsLabel', {
+                      count,
+                      scope: searchState.searchesAll
+                        ? t('inbox.allInboxes')
+                        : scopeName,
+                    })}
+                    accessibilityLiveRegion="polite"
+                    accessibilityRole="header"
+                    style={[
+                      styles.resultsHeader,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t('search.topResults')}
+                  </Text>
+                ) : null;
+              }
               return section.key === 'saved' ||
                 first === undefined ||
                 !('message' in first) ? null : (
@@ -915,27 +867,30 @@ export function Inbox({
             }}
             ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
             ListFooterComponent={
-              <>
-                {results === undefined &&
-                hasNoMail({ ready, syncing, count: messages.length })
-                  ? empty
-                  : null}
-                {results === undefined && syncing ? <SkeletonRows /> : null}
+              searching ? (
                 <OnlineResults
                   query={searched}
                   search={online}
                 />
-                <LanguageSelector />
-                <Text style={[styles.footer, { color: colors.textSecondary }]}>
-                  {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
-                </Text>
-              </>
+              ) : (
+                <InboxFooter
+                  connected={gmail}
+                  empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
+                  syncing={syncing}>
+                  {empty}
+                </InboxFooter>
+              )
             }
             ListFooterComponentStyle={styles.listFooter}
             renderSectionFooter={({ section }) =>
-              section.key === 'saved' && ready && results !== undefined
-                ? empty
-                : null
+              searching &&
+              section.key === 'saved' &&
+              ready &&
+              results?.length === 0 ? (
+                <Text style={[styles.notice, { color: colors.textSecondary }]}>
+                  {t('search.empty', { query: searched })}
+                </Text>
+              ) : null
             }
             renderItem={({ item, section }) => {
               if ('outbox' in item) {
@@ -962,6 +917,7 @@ export function Inbox({
                       : rowActions(item.mailbox, item.message)
                   }
                   now={now}
+                  query={searching ? searched : undefined}
                   onSelect={() => {
                     void select({
                       mailbox: item.mailbox.id,
@@ -973,7 +929,7 @@ export function Inbox({
                     selected.id === item.message.id
                   }
                   status={
-                    section.key === 'gmail' || results === undefined
+                    section.key === 'gmail' || !searching
                       ? undefined
                       : savedStatus(t, saved?.get(resultKey(item)))
                   }
@@ -981,14 +937,14 @@ export function Inbox({
               );
             }}
           />
-          <FloatingBar
+          <InboxBar
+            field={search}
+            filter={filtering}
             hidden={composing !== undefined}
-            search={search}
             onCompose={onCompose}
-            onQuery={setQuery}
-            query={query}
             ready={ready}
             scope={scope}
+            search={searchState}
           />
         </View>
       </SafeAreaView>

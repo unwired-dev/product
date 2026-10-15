@@ -47,6 +47,7 @@ import {
 } from './command-palette.tsx';
 import { ContextMenu, Glass, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -134,7 +135,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
-  compactContent: { paddingBottom: 52 + 2 * spacing.l },
+  // Clears iPhone's bottom toolbar, and iPad's floating bar across the window.
+  clearsBar: { paddingBottom: 52 + 2 * spacing.l },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -926,6 +928,7 @@ function MailboxMessage({
   const actions = useInboxActions();
   const mailbox = useMailbox();
   const account = use(AccountContext);
+  const windowBar = use(WindowBarContext);
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -993,7 +996,7 @@ function MailboxMessage({
           <ReaderScrollView
             contentContainerStyle={[
               styles.content,
-              compact ? styles.compactContent : null,
+              compact || windowBar !== undefined ? styles.clearsBar : null,
             ]}>
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
@@ -1071,6 +1074,7 @@ function ThreadMessages({
   const colors = usePalette();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const windowBar = use(WindowBarContext);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1119,7 +1123,10 @@ function ThreadMessages({
             <RegularHeader subject={opened.subject} />
           )}
           <ReaderScrollView
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[
+              styles.content,
+              windowBar === undefined ? null : styles.clearsBar,
+            ]}
             maintainVisibleContentPosition={keepVisibleMessage}>
             <MessageCount count={messages.length} />
             {messages.map((message) => (
