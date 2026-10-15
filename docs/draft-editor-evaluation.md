@@ -26,23 +26,37 @@ Drafts in the current composer.
 ## Behavior
 
 In an evaluation build, **New Message**, Draft rows and **Reply** open the
-**Evaluation editor** in place of the composer, in the same place on each host. It
-shows **Close**, the sending mailbox, the save status, the
-[formatting toolbar](#formatting-and-history), the Draft's
-[files and Inline Images](#files-and-inline-images) and the body. Recipients,
-subject, quoted correspondence and Send stay with the current composer; no edit in
-the page changes them.
+evaluation editor in place of the composer, in the same place on each host. It uses
+the [approved compose design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140)
+([iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
+[Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)): the
+current composer's header with **Close**, the title and **Send**; the sending
+mailbox; the page's body; the Draft's [files and Inline Images](#files-and-inline-images);
+and then **Subject**, **To**, and **Cc** and **Bcc** once shown. Quoted
+correspondence stays as the Draft has it; no edit in the page changes it. The
+regular composer adopts the same design in
+[#991](https://github.com/unwired-dev/product/issues/991).
 
-- **Saving.** Every change is saved through the Draft store, as in the current
-  composer, and the status shows **Saved on this device**, **Saving…**, or why the
-  latest edit is not saved. Locked storage and failed saves keep the edit in memory.
-- **Close.** Saves and closes once the Draft is stored. When saving fails the editor
-  stays open with **Try again**. Closing an empty Draft discards it.
+- **Saving.** Nothing is saved while editing, and no save status is shown. The
+  Draft is stored only when the person chooses **Save Draft** (**Save** on Mac) or
+  **Send**, as in Mail.
+- **Close.** An unchanged Draft closes at once, and an empty one is removed. Otherwise
+  **Delete Draft** and **Save Draft** grow out of **Close** on iPhone and iPad, and the
+  Mac asks **Do you want to save this message as a draft?** with **Save**,
+  **Don’t Save** and **Cancel**. When storage refuses, the editor stays open with
+  **Try again**, and its edits still ask on the next **Close**. Unfinished recipient
+  text becomes recipients on **Save Draft**; an invalid address keeps the editor open.
+- **Send.** Stores the Draft as shown and queues it, then closes. A refusal, such as
+  no recipients, keeps the editor open with its reason; the Draft stays stored.
 - **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
-  first saves the Draft, as the current composer does.
-- **Failures.** If the page stops, the editor says so, clears assistance previews and
-  keeps saved changes. Callbacks from a stopped or closed page cannot submit edits
-  or accept results. Close the Draft and reopen it to resume editing.
+  asks the same question first; it leaves once the Draft is saved, deleted or
+  unchanged.
+- **Removal elsewhere.** A Draft deleted on another device while open keeps this
+  editor's version; **Save Draft** stores it as a conflicting copy.
+- **Failures.** If the page stops, the editor says so and clears assistance previews.
+  Callbacks from a stopped or closed page cannot submit edits or accept results.
+  **Save Draft** still stores the body the page last reported; reopen the Draft to
+  resume editing.
 - **Account.** Drafts belong to the signed-in Product Account. Locked or unavailable
   Draft storage shows the current composer's **Drafts are locked** and **Try again**.
 
@@ -53,12 +67,18 @@ paragraphs, headings one to three, bulleted and numbered lists, quotes and code
 blocks, with bold, italic, underline, strikethrough and inline code. Its rules are
 the current composer's:
 
-- **Toolbar.** **Undo**, **Redo**, the five marks and the seven block kinds, then
-  **Translate**, **Rewrite** and **Suggest reply** while
-  [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) is on.
-  The toolbar appears once the page reports that it has loaded, so no command or
-  accepted result can reach a page that cannot apply it. Each press is one command
-  to the page. A mark applies to the selection, or to the
+- **Controls.** On iPad and Mac the current composer's format bar: the text style
+  menu, the four marks, lists, **Undo** and **Redo**, **Writing tools** and the file
+  controls. On iPhone a floating Liquid Glass pill with **Format** and **Add files**,
+  and a separate **Writing tools** button, sit above the keyboard. **Format** replaces
+  the keyboard with the Format panel: **Undo**, **Redo**, the three headings and
+  **Body**, the five marks, lists, quote and code block; closing it, or tapping into the
+  body, brings the keyboard back. **Writing tools** lists today's **Rewrite**,
+  **Translate** and **Suggest reply** while
+  [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) or
+  translation is available. The controls appear once the page reports that it has
+  loaded, so no command or accepted result can reach a page that cannot apply it.
+  Each press is one command to the page. A mark applies to the selection, or to the
   next typed text at the caret until the caret moves. A block kind applies to every
   selected block, and returns them to paragraphs when they all have it. The page
   reports the marks and block kind at the selection, which the toolbar shows as
@@ -105,13 +125,14 @@ for inline code and Command-Option-1 for a heading, also work in the page.
 ## Files and Inline Images
 
 [#820](https://github.com/unwired-dev/product/issues/820) opens Drafts with files and
-Inline Images. The page shows Inline Images in the body. Under the toolbar, the
-editor lists the Draft's Attachments and Inline Images with the current composer's
-rows: name, size or state, **Cancel** while adding, **Try again** when a check can
-run again, and **Remove**.
+Inline Images. The page shows Inline Images in the body. Under the body, the editor
+lists the Draft's Attachments and Inline Images with the current composer's rows:
+name, size or state, **Cancel** while adding, **Try again** when a check can run
+again, and **Remove**.
 
 - **Adding.** **Attach File**, **Attach Photo**, **Insert Image** and **Paste Image**
-  on iPhone and iPad, and **Attach Files…** and **Insert Image…** on Mac, use the
+  (in the **Add files** menu on iPhone, on the format bar on iPad), and
+  **Attach Files…** and **Insert Image…** on Mac, use the
   current composer's system pickers and native import. Images placed inline go at
   the page's selection, replacing any selected text; other files become Attachments.
   Each pick is one edit in the page.
@@ -124,15 +145,16 @@ run again, and **Remove**.
 - **Editing.** An Inline Image is one character of the text, as in the current
   composer. Typing around it, deleting it, moving it by cut and paste or by dragging,
   **Undo** and **Redo** keep its Draft Asset.
-- **Converting.** **Attach Instead** turns an Inline Image into an Attachment,
-  removing each place it appears; **Show Inline** places an image Attachment at the
-  page's selection. Each is one edit that one **Undo** reverts and **Redo** restores.
+- **Converting.** The row's context menu (long press on iPhone and iPad, secondary
+  click on Mac) and its VoiceOver action offer **Attach Instead**, which turns an
+  Inline Image into an Attachment, removing each place it appears, or **Show Inline**,
+  which places an image Attachment at the page's selection, beside **Remove**. Each is one edit that one **Undo** reverts and **Redo** restores.
   The current composer does not offer conversion yet.
 - **Imports.** While native code imports a file, its row shows **Adding…**. Editing
   continues, and an import that completes meanwhile neither loses the edit nor
   creates a conflicting copy. A cancelled, failed or interrupted import stays listed
-  as not added. An import still running when the Draft closes completes into the
-  stored Draft. While the editor is open, **Undo** can restore any asset the page was
+  as not added. An import still running when **Save Draft** closes the editor
+  completes into the stored Draft. While the editor is open, **Undo** can restore any asset the page was
   given, with its stored bytes.
 - **Pictures.** Native code checks an image's bytes against its digest and returns a
   thumbnail at most 256 pixels on its longest side. Only that thumbnail reaches the
@@ -221,18 +243,19 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 
 Metro builds the page when it loads its configuration for this scenario. Each
 journey signs in, turns on on-device assistance (this build's model and Translation
-are synthetic), starts **New Message**, types a paragraph into the page, waits for
-**Saved on this device**, rotates the device (iPhone, iPad) or narrows the window
-(Mac), then formats the paragraph and steps **Undo** and **Redo**. It relaunches and
-reopens this formatted Draft, checks bold and numbered-list selection state, then
+are synthetic), starts **New Message**, types a paragraph into the page, rotates the
+device (iPhone, iPad) or narrows the window (Mac), then formats the paragraph (in the
+Format panel on iPhone) and steps **Undo** and **Redo**. It chooses **Save Draft** on
+**Close**, relaunches and reopens this formatted Draft, checks bold and numbered-list selection state, then
 accepts selected-text and whole-body rewrites, selected-text translation, and a
 reply suggestion. Each operation checks the complete visible authored text after
 one **Undo** and **Redo**, and relaunches to reopen both its undone and accepted
 states. The Mac journey also uses Command-B, Command-Z and Shift-Command-Z. The
 iPhone and iPad journey then starts another **New Message**, types, places a photo
 with **Insert Image** from the system Photos picker, types after it, turns it into an
-Attachment and steps **Undo**, **Redo** and **Undo** back to the Inline Image, then
-relaunches and reopens the Draft with the image and its thumbnail in place. The
+Attachment with **Attach Instead** from the row's context menu and back with
+**Show Inline**, steps **Undo** and **Redo** across the last conversion, then saves
+and relaunches and reopens the Draft with the image and its thumbnail in place. The
 runner adds `native-tests/photo.png` to each fresh Simulator's photo library for it. The mobile journey
 attaches screenshots to the XCTest results; the Mac journey records its assertions
 when signing permits execution.
@@ -397,26 +420,32 @@ nothing. The saved body uses the same Inline Image spans as the current composer
 the existing outgoing-format boundary applies unchanged; this evaluation sends nothing.
 These are not native evidence.
 
-Native execution on 2026-10-14, same Mac mini and toolchain as above (macOS 27.0.1,
-Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
-build with Hermes. The iPhone 18 Pro journey passed (`Executed 1 test, with 0
-failures`) in `artifacts/expo-bootstrap/native-ChW7DX/`, after an earlier pass in
-`artifacts/expo-bootstrap/native-cr5TK0/`. After the existing #818 and #819 steps,
-it placed a photo with **Insert Image** from the system Photos picker between typed
-text, showed its native thumbnail, turned it into an Attachment and back with
-**Undo**, **Redo** and **Undo**, then relaunched and reopened the Draft with the
-image and thumbnail in place. Screenshots are in the result bundles.
-The journey's later retry of a lost language tap in the translation step was added
-after these runs.
+Component journeys also cover the composer layout: nothing is stored until **Save
+Draft**; a refused save keeps the editor open with **Try again** and still asks on the
+next **Close**; an unchanged Draft closes and an empty one is removed without asking;
+**Delete Draft** removes the Draft; a refused **Send** stays open with its reason and
+stores the shown version; the iPhone Format panel, its keyboard hand-off and Writing
+tools; the iPad format bar; and the conversion menu and its accessibility action.
 
-The iPad Pro 11-inch (M5) journey did not pass. The host's load average reached about
-800 from other jobs. One attempt reached the new steps and failed choosing the photo,
-because its first match was the picker's sidebar icon; the journey now chooses a
-photo in the grid. Five later attempts failed in existing steps, or before any test
-ran, before reaching the new steps: a lost language tap in the translation step
-(twice), a lost character in the Recovery Key entry, the first typed paragraph after
-long idle waits, and a test runner that crashed while starting. Those runs are in
-`artifacts/expo-bootstrap/native-*` and are not evidence.
+Native execution on 2026-10-15, same Mac mini and toolchain as above (macOS 27.0.1,
+Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`
+build with Hermes of the final layout. The iPhone 18 Pro journey passed (`Executed 1
+test, with 0 failures`) in `artifacts/expo-bootstrap/native-L6ZWPp/`, after an earlier
+pass in `artifacts/expo-bootstrap/native-ggmWHA/`, and the iPad Pro 11-inch (M5)
+journey passed in `artifacts/expo-bootstrap/native-yE3fOx/`. On iPhone it typed and
+rotated in the composer layout, formatted from the Format panel, ran every #819
+rewrite, translation and reply round trip from **Writing tools**, chose **Save Draft**
+on each **Close** before relaunching, and closed unchanged Drafts without a prompt.
+It then placed a photo with **Insert Image** from **Add files**, showed its native
+thumbnail, chose **Attach Instead** and **Show Inline** from the row's context menu,
+stepped **Undo** and **Redo**, saved, relaunched and reopened the Draft with the image
+and thumbnail in place. The iPad journey ran the same steps from the format bar, its
+**Writing tools** menu and its file controls. Screenshots are in the result bundles.
+Earlier attempts on the same day found and corrected defects: rotation squeezed the
+body before it scrolled, the iPhone pill sat behind the keyboard, and the iPad format
+bar's scrolling clipped the **Writing tools** menu; others failed in the journey's own
+steps or, on iPad, before the editor opened under a load average of about 900 from
+other jobs. Those runs are in `artifacts/expo-bootstrap/native-*` and are not evidence.
 
 Before reaching the new steps, the journey needed repairs for changes since #819:
 the Gmail registration heading now reads **Gmail connected**, **Account** is in the
@@ -429,12 +458,11 @@ Photos picker instead.
 During the runs, a watcher sampled the app's data container on each Simulator every
 five seconds for WebKit website data (local storage, IndexedDB, cache storage,
 cookies and other WebKit stores). No sample found any, through typing, imports,
-**Close**, relaunch and reopening, on iPhone and on the iPad attempts.
+**Save Draft**, relaunch and reopening, on iPhone and on iPad.
 
 Outstanding for #820: the Mac native journey, which needs a signed mock profile;
 pasting image data into the page on Mac, and dropping files on the page on every
 host, which need native interception in the web view (the page refuses both unread);
-the iPad journey through the new steps;
 **Paste Image** and in-page paste on a device; website data after account removal,
 which this journey does not exercise; a network capture of the journey beyond the
 page's refusal of networking and navigation; and physical iPhone and iPad runs.

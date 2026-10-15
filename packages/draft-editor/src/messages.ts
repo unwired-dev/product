@@ -53,8 +53,9 @@ export type Command =
   | Readonly<{ type: 'block'; kind: typeof BlockKindSchema.Type }>
   | Readonly<{ type: 'undo' }>
   | Readonly<{ type: 'redo' }>
-  // Ends editing in the page, which hides the software keyboard.
+  // Ends editing in the page, which hides the software keyboard, or resumes it at the selection.
   | Readonly<{ type: 'blur' }>
+  | Readonly<{ type: 'focus' }>
   | Readonly<{
       type: 'replace';
       revision: number;

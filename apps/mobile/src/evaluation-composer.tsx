@@ -1,6 +1,8 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { ReactNode } from 'react';
 
 import {
   commandScript,
@@ -16,11 +18,15 @@ import {
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
+  addRecipients,
   draftOf,
+  entryOf,
   isEmptyDraft,
   withAsset,
+  withSender,
 } from '@private-email/mail-core/drafts';
 import {
+  clip,
   imagesOf,
   replaceSelection,
   selectedText,
@@ -38,148 +44,166 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 import { WebView } from 'react-native-webview';
 
-import { blockControls, markControls } from './composer-controls.tsx';
+import type { Closing } from './composer.tsx';
+
+import { CommandInput, usePaletteHeader } from './command-palette.tsx';
+import {
+  blockControls,
+  FormatBar,
+  markControls,
+  MenuItem,
+} from './composer-controls.tsx';
 import {
   Action,
   CapturedAssistance,
   Composer,
+  ComposerLayoutContext,
+  ComposerNotices,
+  composerStyles,
   DraftAssets,
+  Recipients,
   retires,
   rewriteLabel,
+  SendingMailbox,
 } from './composer.tsx';
+import {
+  GlassGroup,
+  GlassPanel,
+  NativeGlass,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { useComposerNavigation, useDrafts, useDraftStore } from './mailbox.tsx';
+import {
+  useComposerNavigation,
+  useDraftStore,
+  useDrafts,
+  useOutbox,
+} from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
+const s = composerStyles;
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  content: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    gap: spacing.l,
+  scroll: { flexGrow: 1 },
+  // The regular composer's minimum body height.
+  body: { flex: 1, minHeight: 160, backgroundColor: 'transparent' },
+  notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
+  // Menus float over the content below or above their control.
+  closeMenu: {
+    position: 'absolute',
+    zIndex: 4,
+    top: 56,
+    left: spacing.l,
+    minWidth: 240,
   },
-  bar: {
+  // The iPhone controls float at the trailing edge above the keyboard, with their menus above.
+  pill: {
+    position: 'absolute',
+    right: spacing.l,
+    bottom: spacing.s,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
+    gap: 10,
   },
-  grow: { flex: 1 },
-  title: { ...textStyles.headline },
-  status: { ...textStyles.footnote },
-  notice: { ...textStyles.subheadline },
-  format: {
-    minWidth: 44,
+  pillGroup: { borderRadius: 26 },
+  // Above the content below it, so the Writing tools menu opens over the body.
+  padBar: { zIndex: 1 },
+  padMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: spacing.l,
+    minWidth: 240,
+  },
+  pillMenu: {
+    position: 'absolute',
+    right: spacing.l,
+    bottom: 64,
+    minWidth: 240,
+  },
+  format: { padding: spacing.s, paddingTop: 0 },
+  formatContent: { padding: spacing.s },
+  formatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: spacing.m,
+  },
+  formatTitle: { ...textStyles.headline, flex: 1 },
+  formatRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    padding: spacing.xs,
+    marginTop: spacing.s,
+    borderRadius: radius.card,
+  },
+  formatChoice: {
+    flex: 1,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.control,
   },
-  body: { flex: 1, backgroundColor: 'transparent' },
 });
 
 type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
+// The open menu, or on iPhone the Format panel in place of the keyboard.
+type Open = 'close' | 'attach' | 'tools' | 'format';
+type Add = (source: PickSource, inline: boolean) => void;
+type Capture = (purpose: CapturedDraftText['purpose']) => void;
 
 // The current composer's file controls: the system pickers, and images on the pasteboard placed
 // inline. Native code reads the chosen files.
 const pickers = [
-  ['drafts.assets.attachFile', 'files', false],
-  ['drafts.assets.attachPhoto', 'photos', false],
-  ['drafts.assets.insertImage', 'photos', true],
-  ['drafts.assets.pasteImage', 'paste', true],
+  ['drafts.assets.attachFile', 'files', false, 'paperclip'],
+  ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
+  ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
+  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
+const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
 
-// The current composer's formatting, history, assistance and file controls, acting on the page.
-// Each press is one page command; the page reports the formatting at its selection.
-function Toolbar({
-  page,
+// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
+function WritingTools({
   draft,
-  run,
-  capture,
-  add,
+  page,
+  onCapture,
 }: {
-  readonly page: PageState;
   readonly draft: Draft;
-  readonly run: (command: Command) => void;
-  readonly capture: (purpose: CapturedDraftText['purpose']) => void;
-  readonly add: (source: PickSource, inline: boolean) => void;
+  readonly page: PageState;
+  readonly onCapture: Capture;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   const { selection } = page;
   return (
-    <View
-      accessibilityLabel={t('drafts.formatting')}
-      accessibilityRole="toolbar"
-      style={styles.bar}>
-      <Action
-        disabled={!page.undo}
-        label={t('drafts.undo')}
-        onPress={() => {
-          run({ type: 'undo' });
-        }}
-      />
-      <Action
-        disabled={!page.redo}
-        label={t('drafts.redo')}
-        onPress={() => {
-          run({ type: 'redo' });
-        }}
-      />
-      {markControls.map(([mark, label, name, style]) => (
-        <Pressable
-          key={mark}
-          accessibilityLabel={t(name)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: page.marks.includes(mark) }}
+    <>
+      {assistance === undefined ? null : (
+        <MenuItem
+          disabled={!canRewrite(draft.body, selection)}
+          label={t('assistance.rewrite')}
+          accessibilityLabel={t(rewriteLabel(selection))}
+          selected={false}
           onPress={() => {
-            run({ type: 'mark', mark });
+            onCapture('rewrite');
           }}
-          style={[
-            styles.format,
-            page.marks.includes(mark) && {
-              backgroundColor: colors.accentSelectionSubtle,
-              borderWidth: 2,
-              borderColor: colors.textPrimary,
-            },
-          ]}>
-          <Text style={[{ color: colors.textPrimary }, style]}>{label}</Text>
-        </Pressable>
-      ))}
-      {blockControls.map(([kind, label, name]) => (
-        <Pressable
-          key={kind}
-          accessibilityLabel={t(name)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: page.kind === kind }}
-          onPress={() => {
-            run({ type: 'block', kind });
-          }}
-          style={[
-            styles.format,
-            page.kind === kind && {
-              backgroundColor: colors.accentSelectionSubtle,
-              borderWidth: 2,
-              borderColor: colors.textPrimary,
-            },
-          ]}>
-          <Text style={{ color: colors.textPrimary }}>{label}</Text>
-        </Pressable>
-      ))}
+        />
+      )}
       {translation === undefined ? null : (
-        <Action
+        <MenuItem
           disabled={
             !hasTranslatableText(
               selectedText(draft.body, selection, translationInputLimit + 1),
@@ -187,70 +211,569 @@ function Toolbar({
           }
           label={t('translation.translate')}
           accessibilityLabel={t('translation.translateSelectionLabel')}
+          selected={false}
           onPress={() => {
-            capture('translate');
-          }}
-        />
-      )}
-      {assistance === undefined ? null : (
-        <Action
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
-          onPress={() => {
-            capture('rewrite');
+            onCapture('translate');
           }}
         />
       )}
       {assistance !== undefined && canSuggestReply(draft) ? (
-        <Action
+        <MenuItem
           label={t('assistance.suggestReply')}
           accessibilityLabel={t('assistance.suggestReplyLabel')}
+          selected={false}
           onPress={() => {
-            capture('reply');
+            onCapture('reply');
           }}
         />
       ) : null}
-      {pickers.map(([label, source, inline]) => (
-        <Action
-          key={label}
-          label={t(label)}
-          onPress={() => {
-            add(source, inline);
-          }}
-        />
-      ))}
+    </>
+  );
+}
+
+// Writing tools appear only where assistance or translation is available.
+function useOffersTools() {
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
+  return assistance !== undefined || translation !== undefined;
+}
+
+// One choice in the Format panel, filled while it applies at the selection.
+function FormatChoice({
+  name,
+  selected,
+  command,
+  run,
+  children,
+}: {
+  readonly name: string;
+  readonly selected: boolean;
+  readonly command: Command;
+  readonly run: (command: Command) => void;
+  readonly children: (color: string) => ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <Pressable
+      accessibilityLabel={name}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={() => {
+        run(command);
+      }}
+      style={[
+        styles.formatChoice,
+        selected && { backgroundColor: colors.accentFill },
+      ]}>
+      {children(selected ? colors.accentOnFill : colors.textPrimary)}
+    </Pressable>
+  );
+}
+
+// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks and the
+// remaining block kinds, each one page command.
+function FormatPanel({
+  page,
+  run,
+  onClose,
+  onHide,
+}: {
+  readonly page: PageState;
+  readonly run: (command: Command) => void;
+  // Closes the panel and resumes typing; `onHide` only closes it.
+  readonly onClose: () => void;
+  readonly onHide: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // Tapping into the body again brings the keyboard back in place of the panel.
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardWillShow', onHide);
+    return () => {
+      shown.remove();
+    };
+  }, [onHide]);
+  const rowFill = { backgroundColor: colors.fillQuiet };
+  return (
+    <View style={styles.format}>
+      <GlassPanel>
+        <View
+          accessibilityLabel={t('drafts.formatting')}
+          accessibilityRole="toolbar"
+          style={styles.formatContent}>
+          <View style={styles.formatHeader}>
+            <Text
+              accessibilityRole="header"
+              style={[styles.formatTitle, { color: colors.textPrimary }]}>
+              {t('drafts.format')}
+            </Text>
+            <ToolbarButton
+              disabled={!page.undo}
+              icon="arrow.uturn.backward"
+              label={t('drafts.undo')}
+              onPress={() => {
+                run({ type: 'undo' });
+              }}
+            />
+            <ToolbarButton
+              disabled={!page.redo}
+              icon="arrow.uturn.forward"
+              label={t('drafts.redo')}
+              onPress={() => {
+                run({ type: 'redo' });
+              }}
+            />
+            <ToolbarButton
+              icon="xmark"
+              label={t('drafts.closeFormat')}
+              onPress={onClose}
+            />
+          </View>
+          <View style={[styles.formatRow, rowFill]}>
+            {headings.map((kind) => {
+              const name = t(
+                `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
+              );
+              return (
+                <FormatChoice
+                  key={kind}
+                  command={{ type: 'block', kind }}
+                  name={name}
+                  run={run}
+                  selected={page.kind === kind}>
+                  {(color) => (
+                    <Text style={[textStyles.subheadline, { color }]}>
+                      {name}
+                    </Text>
+                  )}
+                </FormatChoice>
+              );
+            })}
+          </View>
+          <View style={[styles.formatRow, rowFill]}>
+            {markControls.map(([mark, label, name, style]) => (
+              <FormatChoice
+                key={mark}
+                command={{ type: 'mark', mark }}
+                name={t(name)}
+                run={run}
+                selected={page.marks.includes(mark)}>
+                {(color) => (
+                  <Text style={[textStyles.body, { color }, style]}>
+                    {label}
+                  </Text>
+                )}
+              </FormatChoice>
+            ))}
+          </View>
+          <View style={[styles.formatRow, rowFill]}>
+            {/* Lists, quotes and code blocks follow the three headings. */}
+            {blockControls.slice(3).map(([kind, label, name]) => (
+              <FormatChoice
+                key={kind}
+                command={{ type: 'block', kind }}
+                name={t(name)}
+                run={run}
+                selected={page.kind === kind}>
+                {(color) => (
+                  <Text style={[textStyles.body, { color }]}>{label}</Text>
+                )}
+              </FormatChoice>
+            ))}
+          </View>
+        </View>
+      </GlassPanel>
     </View>
   );
 }
 
-// The Tiptap evaluation editor for one Draft: the packaged page edits the body, and each change
-// saves through the Draft store like the current composer's edits. Assistance captures the body
-// the page last reported, and an accepted result replaces it in the page as one undoable edit.
+// iPhone adds files and offers writing tools from a floating Liquid Glass pill and button, whose
+// Format control opens the panel that replaces the keyboard.
+function PhoneControls({
+  draft,
+  page,
+  open,
+  run,
+  onOpen,
+  onAdd,
+  onCapture,
+}: {
+  readonly draft: Draft;
+  readonly page: PageState;
+  readonly open: Open | undefined;
+  readonly run: (command: Command) => void;
+  readonly onOpen: (open: Open | undefined) => void;
+  readonly onAdd: Add;
+  readonly onCapture: Capture;
+}) {
+  const { t } = useLocalization();
+  const offersTools = useOffersTools();
+  // The Format panel takes the controls' place.
+  if (open === 'format') {
+    return null;
+  }
+  const toggle = (menu: Open) => {
+    onOpen(open === menu ? undefined : menu);
+  };
+  return (
+    <>
+      {open === 'attach' || open === 'tools' ? (
+        <View
+          accessibilityRole="menu"
+          style={styles.pillMenu}>
+          <GlassPanel>
+            {open === 'attach' ? (
+              pickers.map(([label, from, inline]) => (
+                <MenuItem
+                  key={label}
+                  label={t(label)}
+                  selected={false}
+                  onPress={() => {
+                    onAdd(from, inline);
+                  }}
+                />
+              ))
+            ) : (
+              <WritingTools
+                draft={draft}
+                page={page}
+                onCapture={onCapture}
+              />
+            )}
+          </GlassPanel>
+        </View>
+      ) : null}
+      <View
+        pointerEvents="box-none"
+        style={styles.pill}>
+        <GlassGroup style={styles.pillGroup}>
+          <ToolbarButton
+            icon="textformat"
+            label={t('drafts.format')}
+            onPress={() => {
+              run({ type: 'blur' });
+              onOpen('format');
+            }}
+          />
+          <ToolbarButton
+            expanded={open === 'attach'}
+            icon="paperclip"
+            label={t('drafts.assets.toolbar')}
+            onPress={() => {
+              toggle('attach');
+            }}
+          />
+        </GlassGroup>
+        {offersTools ? (
+          <GlassGroup style={styles.pillGroup}>
+            <ToolbarButton
+              expanded={open === 'tools'}
+              icon="sparkles"
+              label={t('drafts.writingTools')}
+              onPress={() => {
+                toggle('tools');
+              }}
+            />
+          </GlassGroup>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+// iPad keeps the current composer's format bar, with Writing tools in place of its separate
+// assistance buttons.
+function PadFormatBar({
+  draft,
+  page,
+  open,
+  run,
+  onOpen,
+  onAdd,
+  onCapture,
+}: {
+  readonly draft: Draft;
+  readonly page: PageState;
+  readonly open: Open | undefined;
+  readonly run: (command: Command) => void;
+  readonly onOpen: (open: Open | undefined) => void;
+  readonly onAdd: Add;
+  readonly onCapture: Capture;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const offersTools = useOffersTools();
+  return (
+    <View style={styles.padBar}>
+      <FormatBar
+        active={page.marks}
+        kind={page.kind}
+        disabled={false}
+        onBlock={(kind) => {
+          run({ type: 'block', kind });
+        }}
+        onMark={(mark) => {
+          run({ type: 'mark', mark });
+        }}>
+        <View style={[s.divider, { backgroundColor: colors.separator }]} />
+        <ToolbarButton
+          disabled={!page.undo}
+          icon="arrow.uturn.backward"
+          label={t('drafts.undo')}
+          onPress={() => {
+            run({ type: 'undo' });
+          }}
+        />
+        <ToolbarButton
+          disabled={!page.redo}
+          icon="arrow.uturn.forward"
+          label={t('drafts.redo')}
+          onPress={() => {
+            run({ type: 'redo' });
+          }}
+        />
+        <View style={s.grow} />
+        {offersTools ? (
+          <ToolbarButton
+            expanded={open === 'tools'}
+            icon="sparkles"
+            label={t('drafts.writingTools')}
+            onPress={() => {
+              onOpen(open === 'tools' ? undefined : 'tools');
+            }}
+          />
+        ) : null}
+        <View style={[s.divider, { backgroundColor: colors.separator }]} />
+        {pickers.map(([label, from, inline, icon]) => (
+          <ToolbarButton
+            key={label}
+            icon={icon}
+            label={t(label)}
+            onPress={() => {
+              onAdd(from, inline);
+            }}
+          />
+        ))}
+      </FormatBar>
+      {/* The bar's controls scroll and would clip the menu, so it opens below the bar. */}
+      {open === 'tools' ? (
+        <View
+          accessibilityRole="menu"
+          style={styles.padMenu}>
+          <GlassPanel>
+            <WritingTools
+              draft={draft}
+              page={page}
+              onCapture={onCapture}
+            />
+          </GlassPanel>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Subject, To, and Cc and Bcc once shown, below the body.
+function DraftFields({
+  draft,
+  getDraft,
+  editable,
+  onChange,
+  onCaretMove,
+}: {
+  readonly draft: Draft;
+  readonly getDraft: () => Draft;
+  readonly editable: boolean;
+  readonly onChange: (draft: Draft) => void;
+  readonly onCaretMove: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
+  const copiesShown =
+    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
+  const recipients = (field: 'to' | 'cc' | 'bcc', trailing?: ReactNode) => (
+    <Recipients
+      draft={draft}
+      getDraft={getDraft}
+      editable={editable}
+      field={field}
+      onChange={onChange}
+      onCaretMove={onCaretMove}
+      trailing={trailing}
+    />
+  );
+  return (
+    <View style={s.fields}>
+      <View style={[s.field, { borderTopColor: colors.separator }]}>
+        <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>
+          {`${t('drafts.subject')}:`}
+        </Text>
+        <TextInput
+          accessibilityLabel={t('drafts.subject')}
+          editable={editable}
+          accessibilityState={{ disabled: !editable }}
+          onChangeText={(subject) => {
+            onChange({ ...getDraft(), subject });
+          }}
+          placeholder={t('drafts.subject')}
+          placeholderTextColor={colors.textSecondary}
+          style={[s.input, { color: colors.textPrimary }]}
+          value={draft.subject}
+        />
+      </View>
+      {recipients(
+        'to',
+        copiesShown ? undefined : (
+          <Action
+            disabled={!editable}
+            accessibilityLabel={t('drafts.showCcBcc')}
+            label={t('drafts.ccBcc')}
+            onPress={() => {
+              onChange({ ...getDraft(), copies: true });
+            }}
+          />
+        ),
+      )}
+      {copiesShown ? (
+        <>
+          {recipients('cc')}
+          {recipients('bcc')}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+// The current composer's header: the glass Close, the title, which opens the Command Palette by a
+// downward swipe as other screens' do, the window's expand control and Send.
+function EditorHeader({
+  subject,
+  busy,
+  closeOpen,
+  expanded = false,
+  onExpand,
+  onClose,
+  onSend,
+}: {
+  readonly subject: string;
+  // Save Draft, Delete Draft or Send is running.
+  readonly busy: boolean;
+  readonly closeOpen: boolean;
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
+  readonly onClose: () => void;
+  readonly onSend: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const paletteHeader = usePaletteHeader();
+  const title = clip(subject) || t('drafts.newMessage');
+  const titleLabel =
+    title.length < subject.length
+      ? t('drafts.titleShortened', { title })
+      : title;
+  return (
+    <View
+      style={s.header}
+      {...paletteHeader.swipe}>
+      <Pressable
+        accessibilityLabel={t('drafts.close')}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: busy, expanded: closeOpen }}
+        disabled={busy}
+        onPress={onClose}
+        style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
+        <NativeGlass
+          cornerRadius={22}
+          style={StyleSheet.absoluteFill}
+        />
+        <SFSymbol
+          name="xmark"
+          color={colors.textPrimary}
+        />
+      </Pressable>
+      <Text
+        accessibilityLabel={titleLabel}
+        accessibilityRole="header"
+        numberOfLines={1}
+        style={[s.grow, s.title, { color: colors.textPrimary }]}
+        {...paletteHeader.action}>
+        {title}
+      </Text>
+      <CommandInput />
+      {onExpand === undefined ? null : (
+        <ToolbarButton
+          icon={
+            expanded
+              ? 'arrow.down.right.and.arrow.up.left'
+              : 'arrow.up.left.and.arrow.down.right'
+          }
+          label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+          onPress={onExpand}
+        />
+      )}
+      <Pressable
+        accessibilityLabel={t('drafts.send')}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: busy }}
+        disabled={busy}
+        onPress={onSend}
+        style={[s.circle, { backgroundColor: colors.accentFill }]}>
+        <SFSymbol
+          name="arrow.up"
+          color={colors.accentOnFill}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
+// The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
+// edits the body, and native controls format it, add files and offer writing tools. Nothing is
+// saved until the person chooses Save Draft on Close, as in Mail; Delete Draft removes the Draft.
 function EvaluationEditor({
   page,
   initial,
   onClose,
   onRebind,
+  expanded = false,
+  onExpand,
 }: {
   readonly page: string;
   readonly initial: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
+  const outbox = useOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
-  // Page messages can arrive before React commits an earlier edit or a rebind.
+  const layout = use(ComposerLayoutContext);
+  // Page messages and field edits can arrive before React commits an earlier edit or a rebind.
   const authored = useRef(initial);
+  const getDraft = useCallback(() => authored.current, []);
+  // The version the store holds: the Draft as opened, until Save Draft or Send stores this one.
+  const stored = useRef(initial);
   const [draft, setDraft] = useState(initial);
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
   const view = useRef<WebView>(null);
   const pageStopped = useRef(false);
-  const [closing, setClosing] = useState<'saving' | 'blocked'>();
+  const [open, setOpen] = useState<Open>();
+  const hide = useCallback(() => {
+    setOpen(undefined);
+  }, []);
+  const [closing, setClosing] = useState<Closing>();
+  // Why the last Send left this Draft here.
+  const [refused, setRefused] = useState<SendRefusal>();
+  const [sending, setSending] = useState(false);
+  // Save Draft, Delete Draft and Send each finish before another starts.
+  const busy = useRef(false);
   const [stopped, setStopped] = useState(false);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
@@ -259,7 +782,9 @@ function EvaluationEditor({
   }, [onRebind]);
   const rebind = useCallback((id: string) => {
     authored.current = { ...authored.current, id, conflict: true };
+    stored.current = { ...stored.current, id, conflict: true };
     if (mounted.current) {
+      setDraft(authored.current);
       onRebindNow.current(id);
     }
   }, []);
@@ -301,6 +826,15 @@ function EvaluationEditor({
       view.current?.injectJavaScript(commandScript(command));
     }
   }, []);
+  // An edit in this editor only; the store learns of it on Save Draft or Send.
+  const change = (next: Draft) => {
+    authored.current = next;
+    setDraft(next);
+    if (!busy.current) {
+      setClosing(undefined);
+      setRefused(undefined);
+    }
+  };
   // Every asset this editor gave its page, as native code last settled it. The page reports only
   // these, and Undo in the page can restore any of them.
   const known = useRef(
@@ -310,8 +844,8 @@ function EvaluationEditor({
       ),
     ),
   );
-  // An import settles in this editor before the store changes, so the next edit here is not taken
-  // for a conflicting one, and the store keeps every asset the page can restore.
+  // An import settles in this editor, and the store keeps every asset the page can restore while
+  // the Draft exists.
   useLayoutEffect(
     () =>
       store.onSettle((id, next) => {
@@ -333,9 +867,10 @@ function EvaluationEditor({
   // Files the person chose become Attachments, and images placed inline go at the page's
   // selection, as one edit in the page; native code then imports their bytes.
   const add = async (from: PickSource, inline: boolean) => {
+    setOpen(undefined);
     const files = await store.pick(
       from,
-      () => mounted.current && !pageStopped.current,
+      () => mounted.current && !pageStopped.current && !busy.current,
     );
     const imports = files.map((file) => ({ file, asset: store.prepare(file) }));
     for (const { asset } of imports) {
@@ -389,8 +924,14 @@ function EvaluationEditor({
     }
   }, [draft.body, ready, run, store]);
   const capture = (purpose: CapturedDraftText['purpose']) => {
+    setOpen(undefined);
     const reported = pageNow.current;
-    if (!mounted.current || !assistanceEnabled() || reported === undefined) {
+    if (
+      !mounted.current ||
+      busy.current ||
+      !assistanceEnabled() ||
+      reported === undefined
+    ) {
       return;
     }
     captureGeneration.current += 1;
@@ -404,7 +945,7 @@ function EvaluationEditor({
     run({ type: 'blur' });
   };
   // Replaces exactly the captured text with its reviewed result, in the body revision it was
-  // captured from. The page saves the result through its next update.
+  // captured from, as one undoable edit in the page.
   const applyCaptured = (replacement: string) => {
     const latest = authored.current;
     const reported = pageNow.current;
@@ -438,85 +979,221 @@ function EvaluationEditor({
     () =>
       `window.draftEditor = ${JSON.stringify({ document: initial.body, attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
-  const close = useCallback(async () => {
-    if (!mounted.current) {
+  // Entries still being typed become recipients; an invalid one keeps the Draft here.
+  const finishEntries = () => {
+    let finished = authored.current;
+    for (const field of ['to', 'cc', 'bcc'] as const) {
+      finished = addRecipients(finished, {
+        field,
+        text: entryOf(finished, field),
+        all: true,
+      }).draft;
+    }
+    authored.current = finished;
+    setDraft(finished);
+    return finished.entries === undefined;
+  };
+  // Runs one Save Draft, Delete Draft or Send; `finish` resolves whether the editor may close.
+  // One that fails without explaining why offers to try saving again.
+  const finishing = async (finish: () => Promise<boolean>) => {
+    if (busy.current) {
       return false;
     }
+    busy.current = true;
+    setOpen(undefined);
     setClosing('saving');
     let closed = false;
     try {
-      closed = isEmptyDraft(authored.current)
-        ? await store.discard(() => authored.current.id, {
-            onlyIfEmpty: true,
-            expected: () => authored.current,
-          })
-        : await store.save();
+      closed = await finish();
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
-    if (!mounted.current) {
-      return closed;
+    busy.current = false;
+    setSending(false);
+    if (closed && mounted.current) {
+      mounted.current = false;
+      onClose();
+    } else if (!closed) {
+      setClosing((current) => (current === 'saving' ? 'blocked' : current));
     }
-    if (closed) {
+    return closed;
+  };
+  // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
+  // opened becomes a conflicting copy.
+  const saveDraft = () =>
+    finishing(async () => {
+      if (!finishEntries()) {
+        setClosing('recipients');
+        return false;
+      }
+      void store.update(authored.current, stored.current, rebind);
+      stored.current = authored.current;
+      return store.save();
+    });
+  const deleteDraft = () =>
+    finishing(async () => {
+      if (
+        await store.discard(() => authored.current.id, {
+          expected: () => stored.current,
+        })
+      ) {
+        return true;
+      }
+      setClosing('discard-blocked');
+      return false;
+    });
+  // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
+  // keeps it open.
+  const send = () =>
+    finishing(async () => {
+      if (!finishEntries()) {
+        setClosing(undefined);
+        setRefused('entries');
+        return false;
+      }
+      forget();
+      setSending(true);
+      const shown = authored.current;
+      void store.update(shown, stored.current, rebind);
+      stored.current = shown;
+      const refusal = await outbox.send(() => ({
+        ...shown,
+        id: authored.current.id,
+        ...(authored.current.conflict ? { conflict: true as const } : {}),
+      }));
+      if (refusal === undefined) {
+        return true;
+      }
+      setClosing(undefined);
+      setRefused(refusal);
+      return false;
+    });
+  // Close asks to save or delete changes, including ones a failed Save Draft left unsaved; an
+  // empty Draft is removed and an unchanged one closes.
+  const close = async () => {
+    if (busy.current) {
+      return false;
+    }
+    if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
+      return finishing(() =>
+        store.discard(() => authored.current.id, {
+          onlyIfEmpty: true,
+          expected: () => stored.current,
+        }),
+      );
+    }
+    if (
+      authored.current === stored.current &&
+      state.kind === 'ready' &&
+      state.save === 'saved'
+    ) {
       mounted.current = false;
       onClose();
       return true;
     }
-    setClosing('blocked');
+    run({ type: 'blur' });
+    setOpen('close');
     return false;
-  }, [onClose, store]);
+  };
+  // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
-  useLayoutEffect(() => navigation.register(close), [navigation, close]);
-  const save = state.kind === 'ready' ? state.save : 'failed';
+  useLayoutEffect(() => navigation.register(close));
   // Quoted correspondence and its images stay as the Draft has them.
   const { quoted: _quoted, ...owned } = draft;
+  const controls = {
+    draft,
+    open,
+    run,
+    onOpen: setOpen,
+    onAdd: (from: PickSource, inline: boolean) => {
+      void add(from, inline);
+    },
+    onCapture: capture,
+  };
+  // Controls appear once the page reports that it is ready for commands.
+  const shown = stopped || sending ? undefined : pageState;
+  const phone = layout.size === 'compact' ? shown : undefined;
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
-      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.content}>
-        <View style={styles.bar}>
-          <Action
-            disabled={closing === 'saving'}
-            label={t('drafts.close')}
-            onPress={() => {
+      style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
+      <KeyboardAvoidingView
+        behavior="padding"
+        enabled={layout.avoidKeyboard}
+        keyboardVerticalOffset={layout.top}
+        style={s.fill}>
+        <EditorHeader
+          subject={draft.subject}
+          busy={closing === 'saving'}
+          closeOpen={open === 'close'}
+          expanded={expanded}
+          onExpand={onExpand}
+          onClose={() => {
+            if (open === 'close') {
+              setOpen(undefined);
+            } else {
               void close();
-            }}
-          />
-          <Text
-            accessibilityRole="header"
-            numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.title')}
-          </Text>
-        </View>
-        <Text style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.from', { from: initial.from })}
-        </Text>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-        </Text>
-        {closing === 'blocked' ? (
-          <View style={styles.bar}>
-            <Text
-              accessibilityRole="alert"
-              style={[
-                styles.notice,
-                styles.grow,
-                { color: colors.textPrimary },
-              ]}>
-              {t('drafts.evaluation.saveBlocked')}
-            </Text>
-            <Action
-              label={t('common.retry')}
-              onPress={() => {
-                void close();
+            }
+          }}
+          onSend={() => {
+            void send();
+          }}
+        />
+        {/* Delete Draft and Save Draft grow out of Close. */}
+        {open === 'close' ? (
+          <View
+            accessibilityRole="menu"
+            style={styles.closeMenu}>
+            <GlassPanel>
+              <MenuItem
+                destructive
+                label={t('drafts.deleteDraft')}
+                selected={false}
+                onPress={() => {
+                  void deleteDraft();
+                }}
+              />
+              <MenuItem
+                label={t('drafts.saveDraft')}
+                selected={false}
+                onPress={() => {
+                  void saveDraft();
+                }}
+              />
+            </GlassPanel>
+          </View>
+        ) : null}
+        <View style={s.fromRow}>
+          <View style={s.bar}>
+            <SendingMailbox
+              draft={draft}
+              editable={!sending}
+              onChange={(mailbox) => {
+                change(withSender(authored.current, mailbox));
               }}
             />
           </View>
+        </View>
+        {layout.size === 'regular' && shown !== undefined ? (
+          <PadFormatBar
+            page={shown}
+            {...controls}
+          />
         ) : null}
+        <ComposerNotices
+          closing={closing}
+          draft={draft}
+          refused={refused}
+          onClose={() => {
+            void saveDraft();
+          }}
+          onDiscard={() => {
+            void deleteDraft();
+          }}
+          onKeepEditing={() => {
+            setClosing(undefined);
+          }}
+        />
         {stopped ? (
           <Text
             accessibilityRole="alert"
@@ -524,114 +1201,143 @@ function EvaluationEditor({
             {t('drafts.evaluation.stopped')}
           </Text>
         ) : null}
-        {/* Controls appear once the page reports that it is ready for commands. */}
-        {stopped || pageState === undefined ? null : (
-          <Toolbar
-            page={pageState}
-            draft={draft}
-            run={run}
-            capture={capture}
-            add={(from, inline) => {
-              void add(from, inline);
-            }}
-          />
-        )}
-        <DraftAssets
-          draft={owned}
-          editable={!stopped && pageState !== undefined}
-          onCancel={(id) => {
-            void store.cancelImport(id);
-          }}
-          onConvert={(id) => {
-            run({ type: 'convert', id });
-          }}
-          onRemove={removeAsset}
-        />
         {captured === undefined ? null : (
-          <CapturedAssistance
-            key={captured.id}
-            captured={captured}
-            assistance={assistance}
-            translation={translation}
-            onApply={applyCaptured}
-            onClose={forget}
+          <View style={s.review}>
+            <CapturedAssistance
+              key={captured.id}
+              captured={captured}
+              assistance={assistance}
+              translation={translation}
+              onApply={applyCaptured}
+              onClose={forget}
+            />
+          </View>
+        )}
+        {/* The body, files and fields scroll together when the keyboard leaves them too little
+            room, as in landscape; the iPhone controls float over them above the keyboard. */}
+        <View style={s.fill}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            keyboardShouldPersistTaps="handled">
+            {stopped ? (
+              <View style={s.fill} />
+            ) : (
+              <WebView
+                ref={view}
+                allowsInlineMediaPlayback={false}
+                allowsLinkPreview={false}
+                automaticallyAdjustContentInsets={false}
+                cacheEnabled={false}
+                dataDetectorTypes="none"
+                hideKeyboardAccessoryView
+                incognito
+                injectedJavaScriptBeforeContentLoaded={injected}
+                javaScriptCanOpenWindowsAutomatically={false}
+                // Closing the Format panel returns to typing where the person left off.
+                keyboardDisplayRequiresUserAction={false}
+                mediaPlaybackRequiresUserAction
+                onContentProcessDidTerminate={stop}
+                onError={stop}
+                onMessage={({ nativeEvent }) => {
+                  if (!mounted.current || pageStopped.current) {
+                    return;
+                  }
+                  const message = decodeMessage(nativeEvent.data);
+                  if (message === undefined) {
+                    return;
+                  }
+                  // A paste carrying images, which native code reads from the pasteboard.
+                  if (message.type === 'paste') {
+                    void add('paste', true);
+                    return;
+                  }
+                  const {
+                    document: reported,
+                    attachments: attached = [],
+                    type: _,
+                    ...next
+                  } = message;
+                  pageNow.current = next;
+                  setPageState(next);
+                  if (reported === undefined) {
+                    return;
+                  }
+                  // Editing again retires captured text, as in the current composer.
+                  forget();
+                  const previous = authored.current;
+                  const { body, attachments } = knownAssets(known.current, {
+                    document: reported,
+                    attachments: attached,
+                  });
+                  change({
+                    ...previous,
+                    body,
+                    ...(attachments.length === 0 &&
+                    previous.attachments === undefined
+                      ? {}
+                      : { attachments }),
+                  });
+                }}
+                // Only the page itself loads; every navigation it could start is cancelled.
+                onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                  url === 'about:blank' && navigationType === 'other'
+                }
+                originWhitelist={['*']}
+                setSupportMultipleWindows={false}
+                source={source}
+                style={[
+                  styles.body,
+                  { backgroundColor: colors.surfaceContent },
+                ]}
+              />
+            )}
+            <DraftAssets
+              draft={owned}
+              editable={shown !== undefined}
+              onCancel={(id) => {
+                void store.cancelImport(id);
+              }}
+              onConvert={(id) => {
+                run({ type: 'convert', id });
+              }}
+              onRemove={removeAsset}
+            />
+            <DraftFields
+              draft={draft}
+              getDraft={getDraft}
+              editable={!sending}
+              onChange={change}
+              onCaretMove={() => {
+                setOpen(undefined);
+              }}
+            />
+          </ScrollView>
+          {phone === undefined ? null : (
+            <PhoneControls
+              page={phone}
+              {...controls}
+            />
+          )}
+        </View>
+        {phone === undefined || open !== 'format' ? null : (
+          <FormatPanel
+            page={phone}
+            run={run}
+            onClose={() => {
+              setOpen(undefined);
+              run({ type: 'focus' });
+            }}
+            onHide={hide}
           />
         )}
-      </View>
-      {stopped ? null : (
-        <WebView
-          ref={view}
-          allowsInlineMediaPlayback={false}
-          allowsLinkPreview={false}
-          automaticallyAdjustContentInsets={false}
-          cacheEnabled={false}
-          dataDetectorTypes="none"
-          hideKeyboardAccessoryView
-          incognito
-          injectedJavaScriptBeforeContentLoaded={injected}
-          javaScriptCanOpenWindowsAutomatically={false}
-          mediaPlaybackRequiresUserAction
-          onContentProcessDidTerminate={stop}
-          onError={stop}
-          onMessage={({ nativeEvent }) => {
-            if (!mounted.current || pageStopped.current) {
-              return;
-            }
-            const message = decodeMessage(nativeEvent.data);
-            if (message === undefined) {
-              return;
-            }
-            // A paste carrying images, which native code reads from the pasteboard.
-            if (message.type === 'paste') {
-              void add('paste', true);
-              return;
-            }
-            const {
-              document: reported,
-              attachments: attached = [],
-              type: _,
-              ...next
-            } = message;
-            pageNow.current = next;
-            setPageState(next);
-            if (reported === undefined) {
-              return;
-            }
-            // Editing again replaces a failed Close's notice, as in the current composer, and
-            // retires captured text.
-            setClosing(undefined);
-            forget();
-            const previous = authored.current;
-            const { body, attachments } = knownAssets(known.current, {
-              document: reported,
-              attachments: attached,
-            });
-            authored.current = {
-              ...previous,
-              body,
-              ...(attachments.length === 0 && previous.attachments === undefined
-                ? {}
-                : { attachments }),
-            };
-            setDraft(authored.current);
-            void store.update(authored.current, previous, rebind);
-          }}
-          // Only the page itself loads; every navigation it could start is cancelled.
-          onShouldStartLoadWithRequest={({ url, navigationType }) =>
-            url === 'about:blank' && navigationType === 'other'
-          }
-          originWhitelist={['*']}
-          setSupportMultipleWindows={false}
-          source={source}
-          style={[styles.body, { backgroundColor: colors.surfaceContent }]}
-        />
-      )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-// A Draft the page cannot show without loss, or one that is not available, stays with the current
-// composer's own views.
+// A Draft that is not available yet, or never was, stays with the current composer's own views.
+// Once open, the editor keeps its unsaved version even if the Draft is removed elsewhere, so
+// Save Draft can still keep it as a copy.
 function EvaluationComposer({
   page,
   id,
@@ -648,20 +1354,27 @@ function EvaluationComposer({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
+  const draft = draftOf(state, id);
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
-  const [editor, setEditor] = useState({ key: id, followed: id });
+  const [editor, setEditor] = useState({
+    key: id,
+    followed: id,
+    opened: draft,
+  });
   if (editor.followed !== id) {
-    setEditor({ key: id, followed: id });
+    setEditor({ key: id, followed: id, opened: draft });
+  } else if (editor.opened === undefined && draft !== undefined) {
+    setEditor({ ...editor, opened: draft });
   }
   const rebind = useCallback(
     (copy: string) => {
-      setEditor((current) => ({ key: current.key, followed: copy }));
+      setEditor((current) => ({ ...current, followed: copy }));
       onRebind(copy);
     },
     [onRebind],
   );
-  const draft = draftOf(state, id);
-  if (draft === undefined) {
+  const opened = editor.followed === id ? editor.opened : draft;
+  if (opened === undefined) {
     return (
       <Composer
         id={id}
@@ -676,8 +1389,10 @@ function EvaluationComposer({
     <EvaluationEditor
       key={editor.key}
       page={page}
-      initial={draft}
+      initial={opened}
+      expanded={expanded}
       onClose={onClose}
+      onExpand={onExpand}
       onRebind={rebind}
     />
   );
@@ -688,7 +1403,7 @@ type ComposerProps = Readonly<{
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
-  // The window-level expand control, which only the current composer offers.
+  // The window-level expand control.
   expanded?: boolean | undefined;
   onExpand?: (() => void) | undefined;
 }>;

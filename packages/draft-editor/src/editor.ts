@@ -519,30 +519,41 @@ if (draftEditor !== undefined && element !== null) {
     }
     editor.view.dispatch(tr);
   };
+  // Images go inline at the selection and the rest become Attachments, as one edit.
+  const add = ({ images, attachments }: Extract<Command, { type: 'add' }>) => {
+    learn([...images, ...attachments]);
+    const { tr } = editor.state;
+    if (images.length > 0) {
+      tr.replaceSelection(
+        new Slice(
+          Fragment.from(
+            images.map(({ id }) => editor.schema.node('inlineImage', { id })),
+          ),
+          0,
+          0,
+        ),
+      );
+    }
+    if (attachments.length > 0) {
+      tr.setDocAttribute('attachments', [
+        ...attachmentsOf(tr),
+        ...attachments.map(({ id }) => id),
+      ]);
+    }
+    editor.view.dispatch(tr);
+  };
+  const showPreviews = (next: Readonly<Record<string, string>>) => {
+    for (const [id, preview] of Object.entries(next)) {
+      previews.set(id, preview);
+    }
+    for (const image of element.querySelectorAll('img')) {
+      show(image);
+    }
+  };
+  // fallow-ignore-next-line complexity -- One dispatcher maps each host command to its page edit.
   globalThis.draftCommand = (command) => {
     if (command.type === 'add') {
-      learn([...command.images, ...command.attachments]);
-      const { tr } = editor.state;
-      if (command.images.length > 0) {
-        tr.replaceSelection(
-          new Slice(
-            Fragment.from(
-              command.images.map(({ id }) =>
-                editor.schema.node('inlineImage', { id }),
-              ),
-            ),
-            0,
-            0,
-          ),
-        );
-      }
-      if (command.attachments.length > 0) {
-        tr.setDocAttribute('attachments', [
-          ...attachmentsOf(tr),
-          ...command.attachments.map(({ id }) => id),
-        ]);
-      }
-      editor.view.dispatch(tr);
+      add(command);
     } else if (command.type === 'remove') {
       const { tr } = editor.state;
       remove(tr, command.id);
@@ -550,12 +561,7 @@ if (draftEditor !== undefined && element !== null) {
     } else if (command.type === 'convert') {
       convert(command.id);
     } else if (command.type === 'previews') {
-      for (const [id, preview] of Object.entries(command.previews)) {
-        previews.set(id, preview);
-      }
-      for (const image of element.querySelectorAll('img')) {
-        show(image);
-      }
+      showPreviews(command.previews);
     } else if (command.type === 'mark') {
       editor.commands.toggleMark(tiptapMarks[command.mark]);
     } else if (command.type === 'block') {
@@ -568,6 +574,8 @@ if (draftEditor !== undefined && element !== null) {
       editor.commands.redo();
     } else if (command.type === 'blur') {
       editor.commands.blur();
+    } else if (command.type === 'focus') {
+      editor.commands.focus();
     } else {
       replace(command);
     }

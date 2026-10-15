@@ -394,6 +394,16 @@ styles) so the file stays editable.
   One composer per window keeps expand/collapse visible on regular width, Close
   directly accessible and destructive Discard in overflow. The sidebar and list
   remain interactive beneath the overlay; save failures appear inline.
+  In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
+  [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
+  [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)),
+  which the Tiptap evaluation editor follows and the regular composer adopts in
+  [#991](https://github.com/unwired-dev/product/issues/991), iPad also uses the glass
+  close cross, and Close offers Delete Draft and Save Draft growing out of it on iPhone
+  and iPad; the Mac asks "Do you want to save this message as a draft?" with Save,
+  Don't Save and Cancel. iPhone moves the format bar into a floating Liquid Glass
+  pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
+  Aa replaces the keyboard with the glass Format panel.
 - **Settings:** the Mac reference is a 900×720 independent window, opened with
   `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
   Automation and Application, and grouped forms on the right. iPad uses an in-app
@@ -500,8 +510,9 @@ form accessories, keyboards, status bar).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
   states with recovery controls after the toast ends.
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
-  strikethrough, inline code, lists, link, Translate and Rewrite side by side;
-  no glass),
+  strikethrough, inline code, lists, link, the Writing tools sparkles menu with
+  Rewrite, Translate and Suggest reply, the file controls and Templates; no glass
+  on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
   From Pop-up. A suggested subject carries the On device marker until explicit
   Use Subject acceptance makes it ordinary Draft content. A subject the person
@@ -565,7 +576,8 @@ form accessories, keyboards, status bar).
 - **Do** design Light and Dark explicitly, and check AA contrast in both.
   **Don't** invert one mode to get the other.
 - **Do** keep glass on the navigation layer. **Don't** put glass on message
-  content, cards or the compose format bar.
+  content, cards or the iPad and Mac compose format bar; the iPhone compose pill,
+  Writing tools button and Format panel float above content as controls.
 - **Do** keep hit targets at 28pt on the Mac and 44pt on iPhone, and test layouts
   with German strings.
 - **Don't** generate initials avatars or add hover actions in message list rows.

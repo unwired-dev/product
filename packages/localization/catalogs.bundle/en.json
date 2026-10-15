@@ -686,6 +686,15 @@
     },
     "discardDraft": "Discard Draft",
     "keepEditing": "Keep Editing",
+    "deleteDraft": "Delete Draft",
+    "saveDraft": "Save Draft",
+    "saveQuestion": "Do you want to save this message as a draft?",
+    "saveQuestionDetail": "If you don’t save, your changes are lost.",
+    "saveAction": "Save",
+    "dontSave": "Don’t Save",
+    "format": "Format",
+    "closeFormat": "Close Format",
+    "writingTools": "Writing tools",
     "status": "Draft · {{status}}",
     "save": {
       "saved": "Saved on this device",
@@ -777,9 +786,7 @@
       "hideQuoted": "Hide quoted text"
     },
     "evaluation": {
-      "title": "Evaluation editor",
-      "saveBlocked": "This Draft could not be saved, so it stays open. Try again once storage is available.",
-      "stopped": "The evaluation editor stopped. Saved changes are kept. Close this Draft and open it again."
+      "stopped": "The evaluation editor stopped. Close this Draft to save or delete it, then open it again."
     }
   },
   "outbox": {

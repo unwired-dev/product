@@ -118,18 +118,29 @@ export const toEditor = (
 
 type Assets = ReadonlyMap<string, Asset>;
 
+// A node's marks in the document's order, when it has any.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+const marksOf = (node: JSONContent) => {
+  const names = new Set(node.marks?.map(({ type }) => type));
+  const [first, ...rest] = markOrder.filter((mark) =>
+    names.has(tiptapMarks[mark]),
+  );
+  return first === undefined ? {} : { marks: [first, ...rest] as const };
+};
+
+// Whether text `span` continues the `last` span: both text, with the same marks.
+const continues = (last: Span | undefined, span: Span): last is Span =>
+  last !== undefined &&
+  !('image' in last) &&
+  last.marks?.join(',') === span.marks?.join(',');
+
 // Text spans with their marks in document order; adjacent text spans with the same marks merge,
 // and each Inline Image is a span of its own.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
 const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
   const spans: Span[] = [];
   for (const node of nodes) {
-    const names = new Set(node.marks?.map(({ type }) => type));
-    const [first, ...rest] = markOrder.filter((mark) =>
-      names.has(tiptapMarks[mark]),
-    );
-    const marks =
-      first === undefined ? {} : { marks: [first, ...rest] as const };
+    const marks = marksOf(node);
     const image =
       node.type === 'inlineImage'
         ? assets.get(String(node.attrs?.id))
@@ -139,11 +150,7 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
     const last = spans.at(-1);
     if (image !== undefined) {
       spans.push({ text: imageCharacter, image, ...marks });
-    } else if (
-      last !== undefined &&
-      !('image' in last) &&
-      last.marks?.join(',') === span.marks?.join(',')
-    ) {
+    } else if (continues(last, span)) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
     } else if (text !== '') {
       spans.push(span);

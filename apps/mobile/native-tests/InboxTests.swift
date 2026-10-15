@@ -442,9 +442,9 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // The Tiptap evaluation editor (#818, #819): a new Draft is typed into the packaged page, formatted
-  // and edited with assistance, saved through the encrypted Draft store, and reopened after
-  // relaunch. Focus, resize and teardown are recorded.
+  // The Tiptap evaluation editor (#818, #819, #820): a new Draft is typed into the packaged page,
+  // formatted and edited with assistance, saved with Save Draft through the encrypted Draft store,
+  // and reopened after relaunch. Focus, resize and teardown are recorded.
   private func draftEditorJourney(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
@@ -486,12 +486,10 @@ final class InboxTests: XCTestCase {
     app.buttons["Open Inbox"].tap()
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["From other@example.invalid"].exists)
     let body = app.webViews.textViews["Message body"]
     XCTAssertTrue(body.waitForExistence(timeout: 30))
-    // The toolbar appears once the page is ready and moves the page down; focus it after that.
-    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 30))
+    // The controls appear once the page is ready and can move the page; focus it after that.
+    waitUntil({ self.pageReady(app) }, timeout: 30)
     // Focus: typing reaches the page only once its editable body holds keyboard focus.
     // The empty editor fills the page; focus its first paragraph rather than the blank center.
     // A tap can land before the page's editor takes focus on a loaded host; tap again then.
@@ -505,7 +503,6 @@ final class InboxTests: XCTestCase {
     body.typeText("Evaluation paragraph")
     let typed = app.webViews.staticTexts["Evaluation paragraph"]
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
-    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 10))
     let focused = XCTAttachment(screenshot: app.screenshot())
     focused.name = "Evaluation editor typed"
     focused.lifetime = .keepAlways
@@ -530,30 +527,76 @@ final class InboxTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: restored, object: nil)], timeout: 10),
       .completed)
     formattingJourney(app, typed: typed)
-    // Teardown: Close saves and removes the page's web view.
+    // Teardown: the last round trip reopened the Draft unchanged, so Close removes the page's web
+    // view without asking.
     app.buttons["Close"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
-    XCTAssertEqual(app.webViews.count, 0)
+    waitUntil { app.webViews.count == 0 }
+    XCTAssertFalse(app.buttons["Save Draft"].exists)
     app.terminate()
     app.launch()
     let draft = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Draft.")).firstMatch
     XCTAssertTrue(draft.waitForExistence(timeout: 20))
     draft.tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.webViews.textViews["Message body"].waitForExistence(timeout: 30))
     // The formatted, rewritten and translated body reopens as it was saved.
     XCTAssertTrue(webText("Synthetic translation of local mail.", in: app).waitForExistence(timeout: 15))
     let reopened = XCTAttachment(screenshot: app.screenshot())
     reopened.name = "Evaluation Draft after relaunch"
     reopened.lifetime = .keepAlways
     add(reopened)
+    // An unchanged Draft closes without asking.
     app.buttons["Close"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
+    waitUntil { app.webViews.count == 0 }
     replyJourney(app)
     inlineImageJourney(app)
   }
 
   private func webText(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+  }
+
+  // iPhone shows its Format and writing tools controls, and iPad its format bar, once the page is ready.
+  private func pageReady(_ app: XCUIApplication) -> Bool {
+    app.buttons["Format"].exists || app.buttons["Undo"].exists
+  }
+
+  // A formatting or history control: iPad keeps it on the format bar; iPhone opens the Format panel.
+  private func formatControl(_ name: String, in app: XCUIApplication) -> XCUIElement {
+    let control = app.buttons[name]
+    if !control.exists, app.buttons["Format"].exists {
+      app.buttons["Format"].tap()
+      _ = control.waitForExistence(timeout: 10)
+    }
+    return control
+  }
+
+  // A control in a menu that `menu` opens, such as Writing tools or iPhone's Add files. On iPhone
+  // the Format panel takes the menus' place, so it closes first.
+  private func menuControl(_ name: String, from menu: String, in app: XCUIApplication) -> XCUIElement {
+    let control = app.buttons[name]
+    if !control.exists {
+      let closeFormat = app.buttons["Close Format"]
+      if closeFormat.exists {
+        closeFormat.tap()
+        _ = app.buttons[menu].waitForExistence(timeout: 10)
+      }
+      app.buttons[menu].tap()
+      _ = control.waitForExistence(timeout: 10)
+    }
+    return control
+  }
+
+  // Close asks before keeping changes; Save Draft stores the Draft and removes the page.
+  private func saveOnClose(_ app: XCUIApplication) {
+    app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    let asked = XCTAttachment(screenshot: app.screenshot())
+    asked.name = "Evaluation editor Close"
+    asked.lifetime = .keepAlways
+    add(asked)
+    save.tap()
+    waitUntil { app.webViews.count == 0 }
   }
 
   // Double-taps a word in the page until the page reports a selection: a double tap on an already
@@ -580,15 +623,15 @@ final class InboxTests: XCTestCase {
   private func formattingJourney(_ app: XCUIApplication, typed: XCUIElement) {
     // Select the whole paragraph, so every word of it is bold when the Draft reopens.
     typed.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-    let bold = app.buttons["Bold"]
+    let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
-    let numbered = app.buttons["Numbered list"]
+    let numbered = formatControl("Numbered list", in: app)
     numbered.tap()
     waitUntil { numbered.isSelected }
-    app.buttons["Undo"].tap()
+    formatControl("Undo", in: app).tap()
     waitUntil { !numbered.isSelected }
-    app.buttons["Redo"].tap()
+    formatControl("Redo", in: app).tap()
     waitUntil { numbered.isSelected }
     let formatted = XCTAttachment(screenshot: app.screenshot())
     formatted.name = "Evaluation editor formatted"
@@ -598,22 +641,23 @@ final class InboxTests: XCTestCase {
     // Reopen an existing formatted Draft before transformations, then check its selected marks.
     reopenDraft(app)
     webText("Evaluation paragraph", in: app).doubleTap()
-    waitUntil { app.buttons["Bold"].isSelected && app.buttons["Numbered list"].isSelected }
+    waitUntil {
+      self.formatControl("Bold", in: app).isSelected
+        && self.formatControl("Numbered list", in: app).isSelected
+    }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
-      let rewrite = app.buttons["Rewrite the selected text"]
-      selectWord(app) { rewrite.exists }
-      rewrite.tap()
+      selectWord(app) { self.menuControl("Rewrite the selected text", from: "Writing tools", in: app).exists }
+      app.buttons["Rewrite the selected text"].tap()
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
       app.webViews.textViews["Message body"].tap()
-      let rewrite = app.buttons["Rewrite the message body"]
+      let rewrite = menuControl("Rewrite the message body", from: "Writing tools", in: app)
       XCTAssertTrue(rewrite.waitForExistence(timeout: 15))
       rewrite.tap()
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
-      let translate = app.buttons["Translate the selected text"]
-      selectWord(app) { translate.isEnabled }
-      translate.tap()
+      selectWord(app) { self.menuControl("Translate the selected text", from: "Writing tools", in: app).isEnabled }
+      app.buttons["Translate the selected text"].tap()
       // On a loaded iPad the first tap on a language can be lost; choose it again until it applies.
       let german = app.descendants(matching: .any)
         .matching(NSPredicate(format: "label == %@", "Translate into German")).firstMatch
@@ -630,9 +674,7 @@ final class InboxTests: XCTestCase {
 
   // Close, relaunch and reopen through the native encrypted Draft store, not mounted history.
   private func reopenDraft(_ app: XCUIApplication, titled title: String = "") {
-    app.buttons["Close"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
-    XCTAssertEqual(app.webViews.count, 0)
+    saveOnClose(app)
     app.terminate()
     app.launch()
     // A Draft row names its subject; without a title, the only Draft so far.
@@ -653,14 +695,17 @@ final class InboxTests: XCTestCase {
     }
     // Right after launch the Inbox can redraw its rows under a tap on a loaded host; tap again then.
     // iPad can restore another open Draft at launch, so the requested row is always tapped first.
-    let undo = app.buttons["Undo"]
+    let ready = NSPredicate { _, _ in self.pageReady(app) }
     draft.tap()
-    for _ in 0..<2 where !undo.waitForExistence(timeout: 20) {
-      if !app.staticTexts["Evaluation editor"].exists {
+    for _ in 0..<2
+    where XCTWaiter.wait(
+      for: [XCTNSPredicateExpectation(predicate: ready, object: nil)], timeout: 20) != .completed
+    {
+      if app.webViews.count == 0 {
         draft.tap()
       }
     }
-    XCTAssertTrue(undo.exists)
+    XCTAssertTrue(pageReady(app))
   }
 
   // Each operation saves/reopens its undone state, then repeats and saves/reopens its redone state.
@@ -671,7 +716,7 @@ final class InboxTests: XCTestCase {
   ) {
     for leaveUndone in [true, false] {
       let original = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
-      let originalBold = app.buttons["Bold"].isSelected
+      let originalBold = formatControl("Bold", in: app).isSelected
       start()
       XCTAssertTrue(app.staticTexts[result].waitForExistence(timeout: 15))
       let accept = app.buttons[apply]
@@ -680,23 +725,23 @@ final class InboxTests: XCTestCase {
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } != original }
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }.joined(separator: " ").contains(result) }
       let accepted = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
-      waitUntil { app.buttons["Numbered list"].isSelected == numbered && app.buttons["Bold"].isSelected == boldAfterApply }
-      waitUntil { app.buttons["Undo"].isEnabled }
+      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+      waitUntil { self.formatControl("Undo", in: app).isEnabled }
       app.buttons["Undo"].tap()
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == original }
-      waitUntil { app.buttons["Numbered list"].isSelected == numbered && app.buttons["Bold"].isSelected == originalBold }
+      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
       if !leaveUndone {
-        waitUntil { app.buttons["Redo"].isEnabled }
+        waitUntil { self.formatControl("Redo", in: app).isEnabled }
         app.buttons["Redo"].tap()
         waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == accepted }
-        waitUntil { app.buttons["Numbered list"].isSelected == numbered && app.buttons["Bold"].isSelected == boldAfterApply }
+        waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
       let expected = leaveUndone ? original : accepted
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
-      waitUntil { app.buttons["Numbered list"].isSelected == numbered && app.buttons["Bold"].isSelected == expectedBold }
+      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
     }
   }
 
@@ -719,27 +764,29 @@ final class InboxTests: XCTestCase {
         NSPredicate(format: "label == %@ AND NOT (value == %@)", "Reply", "expanded")
       ).firstMatch.tap()
     }
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.
-    let suggest = app.buttons["Suggest a reply to the quoted message"]
+    waitUntil({ self.pageReady(app) }, timeout: 30)
+    let suggest = menuControl("Suggest a reply to the quoted message", from: "Writing tools", in: app)
     XCTAssertTrue(suggest.waitForExistence(timeout: 30))
+    // Writing tools stay closed until a round trip opens them again.
+    app.buttons["Writing tools"].tap()
     assistanceRoundTrips(
       app, result: "Synthetic reply to local mail.", apply: "Replace your reply with this suggestion",
       draft: "Garden plans for spring", numbered: false, boldAfterApply: false
     ) {
-      app.buttons["Suggest a reply to the quoted message"].tap()
+      self.menuControl("Suggest a reply to the quoted message", from: "Writing tools", in: app).tap()
     }
     let reply = XCTAttachment(screenshot: app.screenshot())
     reply.name = "Evaluation editor reply suggestion"
     reply.lifetime = .keepAlways
     add(reply)
     app.buttons["Close"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
+    waitUntil { app.webViews.count == 0 }
   }
 
   // #820: a photo from the system picker goes inline through native import. Typing around it, turning it
-  // into an Attachment and back with Undo and Redo, and reopening after relaunch keep its Draft
-  // Asset; the page shows the native thumbnail once its bytes verify.
+  // into an Attachment from its context menu and back with Undo and Redo, and reopening after
+  // relaunch keep its Draft Asset; the page shows the native thumbnail once its bytes verify.
   private func inlineImageJourney(_ app: XCUIApplication) {
     let newMessage = app.buttons["New Message"]
     let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
@@ -748,7 +795,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(newMessage.waitForExistence(timeout: 15))
     newMessage.tap()
-    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 30))
+    waitUntil({ self.pageReady(app) }, timeout: 30)
     let body = app.webViews.textViews["Message body"]
     let firstParagraph = body.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
       .withOffset(CGVector(dx: 24, dy: 24))
@@ -761,7 +808,7 @@ final class InboxTests: XCTestCase {
     // The runner adds a 600 × 400 photo to the Simulator's library; any library photo is wider
     // than the page's placeholder once its 256-point thumbnail shows. Insert Image places it at
     // the page's selection.
-    app.buttons["Insert Image"].tap()
+    menuControl("Insert Image", from: "Add files", in: app).tap()
     let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
     XCTAssertTrue(photo.waitForExistence(timeout: 30))
     photo.tap()
@@ -774,29 +821,40 @@ final class InboxTests: XCTestCase {
     waitUntil { image.frame.width > 60 }
     body.typeText(" after")
     XCTAssertTrue(webText("after", in: app).waitForExistence(timeout: 20))
-    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 15))
     let inserted = XCTAttachment(screenshot: app.screenshot())
     inserted.name = "Evaluation editor inline image"
     inserted.lifetime = .keepAlways
     add(inserted)
-    // The Inline Image becomes an Attachment and back, each one edit Undo and Redo step through.
-    let toAttachment = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "instead of showing it inline")).firstMatch
+    // The Inline Image becomes an Attachment from its chip's context menu, and back, each one edit
+    // Undo and Redo step through.
+    let thumbnail = app.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Inline image ")).firstMatch
+    XCTAssertTrue(thumbnail.waitForExistence(timeout: 30))
+    let name = String(thumbnail.label.dropFirst("Inline image ".count))
+    let chip = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "\(name), ")).firstMatch
+    thumbnail.press(forDuration: 1.2)
+    let toAttachment = app.buttons["Attach Instead"]
     XCTAssertTrue(toAttachment.waitForExistence(timeout: 15))
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "Evaluation editor image context menu"
+    menu.lifetime = .keepAlways
+    add(menu)
     toAttachment.tap()
     waitUntil { app.webViews.images.count == 0 }
-    let toInline = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "inline at the cursor")).firstMatch
+    XCTAssertTrue(chip.waitForExistence(timeout: 15))
+    chip.press(forDuration: 1.2)
+    let toInline = app.buttons["Show Inline"]
     XCTAssertTrue(toInline.waitForExistence(timeout: 15))
     let attached = XCTAttachment(screenshot: app.screenshot())
     attached.name = "Evaluation editor image as Attachment"
     attached.lifetime = .keepAlways
     add(attached)
-    app.buttons["Undo"].tap()
+    toInline.tap()
     waitUntil { app.webViews.images.count == 1 }
-    app.buttons["Redo"].tap()
+    formatControl("Undo", in: app).tap()
     waitUntil { app.webViews.images.count == 0 }
-    app.buttons["Undo"].tap()
+    app.buttons["Redo"].tap()
     waitUntil { app.webViews.images.count == 1 }
-    XCTAssertTrue(app.staticTexts["Draft · Saved on this device"].waitForExistence(timeout: 15))
     let typed = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
     // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
     reopenDraft(app)
@@ -809,8 +867,7 @@ final class InboxTests: XCTestCase {
     shot.lifetime = .keepAlways
     add(shot)
     app.buttons["Close"].tap()
-    XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForNonExistence(timeout: 10))
-    XCTAssertEqual(app.webViews.count, 0)
+    waitUntil { app.webViews.count == 0 }
   }
 
   func testSelectAndReplaceMessage() throws {
