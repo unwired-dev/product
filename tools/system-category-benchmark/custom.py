@@ -124,6 +124,50 @@ def messages() -> list[dict]:
     return splits["validation"] + splits["test"] + custom_synthetic.generate()
 
 
+def provenance() -> dict:
+    """Conservatively identify all inputs and code, preserving declared run variants."""
+    files = ("custom.py", "custom_synthetic.py", "synthetic.py")
+    benchmark = b"\0".join((ROOT / name).read_bytes() for name in files)
+    benchmark += run.benchmark_sha256().encode()
+    records = run.load_corpus()["train"] + messages()
+    return {
+        "corpus_sha256": corpus.corpus_sha256(records),
+        "categories_sha256": sha256_file(ROOT / "custom" / "categories-v1.json"),
+        "benchmark_sha256": hashlib.sha256(benchmark).hexdigest(),
+    }
+
+
+def require_current(
+    metadata: dict, name: str, *, labeled: bool = False, weights: bool = False
+) -> None:
+    expected = provenance()
+    if labeled:
+        expected["labels_sha256"] = sha256_file(LABELS)
+    if metadata.get("run") == "agreement":
+        expected["agreement_sha256"] = sha256_file(CUSTOM / "labels-agreement-v1.jsonl")
+    if weights and (metadata.get("adapted") or "base" in metadata):
+        candidate = (
+            metadata["candidate"].removesuffix("-adapted")
+            if metadata.get("adapted")
+            else next(c for c, (model, _) in CANDIDATES.items() if model == metadata["base"])
+        )
+        expected["weights_sha256"] = sha256_file(
+            WORK / "custom-adapted" / candidate / "model.safetensors"
+        )
+    for field, value in expected.items():
+        if metadata.get(field) != value:
+            raise ValueError(f"{name}: stale or missing {field}; rerun the producing command")
+
+
+def load_scores(name: str):
+    data = np.load(WORK / "custom-scores" / f"{name}.npz")
+    meta = json.loads(str(data["meta"]))
+    require_current(meta, name, weights=True)
+    if list(data["ids"]) != [r["id"] for r in messages()]:
+        raise ValueError("scores were computed on other messages")
+    return data["scores"], meta
+
+
 def annotate() -> None:
     records = sorted(messages(), key=lambda r: hashlib.sha256(r["id"].encode()).hexdigest())
     out = WORK / "custom-annotate"
@@ -274,6 +318,8 @@ def adapt(candidate: str) -> None:
             {
                 "base": name,
                 "revision": revision,
+                **provenance(),
+                "weights_sha256": sha256_file(output / "model.safetensors"),
                 "seed": SEED,
                 **ADAPTATION,
                 "pairs": len(sequences),
@@ -296,6 +342,10 @@ def score(run_candidate: str, input_key: str, mode: str) -> None:
     name, revision = CANDIDATES[candidate]
     adapted = run_candidate.endswith("-adapted")
     source = str(WORK / "custom-adapted" / candidate) if adapted else name
+    if adapted:
+        require_current(
+            json.loads((Path(source) / "adaptation.json").read_text()), source, weights=True
+        )
     tokenizer, model, device, entail, negative = load(source, None if adapted else revision)
     model.eval()
     max_length = run.INPUTS[input_key]
@@ -332,10 +382,12 @@ def score(run_candidate: str, input_key: str, mode: str) -> None:
     ]
     meta = {
         "run": f"{run_candidate}-{input_key}-{mode}",
+        **provenance(),
         "candidate": run_candidate,
         "model": name,
         "revision": revision,
         "adapted": adapted,
+        **({"weights_sha256": sha256_file(Path(source) / "model.safetensors")} if adapted else {}),
         "input": input_key,
         "max_length": max_length,
         "mode": mode,
@@ -491,6 +543,7 @@ def custom_metrics(truth: np.ndarray, predicted: np.ndarray, concepts: list[int]
 
 def evaluate(name: str, scores: np.ndarray, meta: dict) -> dict:
     """Calibrate on validation, report test slices, groups, k sweep, System regressions."""
+    require_current(meta, name)
     records = messages()
     truth = load_labels(records)
     validation = np.array([r["split"] == "validation" for r in records])
@@ -641,12 +694,20 @@ def replay(records: list[dict], scores: np.ndarray, truth: np.ndarray, threshold
 
 def overrides(name: str) -> dict:
     """Replay the test stream of one run with simulated User Overrides, per slice."""
-    data = np.load(WORK / "custom-scores" / f"{name}.npz")
+    scores, _meta = load_scores(name)
     records = messages()
     truth = load_labels(records)
-    thresholds = json.loads((CUSTOM / "results" / f"{name}.json").read_text())["thresholds"]
-    scores = data["scores"][:, : len(CATEGORIES)]
-    report = {"run": f"overrides-{name}", "thresholds": thresholds, "slices": {}}
+    result = json.loads((CUSTOM / "results" / f"{name}.json").read_text())
+    require_current(result, name, labeled=True)
+    thresholds = result["thresholds"]
+    scores = scores[:, : len(CATEGORIES)]
+    report = {
+        **provenance(),
+        "labels_sha256": result["labels_sha256"],
+        "run": f"overrides-{name}",
+        "thresholds": thresholds,
+        "slices": {},
+    }
     groups = {
         "real": lambda r: r["source"] != "synthetic",
         "synthetic": lambda r: r["source"] == "synthetic",
@@ -680,6 +741,9 @@ def agreement() -> None:
     write(
         {
             "run": "agreement",
+            **provenance(),
+            "labels_sha256": sha256_file(LABELS),
+            "agreement_sha256": sha256_file(CUSTOM / "labels-agreement-v1.jsonl"),
             "messages": len(records),
             "real_messages": int(real.sum()),
             "exact_match": float((truth == relabel).all(axis=1).mean()),
@@ -712,7 +776,13 @@ def templates(candidate: str, count: str = "300") -> None:
     rows = [i for i, r in enumerate(records) if r["split"] == "validation"]
     rows = sorted(random.Random(SEED).sample(rows, int(count)))
     sample = [records[i] for i in rows]
-    report = {"run": f"templates-{candidate}", "messages": len(rows), "variants": {}}
+    report = {
+        "run": f"templates-{candidate}",
+        **provenance(),
+        "labels_sha256": sha256_file(LABELS),
+        "messages": len(rows),
+        "variants": {},
+    }
     for variant, (names, joined) in TEMPLATE_VARIANTS.items():
         for mode in ("name", "description"):
             sequences = []
@@ -790,9 +860,14 @@ def golden(*custom_runs: str) -> None:
     bundle = {"custom": [], "system": []}
     for name in custom_runs:
         result = json.loads((CUSTOM / "results" / f"{name}.json").read_text())
+        require_current(result, name, labeled=True, weights=True)
         candidate = result["candidate"].removesuffix("-adapted")
         model_name, revision = CANDIDATES[candidate]
         source = WORK / "custom-adapted" / candidate if result["adapted"] else None
+        if source:
+            require_current(
+                json.loads((source / "adaptation.json").read_text()), str(source), weights=True
+            )
         tokenizer, model, device, entail, negative = load(
             str(source) if source else model_name, None if source else revision
         )
@@ -910,14 +985,12 @@ def table(header: list[str], rows: list[list]) -> str:
 
 
 def tables() -> None:
-    """Render custom/tables.md from custom/results/*.json; refuse results on other labels."""
-    labels = hashlib.sha256(LABELS.read_bytes()).hexdigest()
+    """Render custom/tables.md, refusing incompatible experiments or annotations."""
     results = {}
     for path in sorted((CUSTOM / "results").glob("*.json")):
         report = json.loads(path.read_text())
+        require_current(report, path.name, labeled=True)
         if "slices" in report and "thresholds" in report and "groups" in report:
-            if report["labels_sha256"] != labels:
-                raise ValueError(f"{path.name} was evaluated on other labels; rerun evaluate")
             results[report["run"]] = report
     slices = [
         "en",
@@ -1099,9 +1172,14 @@ def tables() -> None:
         if "system" in r and r["mode"] == "description"
     }
     for name in ("tfidf-minimized", "deberta-xsmall-body256", "deberta-mdeberta-body512"):
-        system[f"#828 {name}"] = json.loads((ROOT / "results" / f"{name}.json").read_text())[
-            "slices"
-        ]
+        result = json.loads((ROOT / "results" / f"{name}.json").read_text())
+        expected = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
+        if (
+            result.get("corpus_sha256") != expected
+            or result.get("benchmark_sha256") != run.benchmark_sha256()
+        ):
+            raise ValueError(f"#828 {name}: stale corpus or benchmark; rerun run.py")
+        system[f"#828 {name}"] = result["slices"]
     keys = ["all", "en/real-random", "en/real-enriched", "en/synthetic", "cs/synthetic"]
     out.append(
         table(
@@ -1201,6 +1279,7 @@ def tables() -> None:
 
 
 def write(report: dict) -> None:
+    require_current(report, report["run"], labeled=True)
     out = CUSTOM / "results"
     out.mkdir(exist_ok=True)
     (out / f"{report['run']}.json").write_text(
@@ -1210,10 +1289,8 @@ def write(report: dict) -> None:
 
 
 def evaluate_run(name: str) -> None:
-    data = np.load(WORK / "custom-scores" / f"{name}.npz")
-    if list(data["ids"]) != [r["id"] for r in messages()]:
-        raise ValueError("scores were computed on other messages")
-    write(evaluate(name, data["scores"], json.loads(str(data["meta"]))))
+    scores, meta = load_scores(name)
+    write(evaluate(name, scores, meta))
 
 
 def keywords() -> None:
@@ -1221,7 +1298,7 @@ def keywords() -> None:
     for input_key in ("minimized", "body"):
         for mode in ("name", "description"):
             name = f"keywords-{input_key}-{mode}"
-            meta = {"method": "keywords", "input": input_key, "mode": mode}
+            meta = {**provenance(), "method": "keywords", "input": input_key, "mode": mode}
             write(evaluate(name, keyword_scores(records, input_key, mode), meta))
 
 

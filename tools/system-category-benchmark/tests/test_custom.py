@@ -98,3 +98,44 @@ def test_signals_change_only_later_messages_from_the_same_sender():
 def test_keyword_stems_fold_czech_diacritics_and_drop_stopwords():
     assert custom.stems("Účty k zaplacení", "cs") == {"ucty", "zapla"}
     assert custom.stems("Bills to pay", "en") == {"bills", "pay"}
+
+
+@pytest.mark.parametrize(
+    "field", ["corpus_sha256", "categories_sha256", "benchmark_sha256", "weights_sha256"]
+)
+def test_evaluate_refuses_stale_cached_scores(tmp_path, monkeypatch, field):
+    records = custom.messages()
+    metadata = {**custom.provenance(), field: "stale"}
+    if field == "weights_sha256":
+        metadata.update(adapted=True, candidate="xsmall-zs-adapted")
+        weights = tmp_path / "custom-adapted" / "xsmall-zs" / "model.safetensors"
+        weights.parent.mkdir(parents=True)
+        weights.write_bytes(b"replacement-weights")
+    monkeypatch.setattr(custom, "WORK", tmp_path)
+    (tmp_path / "custom-scores").mkdir()
+    np.savez_compressed(
+        tmp_path / "custom-scores" / "stale.npz",
+        ids=np.array([r["id"] for r in records]),
+        scores=np.zeros((len(records), len(custom.CATEGORIES))),
+        meta=json.dumps(metadata),
+    )
+    with pytest.raises(ValueError, match=field):
+        custom.evaluate_run("stale")
+
+
+@pytest.mark.parametrize("field", ["categories_sha256", "benchmark_sha256", "labels_sha256"])
+def test_tables_refuses_stale_reports(tmp_path, monkeypatch, field):
+    metadata = custom.provenance() | {"labels_sha256": custom.sha256_file(custom.LABELS)}
+    result = {
+        **metadata,
+        "run": "stale",
+        "groups": {},
+        "slices": {},
+        "thresholds": {},
+        field: "stale",
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "stale.json").write_text(json.dumps(result))
+    monkeypatch.setattr(custom, "CUSTOM", tmp_path)
+    with pytest.raises(ValueError, match=field):
+        custom.tables()

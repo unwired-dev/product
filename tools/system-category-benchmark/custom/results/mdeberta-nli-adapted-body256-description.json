@@ -31,6 +31,9 @@
  },
  "truncated_pair_fraction": 0.25021145622856067,
  "premise_tokens_median": 85.0,
+ "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+ "benchmark_sha256": "1e912812966e290e1c597a5abee5a5e59392c0120206f506569a9e43d8b577b2",
+ "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7",
  "thresholds": {
   "en": 0.92,
   "cs": 0.98

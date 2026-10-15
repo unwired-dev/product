@@ -54,8 +54,10 @@ number comes from [custom/tables.md](custom/tables.md).
    Minimized Classification Input, 0.39 with a 256-token body and 0.38 with 512.
    The hypothesis takes 40 tokens on average (77 at most) of the budget. At 256
    tokens, 25% of pairs still reach the limit.
-7. **Cost grows with every category, quality does not change.** Categories are
-   scored independently, so macro-F1 stays at 0.39 for 5, 20 and 50 categories.
+7. **Cost grows with every category; quality depends on the category set.**
+   Independent scoring preserves each category's decision. Across five sampled
+   subsets, mean macro-F1 is 0.40, 0.39 and 0.39 for 5, 20 and 50 categories;
+   the five-category draws range from 0.13 to 0.84.
    False assignments per message grow from 0.08 to 0.25 to 0.64, and the share of
    messages with at least one wrong Custom Category from 7% to 20% to 39%. A
    cross-encoder runs once per message and category: at 50 categories the adapted
@@ -154,8 +156,17 @@ mise exec -- uv run pytest
 
 `score` computes the entailment probability of every validation and test message
 against all 52 Custom Category hypotheses and the five System Category
-hypotheses; `evaluate` calibrates and scores it, so a new labeling or threshold
-rule never needs a model run. `tables` refuses results evaluated on other labels.
+hypotheses; `evaluate` calibrates and scores it, so updated labels can reuse the
+model scores. Cached scores and adaptation artifacts record
+full-record corpus, category-definition and benchmark digests. The benchmark
+digest includes `custom.py`, `custom_synthetic.py`, `synthetic.py` and the #828
+shared experiment digest, so even formatting changes invalidate saved experiments.
+`evaluate`, `overrides`, `golden` and `tables` refuse incompatible artifacts;
+reports also check annotation digests, and artifact consumers verify adapted
+weights. After changing those inputs or code, regenerate the affected experiments
+instead of replacing their digests. The original runs' digests were backfilled
+after a review audit of execution logs and local source snapshots; predictions,
+weights and measured timings were retained, and evaluations were rerun.
 `golden` needs the #828 System candidate artifacts in `work/runs/` (from
 `run.py deberta xsmall body256` and `run.py deberta mdeberta body512`).
 

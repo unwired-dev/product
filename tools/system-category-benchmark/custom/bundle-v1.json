@@ -19,7 +19,11 @@
         "pairs": 11400,
         "train_seconds": 1126.5,
         "peak_device_memory_mib": 4352,
-        "load_average": [30.10595703125, 36.03857421875, 60.7880859375]
+        "load_average": [30.10595703125, 36.03857421875, 60.7880859375],
+        "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+        "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+        "benchmark_sha256": "1e912812966e290e1c597a5abee5a5e59392c0120206f506569a9e43d8b577b2",
+        "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4"
       },
       "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4",
       "input": "body256",
@@ -55,7 +59,11 @@
         "pairs": 11400,
         "train_seconds": 3921.1,
         "peak_device_memory_mib": 11573,
-        "load_average": [59.48779296875, 46.5283203125, 50.31689453125]
+        "load_average": [59.48779296875, 46.5283203125, 50.31689453125],
+        "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+        "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+        "benchmark_sha256": "1e912812966e290e1c597a5abee5a5e59392c0120206f506569a9e43d8b577b2",
+        "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7"
       },
       "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7",
       "input": "body256",
