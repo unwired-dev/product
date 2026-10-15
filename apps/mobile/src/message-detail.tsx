@@ -928,6 +928,7 @@ function MailboxMessage({
   const actions = useInboxActions();
   const mailbox = useMailbox();
   const account = use(AccountContext);
+  const windowBar = use(WindowBarContext);
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -993,7 +994,10 @@ function MailboxMessage({
           {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
-            contentContainerStyle={[styles.content, styles.clearsBar]}>
+            contentContainerStyle={[
+              styles.content,
+              compact || windowBar !== undefined ? styles.clearsBar : null,
+            ]}>
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
             <ResponseStatusNotice

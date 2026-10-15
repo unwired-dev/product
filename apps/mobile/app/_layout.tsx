@@ -55,7 +55,8 @@ function MailShell() {
   const regular = width >= 600 && !collapsed;
   const [expanded, setExpanded] = useState(false);
   const [height, setHeight] = useState(0);
-  // UIKit changes the reading column's width when either leading column moves or hides.
+  // UIKit changes the reading column's width when either leading column moves or hides; every
+  // reading-column route reports it.
   const [readerWidth, setReaderWidth] = useState(width);
   const colors = usePalette();
   // A regular-width window shows the Inbox's floating bar across its bottom edge.
