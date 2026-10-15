@@ -630,8 +630,15 @@ final class InboxTests: XCTestCase {
   // #819: formatting, Undo and Redo, and reviewed assistance results act on the page's selection;
   // each accepted result is one edit that one Undo reverts and Redo restores.
   private func formattingJourney(_ app: XCUIApplication, typed: XCUIElement) {
-    // Select the whole paragraph, so every word of it is bold when the Draft reopens.
-    typed.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+    // Select the whole paragraph, so every word of it is bold when the Draft reopens. A triple tap
+    // can leave only a caret on a loaded host; the edit menu appears once text is selected.
+    let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Copy"))
+      .firstMatch
+    for _ in 0..<3 where !copy.exists {
+      typed.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+      _ = copy.waitForExistence(timeout: 5)
+    }
+    XCTAssertTrue(copy.exists)
     let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
