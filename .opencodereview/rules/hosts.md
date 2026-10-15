@@ -246,6 +246,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   window's cached label must not grant an off-Inbox online result Inbox actions.
   Exercise both an Inbox result found from Trash and a cached label-only result.
 
+- `organize.tsx.GmailMessageActions` relying on the list's view lease to keep an
+  open reader's message. The reader can outlive its source list selection; retain
+  its own non-Inbox view before cache eviction can run, and release that lease
+  when the reader closes or its store or view changes. Exercise a label-only
+  message while browsing more views than the cache keeps. Otherwise list
+  navigation evicts the open message and removes its reader and actions.
+
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
   Use the saved host and port to choose the heading and app-specific-password
