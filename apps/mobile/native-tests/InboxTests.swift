@@ -1,4 +1,5 @@
 import CryptoKit
+import CoreFoundation
 import UIKit
 import XCTest
 
@@ -332,8 +333,6 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(opened.waitForExistence(timeout: 20))
     XCTAssertTrue(app.staticTexts["6 Messages"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["Crew 3, note 2."].waitForExistence(timeout: 20))
-    // Crew 4's body directly above loads, taller than the screen, without moving the opened one.
-    XCTAssertTrue(app.staticTexts["Crew 4, note 40."].waitForExistence(timeout: 20))
     let window = app.windows.firstMatch.frame
     // On screen by frame: the header's text sits inside its context-menu host, so it is never
     // reported hittable.
@@ -343,9 +342,25 @@ final class InboxTests: XCTestCase {
     waitUntil { onScreen(opened) }
     let anchored = opened.frame.minY
     XCTAssertLessThan(anchored, window.midY)
+    // Drag into Crew 3 while Crew 4's full-body reply is held outside native registration custody.
+    XCTAssertFalse(app.staticTexts["Crew 4, note 40."].exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+      .press(forDuration: 0.1, thenDragTo:
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+    let visibleText = (2...35).map { app.staticTexts["Crew 3, note \($0)."].firstMatch }
+      .first { onScreen($0) && $0.frame.midY > window.midY }
+    XCTAssertNotNil(visibleText)
+    guard let visibleText else { return }
+    let textOffset = visibleText.frame.minY
+    let identifier = ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"]!
+    CFNotificationCenterPostNotification(
+      CFNotificationCenterGetDarwinNotifyCenter(),
+      CFNotificationName((identifier + ".thread-body-release") as CFString), nil, nil, true)
+    XCTAssertTrue(app.staticTexts["Crew 4, note 40."].waitForExistence(timeout: 20))
+    waitUntil { abs(visibleText.frame.minY - textOffset) <= 2 }
+    XCTAssertEqual(visibleText.frame.minY, textOffset, accuracy: 2)
     // Crew 6 lies more than a screen above once Crew 4 and 5 have loaded, so its body unmounts.
     waitUntil { !app.staticTexts["Crew 6, note 40."].exists }
-    XCTAssertEqual(opened.frame.minY, anchored, accuracy: 2)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Thread opened at an older message"
     shot.lifetime = .keepAlways

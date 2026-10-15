@@ -871,11 +871,14 @@ extension UnwiredRegistration {
       let task = Task { @MainActor in
         defer { if let request { Self.reads.removeValue(forKey: request) } }
         do {
-          resolve(
-            try await Self.operations.perform {
-              try Task.checkCancellation()
-              return try await operation(self.store())
-            })
+          let reply = try await Self.operations.perform {
+            try Task.checkCancellation()
+            return try await operation(self.store())
+          }
+          #if UNWIRED_REGISTRATION_MOCK
+            try await SyntheticThreadBodyBarrier.wait(name, reply: reply)
+          #endif
+          resolve(reply)
         } catch {
           Self.rejectMailbox(name, error, reject)
         }

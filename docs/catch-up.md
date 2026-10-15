@@ -77,11 +77,13 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
   attribution line above it. Inline replies and Outlook HTML quotes stay
   shown. A body that would be empty without its quote shows in full.
 
-Bodies load the opened message first, then the messages intersecting the viewport,
+Bodies initially load the opened message first, then the messages intersecting the viewport,
 then the rest in distance-from-viewport order. Scrolling reorders reads that are
 still waiting; reads already running finish. The order applies within each
 Mailbox Connection's two body loads and the device-wide four, so other
-connections keep their own loads. Every cached message's body is brought onto the
+connections keep their own loads. After dragging, visible messages take priority
+over the opened message too. Leaving a Thread lowers its pending background reads
+below the current Thread's work. Every cached message's body is brought onto the
 device whether or not its view is mounted.
 
 Every message header stays mounted, but a body view and its rich document mount
@@ -92,8 +94,9 @@ including its quoted text collapsed and, under **Ask**, a new Remote Message
 Content consent.
 
 The `registration-thread` [Mock Mail Session](mock-mail-sessions.md) journey
-checks scroll-to, anchoring while newer bodies load above the opened message, and
-body unmounting and remounting on iPhone and iPad simulators. CI does not run it;
+checks scroll-to, the visible text position before and after a held newer body
+above resolves following a drag, and body unmounting and remounting on iPhone and
+iPad simulators. CI does not run it;
 highlight accessibility and physical devices still require validation.
 
 ## Summaries

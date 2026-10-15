@@ -147,8 +147,8 @@ const scrollReader = async (
   height: number,
   sender = 'Alex Rivera',
 ) => {
-  await act(() => {
-    fireEvent(reader(sender), 'scroll', {
+  await act(async () => {
+    await fireEvent(reader(sender), 'scroll', {
       nativeEvent: {
         contentOffset: { y: offset },
         layoutMeasurement: { height },
@@ -159,9 +159,9 @@ const scrollReader = async (
 
 // Lays the Thread's messages out 300 points apart in a reader one viewport tall, showing them all.
 const layOut = async (senders: readonly string[]) => {
-  await act(() => {
+  await act(async () => {
     for (const [index, sender] of senders.entries()) {
-      fireEvent(messageBy(sender), 'layout', {
+      await fireEvent(messageBy(sender), 'layout', {
         nativeEvent: {
           layout: { x: 0, y: index * 300, width: 320, height: 280 },
         },
@@ -197,16 +197,16 @@ describe('thread view', () => {
     // person drags the reader.
     const opened = messageBy('Alex Rivera');
     const layOutOpened = async (y: number) => {
-      await act(() => {
-        fireEvent(opened, 'layout', {
+      await act(async () => {
+        await fireEvent(opened, 'layout', {
           nativeEvent: { layout: { x: 0, y, width: 320, height: 300 } },
         });
       });
     };
     await layOutOpened(480);
     await layOutOpened(900);
-    await act(() => {
-      fireEvent(reader(), 'scrollBeginDrag');
+    await act(async () => {
+      await fireEvent(reader(), 'scrollBeginDrag');
     });
     await layOutOpened(1200);
     expect(scrollTo.mock.calls).toStrictEqual([
@@ -255,8 +255,8 @@ describe('thread view', () => {
       }),
     ).toBeNull();
 
-    await act(() => {
-      fireEvent.press(
+    await act(async () => {
+      await fireEvent.press(
         within(messageBy('Sam Lee')).getByRole('button', {
           name: 'Show quoted text',
         }),
@@ -269,8 +269,10 @@ describe('thread view', () => {
       { expanded: true },
     );
 
-    await act(() => {
-      fireEvent.press(screen.getByRole('button', { name: 'Show quoted text' }));
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Show quoted text' }),
+      );
     });
     const expanded = await screen.findByTestId('message-webview');
     expect(expanded.props.source.html).toContain('Original agenda');
@@ -292,8 +294,8 @@ describe('thread view', () => {
     await act(store.load);
     await layOut(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
     await screen.findByTestId('message-webview');
-    await act(() => {
-      fireEvent.press(
+    await act(async () => {
+      await fireEvent.press(
         within(messageBy('Alex Rivera')).getByRole('link', {
           name: 'Open link: Agenda',
         }),
@@ -301,8 +303,8 @@ describe('thread view', () => {
     });
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
 
-    await act(() => {
-      fireEvent.press(
+    await act(async () => {
+      await fireEvent.press(
         within(messageBy('Sam Lee')).getByRole('button', {
           name: 'Show quoted text',
         }),
@@ -311,8 +313,8 @@ describe('thread view', () => {
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
 
     // Collapsing or expanding the link's own message discards it.
-    await act(() => {
-      fireEvent.press(
+    await act(async () => {
+      await fireEvent.press(
         within(messageBy('Alex Rivera')).getByRole('button', {
           name: 'Show quoted text',
         }),
@@ -341,9 +343,9 @@ describe('thread view', () => {
     });
 
     // With Sender 1 and 2 visible, the one nearer the opened message overtakes the offscreen ones.
-    await act(() => {
+    await act(async () => {
       for (const [index, sender] of senders.entries()) {
-        fireEvent(messageBy(sender), 'layout', {
+        await fireEvent(messageBy(sender), 'layout', {
           nativeEvent: {
             layout: { x: 0, y: index * 300, width: 320, height: 280 },
           },
@@ -377,6 +379,44 @@ describe('thread view', () => {
     expect(screen.queryByText('Body 0')).toBeNull();
     expect(screen.queryByText('Body 1')).toBeNull();
     expect(started).toHaveLength(6);
+  });
+
+  it('ranks a newly visible body ahead of the opened message after dragging away', async () => {
+    expect.hasAssertions();
+    const { gmail, ids, started, answer } = longThread();
+    const store = createGmailInbox(gmail.native);
+    await store.load();
+    const held = ids.slice(0, 2).map((id) => store.readMessage(id));
+    await waitFor(() => {
+      expect(started).toStrictEqual(ids.slice(0, 2));
+    });
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <ThreadView
+          id={ids[4]}
+          mailbox={alex}
+        />
+      </InboxProvider>,
+    );
+    await act(async () => {
+      for (const [index] of ids.entries()) {
+        await fireEvent(messageBy(`Sender ${index}`), 'layout', {
+          nativeEvent: {
+            layout: { x: 0, y: index * 300, width: 320, height: 280 },
+          },
+        });
+      }
+      await fireEvent(reader('Sender 0'), 'scrollBeginDrag');
+    });
+    await scrollReader(610, 200, 'Sender 0');
+    await answer(0);
+    await waitFor(() => {
+      expect(started).toStrictEqual([ids[0], ids[1], ids[2]]);
+    });
+    for (const index of [1, 2, 3, 4, 5]) {
+      await answer(index);
+    }
+    await Promise.all(held);
   });
 
   it('omits the conversation count when opening one message from a cached thread', async () => {

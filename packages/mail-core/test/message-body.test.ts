@@ -496,6 +496,98 @@ describe('reading Gmail message bodies', () => {
     ).toStrictEqual(['ready', 'ready']);
   });
 
+  it('reprioritizes reads still waiting for account capacity without reserving connection slots', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const mailbox = async (address: string) => {
+      const gmail = createSyntheticGmail({ address });
+      const ids: readonly [string, string, string] = [
+        gmail.deliver(),
+        gmail.deliver(),
+        gmail.deliver(),
+      ];
+      const inbox = createGmailInbox(gmail.native, { shared });
+      await inbox.load();
+      return { inbox, ids, ...controlledBodies(gmail) };
+    };
+    const first = await mailbox('first@example.invalid');
+    const second = await mailbox('second@example.invalid');
+    const waiting = await mailbox('waiting@example.invalid');
+    const firstReads = first.ids
+      .slice(0, 2)
+      .map((id) => first.inbox.readMessage(id));
+    const secondReads = second.ids
+      .slice(0, 2)
+      .map((id) => second.inbox.readMessage(id));
+    await vi.waitFor(() => {
+      expect(first.started).toHaveLength(2);
+      expect(second.started).toHaveLength(2);
+    });
+    const waitingReads = waiting.ids.map((id) => waiting.inbox.readMessage(id));
+    const reversed = waiting.ids.toReversed();
+    waiting.inbox.rankBodies(reversed);
+    await first.answer(first.ids[0]);
+    await firstReads[0];
+    await vi.waitFor(() => {
+      expect(waiting.started).toStrictEqual(reversed.slice(0, 1));
+    });
+    await first.answer(first.ids[1]);
+    await firstReads[1];
+    await vi.waitFor(() => {
+      expect(waiting.started).toStrictEqual(reversed.slice(0, 2));
+    });
+    // A third free account slot must remain available to another connection.
+    const lastFirstRead = first.inbox.readMessage(first.ids[2]);
+    await second.answer(second.ids[0]);
+    await secondReads[0];
+    await vi.waitFor(() => {
+      expect(first.started).toHaveLength(3);
+    });
+    expect(waiting.started).toHaveLength(2);
+    await Promise.all([
+      first.answer(first.ids[2]),
+      second.answer(second.ids[1]),
+      ...reversed.map(waiting.answer),
+    ]);
+    await Promise.all([
+      ...firstReads,
+      ...secondReads,
+      ...waitingReads,
+      lastFirstRead,
+    ]);
+  });
+
+  it('gives the current Thread priority over background reads from a closed Thread', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const first = gmail.deliver();
+    const second = gmail.deliver();
+    const old = [first, second, gmail.deliver(), gmail.deliver()];
+    const current = gmail.deliver();
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { started, answer } = controlledBodies(gmail);
+    const release = inbox.rankBodies(old);
+    const reads = old.map((id) => inbox.readMessage(id, { background: true }));
+    await vi.waitFor(() => {
+      expect(started).toStrictEqual([first, second]);
+    });
+    release();
+    inbox.rankBodies([current]);
+    const currentRead = inbox.readMessage(current, { background: true });
+    await answer(first);
+    await reads[0];
+    await vi.waitFor(() => {
+      expect(started).toStrictEqual([first, second, current]);
+    });
+    await Promise.all([
+      answer(second),
+      answer(current),
+      ...old.slice(2).map(answer),
+    ]);
+    await Promise.all([...reads, currentRead]);
+  });
+
   it('keeps each body with its message, mailbox and owner', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

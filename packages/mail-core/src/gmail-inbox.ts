@@ -930,6 +930,81 @@ const sendStatus = ({
 const boundaryParameter = (contentType: string | undefined) =>
   /;\s*boundary="?(?<boundary>[^";]+)"?/iu.exec(contentType ?? '')?.[1];
 
+interface WaitingBodyLoad {
+  readonly connection: symbol | undefined;
+  readonly rank: () => number;
+  wake: (() => void) | undefined;
+}
+
+const createBodyLoadQueue = () => {
+  let free = 4;
+  const active = new Map<symbol, number>();
+  const waiting = new Set<WaitingBodyLoad>();
+  const first = () => {
+    let next: WaitingBodyLoad | undefined = undefined;
+    for (const entry of waiting) {
+      if (
+        (entry.connection === undefined ||
+          (active.get(entry.connection) ?? 0) < 2) &&
+        (next === undefined || entry.rank() < next.rank())
+      ) {
+        next = entry;
+      }
+    }
+    return next;
+  };
+  const wakeWaiting = () => {
+    if (free > 0) {
+      first()?.wake?.();
+    }
+  };
+  return {
+    withPermit: <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+      connection?: symbol,
+      rank: () => number = () => -1,
+    ) =>
+      Effect.uninterruptibleMask((restore) => {
+        const entry: WaitingBodyLoad = { connection, rank, wake: undefined };
+        waiting.add(entry);
+        const acquire: Effect.Effect<A, E, R> = Effect.suspend(() => {
+          if (free > 0 && first() === entry) {
+            waiting.delete(entry);
+            free -= 1;
+            if (connection !== undefined) {
+              active.set(connection, (active.get(connection) ?? 0) + 1);
+            }
+            wakeWaiting();
+            return restore(effect).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  free += 1;
+                  if (connection !== undefined) {
+                    active.set(connection, (active.get(connection) ?? 1) - 1);
+                  }
+                  wakeWaiting();
+                }),
+              ),
+            );
+          }
+          return restore(
+            Effect.callback<undefined>((resume) => {
+              entry.wake = () => {
+                resume(Effect.undefined);
+              };
+              wakeWaiting();
+              return Effect.sync(() => {
+                waiting.delete(entry);
+                wakeWaiting();
+              });
+            }),
+          ).pipe(Effect.andThen(acquire));
+        });
+        return acquire;
+      }),
+  } as const;
+};
+
 // Body loads shared by every connection's Inbox on this device: four at a time account-wide,
 // and speculative prefetch in any connection waits while an explicit read waits or runs.
 export function createBodyLoads() {
@@ -955,7 +1030,7 @@ export function createBodyLoads() {
         }
       }),
     } as const,
-    loads: Semaphore.makeUnsafe(4),
+    loads: createBodyLoadQueue(),
     // Remote Message Content requests, twelve at a time account-wide.
     remote: Semaphore.makeUnsafe(12),
     remoteImages: new Map<
@@ -1574,58 +1649,15 @@ export function createGmailInbox(
   let opened: MailboxScope | undefined = undefined;
   // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
   let owner = 0;
-  // Two concurrent body loads for this connection, within the account-wide four. When one ends,
-  // the waiting load ranked lowest at that moment starts next, the longest waiting among equals.
-  let freeLoads = 2;
-  const waitingLoads = new Map<() => void, () => number>();
+  // Connection and account admission happen together, so all waiting reads can be reprioritized.
+  const bodyLoadConnection = Symbol('body-load-connection');
   // The order a reader wants its messages' bodies in; unranked loads go first.
   let bodyRanks: ReadonlyMap<string, number> = new Map();
-  const endLoad = Effect.sync(() => {
-    freeLoads += 1;
-    let first: (() => void) | undefined = undefined;
-    let lowest = 0;
-    for (const [start, rank] of waitingLoads) {
-      const value = rank();
-      if (first === undefined || value < lowest) {
-        first = start;
-        lowest = value;
-      }
-    }
-    if (first !== undefined) {
-      waitingLoads.delete(first);
-      freeLoads -= 1;
-      first();
-    }
-  });
   const bodyLoads = {
     withPermit: <A, E, R>(
       effect: Effect.Effect<A, E, R>,
       rank: () => number = () => -1,
-    ) =>
-      Effect.uninterruptibleMask((restore) =>
-        restore(
-          Effect.callback<undefined>((resume) => {
-            if (freeLoads > 0) {
-              freeLoads -= 1;
-              resume(Effect.undefined);
-              return undefined;
-            }
-            const start = () => {
-              resume(Effect.undefined);
-            };
-            waitingLoads.set(start, rank);
-            return Effect.sync(() => {
-              waitingLoads.delete(start);
-            });
-          }),
-        ).pipe(
-          Effect.andThen(
-            restore(shared.loads.withPermit(effect)).pipe(
-              Effect.ensuring(endLoad),
-            ),
-          ),
-        ),
-      ),
+    ) => shared.loads.withPermit(effect, bodyLoadConnection, rank),
   };
   const speculativeBodies = new Map<string, Deferred.Deferred<undefined>>();
 
@@ -2830,7 +2862,9 @@ export function createGmailInbox(
             }
             return yield* bodyLoads.withPermit(
               loadBody(scope, id, reading),
-              () => bodyRanks.get(id) ?? -1,
+              () =>
+                bodyRanks.get(id) ??
+                (background && !readers.has(id) ? Infinity : -1),
             );
           }),
         () => shared.end,

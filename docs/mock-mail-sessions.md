@@ -106,8 +106,9 @@ In `registration-thread`, the synthetic Gmail mailbox also lists one Thread of s
 plain-text messages from Crew 1 to Crew 6, each body taller than a screen. The
 journey signs in like Google registration, then cold-opens the Thread view at
 Crew 3 through its `unwired-mail://thread/<id>?mailbox=<connection>` deep link. It
-checks that the opened message stays in place in the upper half of the screen
-while the newer bodies above it load, that Crew 6's body unmounts once it lies
+checks that the opened message starts in the upper half of the screen, then drags
+into its text while Crew 4's body reply is held. Releasing that reply must retain
+the visible text position. It also checks that Crew 6's body unmounts once it lies
 more than a screen away, and that scrolling back to Crew 6 mounts it again. CI
 does not run this scenario; it is local native evidence.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and

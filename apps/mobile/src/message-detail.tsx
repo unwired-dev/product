@@ -15,8 +15,6 @@ import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import * as Arr from 'effect/Array';
-import * as Order from 'effect/Order';
 import {
   createContext,
   use,
@@ -1068,16 +1066,13 @@ function ThreadMessages({
 type ThreadEntry = ReturnType<typeof threadMessages>[number];
 
 // Ordered by distance from the viewport, then by distance from the opened message.
-const nearestFirst = Order.combine(
-  Order.mapInput(
-    Order.Number,
-    ({ distance }: Readonly<{ distance: number; index: number }>) => distance,
-  ),
-  Order.mapInput(
-    Order.Number,
-    ({ index }: Readonly<{ distance: number; index: number }>) => index,
-  ),
-);
+const nearestFirst = (
+  left: Readonly<{ distance: number; index: number }>,
+  right: Readonly<{ distance: number; index: number }>,
+) =>
+  left.distance === right.distance
+    ? left.index - right.index
+    : left.distance - right.distance;
 
 // Bodies load the opened message first, then the visible ones, then the rest by distance from
 // the viewport, whether or not their views are mounted. Only bodies within one viewport of it
@@ -1115,14 +1110,14 @@ function ThreadMessageList({
           ? Infinity
           : Math.max(0, layout.top - offset - height, offset - layout.bottom);
       };
-      const order = Arr.sort(
-        messages.map(({ id }, index) => ({
+      const order = messages
+        .map(({ id }, index) => ({
           id,
-          distance: id === opened ? -1 : distance(id),
+          distance: id === opened && pinned.current ? -1 : distance(id),
           index: Math.abs(index - openedIndex),
-        })),
-        nearestFirst,
-      );
+        }))
+        // oxlint-disable-next-line unicorn/no-array-sort -- Hermes lacks toSorted; map creates an owned array.
+        .sort(nearestFirst);
       const ids = order.map(({ id }) => id);
       if (ids.join('\n') !== ranked.join('\n')) {
         release?.();
@@ -1135,7 +1130,9 @@ function ThreadMessageList({
           void inbox.readMessage(id, { background: true });
         }
       }
-      const next = order.filter((entry) => entry.distance <= height);
+      const next = order.filter(
+        (entry) => entry.id === opened || entry.distance <= height,
+      );
       setNear((previous) =>
         next.length === previous.size &&
         next.every(({ id }) => previous.has(id))
@@ -1150,7 +1147,7 @@ function ThreadMessageList({
       unsubscribe?.();
       release?.();
     };
-  }, [inbox, viewport, messages, opened]);
+  }, [inbox, viewport, messages, opened, pinned]);
   return messages.map((message) => (
     <ThreadMessage
       key={message.id}
