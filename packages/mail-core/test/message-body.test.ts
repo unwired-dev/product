@@ -4,7 +4,7 @@ import type {
   NativeGmailMailbox,
 } from '../src/gmail-inbox.ts';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const bodyRequests = (gmail: ReturnType<typeof createSyntheticGmail>) =>
@@ -43,6 +43,30 @@ const substituteFull = (
   const request = gmail.native.gmailRequest;
   gmail.native.gmailRequest = (...args) =>
     isFull(args[1]) ? reply(...args) : request(...args);
+};
+
+// Full-body replies wait until the test answers each one, recording the order Gmail was asked.
+const controlledBodies = (gmail: ReturnType<typeof createSyntheticGmail>) => {
+  const started: string[] = [];
+  const replies = new Map<string, () => void>();
+  const { gmailRequest } = gmail.native;
+  substituteFull(gmail, async (...request) => {
+    const id = request[0].slice('messages/'.length);
+    started.push(id);
+    const answered = Promise.withResolvers<undefined>();
+    replies.set(id, () => {
+      answered.resolve(undefined);
+    });
+    await answered.promise;
+    return gmailRequest(...request);
+  });
+  const answer = async (id: string) => {
+    await vi.waitFor(() => {
+      expect(replies.has(id)).toBe(true);
+    });
+    replies.get(id)?.();
+  };
+  return { started, answer };
 };
 
 // Gmail replies whose HTML body sits under each message's number of related containers, built
@@ -396,6 +420,80 @@ describe('reading Gmail message bodies', () => {
       'ready',
       'ready',
     ]);
+  });
+
+  it('starts waiting reads in the order a reader ranks them while other connections keep their loads', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const gmail = createSyntheticGmail();
+    const oldest = gmail.deliver({ subject: 'Planning' });
+    const reply = () =>
+      gmail.deliver({ subject: 'Re: Planning', thread: oldest });
+    const fifth = reply();
+    const kept = reply();
+    const third = reply();
+    const second = reply();
+    const newest = reply();
+    const thread = [newest, second, third, kept, fifth, oldest];
+    const inbox = createGmailInbox(gmail.native, { shared });
+    await inbox.load();
+    const { started, answer } = controlledBodies(gmail);
+    const other = createSyntheticGmail({ address: 'sam@example.invalid' });
+    const elsewhere = [other.deliver(), other.deliver()];
+    const otherInbox = createGmailInbox(other.native, { shared });
+    await otherInbox.load();
+    const otherGmail = controlledBodies(other);
+
+    // Opened newest first, the two newest bodies take the connection's two loads.
+    const reads = thread.map((id) =>
+      inbox.readMessage(id, { background: true }),
+    );
+    await vi.waitFor(() => {
+      expect(started).toStrictEqual([newest, second]);
+    });
+    // The older chosen message overtakes the waiting newer ones once a load ends.
+    const release = inbox.rankBodies(thread.toReversed());
+    await answer(newest);
+    await vi.waitFor(() => {
+      expect(started).toStrictEqual([newest, second, oldest]);
+    });
+    // Scrolling ranks again before the next load ends.
+    inbox.rankBodies([third, ...thread.filter((id) => id !== third)]);
+    release();
+    await answer(second);
+    await vi.waitFor(() => {
+      expect(started).toStrictEqual([newest, second, oldest, third]);
+    });
+
+    // Another connection still runs its own two loads beside this one's waiting reads.
+    const otherReads = elsewhere.map((id) => otherInbox.readMessage(id));
+    await vi.waitFor(() => {
+      expect(otherGmail.started).toStrictEqual(elsewhere);
+    });
+    expect(started).toHaveLength(4);
+    await Promise.all(elsewhere.map(otherGmail.answer));
+    await Promise.all(otherReads);
+
+    // A reader that retains a body while its background read waits keeps it; the rest are
+    // brought onto this device only.
+    inbox.retainMessage(kept);
+    await Promise.all(thread.map(answer));
+    await Promise.all(reads);
+    expect(started.slice(4)).toStrictEqual([kept, fifth]);
+    expect(thread.map((id) => inbox.messageBody(id)?.kind)).toStrictEqual([
+      undefined,
+      undefined,
+      undefined,
+      'ready',
+      undefined,
+      undefined,
+    ]);
+    expect([...gmail.cachedBodies().keys()].toSorted()).toStrictEqual(
+      thread.toSorted(),
+    );
+    expect(
+      elsewhere.map((id) => otherInbox.messageBody(id)?.kind),
+    ).toStrictEqual(['ready', 'ready']);
   });
 
   it('keeps each body with its message, mailbox and owner', async () => {

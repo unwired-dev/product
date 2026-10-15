@@ -7,6 +7,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react-native';
 import { Dimensions, ScrollView, StyleSheet } from 'react-native';
@@ -70,6 +71,48 @@ function threadMailbox() {
   return { native: gmail.native, middle };
 }
 
+// Six messages of one thread, Sender 0 the newest; Gmail answers each body download only when the
+// test answers it, recording the order the downloads started in.
+function longThread() {
+  const gmail = createSyntheticGmail();
+  const ids: string[] = [];
+  for (const index of [5, 4, 3, 2, 1, 0]) {
+    ids[index] = gmail.deliver({
+      from: `Sender ${index} <sender${index}@example.invalid>`,
+      subject: 'Long thread',
+      content: { text: `Body ${index}` },
+      ...(index === 5 ? {} : { thread: ids[5] }),
+    });
+  }
+  const started: string[] = [];
+  const replies = new Map<string, () => void>();
+  const { gmailRequest } = gmail.native;
+  gmail.native.gmailRequest = async (...request) => {
+    if (
+      request[1].some(([key, value]) => key === 'format' && value === 'full')
+    ) {
+      const id = request[0].slice('messages/'.length);
+      started.push(id);
+      const answered = Promise.withResolvers<undefined>();
+      replies.set(id, () => {
+        answered.resolve(undefined);
+      });
+      await answered.promise;
+    }
+    return gmailRequest(...request);
+  };
+  const answer = async (index: number) => {
+    const id = ids[index] ?? '';
+    await waitFor(() => {
+      expect(replies.has(id)).toBe(true);
+    });
+    await act(() => {
+      replies.get(id)?.();
+    });
+  };
+  return { gmail, ids, started, answer };
+}
+
 // A Thread message's section, found by its sender header: the nearest ancestor that reports
 // its layout for scrolling.
 const messageBy = (sender: string) => {
@@ -83,18 +126,55 @@ const messageBy = (sender: string) => {
   return section;
 };
 
-const readerContent = () => {
-  let scroll = messageBy('Alex Rivera').parent;
+// The reader's scroll view, found from the opened message.
+const reader = (sender = 'Alex Rivera') => {
+  let scroll = messageBy(sender).parent;
   while (scroll !== null && scroll.props.contentContainerStyle === undefined) {
     scroll = scroll.parent;
   }
-  return StyleSheet.flatten(scroll?.props.contentContainerStyle);
+  if (scroll === null) {
+    throw new Error('Expected the reader');
+  }
+  return scroll;
+};
+
+const readerContent = () =>
+  StyleSheet.flatten(reader().props.contentContainerStyle);
+
+// Scrolls the reader to show this range of its content.
+const scrollReader = async (
+  offset: number,
+  height: number,
+  sender = 'Alex Rivera',
+) => {
+  await act(() => {
+    fireEvent(reader(sender), 'scroll', {
+      nativeEvent: {
+        contentOffset: { y: offset },
+        layoutMeasurement: { height },
+      },
+    });
+  });
+};
+
+// Lays the Thread's messages out 300 points apart in a reader one viewport tall, showing them all.
+const layOut = async (senders: readonly string[]) => {
+  await act(() => {
+    for (const [index, sender] of senders.entries()) {
+      fireEvent(messageBy(sender), 'layout', {
+        nativeEvent: {
+          layout: { x: 0, y: index * 300, width: 320, height: 280 },
+        },
+      });
+    }
+  });
+  await scrollReader(0, senders.length * 300);
 };
 
 // The rendered Thread view over the real Gmail store; only native scrolling is observed.
 describe('thread view', () => {
   /* oxlint-disable vitest/max-expects -- One Thread journey checks membership, order, highlight, scrolling and quoted history. */
-  it('stacks the thread newest first, scrolls to the opened message once, and collapses quoted history', async () => {
+  it('stacks the thread newest first, keeps the opened message in place until the reader is dragged, and collapses quoted history', async () => {
     expect.hasAssertions();
     const scrollTo = jest
       .spyOn(ScrollView.prototype, 'scrollTo')
@@ -113,6 +193,28 @@ describe('thread view', () => {
     );
     await act(store.load);
 
+    // The opened message stays scrolled into place as content above it lays out, until the
+    // person drags the reader.
+    const opened = messageBy('Alex Rivera');
+    const layOutOpened = async (y: number) => {
+      await act(() => {
+        fireEvent(opened, 'layout', {
+          nativeEvent: { layout: { x: 0, y, width: 320, height: 300 } },
+        });
+      });
+    };
+    await layOutOpened(480);
+    await layOutOpened(900);
+    await act(() => {
+      fireEvent(reader(), 'scrollBeginDrag');
+    });
+    await layOutOpened(1200);
+    expect(scrollTo.mock.calls).toStrictEqual([
+      [{ y: 480, animated: false }],
+      [{ y: 900, animated: false }],
+    ]);
+
+    await layOut(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
     await expect(screen.findByText('See you then.')).resolves.toBeVisible();
     expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
     // The subject text itself stays selectable inside the accessible header.
@@ -126,8 +228,7 @@ describe('thread view', () => {
         .map((sender) => sender.props.children),
     ).toStrictEqual(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
 
-    // The opened message is highlighted and scrolled to on its first layout only.
-    const opened = messageBy('Alex Rivera');
+    // The opened message is highlighted.
     // The final Thread body must scroll clear of the window's floating bar.
     expect(readerContent()).toMatchObject({ paddingBottom: 84 });
     expect(screen.getByText('Alex Rivera')).toHaveProp('accessibilityState', {
@@ -139,17 +240,6 @@ describe('thread view', () => {
     // A bar marks it without relying on its background color.
     expect(opened).toHaveStyle({ borderLeftWidth: 4 });
     expect(messageBy('Sam Lee')).not.toHaveStyle({ borderLeftWidth: 4 });
-    await act(() => {
-      fireEvent(opened, 'layout', {
-        nativeEvent: { layout: { x: 0, y: 480, width: 320, height: 300 } },
-      });
-    });
-    await act(() => {
-      fireEvent(opened, 'layout', {
-        nativeEvent: { layout: { x: 0, y: 900, width: 320, height: 300 } },
-      });
-    });
-    expect(scrollTo.mock.calls).toStrictEqual([[{ y: 480, animated: false }]]);
 
     // Quoted history starts collapsed in both replies, and the original has none to show.
     expect(screen.queryByText(/Earlier reply/u)).toBeNull();
@@ -200,6 +290,7 @@ describe('thread view', () => {
       </InboxProvider>,
     );
     await act(store.load);
+    await layOut(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
     await screen.findByTestId('message-webview');
     await act(() => {
       fireEvent.press(
@@ -228,6 +319,64 @@ describe('thread view', () => {
       );
     });
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+  });
+
+  it('loads the opened and visible bodies first, reorders on scrolling, and mounts only bodies near the viewport', async () => {
+    expect.hasAssertions();
+    const { gmail, ids, started, answer } = longThread();
+    const senders = ids.map((_, index) => `Sender ${index}`);
+    const store = createGmailInbox(gmail.native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <ThreadView
+          id={ids[4]}
+          mailbox={alex}
+        />
+      </InboxProvider>,
+    );
+    await act(store.load);
+    // Before any layout, the opened message and its nearest neighbor take the two loads.
+    await waitFor(() => {
+      expect(started).toStrictEqual([ids[4], ids[3]]);
+    });
+
+    // With Sender 1 and 2 visible, the one nearer the opened message overtakes the offscreen ones.
+    await act(() => {
+      for (const [index, sender] of senders.entries()) {
+        fireEvent(messageBy(sender), 'layout', {
+          nativeEvent: {
+            layout: { x: 0, y: index * 300, width: 320, height: 280 },
+          },
+        });
+      }
+    });
+    await scrollReader(310, 560, 'Sender 0');
+    await answer(4);
+    await waitFor(() => {
+      expect(started).toStrictEqual([ids[4], ids[3], ids[2]]);
+    });
+    await expect(screen.findByText('Body 4')).resolves.toBeVisible();
+
+    // Scrolling to the oldest message reprioritizes what still waits.
+    await scrollReader(1210, 560, 'Sender 0');
+    await answer(3);
+    await waitFor(() => {
+      expect(started).toStrictEqual([ids[4], ids[3], ids[2], ids[5]]);
+    });
+
+    // Every body still reaches this device, but only those within one viewport are shown.
+    for (const index of [2, 5, 1, 0]) {
+      await answer(index);
+    }
+    await waitFor(() => {
+      expect(gmail.cachedBodies().size).toBe(6);
+    });
+    for (const index of [2, 3, 4, 5]) {
+      await expect(screen.findByText(`Body ${index}`)).resolves.toBeVisible();
+    }
+    expect(screen.queryByText('Body 0')).toBeNull();
+    expect(screen.queryByText('Body 1')).toBeNull();
+    expect(started).toHaveLength(6);
   });
 
   it('omits the conversation count when opening one message from a cached thread', async () => {

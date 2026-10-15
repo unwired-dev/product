@@ -15,6 +15,7 @@ import {
 
 // A synthetic Gmail message; `disposition` is served as its Content-Disposition header.
 interface SyntheticGmailMessage {
+  readonly threadId?: string;
   readonly from?: string;
   readonly subject?: string;
   readonly snippet?: string;
@@ -60,6 +61,27 @@ export const SyntheticGmailMessages = Context.Reference<
     },
   }),
 });
+
+// The `registration-thread` mailbox adds one long Thread of six plain-text messages, Crew 6 the
+// newest, each body taller than a screen.
+const syntheticThread: Readonly<Record<string, SyntheticGmailMessage>> =
+  Object.fromEntries(
+    [1, 2, 3, 4, 5, 6].map((crew) => [
+      `19a0c0ffee00001${crew}`,
+      {
+        threadId: '19a0c0ffee000011',
+        from: `Crew ${crew} <crew${crew}@example.invalid>`,
+        subject: crew === 1 ? 'Trail maintenance' : 'Re: Trail maintenance',
+        snippet: `Crew ${crew}, note 1.`,
+        internalDate: String(1_759_300_000_000 + crew * 3_600_000),
+        labelIds: ['INBOX'],
+        text: Array.from(
+          { length: 40 },
+          (_, note) => `Crew ${crew}, note ${note + 1}.`,
+        ).join('\n\n'),
+      },
+    ]),
+  );
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 const mailbox = 'synthetic-alternate-mailbox';
@@ -144,7 +166,13 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
   {
     make: Effect.gen(function* () {
       const { scenario } = yield* SyntheticScenario;
-      const messages = yield* SyntheticGmailMessages;
+      const messages = {
+        ...(yield* SyntheticGmailMessages),
+        ...(scenario === 'registration-thread' ? syntheticThread : {}),
+      };
+      const threadOf = (id: string) =>
+        (Object.hasOwn(messages, id) ? messages[id]?.threadId : undefined) ??
+        id;
       const labels = new Map(
         Object.entries(messages).map(([id, message]) => [
           id,
@@ -217,7 +245,11 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           ),
         ];
         labels.set(id, next);
-        return yield* reply(200, { id, threadId: id, labelIds: next });
+        return yield* reply(200, {
+          id,
+          threadId: threadOf(id),
+          labelIds: next,
+        });
       });
       // Gmail's named resources, by the request's last path segment.
       const resources: Readonly<
@@ -243,22 +275,19 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
             labels: [{ id: 'Label_1', name: 'Travel', type: 'user' }],
           }),
         modify: ({ segments }, body) => modify(segments.at(-2) ?? '', body),
-        messages: ({ item }) =>
-          reply(
+        // The first two messages, then the rest on a second page.
+        messages: ({ item }) => {
+          const listed = Object.keys(messages).map((id) => ({
+            id,
+            threadId: threadOf(id),
+          }));
+          return reply(
             200,
             item('pageToken') === '2'
-              ? {
-                  messages: [
-                    { id: '19a0c0ffee000003', threadId: '19a0c0ffee000003' },
-                  ],
-                }
-              : {
-                  messages: ['19a0c0ffee000001', '19a0c0ffee000002'].map(
-                    (id) => ({ id, threadId: id }),
-                  ),
-                  nextPageToken: '2',
-                },
-          ),
+              ? { messages: listed.slice(2) }
+              : { messages: listed.slice(0, 2), nextPageToken: '2' },
+          );
+        },
       };
       // One message, as its format asks for it.
       const read = (id: string, url: RequestURL) => {
@@ -267,7 +296,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           ? Effect.succeed(missing)
           : reply(200, {
               id,
-              threadId: id,
+              threadId: threadOf(id),
               labelIds: labels.get(id) ?? [],
               ...view(message, url),
             });

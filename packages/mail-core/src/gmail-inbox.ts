@@ -1574,11 +1574,58 @@ export function createGmailInbox(
   let opened: MailboxScope | undefined = undefined;
   // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
   let owner = 0;
-  // Two concurrent body loads for this connection, within the account-wide four.
-  const connectionLoads = Semaphore.makeUnsafe(2);
+  // Two concurrent body loads for this connection, within the account-wide four. When one ends,
+  // the waiting load ranked lowest at that moment starts next, the longest waiting among equals.
+  let freeLoads = 2;
+  const waitingLoads = new Map<() => void, () => number>();
+  // The order a reader wants its messages' bodies in; unranked loads go first.
+  let bodyRanks: ReadonlyMap<string, number> = new Map();
+  const endLoad = Effect.sync(() => {
+    freeLoads += 1;
+    let first: (() => void) | undefined = undefined;
+    let lowest = 0;
+    for (const [start, rank] of waitingLoads) {
+      const value = rank();
+      if (first === undefined || value < lowest) {
+        first = start;
+        lowest = value;
+      }
+    }
+    if (first !== undefined) {
+      waitingLoads.delete(first);
+      freeLoads -= 1;
+      first();
+    }
+  });
   const bodyLoads = {
-    withPermit: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      connectionLoads.withPermit(shared.loads.withPermit(effect)),
+    withPermit: <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+      rank: () => number = () => -1,
+    ) =>
+      Effect.uninterruptibleMask((restore) =>
+        restore(
+          Effect.callback<undefined>((resume) => {
+            if (freeLoads > 0) {
+              freeLoads -= 1;
+              resume(Effect.undefined);
+              return undefined;
+            }
+            const start = () => {
+              resume(Effect.undefined);
+            };
+            waitingLoads.set(start, rank);
+            return Effect.sync(() => {
+              waitingLoads.delete(start);
+            });
+          }),
+        ).pipe(
+          Effect.andThen(
+            restore(shared.loads.withPermit(effect)).pipe(
+              Effect.ensuring(endLoad),
+            ),
+          ),
+        ),
+      ),
   };
   const speculativeBodies = new Map<string, Deferred.Deferred<undefined>>();
 
@@ -2730,10 +2777,30 @@ export function createGmailInbox(
     return runLogged(Effect.raceFirst(program, cancelled).pipe(Effect.asVoid));
   };
 
-  // A refresh reloads a shown body in place: it keeps showing until the reload succeeds.
+  // A read shows as loading, except a refresh, which keeps the shown body, and a background read
+  // nobody retains, whose body is released once it reaches this device.
+  const startReading = (
+    id: string,
+    {
+      refresh,
+      background,
+    }: Readonly<{ refresh: boolean; background: boolean }>,
+  ) => {
+    if (background && !readers.has(id)) {
+      endedReaders.add(id);
+    } else if (!refresh) {
+      setBody(id, loadingBody);
+    }
+  };
+
+  // A refresh reloads a shown body in place: it keeps showing until the reload succeeds. A
+  // background read brings the body onto this device, keeping it only if a reader retains it.
   const readMessage = (
     id: string,
-    { refresh = false }: Readonly<{ refresh?: boolean }> = {},
+    {
+      refresh = false,
+      background = false,
+    }: Readonly<{ refresh?: boolean; background?: boolean }> = {},
   ) => {
     const pending = readingBodies.get(id);
     if (pending !== undefined) {
@@ -2751,9 +2818,7 @@ export function createGmailInbox(
       return Promise.resolve();
     }
     const reading = owner;
-    if (!refresh) {
-      setBody(id, loadingBody);
-    }
+    startReading(id, { refresh, background });
     const run = runLogged(
       Effect.acquireUseRelease(
         shared.begin,
@@ -2763,7 +2828,10 @@ export function createGmailInbox(
             if (speculative !== undefined) {
               yield* Deferred.await(speculative);
             }
-            return yield* bodyLoads.withPermit(loadBody(scope, id, reading));
+            return yield* bodyLoads.withPermit(
+              loadBody(scope, id, reading),
+              () => bodyRanks.get(id) ?? -1,
+            );
           }),
         () => shared.end,
       ).pipe(
@@ -3913,6 +3981,17 @@ export function createGmailInbox(
     // Opens a body from this device, or downloads it from Gmail; a failed read can be tried again.
     // Windows opening the same message share one read.
     readMessage,
+    // Waiting body reads of these messages start in this order, after unranked loads; a reader
+    // ranks again as what it shows changes. The returned function ends this ranking.
+    rankBodies: (ids: readonly string[]) => {
+      const ranks = new Map(ids.map((id, index) => [id, index]));
+      bodyRanks = ranks;
+      return () => {
+        if (bodyRanks === ranks) {
+          bodyRanks = new Map();
+        }
+      };
+    },
     // An opened message's received attachments with their availability, once its body is ready;
     // listing them never downloads their bytes.
     messageAttachments: (id: string) => {

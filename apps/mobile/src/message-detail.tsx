@@ -2,7 +2,8 @@ import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
+import type { LayoutRectangle } from 'react-native';
 
 import {
   commandTarget,
@@ -14,9 +15,12 @@ import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
 import { radius, spacing } from '@private-email/mail-core/theme';
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
 import {
   createContext,
   use,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -66,6 +70,7 @@ import {
   QuotedHistoryContext,
   ReaderScrollView,
   useReaderScrollTo,
+  useReaderViewport,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions, MessageActionsNotice } from './organize.tsx';
@@ -988,6 +993,8 @@ function ThreadMessages({
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
+  // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
+  const pinned = useRef(true);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1040,16 +1047,17 @@ function ThreadMessages({
               styles.content,
               windowBar === undefined ? null : styles.clearsBar,
             ]}
-            maintainVisibleContentPosition={keepVisibleMessage}>
+            maintainVisibleContentPosition={keepVisibleMessage}
+            onScrollBeginDrag={() => {
+              pinned.current = false;
+            }}>
             <MessageCount count={messages.length} />
-            {messages.map((message) => (
-              <ThreadMessage
-                key={message.id}
-                inbox={inbox}
-                message={message}
-                highlighted={message.id === id}
-              />
-            ))}
+            <ThreadMessageList
+              inbox={inbox}
+              messages={messages}
+              opened={id}
+              pinned={pinned}
+            />
           </ReaderScrollView>
         </LinkConfirmationProvider>
       </QuotedHistoryContext>
@@ -1057,33 +1065,132 @@ function ThreadMessages({
   );
 }
 
+type ThreadEntry = ReturnType<typeof threadMessages>[number];
+
+// Ordered by distance from the viewport, then by distance from the opened message.
+const nearestFirst = Order.combine(
+  Order.mapInput(
+    Order.Number,
+    ({ distance }: Readonly<{ distance: number; index: number }>) => distance,
+  ),
+  Order.mapInput(
+    Order.Number,
+    ({ index }: Readonly<{ distance: number; index: number }>) => index,
+  ),
+);
+
+// Bodies load the opened message first, then the visible ones, then the rest by distance from
+// the viewport, whether or not their views are mounted. Only bodies within one viewport of it
+// are mounted; the others keep their measured height.
+function ThreadMessageList({
+  inbox,
+  messages,
+  opened,
+  pinned,
+}: {
+  readonly inbox: GmailInbox;
+  readonly messages: readonly ThreadEntry[];
+  readonly opened: string;
+  readonly pinned: RefObject<boolean>;
+}) {
+  const viewport = useReaderViewport();
+  const scrollTo = useReaderScrollTo();
+  const layouts = useRef(
+    new Map<string, Readonly<{ top: number; bottom: number }>>(),
+  );
+  const requested = useRef(new Set<string>());
+  const relayout = useRef<() => void>(undefined);
+  const [near, setNear] = useState<ReadonlySet<string>>(
+    () => new Set([opened]),
+  );
+  useEffect(() => {
+    let ranked: readonly string[] = [];
+    let release: (() => void) | undefined = undefined;
+    const openedIndex = messages.findIndex(({ id }) => id === opened);
+    const refresh = () => {
+      const { offset, height } = viewport?.get() ?? { offset: 0, height: 0 };
+      const distance = (id: string) => {
+        const layout = layouts.current.get(id);
+        return layout === undefined || height === 0
+          ? Infinity
+          : Math.max(0, layout.top - offset - height, offset - layout.bottom);
+      };
+      const order = Arr.sort(
+        messages.map(({ id }, index) => ({
+          id,
+          distance: id === opened ? -1 : distance(id),
+          index: Math.abs(index - openedIndex),
+        })),
+        nearestFirst,
+      );
+      const ids = order.map(({ id }) => id);
+      if (ids.join('\n') !== ranked.join('\n')) {
+        release?.();
+        ranked = ids;
+        release = inbox.rankBodies(ids);
+      }
+      for (const id of ids) {
+        if (!requested.current.has(id)) {
+          requested.current.add(id);
+          void inbox.readMessage(id, { background: true });
+        }
+      }
+      const next = order.filter((entry) => entry.distance <= height);
+      setNear((previous) =>
+        next.length === previous.size &&
+        next.every(({ id }) => previous.has(id))
+          ? previous
+          : new Set(next.map(({ id }) => id)),
+      );
+    };
+    relayout.current = refresh;
+    refresh();
+    const unsubscribe = viewport?.subscribe(refresh);
+    return () => {
+      unsubscribe?.();
+      release?.();
+    };
+  }, [inbox, viewport, messages, opened]);
+  return messages.map((message) => (
+    <ThreadMessage
+      key={message.id}
+      inbox={inbox}
+      message={message}
+      highlighted={message.id === opened}
+      mounted={near.has(message.id)}
+      onLayout={({ y, height }) => {
+        layouts.current.set(message.id, { top: y, bottom: y + height });
+        if (message.id === opened && pinned.current) {
+          scrollTo?.(y);
+        }
+        relayout.current?.();
+      }}
+    />
+  ));
+}
+
 function ThreadMessage({
   inbox,
   message,
   highlighted,
+  mounted,
+  onLayout,
 }: {
   readonly inbox: GmailInbox;
-  readonly message: Readonly<{
-    id: string;
-    sender: string;
-    address: string;
-    subject: string;
-    receivedAt: string;
-  }>;
-  // The opened message, which the Thread scrolls to once it is laid out.
+  readonly message: ThreadEntry;
+  // The opened message, which the Thread keeps scrolled into place.
   readonly highlighted: boolean;
+  // Whether the body is near enough to the viewport to be shown.
+  readonly mounted: boolean;
+  readonly onLayout: (layout: LayoutRectangle) => void;
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
-  const scrollTo = useReaderScrollTo();
-  const scrolled = useRef(false);
+  const [bodyHeight, setBodyHeight] = useState(0);
   return (
     <View
       onLayout={({ nativeEvent }) => {
-        if (highlighted && !scrolled.current) {
-          scrolled.current = true;
-          scrollTo?.(nativeEvent.layout.y);
-        }
+        onLayout(nativeEvent.layout);
       }}
       style={[
         styles.threadMessage,
@@ -1102,12 +1209,21 @@ function ThreadMessage({
         message={message}
         highlighted={highlighted}
       />
-      <GmailMessageBody
-        inbox={inbox}
-        id={message.id}
-        subject={message.subject}
-        connection={mailbox?.id}
-      />
+      {mounted ? (
+        <View
+          onLayout={({ nativeEvent }) => {
+            setBodyHeight(nativeEvent.layout.height);
+          }}>
+          <GmailMessageBody
+            inbox={inbox}
+            id={message.id}
+            subject={message.subject}
+            connection={mailbox?.id}
+          />
+        </View>
+      ) : (
+        <View style={{ height: bodyHeight }} />
+      )}
     </View>
   );
 }
