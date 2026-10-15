@@ -1,4 +1,5 @@
 import type { ComponentValue } from '@csstools/css-parser-algorithms';
+import type { CSSToken } from '@csstools/css-tokenizer';
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- parse5 tree nodes are mutable library types; the sanitizer only reads them. */
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
@@ -18,6 +19,7 @@ import {
   isTokenString,
   ParseErrorMessage,
   tokenize,
+  TokenType,
 } from '@csstools/css-tokenizer';
 import { html as htmlSpec, parse } from 'parse5';
 
@@ -1026,24 +1028,49 @@ const readDeclaration = (
       };
 };
 
+// The component value parser throws past this nesting depth of blocks and functions.
+const nestingLimit = 512;
+const closers = new Map([
+  [TokenType.Function, TokenType.CloseParen],
+  [TokenType.OpenParen, TokenType.CloseParen],
+  [TokenType.OpenSquare, TokenType.CloseSquare],
+  [TokenType.OpenCurly, TokenType.CloseCurly],
+]);
+const nestsTooDeep = (tokens: readonly CSSToken[]) => {
+  const open: TokenType[] = [];
+  return tokens.some(([type]) => {
+    if (type === open.at(-1)) {
+      open.pop();
+    } else {
+      const closer = closers.get(type);
+      if (closer !== undefined) {
+        open.push(closer);
+      }
+    }
+    return open.length > nestingLimit;
+  });
+};
+
 // Declarations end at semicolons outside blocks, functions, strings and URLs, as CSS Syntax and
-// WebKit read them.
+// WebKit read them. A style nested past the parser's limit keeps no declarations.
 const readDeclarations = (style: string) => {
   // Where strings the end of the attribute interrupts start.
   const unterminated = new Set<number>();
-  const declarations: ComponentValue[][] = [[]];
-  for (const node of parseListOfComponentValues(
-    tokenize(
-      { css: style },
-      {
-        onParseError: (error) => {
-          if (error.message === ParseErrorMessage.UnexpectedEOFInString) {
-            unterminated.add(error.sourceStart);
-          }
-        },
+  const tokens = tokenize(
+    { css: style },
+    {
+      onParseError: (error) => {
+        if (error.message === ParseErrorMessage.UnexpectedEOFInString) {
+          unterminated.add(error.sourceStart);
+        }
       },
-    ),
-  )) {
+    },
+  );
+  if (nestsTooDeep(tokens)) {
+    return [];
+  }
+  const declarations: ComponentValue[][] = [[]];
+  for (const node of parseListOfComponentValues(tokens)) {
     if (isTokenNode(node) && isTokenSemicolon(node.value)) {
       declarations.push([]);
     } else {
