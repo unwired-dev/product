@@ -84,6 +84,7 @@ by Core ML Tools 9.0. Neither dependency-upgrade path has a retained reproductio
 ## Test
 
 ```sh
+mise exec -- uv run pytest
 mise exec -- uv run ruff check . && mise exec -- uv run ruff format --check .
 cd ../../native/categorization-spike && swift test
 ```

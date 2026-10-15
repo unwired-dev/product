@@ -142,7 +142,17 @@ describe('categorization spike page', () => {
 
   it('sends the selected candidate and shows decoded scores and memberships', async () => {
     expect.hasAssertions();
-    const { module, pending } = scriptedSpike();
+    const { module, pending } = scriptedSpike(
+      catalogWith([
+        ...candidates,
+        {
+          run: 'xsmall-zs-adapted-body256-description',
+          mode: 'custom',
+          maxLength: 256,
+          precisions: ['fp16', 'int8'],
+        },
+      ]),
+    );
     await renderWith(module);
     await fireEvent.press(screen.getByText('Classify'));
     expect(module.classify.mock.calls[0]?.[1]).toBe(
@@ -154,6 +164,26 @@ describe('categorization spike page', () => {
     expect(
       screen.getByLabelText('Not a member, 0.04, threshold 0.1'),
     ).toBeVisible();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Candidate' }));
+    await fireEvent.press(
+      screen.getByText('Custom · adapted DeBERTa v3 XSmall · 256 tokens'),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Precision' }));
+    await fireEvent.press(screen.getByText('INT8'));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Compute units' }),
+    );
+    await fireEvent.press(screen.getByText('CPU only'));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Custom Categories' }),
+    );
+    await fireEvent.press(screen.getByText('20 categories'));
+    await fireEvent.press(screen.getByText('Classify'));
+    expect(module.classify.mock.calls[1]?.[1]).toBe(
+      '{"run":"xsmall-zs-adapted-body256-description","precision":"int8","units":"cpuOnly","message":"synthetic:en-overlap-orders-flights-2:4","rounds":3,"categoryCount":20}',
+    );
+    await settle(pending, requestAt(pending, 1), classified);
   });
 
   it('fails closed on a malformed native result', async () => {

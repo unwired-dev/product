@@ -23,7 +23,7 @@ def table(header, rows) -> list[str]:
 def summarize(lines: list[dict]) -> str:
     golden, benchmark, plans, other = [], [], [], []
     for entry in lines:
-        request = entry.get("request", {})
+        request = entry.get("request")
         if not isinstance(request, dict):
             other.append(entry)
             continue

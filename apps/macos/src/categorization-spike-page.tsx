@@ -116,14 +116,7 @@ const categoryName = (catalog: CatalogValue, language: string, id: string) => {
 // The request body for one bridge call: golden categories for a custom classification, otherwise
 // the first `count` Custom Categories.
 const requestBody = (
-  selection: Readonly<{
-    run: string;
-    precision: string;
-    unit: Unit;
-    message: string;
-    count: CategoryCount;
-    custom: boolean;
-  }>,
+  selection: Selection & Readonly<{ custom: boolean }>,
   kind: Kind,
 ) => {
   const categories =
@@ -296,20 +289,23 @@ function Spike({
   readonly onDismiss: () => void;
 }) {
   const colors = usePalette();
-  const [run, setRun] = useState(catalog.candidates[0]?.run ?? '');
-  const [precision, setPrecision] = useState<'fp16' | 'int8'>('fp16');
-  const [unit, setUnit] = useState<Unit>('all');
-  const [message, setMessage] = useState(catalog.messages[0]?.id ?? '');
-  const [count, setCount] = useState<CategoryCount>(6);
+  const [selection, setSelection] = useState<Selection>({
+    run: catalog.candidates[0]?.run ?? '',
+    precision: 'fp16',
+    unit: 'all',
+    message: catalog.messages[0]?.id ?? '',
+    count: 6,
+  });
   const [busy, setBusy] = useState<Busy>();
   const [result, setResult] = useState<ResultValue>();
   const [failure, setFailure] = useState<string>();
   const current = useRef<string>(undefined);
   const mounted = useRef(true);
   const cancelled = useRef<string>(undefined);
-  const candidate = catalog.candidates.find((each) => each.run === run);
-  const sample = catalog.messages.find((each) => each.id === message);
-  const custom = candidate?.mode === 'custom';
+  const candidate = catalog.candidates.find(
+    (each) => each.run === selection.run,
+  );
+  const sample = catalog.messages.find((each) => each.id === selection.message);
 
   // Dismissal stops the running request before its next model pass and releases the model.
   useEffect(() => {
@@ -339,11 +335,7 @@ function Spike({
       if (!mounted.current) {
         return;
       }
-      setRun(picked.run);
-      setPrecision(picked.precision);
-      setUnit(picked.unit);
-      setMessage(picked.message);
-      setCount(picked.count);
+      setSelection(picked);
       requests += 1;
       const request = `${kind}-${requests}`;
       current.current = request;
@@ -413,22 +405,14 @@ function Spike({
   return (
     <>
       <Setup
-        onChange={() => {
+        selection={selection}
+        onChange={(picked) => {
+          setSelection(picked);
           setResult(undefined);
           setFailure(undefined);
         }}
         catalog={catalog}
         disabled={busy !== undefined}
-        run={run}
-        onRun={setRun}
-        precision={precision}
-        onPrecision={setPrecision}
-        unit={unit}
-        onUnit={setUnit}
-        message={message}
-        onMessage={setMessage}
-        count={custom ? count : undefined}
-        onCount={setCount}
       />
       {busy?.kind === 'benchmark' ? (
         <BenchmarkProgress
@@ -441,7 +425,7 @@ function Spike({
         <Actions
           busy={busy}
           onStart={(kind) => {
-            void start(kind, { run, precision, unit, message, count });
+            void start(kind, selection);
           }}
           onCancel={cancel}
         />
@@ -542,32 +526,14 @@ function Setup({
   onChange,
   catalog,
   disabled,
-  run,
-  onRun,
-  precision,
-  onPrecision,
-  unit,
-  onUnit,
-  message,
-  onMessage,
-  count,
-  onCount,
+  selection,
 }: {
-  readonly onChange: () => void;
+  readonly onChange: (selection: Selection) => void;
   readonly catalog: CatalogValue;
   readonly disabled: boolean;
-  readonly run: string;
-  readonly onRun: (run: string) => void;
-  readonly precision: 'fp16' | 'int8';
-  readonly onPrecision: (precision: 'fp16' | 'int8') => void;
-  readonly unit: Unit;
-  readonly onUnit: (unit: Unit) => void;
-  readonly message: string;
-  readonly onMessage: (message: string) => void;
-  // The Custom Category count, for Custom candidates only.
-  readonly count: CategoryCount | undefined;
-  readonly onCount: (count: CategoryCount) => void;
+  readonly selection: Selection;
 }) {
+  const { run, precision, unit, message, count } = selection;
   const candidates: Choice[] = catalog.candidates.map((each) => [
     each.run,
     `${candidateName(each.run)} · ${each.maxLength} tokens`,
@@ -593,8 +559,7 @@ function Setup({
         value={run}
         disabled={disabled}
         onChoose={(choice) => {
-          onChange();
-          onRun(choice);
+          onChange({ ...selection, run: choice });
         }}
       />
       <Pick
@@ -603,8 +568,10 @@ function Setup({
         value={precision}
         disabled={disabled}
         onChoose={(choice) => {
-          onChange();
-          onPrecision(choice === 'int8' ? 'int8' : 'fp16');
+          onChange({
+            ...selection,
+            precision: choice === 'int8' ? 'int8' : 'fp16',
+          });
         }}
       />
       <Pick
@@ -613,8 +580,10 @@ function Setup({
         value={unit}
         disabled={disabled}
         onChoose={(choice) => {
-          onChange();
-          onUnit(units.find(([each]) => each === choice)?.[0] ?? 'all');
+          onChange({
+            ...selection,
+            unit: units.find(([each]) => each === choice)?.[0] ?? 'all',
+          });
         }}
       />
       <Pick
@@ -623,24 +592,24 @@ function Setup({
         value={message}
         disabled={disabled}
         onChoose={(choice) => {
-          onChange();
-          onMessage(choice);
+          onChange({ ...selection, message: choice });
         }}
       />
-      {count === undefined ? null : (
+      {candidate?.mode === 'custom' ? (
         <Pick
           label="Custom Categories"
           choices={counts}
           value={String(count)}
           disabled={disabled}
           onChoose={(choice) => {
-            onChange();
-            onCount(
-              categoryCounts.find((each) => String(each) === choice) ?? 6,
-            );
+            onChange({
+              ...selection,
+              count:
+                categoryCounts.find((each) => String(each) === choice) ?? 6,
+            });
           }}
         />
-      )}
+      ) : null}
     </SettingsGroup>
   );
 }
