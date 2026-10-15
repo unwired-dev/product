@@ -23,7 +23,10 @@ BOOL UnwiredCloseGuarded(NSString *identifier)
 
 NSString *UnwiredGuardedWindow(void)
 {
-  return guardedWindows().anyObject;
+  for (NSWindow *window in NSApp.windows) {
+    if (UnwiredCloseGuarded(window.identifier)) return window.identifier;
+  }
+  return nil;
 }
 
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
@@ -105,9 +108,13 @@ RCT_EXPORT_METHOD(guardClose:(NSString *)identifier guarded:(BOOL)guarded)
   }
 }
 
-// Closes a window once its composer has saved or deleted its Draft.
-RCT_EXPORT_METHOD(closeWindow:(NSString *)identifier)
+// A refused close also cancels any Quit waiting for this composer.
+RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
 {
+  if (!allowed) {
+    [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredWindowCloseCancelled" object:identifier];
+    return;
+  }
   [guardedWindows() removeObject:identifier];
   [windowNamed(identifier) performClose:nil];
 }

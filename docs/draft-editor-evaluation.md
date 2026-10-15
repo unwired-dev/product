@@ -62,7 +62,8 @@ their controls stop accepting input and leave VoiceOver immediately.
 - **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
   asks the same question first; it leaves once the Draft is saved, deleted or
   unchanged. On Mac, Command-W, the window's close button and Quit ask too, and the
-  window closes after **Save** or **Don’t Save**; Quit then needs choosing again.
+  window closes after **Save** or **Don’t Save**. Quit continues through any other
+  open editors and then stops the app; **Cancel** or a failed finish cancels Quit.
 - **Removal elsewhere.** A Draft deleted on another device while open keeps this
   editor's version; **Save Draft** stores it as a conflicting copy.
 - **Finishing.** Close, Save Draft and Send finish queued body edits before inspecting
@@ -449,6 +450,11 @@ next **Close**; an unchanged Draft closes and an empty one is removed without as
 **Delete Draft** removes the Draft; a refused **Send** stays open with its reason and
 stores the shown version; the iPhone Format panel, its keyboard hand-off and Writing
 tools; the iPad format bar; and the conversion menu and its accessibility action.
+The Mac component journey substitutes the native close module and checks window
+routing, repeated requests, Cancel, failed Save and successful Save. The native
+Mac journey now also covers Command-W cancellation, cancelled Quit and one Quit
+finishing two open editors; this added interaction coverage remains unexecuted
+without a signed mock profile.
 
 Native execution on 2026-10-15, same Mac mini and toolchain as above (macOS 27.0.1,
 Xcode 27.0, iOS 27.0 Simulator runtime), with a Release `registration-draft-editor`

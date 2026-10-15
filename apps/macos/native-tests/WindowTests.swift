@@ -301,6 +301,44 @@ final class WindowTests: XCTestCase {
     // The accepted reply body reopens as it was saved.
     XCTAssertTrue(
       webText("Synthetic reply to local mail.", in: relaunched).waitForExistence(timeout: 15))
+    nativeCloseJourney(app, window: relaunched)
+  }
+
+  private func nativeCloseJourney(_ app: XCUIApplication, window: XCUIElement) {
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Native close")
+    window.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
+    window.buttons["Cancel"].click()
+    XCTAssertTrue(window.webViews.textViews["Message body"].exists)
+    app.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
+    window.buttons["Cancel"].click()
+    // Saving later must not revive a cancelled Quit.
+    saveOnClose(window)
+    XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 10))
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    window.textFields["Subject"].click()
+    window.textFields["Subject"].typeText("First guarded window")
+    app.typeKey("n", modifierFlags: .command)
+    let second = app.windows["Inbox 2"]
+    XCTAssertTrue(second.buttons["New Message"].waitForExistence(timeout: 15))
+    second.buttons["New Message"].click()
+    XCTAssertTrue(second.buttons["Undo"].waitForExistence(timeout: 30))
+    second.textFields["Subject"].click()
+    second.textFields["Subject"].typeText("Second guarded window")
+    app.typeKey("q", modifierFlags: .command)
+    // One Quit asks each window, then actually stops the process.
+    let saving = app.windows.containing(.button, identifier: "Save").firstMatch
+    XCTAssertTrue(saving.waitForExistence(timeout: 10))
+    saving.buttons["Save"].click()
+    waitUntil { app.windows.count == 1 }
+    let remaining = app.windows.firstMatch
+    XCTAssertTrue(remaining.buttons["Don’t Save"].waitForExistence(timeout: 10))
+    remaining.buttons["Don’t Save"].click()
+    waitUntil { app.state == .notRunning }
   }
 
   private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {

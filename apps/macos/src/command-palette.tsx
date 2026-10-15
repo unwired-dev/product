@@ -99,7 +99,7 @@ interface CommandMenu extends TurboModule {
   readonly restoreFocus: (window: string) => void;
   // A guarded window asks its JavaScript before Command-W, its close button or Quit closes it.
   readonly guardClose: (window: string, guarded: boolean) => void;
-  readonly closeWindow: (window: string) => void;
+  readonly finishClose: (window: string, allowed: boolean) => void;
 }
 
 // The Commands… menu item, Command-P, names the key window it was chosen in.
@@ -241,8 +241,6 @@ const styles = StyleSheet.create({
   hintText: { fontSize: 10, lineHeight: 13 },
 });
 
-// Collects the commands the window's screens offer; every window has one, above every screen that
-// shows the CommandBar.
 // While mounted, closing this window or quitting first runs `leave`, the composer's own Close,
 // and closes the window only once it allows leaving.
 export function useCloseGuard(leave: () => Promise<boolean>) {
@@ -257,18 +255,23 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
     if (menu === null) {
       return undefined;
     }
-    menu.guardClose(identifier, true);
+    let pending = false;
     const subscription = new NativeEventEmitter(menu).addListener(
       'windowShouldClose',
       ({ window }: { readonly window: string }) => {
+        if (window !== identifier || pending) {
+          return;
+        }
+        pending = true;
         const answer = async () => {
-          if (window === identifier && (await leaveNow.current())) {
-            menu.closeWindow(identifier);
-          }
+          const allowed = await leaveNow.current();
+          menu.finishClose(identifier, allowed);
+          pending = false;
         };
         void answer();
       },
     );
+    menu.guardClose(identifier, true);
     return () => {
       subscription.remove();
       menu.guardClose(identifier, false);
@@ -276,6 +279,8 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
   }, [identifier]);
 }
 
+// Collects the commands the window's screens offer; every window has one, above every screen that
+// shows the CommandBar.
 export function CommandPaletteProvider({
   windowId,
   children,

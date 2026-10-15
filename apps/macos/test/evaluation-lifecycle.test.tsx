@@ -273,14 +273,14 @@ describe('evaluation composer lifetime', () => {
         saveFocus: () => void;
         restoreFocus: () => void;
         guardClose: ReturnType<typeof jest.fn>;
-        closeWindow: ReturnType<typeof jest.fn>;
+        finishClose: ReturnType<typeof jest.fn>;
       }> = {
       addListener: () => undefined,
       removeListeners: () => undefined,
       saveFocus: () => undefined,
       restoreFocus: () => undefined,
       guardClose: jest.fn(),
-      closeWindow: jest.fn(),
+      finishClose: jest.fn(),
     };
     const registry = commandModule(menu);
     try {
@@ -297,14 +297,46 @@ describe('evaluation composer lifetime', () => {
           });
         });
       };
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'inbox-window-other',
+        });
+      });
+      expect({
+        save: screen.queryByRole('button', { name: 'Save' }),
+        answers: menu.finishClose.mock.calls,
+      }).toStrictEqual({ save: null, answers: [] });
       // The window stays open while the save question is answered.
       await closeWindow();
       await simulatedPage().report({ frozen: true });
-      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-      expect(menu.closeWindow).not.toHaveBeenCalled();
+      // A repeated native request (including Quit during Command-W) keeps the same choice.
+      await closeWindow();
+      expect(menu.finishClose).not.toHaveBeenCalled();
+      await press('Cancel');
+      await waitFor(() => {
+        expect(menu.finishClose).toHaveBeenLastCalledWith(
+          'inbox-window-',
+          false,
+        );
+      });
+      menu.finishClose.mockClear();
+      await closeWindow();
+      await simulatedPage().report({ frozen: true });
+      storage.setLocked(true);
       await press('Save');
       await waitFor(() => {
-        expect(menu.closeWindow).toHaveBeenCalledWith('inbox-window-');
+        expect(menu.finishClose).toHaveBeenLastCalledWith(
+          'inbox-window-',
+          false,
+        );
+      });
+      storage.setLocked(false);
+      menu.finishClose.mockClear();
+      await closeWindow();
+      await simulatedPage().report({ frozen: true });
+      await press('Save');
+      await waitFor(() => {
+        expect(menu.finishClose).toHaveBeenCalledWith('inbox-window-', true);
       });
       expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
         { kind: 'paragraph', spans: [{ text: 'Keep this Draft' }] },

@@ -19,6 +19,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic) NSUInteger nextWindowNumber;
+@property(nonatomic, copy) NSString *quittingWindow;
 #if UNWIRED_NATIVE_TESTING
 @property(nonatomic, strong) NSTimer *workTimer;
 @property(nonatomic) NSUInteger workTicks;
@@ -40,6 +41,8 @@ extern "C" NSString *UnwiredGuardedWindow(void);
       name:UnwiredLanguageDidChange object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
       name:NSCurrentLocaleDidChangeNotification object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(cancelWindowClose:)
+      name:@"UnwiredWindowCloseCancelled" object:nil];
 #if UNWIRED_NATIVE_TESTING
   self.sessionID = NSUUID.UUID.UUIDString;
   __weak AppDelegate *weakSelf = self;
@@ -160,18 +163,25 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   return NO;
 }
 
-// Quitting first asks a window with unsaved edits, as closing it does; quit again once it closes.
+// Quit advances through guarded windows only after each composer allows closing.
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
 {
   NSString *guarded = UnwiredGuardedWindow();
   if (guarded == nil) return NSTerminateNow;
+  self.quittingWindow = guarded;
   for (NSWindow *window in NSApp.windows) {
     if ([window.identifier isEqualToString:guarded]) {
+      [window deminiaturize:self];
       [window makeKeyAndOrderFront:self];
       [window performClose:self];
     }
   }
   return NSTerminateCancel;
+}
+
+- (void)cancelWindowClose:(NSNotification *)notification
+{
+  if ([self.quittingWindow isEqualToString:notification.object]) self.quittingWindow = nil;
 }
 
 - (void)windowWillClose:(NSNotification *)notification
@@ -186,6 +196,11 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   // Destroy this React surface while the application factory and JS runtime remain alive.
   window.contentViewController = nil;
   [self recordLifecycle:@"window-close"];
+  if ([self.quittingWindow isEqualToString:window.identifier]) {
+    self.quittingWindow = nil;
+    // The original termination request must finish returning Cancel before retrying.
+    dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:self]; });
+  }
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification
