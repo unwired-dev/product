@@ -62,6 +62,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `evaluation-composer.tsx` treating the latest page-state revision as proof that
+  its body has arrived. Selection-only reports carry the current body revision
+  without the document. Track the accepted body's revision separately before
+  skipping an equal-revision frozen acknowledgement, and reject older reports.
+  Exercise a newer selection report arriving before its document and frozen
+  acknowledgement through durable reopen; otherwise Save can retain an older
+  body while acknowledging the newer revision.
+
 - `apps/mobile/src/registration-gate.tsx.RegistrationPage` placing scrollable
   setup content beneath the status bar or home indicator, or retaining spacing
   from superseded frames. Compare initial scroll position and final controls

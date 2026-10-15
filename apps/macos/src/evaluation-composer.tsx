@@ -111,6 +111,8 @@ function EvaluationEditor({
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
+  // Selection reports may arrive before the body at their revision.
+  const bodyRevision = useRef(0);
   const view = useRef<WebView>(null);
   const pageStopped = useRef(false);
   const [open, setOpen] = useState<'save' | 'tools'>();
@@ -653,7 +655,7 @@ function EvaluationEditor({
                   ...next
                 } = message;
                 const flushed =
-                  frozen && next.revision === pageNow.current?.revision;
+                  frozen && next.revision === bodyRevision.current;
                 pageNow.current = next;
                 setPageState(next);
                 if (reported === undefined || flushed) {
@@ -662,6 +664,7 @@ function EvaluationEditor({
                   }
                   return;
                 }
+                bodyRevision.current = next.revision;
                 // Editing again retires captured text, as in the current composer.
                 forget();
                 const previous = authored.current;

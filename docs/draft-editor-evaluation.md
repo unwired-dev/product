@@ -522,7 +522,8 @@ an edit queued in WebKit before the page acknowledges a finishing command, a ref
 save with **Try again**, locked storage and reopening, they check that:
 
 - a late report of an earlier body revision, before or during **Save Draft**, never
-  replaces the newer body, and the stored Draft is the newest one;
+  replaces the newer body, and a selection report arriving before its body does not
+  prevent the final acknowledgement from storing that body;
 - with two Mac windows on one Draft, the window that saves second keeps its version as
   a conflicting copy without remounting its page, even when storage refuses that save;
   its later edit and **Save** then store only the copy, and **Don’t Save** deletes
@@ -533,8 +534,10 @@ save with **Try again**, locked storage and reopening, they check that:
 - after another Product Account opens, **Save Draft** stores the open editor's version
   in neither account, and the earlier account keeps its stored version.
 
-Page tests in `happy-dom` already check that the page refuses a replacement computed
-for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
+Page/store integration journeys in `happy-dom` also exercise the real page bridge,
+Undo and Redo after a locked save creates a conflict copy, then durable Save and
+Discard of that copy while the other version survives. The page tests also check
+that the page refuses a replacement computed for another body revision. None of these are native evidence: native code delivers the page's messages in order, so late delivery is
 simulated at the host boundary.
 
 Outstanding for #821: the Mac two-window journey and the Command-W, window close and

@@ -269,33 +269,46 @@ describe('the Tiptap evaluation composer', () => {
     ]);
   });
 
-  it('keeps the newest page revision when an earlier report arrives late', async () => {
-    expect.hasAssertions();
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    await render(<App drafts={drafts} />);
-    await press('New Message');
-    const { report, typed } = simulatedPage();
-    const first = [{ kind: 'paragraph', spans: [{ text: 'One' }] }] as const;
-    await typed('One');
-    await typed('One two');
-    // WebKit delivers the first edit's report after the second; it cannot replace the newer body.
-    await report({ revision: 1, document: first });
-    await press('Close');
-    await press('Save Draft', false);
-    // Nor while Save Draft waits for the page to acknowledge its last edit.
-    await report({ revision: 1, document: first });
-    expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
-    await report({ frozen: true });
-    await waitFor(() => {
-      expect(screen.queryByTestId('message-webview')).toBeNull();
-    });
-    const reopened = createDrafts(storage.native, registration);
-    await reopened.load();
-    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
-      { kind: 'paragraph', spans: [{ text: 'One two' }] },
-    ]);
-  });
+  it.each([
+    {
+      firstReport: 'body',
+      next: { document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }] },
+    },
+    { firstReport: 'selection', next: { selection: { start: 7, end: 7 } } },
+  ] as const)(
+    'keeps the newest page body when its $firstReport report arrives first',
+    async ({ next }) => {
+      expect.hasAssertions();
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await render(<App drafts={drafts} />);
+      await press('New Message');
+      const { report, typed } = simulatedPage();
+      const first = [{ kind: 'paragraph', spans: [{ text: 'One' }] }] as const;
+      await typed('One');
+      await report({ revision: 2, ...next });
+      // WebKit delivers the first edit's report after the second; it cannot replace the newer body.
+      await report({ revision: 1, document: first });
+      await press('Close');
+      await press('Save Draft', false);
+      // Nor while Save Draft waits for the page to acknowledge its last edit.
+      await report({ revision: 1, document: first });
+      expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+      await report({
+        frozen: true,
+        revision: 2,
+        document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }],
+      });
+      await waitFor(() => {
+        expect(screen.queryByTestId('message-webview')).toBeNull();
+      });
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [{ text: 'One two' }] },
+      ]);
+    },
+  );
 
   it('asks to save a queued edit instead of discarding an apparently empty Draft', async () => {
     expect.hasAssertions();

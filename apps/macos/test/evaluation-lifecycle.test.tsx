@@ -351,7 +351,7 @@ describe('evaluation composer lifetime', () => {
       kept: (original: string) => ({ [original]: windowA }),
     },
   ] as const)(
-    'moves a stale window and its page history to a conflicting copy, then chooses $choice there',
+    'moves a stale window and its mounted page to a conflicting copy, then chooses $choice there',
     async ({ choice, kept }) => {
       expect.hasAssertions();
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -414,7 +414,7 @@ describe('evaluation composer lifetime', () => {
         conflict: true,
         body: [{ kind: 'paragraph', spans: [{ text: 'Window B' }] }],
       });
-      // The same page, with its undo history, now edits the copy.
+      // The same page now edits the copy; the page/store integration checks Undo and Redo.
       expect(inWindow('window-b').getByTestId('message-webview')).toBe(page);
       await stale.report({ document: later });
       storage.setLocked(false);
