@@ -159,8 +159,9 @@ against all 52 Custom Category hypotheses and the five System Category
 hypotheses; `evaluate` calibrates and scores it, so updated labels can reuse the
 model scores. Cached scores and adaptation artifacts record
 full-record corpus, category-definition and benchmark digests. The benchmark
-digest includes `custom.py`, `custom_synthetic.py`, `synthetic.py` and the #828
-shared experiment digest, so even formatting changes invalidate saved experiments.
+digest includes `custom.py`, `custom_benchmark.py`, `custom_report.py`,
+`custom_synthetic.py`, `synthetic.py` and the #828 shared experiment digest, so
+even formatting changes invalidate saved experiments.
 `evaluate`, `overrides`, `golden` and `tables` refuse incompatible artifacts;
 reports also check annotation digests, and artifact consumers verify adapted
 weights. After changing those inputs or code, regenerate the affected experiments

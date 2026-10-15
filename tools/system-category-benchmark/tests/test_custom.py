@@ -3,7 +3,8 @@ import json
 import numpy as np
 import pytest
 
-import custom
+import custom_benchmark as custom
+import custom_report
 import custom_synthetic
 
 
@@ -136,6 +137,6 @@ def test_tables_refuses_stale_reports(tmp_path, monkeypatch, field):
     }
     (tmp_path / "results").mkdir()
     (tmp_path / "results" / "stale.json").write_text(json.dumps(result))
-    monkeypatch.setattr(custom, "CUSTOM", tmp_path)
+    monkeypatch.setattr(custom_report, "CUSTOM", tmp_path)
     with pytest.raises(ValueError, match=field):
-        custom.tables()
+        custom_report.tables()

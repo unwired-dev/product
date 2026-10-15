@@ -32,7 +32,7 @@
  "truncated_pair_fraction": 0.24543019594943846,
  "premise_tokens_median": 96.0,
  "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
- "benchmark_sha256": "1e912812966e290e1c597a5abee5a5e59392c0120206f506569a9e43d8b577b2",
+ "benchmark_sha256": "4510f80a0acd9591afae104bf19335e93c0d4c9fba385b868c3ad95f2517437f",
  "thresholds": {
   "en": 0.55,
   "cs": 0.27

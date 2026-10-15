@@ -151,6 +151,17 @@ override replays were rerun after adding guards. Metadata migration changes no
 scores or weights and is not an automatic compatibility bypass. Future input or
 experiment changes require regeneration rather than restamping.
 
+The thermo-nuclear review split the Custom command entry point, benchmark operations
+and artifact rendering into `custom.py`, `custom_benchmark.py` and
+`custom_report.py`. All three files participate in the conservative experiment
+digest. Against reviewed commit `39e8c70cb`, every moved function body and constant
+is AST-identical except the expanded provenance file list; CLI command targets and
+arguments are unchanged. After verifying the old digests, corpus, labels, scores
+and weight identities, this mechanical refactor received updated digest metadata.
+All cached evaluations, baselines, agreement, override replays and golden outputs
+were regenerated and compared with that commit. Measured results and reference
+outputs are unchanged; the source split is not a general cache-migration bypass.
+
 ## Extraction inventory
 
 The operational README retains all input fields, token budgets, training settings,
