@@ -71,8 +71,6 @@ const LabelChange = Schema.fromJsonString(
 );
 const identity = (subject: string, granted: boolean) => ({
   subject,
-  idToken: 'synthetic-identity',
-  accessToken: 'synthetic-mail-access',
   scopes: granted ? [gmailScope] : [],
 });
 // A message's MIME headers, as its single part declares them.
@@ -311,7 +309,6 @@ export class SyntheticApple extends Context.Service<SyntheticApple>()(
     make: Effect.succeed({
       signIn: Effect.succeed({
         subject: 'synthetic-apple-subject',
-        idToken: 'synthetic-apple-identity',
         email: 'relay@privaterelay.example.invalid',
       }),
       credentialState: (subject: string) =>

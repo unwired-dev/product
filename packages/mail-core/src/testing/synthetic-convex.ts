@@ -1,11 +1,9 @@
 import type * as Types from 'effect/Types';
 
-import { sha256 } from '@noble/hashes/sha2.js';
 import * as Arr from 'effect/Array';
 import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
-import * as Hex from 'effect/encoding/Hex';
 import * as Layer from 'effect/Layer';
 import * as Order from 'effect/Order';
 import * as Predicate from 'effect/Predicate';
@@ -102,7 +100,6 @@ export const Identity = Schema.Struct({
 export const Receipt = Schema.Struct({
   productAccountId: Schema.String,
   trustedDeviceId: Schema.String,
-  trustedDeviceCredential: Schema.String,
   pending: Schema.optionalKey(Schema.Boolean),
   signInProviders: Schema.optionalKey(Schema.Array(SignInProvider)),
   productSyncMaterialInitialized: Schema.optionalKey(Schema.Boolean),
@@ -184,10 +181,10 @@ const accounts = new Map([
 const isBase64 = (value: unknown): value is string =>
   Predicate.isString(value) && Result.isSuccess(Base64.decode(value));
 // Convex's Recovery Key check: the digest of the presented proof is the account's verifier.
-const proves = (proof: unknown, verifier: string | undefined) =>
-  Predicate.isString(proof) &&
+const proves = (presented: unknown, verifier: string | undefined) =>
+  Predicate.isString(presented) &&
   verifier !== undefined &&
-  Hex.encode(sha256(new TextEncoder().encode(proof))) === verifier;
+  presented === verifier;
 // A Convex function's reply envelope; HTTP actions answer with their own bodies.
 const success = (value: unknown) => reply(200, { status: 'success', value });
 const refusal = (code: string) =>
@@ -211,17 +208,28 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
       const { scenario, launch } = yield* SyntheticScenario;
       const storage = yield* SyntheticStateStorage;
       const saved = yield* storage.read;
-      const state: SyntheticState =
+      let state: SyntheticState =
         saved === null ? empty() : yield* Schema.decodeEffect(StateJSON)(saved);
       const writes = yield* Semaphore.make(1);
-      // Encodes the state as it is when the write runs.
-      const save = Effect.suspend(() =>
-        Schema.encodeEffect(StateJSON)(state),
-      ).pipe(Effect.flatMap(storage.save));
-      // Applies a change and stores the result before anything is acknowledged.
-      const update = <A, E, R>(change: Effect.Effect<A, E, R>) =>
-        writes.withPermits(1)(Effect.tap(change, () => save));
-      const changed = <A>(change: () => A) => update(Effect.sync(change));
+      // Publish a changed copy only after storage accepts it; failed saves leave reads unchanged.
+      const update = <A, E, R>(
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates an unpublished transaction copy.
+        change: (next: SyntheticState) => Effect.Effect<A, E, R>,
+      ) =>
+        writes.withPermits(1)(
+          Effect.gen(function* () {
+            const next = yield* Schema.decodeEffect(StateJSON)(
+              yield* Schema.encodeEffect(StateJSON)(state),
+            );
+            const result = yield* change(next);
+            yield* storage.save(yield* Schema.encodeEffect(StateJSON)(next));
+            state = next;
+            return result;
+          }),
+        );
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates an unpublished transaction copy.
+      const changed = <A>(change: (next: SyntheticState) => A) =>
+        update((next) => Effect.sync(() => change(next)));
       const removable = scenario === 'registration-revocation';
       // Another device already created this account's keys and saved a mailbox with them; in the
       // recovery scenario that device is lost, and the person holds the account's Recovery Key.
@@ -229,13 +237,13 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         scenario === 'registration-recovery' &&
         state.recovery[lostDevice.account] === undefined
       ) {
-        yield* changed(() => {
-          state.recovery[lostDevice.account] = lostDevice.recovery;
-          state.verifiers[lostDevice.account] = lostDevice.verifier;
-          state.admitted[lostDevice.account] = [
+        yield* changed((next) => {
+          next.recovery[lostDevice.account] = lostDevice.recovery;
+          next.verifiers[lostDevice.account] = lostDevice.verifier;
+          next.admitted[lostDevice.account] = [
             'synthetic-trusted-installation',
           ];
-          state.records[lostDevice.account] = {
+          next.records[lostDevice.account] = {
             [lostDevice.mailbox.payloadIdentifier]: lostDevice.mailbox,
           };
         });
@@ -270,12 +278,12 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         expected: number | null;
       }>) {
         const account = product.productAccountId;
-        return yield* update(
+        return yield* update((next) =>
           Effect.gen(function* () {
             if (payload.keyVersion !== epoch(account)) {
               return yield* refuse('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
             }
-            const existing = state.records[account]?.[identifier];
+            const existing = next.records[account]?.[identifier];
             if (existing !== undefined && existing.updatedAt !== expected) {
               return existing;
             }
@@ -284,8 +292,8 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
               encryptedPayload: payload,
               updatedAt: (existing?.updatedAt ?? 0) + 1,
             };
-            state.records[account] = {
-              ...state.records[account],
+            next.records[account] = {
+              ...next.records[account],
               [identifier]: stored,
             };
             return stored;
@@ -296,18 +304,18 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
       // A Trusted Device for an admitted identifier; any other device of an account with keys
       // waits.
       const connectDevice = (account: string, deviceIdentifier: string) =>
-        update(
+        update((next) =>
           Effect.gen(function* () {
-            if (state.removedIdentifiers.includes(deviceIdentifier)) {
+            if (next.removedIdentifiers.includes(deviceIdentifier)) {
               return yield* refuse('revoked');
             }
-            const admitted = state.admitted[account] ?? [];
+            const admitted = next.admitted[account] ?? [];
             if (
               admitted.includes(deviceIdentifier) ||
-              (admitted.length === 0 && state.recovery[account] === undefined)
+              (admitted.length === 0 && next.recovery[account] === undefined)
             ) {
               if (!admitted.includes(deviceIdentifier)) {
-                state.admitted[account] = [...admitted, deviceIdentifier];
+                next.admitted[account] = [...admitted, deviceIdentifier];
               }
               return { id: devicePrefix + deviceIdentifier, pending: false };
             }
@@ -327,9 +335,9 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         }
         // Another device removes this one after its first sign-in; the relaunch learns of it. Its
         // identifier stays refused, and a new sign-in waits like any other new device.
-        const earlier = yield* changed(() => {
-          const first = state.connectedLaunch;
-          state.connectedLaunch = first ?? launch;
+        const earlier = yield* changed((next) => {
+          const first = next.connectedLaunch;
+          next.connectedLaunch = first ?? launch;
           return first !== undefined && first !== launch;
         });
         const admitted = state.admitted[account] ?? [];
@@ -338,18 +346,17 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
           earlier &&
           admitted.includes(deviceIdentifier)
         ) {
-          yield* changed(() => {
-            state.admitted[account] = admitted.filter(
+          yield* changed((next) => {
+            next.admitted[account] = admitted.filter(
               (identifier) => identifier !== deviceIdentifier,
             );
-            state.removedIdentifiers.push(deviceIdentifier);
+            next.removedIdentifiers.push(deviceIdentifier);
           });
         }
         const device = yield* connectDevice(account, deviceIdentifier);
         return {
           productAccountId: account,
           trustedDeviceId: device.id,
-          trustedDeviceCredential: 'a'.repeat(64),
           ...(device.pending ? { pending: true } : {}),
           signInProviders: [identity.provider],
           productSyncMaterialInitialized: state.recovery[account] !== undefined,
@@ -433,6 +440,8 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
       };
       // Removes the iPad when the proposal still matches the account, once: its new epoch.
       const removal = (
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Only the unpublished transaction copy is mutated.
+        candidate: SyntheticState,
         product: Product,
         request: typeof Activation.Type,
       ): readonly [number, unknown] => {
@@ -443,17 +452,17 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         }
         const account = product.productAccountId;
         const next = epoch(account) + 1;
-        state.removed.push(iPad.id);
-        state.epochs[account] = next;
-        state.envelopes[product.trustedDeviceId] = {
+        candidate.removed.push(iPad.id);
+        candidate.epochs[account] = next;
+        candidate.envelopes[product.trustedDeviceId] = {
           keyEpoch: next,
           encapsulatedKeyBase64: envelope.encapsulatedKeyBase64,
           ciphertextBase64: envelope.ciphertextBase64,
         };
-        state.recovery[account] = request.recoveryWrappedAccountKey;
-        state.verifiers[account] = request.recoveryVerifier;
-        state.proposals[request.proposalId] = next;
-        state.recoveryProposal[account] = request.proposalId;
+        candidate.recovery[account] = request.recoveryWrappedAccountKey;
+        candidate.verifiers[account] = request.recoveryVerifier;
+        candidate.proposals[request.proposalId] = next;
+        candidate.recoveryProposal[account] = request.proposalId;
         return [200, { keyEpoch: next }];
       };
       const activate = Effect.fn('SyntheticConvex.activate')(function* ({
@@ -466,7 +475,9 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         if (request === undefined) {
           return yield* reply(400, { code: 'KEY_ROTATION_INVALID' });
         }
-        const [status, body] = yield* changed(() => removal(product, request));
+        const [status, body] = yield* changed((next) =>
+          removal(next, product, request),
+        );
         return yield* reply(status, body);
       });
 
@@ -485,14 +496,14 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         }
         const account = product.productAccountId;
         // The first recovery envelope becomes the account's key material.
-        const initialized = yield* changed(() => {
-          const existing = state.recovery[account];
+        const initialized = yield* changed((next) => {
+          const existing = next.recovery[account];
           if (existing !== undefined) {
             return Schema.toEquivalence(EncryptedPayload)(existing, envelope);
           }
-          state.recovery[account] = envelope;
-          state.verifiers[account] = verifier;
-          state.deviceKeys[product.trustedDeviceId] = deviceEncryptionPublicKey;
+          next.recovery[account] = envelope;
+          next.verifiers[account] = verifier;
+          next.deviceKeys[product.trustedDeviceId] = deviceEncryptionPublicKey;
           return true;
         });
         return yield* success({ initialized });
@@ -514,14 +525,14 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
           return yield* success({ admitted: false });
         }
         const trustedDeviceId = devicePrefix + id.slice(pendingPrefix.length);
-        yield* changed(() => {
-          state.requests = without(state.requests, id);
-          state.recovered = without(state.recovered, id);
-          state.admitted[account] = [
-            ...(state.admitted[account] ?? []),
+        yield* changed((next) => {
+          next.requests = without(next.requests, id);
+          next.recovered = without(next.recovered, id);
+          next.admitted[account] = [
+            ...(next.admitted[account] ?? []),
             id.slice(pendingPrefix.length),
           ];
-          state.deviceKeys[trustedDeviceId] = authorized;
+          next.deviceKeys[trustedDeviceId] = authorized;
         });
         return yield* success({ admitted: true, trustedDeviceId });
       });
@@ -554,14 +565,14 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
 
       // Signing out forgets this device; signing in again makes it wait for admission.
       const unregister = ({ args, product }: Presented) =>
-        changed(() => {
-          const admitted = state.admitted[product.productAccountId];
+        changed((next) => {
+          const admitted = next.admitted[product.productAccountId];
           if (admitted !== undefined) {
-            state.admitted[product.productAccountId] = admitted.filter(
+            next.admitted[product.productAccountId] = admitted.filter(
               (identifier) => identifier !== args.deviceIdentifier,
             );
           }
-          state.requests = without(state.requests, product.trustedDeviceId);
+          next.requests = without(next.requests, product.trustedDeviceId);
         }).pipe(Effect.andThen(success({ registered: false })));
 
       // The Convex calls the native vault makes, answered as Convex would, by function path or
@@ -605,13 +616,13 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
             !isBase64(args.enrollmentPublicKey) ||
             !isBase64(deviceKey)
             ? refuse('unavailable')
-            : changed(() => {
-                state.requests[product.trustedDeviceId] = {
+            : changed((next) => {
+                next.requests[product.trustedDeviceId] = {
                   account: product.productAccountId,
                   deviceKey,
                 };
-                state.recovered = without(
-                  state.recovered,
+                next.recovered = without(
+                  next.recovered,
                   product.trustedDeviceId,
                 );
               }).pipe(
@@ -632,14 +643,14 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
           const { deviceEncryptionPublicKey: deviceKey } = args;
           return product.pending !== true ||
             !proves(
-              args.recoveryProof,
+              args.recoveryVerifier,
               state.verifiers[product.productAccountId],
             ) ||
             !isBase64(deviceKey) ||
             envelope === undefined
             ? success(null)
-            : changed(() => {
-                state.recovered[product.trustedDeviceId] = deviceKey;
+            : changed((next) => {
+                next.recovered[product.trustedDeviceId] = deviceKey;
               }).pipe(Effect.andThen(success(envelope)));
         },
         // The synthetic devices in this session never wait for this device's approval.
@@ -650,7 +661,7 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
           const bound = state.deviceKeys[product.trustedDeviceId];
           if (
             !proves(
-              args.recoveryProof,
+              args.recoveryVerifier,
               state.verifiers[product.productAccountId],
             ) ||
             !isBase64(deviceKey)
@@ -659,8 +670,8 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
           }
           return bound !== undefined && bound !== deviceKey
             ? refuse('unavailable')
-            : changed(() => {
-                state.deviceKeys[product.trustedDeviceId] = deviceKey;
+            : changed((next) => {
+                next.deviceKeys[product.trustedDeviceId] = deviceKey;
               }).pipe(Effect.andThen(success({ bound: true })));
         },
         'productSync:getEncryptedPayloadForTrustedDevice': ({
@@ -722,8 +733,8 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
               }),
         'productSync:putEncryptedPayloadIfUnchanged': putPayload,
         '/product-account/delete': ({ product }) =>
-          changed(() => {
-            state.deleted.push(product.productAccountId);
+          changed((next) => {
+            next.deleted.push(product.productAccountId);
           }).pipe(Effect.andThen(reply(200, { deleted: true }))),
       };
 
@@ -752,10 +763,10 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         put: (request: Parameters<typeof put>[0]) =>
           put(request).pipe(Effect.map((stored) => ({ stored }))),
         claimDelivery: (product: Product, identifier: string) =>
-          changed(() => {
-            const claims = state.claims[product.productAccountId] ?? [];
+          changed((next) => {
+            const claims = next.claims[product.productAccountId] ?? [];
             if (!claims.includes(identifier)) {
-              state.claims[product.productAccountId] = [...claims, identifier];
+              next.claims[product.productAccountId] = [...claims, identifier];
             }
             return { claimed: true };
           }),

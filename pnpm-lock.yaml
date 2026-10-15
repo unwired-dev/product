@@ -18,9 +18,6 @@ catalogs:
     '@effect/vitest':
       specifier: 4.0.0
       version: 4.0.0
-    '@noble/hashes':
-      specifier: 2.4.0
-      version: 2.4.0
     '@rajzik/oxfmt-config':
       specifier: ^4.0.4
       version: 4.0.4
@@ -713,9 +710,6 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@edge-runtime/vm@5.0.0)(@types/node@24.19.1)(happy-dom@20.14.5)(jsdom@20.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(terser@5.51.2)(yaml@2.9.1)))
-      '@noble/hashes':
-        specifier: 'catalog:'
-        version: 2.4.0
       '@private-email/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -2096,10 +2090,6 @@ packages:
   '@manypkg/tools@2.1.2':
     resolution: {integrity: sha512-6QEf6yqFbETdwGITKq57aYoPfX/3K8XFNwsAlx0C1M7o8cb79sv1M3w+tWuWvIcSbNqrLF7OD7YpZMVVz335hQ==}
     engines: {node: '>=20.0.0'}
-
-  '@noble/hashes@2.4.0':
-    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
-    engines: {node: '>= 20.19.0'}
 
   '@nodable/entities@3.1.0':
     resolution: {integrity: sha512-LsS/DjHr+uDM647Gru/cA8+J3a3HfhttwCKLyuoyN7yXTFCxKBtSgMQBvrW9yNPa2/zDRUNuGPaH5QUFoa4arQ==}
@@ -8497,8 +8487,6 @@ snapshots:
       jju: 1.4.0
       tinyglobby: 0.2.17
       yaml: 2.9.1
-
-  '@noble/hashes@2.4.0': {}
 
   '@nodable/entities@3.1.0': {}
 

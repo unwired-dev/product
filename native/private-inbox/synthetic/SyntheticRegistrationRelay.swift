@@ -1,4 +1,5 @@
 #if UNWIRED_REGISTRATION_MOCK
+  import CryptoKit
   import Foundation
   import React
 
@@ -130,15 +131,17 @@
     private func identity(_ reply: [String: Any]) throws -> GoogleRegistrationIdentity {
       let subject = try string(reply, "subject")
       return GoogleRegistrationIdentity(
-        subject: subject, credential: Data(subject.utf8), idToken: try string(reply, "idToken"),
-        accessToken: try string(reply, "accessToken"),
+        subject: subject, credential: Data(subject.utf8), idToken: "synthetic-identity",
+        accessToken: "synthetic-mail-access",
         scopes: Set(reply["scopes"] as? [String] ?? []))
     }
     func signIn(mail: Bool, hint: String?) async throws -> GoogleRegistrationIdentity {
       try identity(await ask("google.signIn", ["mail": mail, "hint": hint ?? NSNull()]))
     }
     func refresh(_ credential: Data) async throws -> GoogleRegistrationIdentity {
-      try identity(await ask("google.refresh", ["subject": text(credential)]))
+      guard let subject = String(data: credential, encoding: .utf8), subject.hasPrefix("synthetic-")
+      else { throw RegistrationError.invalidIdentity }
+      return try identity(await ask("google.refresh", ["subject": subject]))
     }
     func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws
       -> GmailRegistrationReceipt
@@ -162,7 +165,7 @@
     func signIn() async throws -> AppleRegistrationIdentity {
       let reply = try await ask("apple.signIn")
       return AppleRegistrationIdentity(
-        subject: try string(reply, "subject"), idToken: try string(reply, "idToken"),
+        subject: try string(reply, "subject"), idToken: "synthetic-apple-identity",
         email: reply["email"] as? String)
     }
     func credentialState(_ subject: String) async -> AppleCredentialState {
@@ -178,15 +181,15 @@
   @MainActor final class SyntheticMicrosoftProvider: MicrosoftMailProvider {
     private func identity(_ reply: [String: Any]) throws -> MicrosoftMailIdentity {
       MicrosoftMailIdentity(
-        credential: Data(try string(reply, "credential").utf8),
-        accessToken: try string(reply, "accessToken"),
+        credential: Data("synthetic-microsoft".utf8),
+        accessToken: "synthetic-graph-access",
         scopes: Set(reply["scopes"] as? [String] ?? []))
     }
     func signIn(hint: String?) async throws -> MicrosoftMailIdentity {
       try identity(await ask("microsoft.signIn", ["hint": hint ?? NSNull()]))
     }
     func refresh(_ credential: Data) async throws -> MicrosoftMailIdentity {
-      try identity(await ask("microsoft.refresh", ["credential": text(credential)]))
+      try identity(await ask("microsoft.refresh"))
     }
     func verify(_ identity: MicrosoftMailIdentity) async throws -> GmailRegistrationReceipt {
       try decode(GmailRegistrationReceipt.self, await ask("microsoft.verify"))
@@ -211,8 +214,29 @@
     [
       "identity": identity.map { ["provider": $0.provider.rawValue, "subject": $0.subject] }
         ?? NSNull(),
-      "product": try product.map(json) ?? NSNull(),
+      "product": try product.map { product in
+        guard var fields = try json(product) as? [String: Any] else {
+          throw RegistrationError.unavailable
+        }
+        fields.removeValue(forKey: "trustedDeviceCredential")
+        return fields
+      } ?? NSNull(),
     ]
+  }
+
+  // Project credentialed calls without their native proof. Only its public recovery verifier
+  // reaches the synthetic backend; it cannot be presented as the Recovery Key proof.
+  private func arguments(_ request: BackendRequest) -> [String: Any] {
+    var fields = request.args
+    for name in ["trustedDeviceCredential", "pendingDeviceCredential", "authorizationCode"] {
+      fields.removeValue(forKey: name)
+    }
+    if let proof = fields.removeValue(forKey: "recoveryProof") as? String {
+      fields["recoveryVerifier"] = SHA256.hash(data: Data(proof.utf8)).map {
+        String(format: "%02x", $0)
+      }.joined()
+    }
+    return fields
   }
 
   @MainActor func syntheticRegistrationStore(mailCache: PrivateInboxStore?) throws
@@ -262,16 +286,16 @@
         try await exchange(
           "convex.call",
           try caller(request.identity, request.product).merging([
-            "endpoint": request.endpoint.rawValue, "path": request.path, "args": request.args,
+            "endpoint": request.endpoint.rawValue, "path": request.path, "args": arguments(request),
           ]) { $1 })
       },
       mailCache: mailCache,
       connect: { identity, deviceIdentifier, _ in
-        try decode(
-          ProductRegistrationReceipt.self,
-          await ask(
-            "convex.connect",
-            try caller(identity, nil).merging(["deviceIdentifier": deviceIdentifier]) { $1 }))
+        var reply = try await ask(
+          "convex.connect",
+          try caller(identity, nil).merging(["deviceIdentifier": deviceIdentifier]) { $1 })
+        reply["trustedDeviceCredential"] = String(repeating: "a", count: 64)
+        return try decode(ProductRegistrationReceipt.self, reply)
       })
   }
 #endif

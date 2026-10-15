@@ -12,8 +12,6 @@ const projects = 'AQMkAGI2-synthetic-projects=';
 const delta =
   "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta";
 const identity = {
-  credential: 'synthetic-microsoft',
-  accessToken: 'synthetic-graph-access',
   scopes: ['Mail.ReadWrite', 'Mail.Send', 'User.Read', 'offline_access'],
 };
 const from = {

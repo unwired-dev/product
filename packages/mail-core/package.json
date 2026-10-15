@@ -55,7 +55,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@noble/hashes": "catalog:",
     "@private-email/contracts": "workspace:*",
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
