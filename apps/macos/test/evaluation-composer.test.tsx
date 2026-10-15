@@ -40,7 +40,7 @@ import { useMemo, useState } from 'react';
 
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, useComposerNavigation } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
@@ -69,7 +69,27 @@ const registration = {
   subscribe: () => () => undefined,
 };
 
-function App({ drafts }: { readonly drafts: ReturnType<typeof createDrafts> }) {
+function NavigationProbe({
+  onNavigation,
+}: {
+  readonly onNavigation:
+    | ((navigation: ReturnType<typeof useComposerNavigation>) => void)
+    | undefined;
+}) {
+  const navigation = useComposerNavigation();
+  onNavigation?.(navigation);
+  return null;
+}
+
+function App({
+  drafts,
+  onNavigation,
+}: {
+  readonly drafts: ReturnType<typeof createDrafts>;
+  readonly onNavigation?: (
+    navigation: ReturnType<typeof useComposerNavigation>,
+  ) => void;
+}) {
   const mailboxes = useMemo(
     () =>
       createMailboxes(
@@ -90,6 +110,7 @@ function App({ drafts }: { readonly drafts: ReturnType<typeof createDrafts> }) {
       <InboxProvider
         drafts={drafts}
         mailboxes={mailboxes}>
+        <NavigationProbe onNavigation={onNavigation} />
         <Inbox
           composing={composing}
           onCompose={setComposing}
@@ -110,10 +131,38 @@ function App({ drafts }: { readonly drafts: ReturnType<typeof createDrafts> }) {
   );
 }
 
-const press = async (name: string | RegExp) => {
+// The command the host last sent its page.
+const lastCommand = () => injectedScripts.at(-1);
+
+const press = async (name: string | RegExp, flush = true) => {
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
+    // The native WebView boundary acknowledges a finishing command after queued edits.
+    if (
+      flush &&
+      lastCommand() === commandScript({ type: 'editable', editable: false })
+    ) {
+      const page = screen.queryByTestId('message-webview', {
+        includeHiddenElements: true,
+      });
+      if (page !== null) {
+        fireEvent(page, 'message', {
+          nativeEvent: {
+            data: JSON.stringify({
+              type: 'update',
+              frozen: true,
+              revision: 0,
+              selection: { start: 0, end: 0 },
+              marks: [],
+              kind: 'paragraph',
+              undo: false,
+              redo: false,
+            }),
+          },
+        });
+      }
+    }
   });
 };
 
@@ -123,6 +172,7 @@ function simulatedPage() {
   let revision = 0;
   const report = async (
     state: Readonly<{
+      frozen?: boolean;
       document?: SemanticDocument;
       attachments?: readonly Asset[];
       selection?: Readonly<{ start: number; end: number }>;
@@ -155,8 +205,6 @@ function simulatedPage() {
     revision: () => revision,
   };
 }
-// The command the host last sent its page.
-const lastCommand = () => injectedScripts.at(-1);
 // That command as the page receives it.
 const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
 const Previews = Schema.optionalKey(
@@ -209,6 +257,44 @@ const lastAdded = () => {
   ok(sent?.type === 'add', 'Expected the page to add assets');
   return { images: sent.images ?? [], attachments: sent.attachments ?? [] };
 };
+
+// Reopens a saved Draft while its native import is pending, then completes it before an exit.
+async function settledImport(action: 'save' | 'delete' | 'unchanged') {
+  const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+  const drafts = createDrafts(storage.native, registration);
+  await drafts.load();
+  const id = await drafts.create({ id: alex, address: 'alex@example.invalid' });
+  ok(id, 'Expected a Draft');
+  const [original] = draftsOf(drafts.getSnapshot());
+  ok(original, 'Expected the created Draft');
+  storage.addFile('file:///pending.png', 'pending');
+  const asset = drafts.prepare({ name: 'pending.png', type: 'image/png' });
+  await drafts.update({ ...original, attachments: [asset] }, original);
+  storage.holdImports();
+  const importing = drafts.importAsset(asset, {
+    kind: 'file',
+    uri: 'file:///pending.png',
+  });
+  await render(<App drafts={drafts} />);
+  await press(/^Draft\./u);
+  await act(async () => {
+    storage.releaseImports();
+    await importing;
+  });
+  if (action !== 'unchanged') {
+    await act(async () => {
+      fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Edited after import',
+      );
+    });
+  }
+  await press('Close');
+  if (action !== 'unchanged') {
+    await press(action === 'save' ? 'Save' : 'Don’t Save');
+  }
+  return { drafts, id };
+}
 
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
@@ -308,6 +394,115 @@ describe('the Tiptap evaluation composer', () => {
     await press('Close');
     expect(screen.queryByTestId('message-webview')).toBeNull();
     expect(draftsOf(reopened.getSnapshot())).toHaveLength(1);
+  });
+
+  it('includes queued page edits before Save and locks editing until storage finishes', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.typed('Before Close');
+    storage.hold();
+    await press('Close');
+    await press('Save', false);
+    // WebKit may still have a text update queued when the native Save control is pressed.
+    await page.typed('Last queued edit');
+    await page.report({ frozen: true });
+    expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+    await act(async () => {
+      storage.release();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Last queued edit' }] },
+    ]);
+  });
+
+  it('asks to save a queued edit instead of discarding an apparently empty Draft', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.report({});
+    await press('Close', false);
+    await page.typed('Queued before Close');
+    await page.report({ frozen: true });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+    await press('Don’t Save');
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+  });
+
+  it.each([
+    ['save', ['Edited after import']],
+    ['delete', []],
+    ['unchanged', ['']],
+  ] as const)(
+    'keeps the saved baseline current when an import finishes before %s',
+    async (action, subjects) => {
+      expect.hasAssertions();
+      const { drafts, id } = await settledImport(action);
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+      const saved = draftsOf(drafts.getSnapshot());
+      expect(saved.map(({ subject }) => subject)).toStrictEqual(subjects);
+      expect(
+        saved.map(({ id: current, conflict }) => [current, conflict]),
+      ).toStrictEqual(subjects.map(() => [id, undefined]));
+    },
+  );
+
+  it('continues pending navigation after the current Draft is saved', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const navigation: {
+      current: ReturnType<typeof useComposerNavigation> | undefined;
+    } = { current: undefined };
+    await render(
+      <App
+        drafts={drafts}
+        onNavigation={(value) => {
+          navigation.current = value;
+        }}
+      />,
+    );
+    await press('New Message');
+    await simulatedPage().typed('Keep this Draft');
+    ok(navigation.current, 'Expected navigation');
+    const leaving = navigation.current.leave;
+    let allowed: boolean | undefined = undefined;
+    await act(async () => {
+      void leaving().then((result) => {
+        allowed = result;
+        return result;
+      });
+    });
+    expect(allowed).toBeUndefined();
+    await simulatedPage().report({ frozen: true });
+    await press('Cancel');
+    await waitFor(() => {
+      expect({ allowed }).toStrictEqual({ allowed: false });
+    });
+    allowed = undefined;
+    await act(async () => {
+      void leaving().then((result) => {
+        allowed = result;
+        return result;
+      });
+    });
+    await simulatedPage().report({ frozen: true });
+    await press('Save');
+    await waitFor(() => {
+      expect(allowed).toBe(true);
+    });
+    expect(screen.queryByTestId('message-webview')).toBeNull();
   });
 
   it('removes an empty Draft on Close, deletes an edited one, and stores a refused Send', async () => {

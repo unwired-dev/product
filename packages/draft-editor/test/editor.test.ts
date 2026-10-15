@@ -243,6 +243,22 @@ describe('the Tiptap evaluation page', () => {
     );
   });
 
+  it('freezes editing and reports the latest document before the host saves or sends', async () => {
+    expect.hasAssertions();
+    const page = await open(paragraphs('Before'));
+    page.editor.commands.setTextSelection(7);
+    page.type(' queued');
+    page.command({ type: 'editable', editable: false });
+    expect(page.editor.isEditable).toBe(false);
+    expect(page.posted.at(-1)).toMatchObject({
+      frozen: true,
+      document: paragraphs('Before queued'),
+      attachments: [],
+    });
+    page.command({ type: 'editable', editable: true });
+    expect(page.editor.isEditable).toBe(true);
+  });
+
   it('formats the selection and the next typed text', async () => {
     expect.hasAssertions();
     const page = await open(paragraphs('one two', 'three'));

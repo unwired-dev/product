@@ -26,6 +26,8 @@ const PageMessageSchema = Schema.fromJsonString(
     Schema.Struct({
       type: Schema.Literal('update'),
       revision: Offset,
+      // The page is read-only and has flushed every preceding edit before the host finishes.
+      frozen: Schema.optionalKey(Schema.Literal(true)),
       document: Schema.optionalKey(SemanticDocumentSchema),
       attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
       // Display offsets, as the current composer counts them: blocks joined by line breaks, list
@@ -56,6 +58,7 @@ export type Command =
   // Ends editing in the page, which hides the software keyboard, or resumes it at the selection.
   | Readonly<{ type: 'blur' }>
   | Readonly<{ type: 'focus' }>
+  | Readonly<{ type: 'editable'; editable: boolean }>
   | Readonly<{
       type: 'replace';
       revision: number;

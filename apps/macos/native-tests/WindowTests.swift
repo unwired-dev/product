@@ -264,7 +264,6 @@ final class WindowTests: XCTestCase {
     first.buttons["Open Inbox"].click()
     // The disposable Draft belongs to this run's synthetic Product Account only.
     first.buttons["New Message"].click()
-    XCTAssertTrue(text("Evaluation editor", in: first).waitForExistence(timeout: 15))
     let body = first.webViews.textViews["Message body"]
     XCTAssertTrue(body.waitForExistence(timeout: 15))
     // The toolbar appears once the page is ready and moves the page down; focus it after that.
@@ -276,7 +275,6 @@ final class WindowTests: XCTestCase {
       NSPredicate(format: "value == %@", "Evaluation paragraph")
     ).firstMatch
     XCTAssertTrue(typed.waitForExistence(timeout: 10))
-    XCTAssertTrue(text("Draft · Saved on this device", in: first).waitForExistence(timeout: 10))
     // Resize: the page follows a narrower window without reloading or losing its text.
     let before = first.webViews.firstMatch.frame
     let corner = first.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
@@ -289,10 +287,10 @@ final class WindowTests: XCTestCase {
       .completed)
     XCTAssertTrue(typed.exists)
     formattingJourney(app, typed: typed)
-    // Teardown: Close saves and removes the page's web view.
+    // The last round trip reopened the Draft unchanged, so Close needs no save choice.
     first.buttons["Close"].click()
-    XCTAssertTrue(text("Evaluation editor", in: first).waitForNonExistence(timeout: 10))
-    XCTAssertEqual(first.webViews.count, 0)
+    waitUntil { first.webViews.count == 0 }
+    XCTAssertFalse(first.buttons["Save"].exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
@@ -308,6 +306,23 @@ final class WindowTests: XCTestCase {
   private func webText(_ value: String, in window: XCUIElement) -> XCUIElement {
     window.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", value))
       .firstMatch
+  }
+
+  private func writingTool(_ name: String, in window: XCUIElement) -> XCUIElement {
+    let tools = window.buttons["Writing tools"]
+    XCTAssertTrue(tools.waitForExistence(timeout: 30))
+    tools.click()
+    let action = window.buttons[name]
+    XCTAssertTrue(action.waitForExistence(timeout: 15))
+    return action
+  }
+
+  private func saveOnClose(_ window: XCUIElement) {
+    window.buttons["Close"].click()
+    let save = window.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.click()
+    waitUntil { window.webViews.count == 0 }
   }
 
   // #819: Command-B formats the selection in the page, Command-Z and Shift-Command-Z step the
@@ -335,35 +350,31 @@ final class WindowTests: XCTestCase {
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      let rewrite = window.buttons["Rewrite the selected text"]
-      XCTAssertTrue(rewrite.waitForExistence(timeout: 15))
-      rewrite.click()
+      self.writingTool("Rewrite the selected text", in: window).click()
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
       window.webViews.textViews["Message body"].click()
-      let rewrite = window.buttons["Rewrite the message body"]
-      XCTAssertTrue(rewrite.waitForExistence(timeout: 15))
-      rewrite.click()
+      self.writingTool("Rewrite the message body", in: window).click()
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
-      let translate = window.buttons["Translate the selected text"]
       window.webViews.staticTexts.firstMatch.doubleClick()
+      let translate = self.writingTool("Translate the selected text", in: window)
       waitUntil { translate.isEnabled }
       translate.click()
       window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
         .firstMatch.click()
     }
     window.buttons["Close"].click()
-    XCTAssertTrue(text("Evaluation editor", in: window).waitForNonExistence(timeout: 10))
+    waitUntil { window.webViews.count == 0 }
     window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Garden plans for spring"))
       .firstMatch.click()
     window.buttons["Reply"].click()
-    XCTAssertTrue(window.buttons["Suggest a reply to the quoted message"].waitForExistence(timeout: 30))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
     assistanceRoundTrips(
       app, result: "Synthetic reply to local mail.", apply: "Replace your reply with this suggestion",
       draft: "Garden plans for spring", numbered: false, boldAfterApply: false
     ) {
-      window.buttons["Suggest a reply to the quoted message"].click()
+      self.writingTool("Suggest a reply to the quoted message", in: window).click()
     }
   }
 
@@ -376,9 +387,7 @@ final class WindowTests: XCTestCase {
 
   private func reopenDraft(_ app: XCUIApplication, titled title: String = "") {
     let window = app.windows["Inbox 1"]
-    window.buttons["Close"].click()
-    XCTAssertTrue(text("Evaluation editor", in: window).waitForNonExistence(timeout: 10))
-    XCTAssertEqual(window.webViews.count, 0)
+    saveOnClose(window)
     app.terminate()
     app.launch()
     // A Draft row names its subject; without a title, the only Draft so far.

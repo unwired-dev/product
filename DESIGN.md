@@ -560,7 +560,8 @@ form accessories, keyboards, status bar).
 - **Settings Row:** title, optional subtitle and icon, and one trailing control
   (switch, pop-up, value, button or disclosure). The switch track uses the accent
   fill when on and `fill/track` when off.
-- **Icons:** SF Symbols only, regular weight, tinted with a color token. Never
+- **Icons:** SF Symbols only, regular weight, tinted with a color token. The
+  approved compose Writing tools control uses `sparkles`; other controls never use
   sparkle or "AI" iconography.
 
 ## Do's and Don'ts

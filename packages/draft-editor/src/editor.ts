@@ -359,8 +359,13 @@ if (draftEditor !== undefined && element !== null) {
     learn(spans.flatMap((span) => ('image' in span ? [span.image] : [])));
   }
   let revision = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor and transaction are classes; this only reads them.
-  const post = (editor: TiptapEditor, transaction: Transaction) => {
+  const post = (
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's editor is a class; this only reads it.
+    editor: TiptapEditor,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's transaction is a class; this only reads it.
+    transaction: Transaction,
+    frozen = false,
+  ) => {
     if (transaction.docChanged) {
       revision += 1;
     }
@@ -369,7 +374,8 @@ if (draftEditor !== undefined && element !== null) {
     const update: Update = {
       type: 'update',
       revision,
-      ...(transaction.docChanged
+      ...(frozen ? { frozen: true as const } : {}),
+      ...(transaction.docChanged || frozen
         ? {
             document: fromEditor(editor.getJSON(), assets),
             attachments: attachmentsOf(editor.state).flatMap((id) => {
@@ -562,6 +568,12 @@ if (draftEditor !== undefined && element !== null) {
       convert(command.id);
     } else if (command.type === 'previews') {
       showPreviews(command.previews);
+    } else if (command.type === 'editable') {
+      editor.setEditable(command.editable);
+      if (!command.editable) {
+        editor.commands.blur();
+        post(editor, editor.state.tr, true);
+      }
     } else if (command.type === 'mark') {
       editor.commands.toggleMark(tiptapMarks[command.mark]);
     } else if (command.type === 'block') {

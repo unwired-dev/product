@@ -53,6 +53,9 @@ regular composer adopts the same design in
   unchanged.
 - **Removal elsewhere.** A Draft deleted on another device while open keeps this
   editor's version; **Save Draft** stores it as a conflicting copy.
+- **Finishing.** Close, Save Draft and Send finish queued body edits before inspecting
+  the Draft. Editing pauses while saving or sending, and resumes if the operation
+  cannot finish. A pending navigation continues after the chosen save or deletion.
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to

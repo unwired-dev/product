@@ -774,6 +774,13 @@ function EvaluationEditor({
   const [sending, setSending] = useState(false);
   // Save Draft, Delete Draft and Send each finish before another starts.
   const busy = useRef(false);
+  const paused = useRef<((ready: boolean) => void) | undefined>(undefined);
+  const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
+  const answerLeave = useCallback((allowed: boolean) => {
+    const answer = leaving.current;
+    leaving.current = undefined;
+    answer?.(allowed);
+  }, []);
   const [stopped, setStopped] = useState(false);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
@@ -781,8 +788,12 @@ function EvaluationEditor({
     onRebindNow.current = onRebind;
   }, [onRebind]);
   const rebind = useCallback((id: string) => {
-    authored.current = { ...authored.current, id, conflict: true };
-    stored.current = { ...stored.current, id, conflict: true };
+    const previous = authored.current;
+    authored.current = { ...previous, id, conflict: true };
+    stored.current =
+      stored.current === previous
+        ? authored.current
+        : { ...stored.current, id, conflict: true };
     if (mounted.current) {
       setDraft(authored.current);
       onRebindNow.current(id);
@@ -792,6 +803,8 @@ function EvaluationEditor({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      paused.current?.(false);
+      leaving.current?.(false);
       store.release(rebind);
     };
   }, [rebind, store]);
@@ -817,6 +830,7 @@ function EvaluationEditor({
   }
   const stop = () => {
     pageStopped.current = true;
+    paused.current?.(false);
     pageNow.current = undefined;
     forget();
     setStopped(true);
@@ -828,6 +842,9 @@ function EvaluationEditor({
   }, []);
   // An edit in this editor only; the store learns of it on Save Draft or Send.
   const change = (next: Draft) => {
+    if (busy.current && paused.current === undefined) {
+      return;
+    }
     authored.current = next;
     setDraft(next);
     if (!busy.current) {
@@ -853,7 +870,12 @@ function EvaluationEditor({
         if (asset !== undefined) {
           known.current.set(id, next(asset));
         }
-        authored.current = withAsset(authored.current, id, next);
+        const previous = authored.current;
+        authored.current = withAsset(previous, id, next);
+        stored.current =
+          stored.current === previous
+            ? authored.current
+            : withAsset(stored.current, id, next);
         if (mounted.current) {
           setDraft(authored.current);
         }
@@ -951,6 +973,7 @@ function EvaluationEditor({
     const reported = pageNow.current;
     if (
       !mounted.current ||
+      busy.current ||
       reported === undefined ||
       captured === undefined ||
       captureNow.current !== captured ||
@@ -1004,12 +1027,28 @@ function EvaluationEditor({
     setClosing('saving');
     let closed = false;
     try {
-      closed = await finish();
+      // A WebKit edit may still be queued when a native control is pressed. Freeze the page and
+      // receive its final document before storing or admitting exactly that version.
+      const pageReady =
+        pageStopped.current || pageNow.current === undefined
+          ? true
+          : // oxlint-disable-next-line promise/avoid-new -- The page acknowledges its ordered edit flush.
+            await new Promise<boolean>((resolve) => {
+              paused.current = resolve;
+              run({ type: 'editable', editable: false });
+            });
+      paused.current = undefined;
+      closed = pageReady && (await finish());
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
+    paused.current = undefined;
     busy.current = false;
     setSending(false);
+    answerLeave(closed);
+    if (!closed) {
+      run({ type: 'editable', editable: true });
+    }
     if (closed && mounted.current) {
       mounted.current = false;
       onClose();
@@ -1074,30 +1113,46 @@ function EvaluationEditor({
     if (busy.current) {
       return false;
     }
-    if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
-      return finishing(() =>
-        store.discard(() => authored.current.id, {
+    return finishing(async () => {
+      if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
+        return store.discard(() => authored.current.id, {
           onlyIfEmpty: true,
           expected: () => stored.current,
-        }),
-      );
-    }
-    if (
-      authored.current === stored.current &&
-      state.kind === 'ready' &&
-      state.save === 'saved'
-    ) {
-      mounted.current = false;
-      onClose();
-      return true;
-    }
-    run({ type: 'blur' });
-    setOpen('close');
-    return false;
+        });
+      }
+      if (
+        authored.current === stored.current &&
+        state.kind === 'ready' &&
+        state.save === 'saved'
+      ) {
+        return true;
+      }
+      setClosing(undefined);
+      setOpen('close');
+      return false;
+    });
   };
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
-  useLayoutEffect(() => navigation.register(close));
+  useLayoutEffect(() =>
+    navigation.register(async () => {
+      if (await close()) {
+        return true;
+      }
+      if (busy.current || !mounted.current) {
+        return false;
+      }
+      // oxlint-disable-next-line promise/avoid-new -- Navigation waits for Save, Delete or dismissal.
+      return new Promise<boolean>((resolve) => {
+        leaving.current = resolve;
+      });
+    }),
+  );
+  useEffect(() => {
+    if (open !== 'close' && !busy.current) {
+      answerLeave(false);
+    }
+  }, [answerLeave, open]);
   // Quoted correspondence and its images stay as the Draft has them.
   const { quoted: _quoted, ...owned } = draft;
   const controls = {
@@ -1111,7 +1166,7 @@ function EvaluationEditor({
     onCapture: capture,
   };
   // Controls appear once the page reports that it is ready for commands.
-  const shown = stopped || sending ? undefined : pageState;
+  const shown = stopped || closing === 'saving' ? undefined : pageState;
   const phone = layout.size === 'compact' ? shown : undefined;
   return (
     <SafeAreaView
@@ -1167,7 +1222,7 @@ function EvaluationEditor({
           <View style={s.bar}>
             <SendingMailbox
               draft={draft}
-              editable={!sending}
+              editable={closing !== 'saving' && !sending}
               onChange={(mailbox) => {
                 change(withSender(authored.current, mailbox));
               }}
@@ -1255,11 +1310,17 @@ function EvaluationEditor({
                     document: reported,
                     attachments: attached = [],
                     type: _,
+                    frozen,
                     ...next
                   } = message;
+                  const flushed =
+                    frozen && next.revision === pageNow.current?.revision;
                   pageNow.current = next;
                   setPageState(next);
-                  if (reported === undefined) {
+                  if (reported === undefined || flushed) {
+                    if (frozen) {
+                      paused.current?.(true);
+                    }
                     return;
                   }
                   // Editing again retires captured text, as in the current composer.
@@ -1277,11 +1338,15 @@ function EvaluationEditor({
                       ? {}
                       : { attachments }),
                   });
+                  if (frozen) {
+                    paused.current?.(true);
+                  }
                 }}
                 // Only the page itself loads; every navigation it could start is cancelled.
                 onShouldStartLoadWithRequest={({ url, navigationType }) =>
                   url === 'about:blank' && navigationType === 'other'
                 }
+                pointerEvents={closing === 'saving' ? 'none' : 'auto'}
                 originWhitelist={['*']}
                 setSupportMultipleWindows={false}
                 source={source}
@@ -1305,7 +1370,7 @@ function EvaluationEditor({
             <DraftFields
               draft={draft}
               getDraft={getDraft}
-              editable={!sending}
+              editable={closing !== 'saving' && !sending}
               onChange={change}
               onCaretMove={() => {
                 setOpen(undefined);
