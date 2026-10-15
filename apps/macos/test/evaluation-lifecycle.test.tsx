@@ -3,8 +3,16 @@ import { ok } from 'node:assert/strict';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 import { Animated } from 'react-native';
+
+import type { useComposerNavigation } from '../src/mailbox.tsx';
 
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { App, registration } from './evaluation-app.tsx';
@@ -72,6 +80,95 @@ function expectRetiringControl(name: string) {
 }
 
 describe('evaluation composer lifetime', () => {
+  it('answers navigation at once when Close fails without asking', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const navigation: {
+      current: ReturnType<typeof useComposerNavigation> | undefined;
+    } = { current: undefined };
+    await render(
+      <App
+        drafts={drafts}
+        onNavigation={(value) => {
+          navigation.current = value;
+        }}
+      />,
+    );
+    await press('New Message');
+    await simulatedPage().report({});
+    ok(navigation.current, 'Expected navigation');
+    const leaving = navigation.current.leave;
+    let allowed: boolean | undefined = undefined;
+    await act(async () => {
+      void leaving().then((result) => {
+        allowed = result;
+        return result;
+      });
+    });
+    // The page stops before acknowledging the freeze, so Close neither finishes nor asks.
+    await act(async () => {
+      screen.getByTestId('message-webview').props.onError();
+    });
+    await waitFor(() => {
+      expect({ allowed }).toStrictEqual({ allowed: false });
+    });
+    // A later Close finishes without running the abandoned navigation.
+    allowed = undefined;
+    await press('Close');
+    await waitFor(() => {
+      expect(screen.queryByText(/evaluation editor stopped/u)).toBeNull();
+    });
+    expect(allowed).toBeUndefined();
+  });
+
+  it('continues pending navigation after the current Draft is saved', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const navigation: {
+      current: ReturnType<typeof useComposerNavigation> | undefined;
+    } = { current: undefined };
+    await render(
+      <App
+        drafts={drafts}
+        onNavigation={(value) => {
+          navigation.current = value;
+        }}
+      />,
+    );
+    await press('New Message');
+    await simulatedPage().typed('Keep this Draft');
+    ok(navigation.current, 'Expected navigation');
+    const leaving = navigation.current.leave;
+    let allowed: boolean | undefined = undefined;
+    await act(async () => {
+      void leaving().then((result) => {
+        allowed = result;
+        return result;
+      });
+    });
+    expect(allowed).toBeUndefined();
+    await simulatedPage().report({ frozen: true });
+    await press('Cancel');
+    await waitFor(() => {
+      expect({ allowed }).toStrictEqual({ allowed: false });
+    });
+    allowed = undefined;
+    await act(async () => {
+      void leaving().then((result) => {
+        allowed = result;
+        return result;
+      });
+    });
+    await simulatedPage().report({ frozen: true });
+    await press('Save');
+    await waitFor(() => {
+      expect(allowed).toBe(true);
+    });
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+  });
+
   it('finishes deleting its conflict copy after the composer unmounts', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');

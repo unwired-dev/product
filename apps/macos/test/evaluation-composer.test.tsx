@@ -27,8 +27,6 @@ import {
 import * as Schema from 'effect/Schema';
 import { View } from 'react-native';
 
-import type { useComposerNavigation } from '../src/mailbox.tsx';
-
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
@@ -372,95 +370,6 @@ describe('the Tiptap evaluation composer', () => {
       ).toStrictEqual(subjects.map(() => [id, undefined]));
     },
   );
-
-  it('answers navigation at once when Close fails without asking', async () => {
-    expect.hasAssertions();
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    const navigation: {
-      current: ReturnType<typeof useComposerNavigation> | undefined;
-    } = { current: undefined };
-    await render(
-      <App
-        drafts={drafts}
-        onNavigation={(value) => {
-          navigation.current = value;
-        }}
-      />,
-    );
-    await press('New Message');
-    await simulatedPage().report({});
-    ok(navigation.current, 'Expected navigation');
-    const leaving = navigation.current.leave;
-    let allowed: boolean | undefined = undefined;
-    await act(async () => {
-      void leaving().then((result) => {
-        allowed = result;
-        return result;
-      });
-    });
-    // The page stops before acknowledging the freeze, so Close neither finishes nor asks.
-    await act(async () => {
-      screen.getByTestId('message-webview').props.onError();
-    });
-    await waitFor(() => {
-      expect({ allowed }).toStrictEqual({ allowed: false });
-    });
-    // A later Close finishes without running the abandoned navigation.
-    allowed = undefined;
-    await press('Close');
-    await waitFor(() => {
-      expect(screen.queryByText(/evaluation editor stopped/u)).toBeNull();
-    });
-    expect(allowed).toBeUndefined();
-  });
-
-  it('continues pending navigation after the current Draft is saved', async () => {
-    expect.hasAssertions();
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    const navigation: {
-      current: ReturnType<typeof useComposerNavigation> | undefined;
-    } = { current: undefined };
-    await render(
-      <App
-        drafts={drafts}
-        onNavigation={(value) => {
-          navigation.current = value;
-        }}
-      />,
-    );
-    await press('New Message');
-    await simulatedPage().typed('Keep this Draft');
-    ok(navigation.current, 'Expected navigation');
-    const leaving = navigation.current.leave;
-    let allowed: boolean | undefined = undefined;
-    await act(async () => {
-      void leaving().then((result) => {
-        allowed = result;
-        return result;
-      });
-    });
-    expect(allowed).toBeUndefined();
-    await simulatedPage().report({ frozen: true });
-    await press('Cancel');
-    await waitFor(() => {
-      expect({ allowed }).toStrictEqual({ allowed: false });
-    });
-    allowed = undefined;
-    await act(async () => {
-      void leaving().then((result) => {
-        allowed = result;
-        return result;
-      });
-    });
-    await simulatedPage().report({ frozen: true });
-    await press('Save');
-    await waitFor(() => {
-      expect(allowed).toBe(true);
-    });
-    expect(screen.queryByTestId('message-webview')).toBeNull();
-  });
 
   it('removes an empty Draft on Close, deletes an edited one, and stores a refused Send', async () => {
     expect.hasAssertions();

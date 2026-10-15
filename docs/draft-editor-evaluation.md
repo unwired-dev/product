@@ -286,8 +286,8 @@ Shared and component checks:
 
 ```sh
 mise exec -- pnpm --filter @private-email/draft-editor test
-mise exec -- pnpm --filter @private-email/mobile test -- evaluation-composer
-mise exec -- pnpm --filter @private-email/macos test -- evaluation-composer
+mise exec -- pnpm --filter @private-email/mobile test -- evaluation-composer evaluation-lifecycle
+mise exec -- pnpm --filter @private-email/macos test -- evaluation-composer evaluation-lifecycle
 UNWIRED_MOCK_SCENARIO=registration-draft-editor mise exec -- pnpm verify:bundle
 ```
 
