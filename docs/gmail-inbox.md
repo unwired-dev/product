@@ -389,9 +389,9 @@ arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
 only the presentation, never the encrypted source body. Every single-byte legacy
-charset, including Czech `windows-1250` and `iso-8859-2`, decodes through a
-bundled WHATWG decoder, independent of the host's UTF-8-only decoder. Multi-byte
-CJK charsets (`gbk`, `gb18030`, `big5`, `euc-jp`, `iso-2022-jp`, `shift_jis`) and
+charset, including Czech `windows-1250` and `iso-8859-2`, displays correctly on
+iPhone, iPad and Mac. Multi-byte CJK charsets (`gbk`, `gb18030`, `big5`, `euc-jp`,
+`iso-2022-jp`, `shift_jis`) and
 unknown labels fall back to UTF-8; that fallback remains a compatibility limit, not
 evidence of correct decoding.
 
