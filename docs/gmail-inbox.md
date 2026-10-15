@@ -1413,7 +1413,7 @@ the then 40 tests; that run is logic evidence, not Keychain qualification.
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
 preflight, from a synthetic mailbox of three Inbox messages over two pages and one
 label. Each message has an HTML or plain-text body; label changes apply for the
-rest of that launch. The session is compiled only into the selected test build.
+rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
 render the opened HTML body in WebKit, confirm and cancel a link destination,
 star and archive a message and undo the archive, relaunch from the encrypted
@@ -1421,13 +1421,12 @@ cache and return to the account page. The reading steps and the organizing steps
 each passed on iOS 27 simulators before they were combined; the combined journey
 runs in the Expo native CI jobs.
 
-The standalone synthetic-provider check calls the actual Swift provider with
-attachment, inline and absent-disposition fixtures. It verifies repeated MIME
-header selectors, body-free preflight responses, full body responses and the
-unchanged packaged mailbox pagination. Run it with
-`zsh native/private-inbox/integration/metadata.zsh`; the native storage runner also
-executes it. This checks synthetic Gmail response fidelity and does not establish
-live-provider attachment exclusion or a packaged native journey.
+`packages/mail-core/test/synthetic-registration.test.ts` calls the synthetic Gmail
+layer with attachment, inline and absent-disposition fixtures. It verifies repeated
+MIME header selectors, body-free preflight responses, full body responses and the
+unchanged packaged mailbox pagination. This checks synthetic Gmail response fidelity
+and does not establish live-provider attachment exclusion or a packaged native
+journey.
 
 The Mac `Testing` build compiles the patched WebView. The packaged Mac journey
 remains deferred while the desktop is locked, and hosted Mac storage tests remain

@@ -228,23 +228,38 @@ ${anchor}`,
     const root = result.modRequest.platformProjectRoot;
     const destination = path.join(root, 'PrivateInbox');
     fs.mkdirSync(destination, { recursive: true });
-    // Incremental prebuild keeps files and references copied before this fixture moved to tests.
-    const retired = 'PrivateInbox/SyntheticCredential.swift';
-    if (project.hasFile(retired)) {
-      project.removeSourceFile(
-        retired,
-        { target },
-        project.getFirstProject().firstProject.mainGroup,
-      );
-    }
-    fs.rmSync(path.join(root, retired), { force: true });
+    // Incremental prebuild keeps files and references an earlier build copied.
+    const remove = (name) => {
+      const relative = `PrivateInbox/${name}`;
+      if (project.hasFile(relative)) {
+        project.removeSourceFile(
+          relative,
+          { target },
+          project.getFirstProject().firstProject.mainGroup,
+        );
+      }
+      fs.rmSync(path.join(root, relative), { force: true });
+    };
+    // This fixture moved to the native tests.
+    remove('SyntheticCredential.swift');
     const source = privateInboxSource(result.modRequest.projectRoot);
     addSwiftPackages(
       project,
       target,
       fs.readFileSync(path.join(source, 'Package.swift'), 'utf8'),
     );
-    for (const folder of ['Sources/PrivateInbox', 'bridge']) {
+    // Only registration Mock Mail Session builds compile the synthetic relay and providers.
+    const registration = scenario?.startsWith('registration-') === true;
+    if (!registration) {
+      for (const name of fs.readdirSync(path.join(source, 'synthetic'))) {
+        remove(name);
+      }
+    }
+    for (const folder of [
+      'Sources/PrivateInbox',
+      'bridge',
+      ...(registration ? ['synthetic'] : []),
+    ]) {
       for (const name of fs.readdirSync(path.join(source, folder))) {
         fs.copyFileSync(
           path.join(source, folder, name),

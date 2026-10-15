@@ -24,6 +24,8 @@
     "./registration": "./src/registration.ts",
     "./registration-flow": "./src/registration-flow.ts",
     "./registration-mode": "./src/registration-mode.ts",
+    "./synthetic-registration": "./src/synthetic-registration.ts",
+    "./testing/synthetic-registration": "./src/testing/synthetic-registration.ts",
     "./testing/registration-session": "./src/testing/registration-session.ts",
     "./testing/registration-vault": "./src/testing/registration-vault.ts",
     "./message-body": "./src/message-body.ts",

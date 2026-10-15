@@ -40,7 +40,9 @@ Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.generated.plist')
 info['UnwiredMockScenario'] = scenario if scenario
 Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.testing.plist')
 private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/private-inbox')
-Dir.glob('../../../native/private-inbox/{Sources/PrivateInbox,bridge}/*.{swift,m}').each do |file|
+# Only registration Mock Mail Session projects compile the synthetic relay and providers.
+folders = scenario&.start_with?('registration-') ? 'Sources/PrivateInbox,bridge,synthetic' : 'Sources/PrivateInbox,bridge'
+Dir.glob("../../../native/private-inbox/{#{folders}}/*.{swift,m}").each do |file|
   name = file.delete_prefix('../../../native/private-inbox/')
   target.add_file_references([private_inbox.new_file(name)])
 end
