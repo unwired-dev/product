@@ -94,6 +94,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `html-sanitizer.ts.readDeclarations` passing sender CSS to a recursive parser
+  before bounding block and function nesting, including a new dependency's own
+  throw limit and recursive token serialization. Check the installed parser's
+  matching-delimiter behavior, guard its depth iteratively before parsing, and
+  exercise the inclusive limit, excessive depth and mismatched closers through
+  sanitizer callers. Reject only excessive declarations while preserving safe
+  declarations before and after them; otherwise malformed styles can throw before
+  rejection, make readable mail fall back, or erase hiding declarations and
+  authorize previously hidden CID requests.
 - `registration.ts.MailboxesSchema` or
   `registration-vault.ts.RegistrationRecordSchema` admitting an IMAP connection
   without its non-secret endpoint, an invalid port, or an endpoint on another
