@@ -119,8 +119,19 @@ describe('rich-reader review regressions', () => {
     ],
     ['display:block;font-family:"a\\\r\n/*";display:none;/* */', 'hidden'],
     ['font-family:"/*;display:none*/";display:block', 'visible'],
+    ...['(', '[', '{', 'a(', '(]'].map(
+      (open) => [`display:none;color:${open.repeat(513)}x`, 'hidden'] as const,
+    ),
+    [
+      `display:block;color:${'('.repeat(513)}x${')'.repeat(513)};display:none`,
+      'hidden',
+    ],
+    [
+      `display:none;color:${'('.repeat(513)}x${')'.repeat(513)};display:block`,
+      'visible',
+    ],
   ] as const)(
-    'resolves commented CSS before explicit CID requests through the public inbox: %s',
+    'resolves sender CSS before explicit CID requests through the public inbox: %s',
     async (style, visibility) => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail();

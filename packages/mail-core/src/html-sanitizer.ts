@@ -1,5 +1,4 @@
 import type { ComponentValue } from '@csstools/css-parser-algorithms';
-import type { CSSToken } from '@csstools/css-tokenizer';
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- parse5 tree nodes are mutable library types; the sanitizer only reads them. */
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
@@ -1036,23 +1035,8 @@ const closers = new Map([
   [TokenType.OpenSquare, TokenType.CloseSquare],
   [TokenType.OpenCurly, TokenType.CloseCurly],
 ]);
-const nestsTooDeep = (tokens: readonly CSSToken[]) => {
-  const open: TokenType[] = [];
-  return tokens.some(([type]) => {
-    if (type === open.at(-1)) {
-      open.pop();
-    } else {
-      const closer = closers.get(type);
-      if (closer !== undefined) {
-        open.push(closer);
-      }
-    }
-    return open.length > nestingLimit;
-  });
-};
-
 // Declarations end at semicolons outside blocks, functions, strings and URLs, as CSS Syntax and
-// WebKit read them. A style nested past the parser's limit keeps no declarations.
+// WebKit read them. Skip declarations nested past the parser's limit before recursive parsing.
 const readDeclarations = (style: string) => {
   // Where strings the end of the attribute interrupts start.
   const unterminated = new Set<number>();
@@ -1066,18 +1050,37 @@ const readDeclarations = (style: string) => {
       },
     },
   );
-  if (nestsTooDeep(tokens)) {
-    return [];
-  }
-  const declarations: ComponentValue[][] = [[]];
-  for (const node of parseListOfComponentValues(tokens)) {
-    if (isTokenNode(node) && isTokenSemicolon(node.value)) {
-      declarations.push([]);
+  const declarations = [];
+  const open: TokenType[] = [];
+  let from = 0;
+  let tooDeep = false;
+  for (const [index, token] of tokens.entries()) {
+    const [type] = token;
+    if (
+      (isTokenSemicolon(token) && open.length === 0) ||
+      type === TokenType.EOF
+    ) {
+      if (!tooDeep) {
+        declarations.push(
+          readDeclaration(
+            parseListOfComponentValues(tokens.slice(from, index)),
+            unterminated,
+          ),
+        );
+      }
+      from = index + 1;
+      tooDeep = false;
+    } else if (type === open.at(-1)) {
+      open.pop();
     } else {
-      declarations.at(-1)?.push(node);
+      const closer = closers.get(type);
+      if (closer !== undefined) {
+        open.push(closer);
+        tooDeep ||= open.length > nestingLimit;
+      }
     }
   }
-  return declarations.map((nodes) => readDeclaration(nodes, unterminated));
+  return declarations;
 };
 
 // Names and values are decoded before classification, so an escaped name hides what it names.
