@@ -146,6 +146,8 @@ function EvaluationEditor({
   const busy = useRef(false);
   const paused = useRef<((ready: boolean) => void) | undefined>(undefined);
   const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
+  // Whether the last Close opened its question rather than finishing or failing.
+  const asked = useRef(false);
   const answerLeave = useCallback((allowed: boolean) => {
     const answer = leaving.current;
     leaving.current = undefined;
@@ -502,6 +504,7 @@ function EvaluationEditor({
       }
       setClosing(undefined);
       setOpen('close');
+      asked.current = true;
       return false;
     });
   };
@@ -509,10 +512,12 @@ function EvaluationEditor({
   const navigation = useComposerNavigation();
   useLayoutEffect(() =>
     navigation.register(async () => {
+      asked.current = false;
       if (await close()) {
         return true;
       }
-      if (busy.current || !mounted.current) {
+      // Only an open question can still answer; a refused Close leaves at once.
+      if (!asked.current || busy.current || !mounted.current) {
         return false;
       }
       // oxlint-disable-next-line promise/avoid-new -- Navigation waits for Save, Delete or dismissal.

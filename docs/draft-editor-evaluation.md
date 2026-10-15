@@ -124,7 +124,8 @@ the current composer's:
   styled text become paragraphs; a heading or code inside a quote or list item
   becomes that quote line or item; nested lists become items of their own; a pasted
   numbered list counts from one; links keep their text without the destination;
-  images, styles, colors and sizes are dropped; and multi-line code becomes one code
+  images, except an Inline Image copied or cut within the page, styles, colors and
+  sizes are dropped; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
   the stored document.
 
@@ -156,8 +157,10 @@ again, and **Remove**.
 - **Pasting and dropping.** On iPhone and iPad, pasting images into the page imports
   them from the pasteboard through native code, as **Paste Image** does. The page
   never reads pasted or dropped file data: on Mac a paste carrying images adds
-  nothing, and files dropped on the page are refused on every host. Text and
-  supported formatting paste as before. A copied or cut Inline Image pastes back
+  nothing, and files dropped on the page are refused on every host. A paste that
+  carries an image beside text is treated as an image paste, so its text is not
+  pasted; paste the text separately. Text and supported formatting without images
+  paste as before. A copied or cut Inline Image pastes back
   within the page with the same asset; other pasted images are dropped.
 - **Editing.** An Inline Image is one character of the text, as in the current
   composer. Typing around it, deleting it, moving it by cut and paste or by dragging,
@@ -409,7 +412,7 @@ reopening) type-checks; it was not run, for the signing reason above.
 Outstanding before any adoption decision: the Mac native journey with a signed
 mock profile; physical iPhone and iPad runs; hardware keyboards, IME, dictation,
 autocorrection and VoiceOver ([#822](https://github.com/unwired-dev/product/issues/822));
-the Inline Image checks [below](#inline-images-820) leaves outstanding; and save
+the Inline Image checks that remain outstanding [below](#inline-images-820); and save
 ordering under delayed page messages ([#821](https://github.com/unwired-dev/product/issues/821)).
 Simulator runs do not qualify devices.
 

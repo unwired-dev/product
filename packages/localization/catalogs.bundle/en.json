@@ -712,7 +712,7 @@
     "deleteDraft": "Delete Draft",
     "saveDraft": "Save Draft",
     "saveQuestion": "Do you want to save this message as a draft?",
-    "saveQuestionDetail": "If you don’t save, your changes are lost.",
+    "saveQuestionDetail": "If you don’t save, this draft is deleted.",
     "saveAction": "Save",
     "dontSave": "Don’t Save",
     "format": "Format",
