@@ -373,6 +373,19 @@ describe('profile-scoped mobile routes', () => {
       ).toContain(494);
       await fireEvent.press(inboxNewMessage());
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
+      // The hidden window bar keeps New Message among the commands while composing.
+      await fireEvent(
+        await screen.findByRole('header', { name: 'New Message' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      const commands = within(screen.getByTestId('command-palette'));
+      expect(
+        commands.getByRole('button', { name: 'New Message' }),
+      ).toBeVisible();
+      await fireEvent.press(
+        commands.getByRole('button', { name: 'Close commands' }),
+      );
       await fireEvent(
         screen.getByTestId('mail-shell', { includeHiddenElements: true }),
         'layout',

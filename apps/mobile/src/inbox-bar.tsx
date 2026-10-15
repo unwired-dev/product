@@ -335,11 +335,12 @@ export function SearchField({
 // A regular-width window's bottom edge, which shows the Inbox's floating bar across the window
 // rather than over the list column. Compact layouts provide none and keep the bar in the list.
 export function createWindowBar() {
-  let bar: ReactNode = null;
+  // A hidden bar stays mounted so its controls keep their commands.
+  let bar: Readonly<{ content: ReactNode; hidden: boolean }> | null = null;
   const listeners = new Set<() => void>();
   return {
-    show: (next: ReactNode) => {
-      bar = next;
+    show: (content: ReactNode, hidden = false) => {
+      bar = content === null ? null : { content, hidden };
       for (const listener of listeners) {
         listener();
       }
@@ -398,14 +399,21 @@ export function WindowBarHost({
       <ScrollEdge
         style={[
           styles.readerEdge,
-          { width: readerWidth, bottom: keyboardLift },
+          {
+            width: readerWidth,
+            bottom: keyboardLift,
+            display: bar.hidden ? 'none' : 'flex',
+          },
         ]}
       />
       <View
         pointerEvents="box-none"
         testID="window-bar"
-        style={[styles.windowBar, { bottom }]}>
-        {bar}
+        style={[
+          styles.windowBar,
+          { bottom, display: bar.hidden ? 'none' : 'flex' },
+        ]}>
+        {bar.content}
       </View>
     </>
   );
@@ -426,7 +434,7 @@ export function FloatingBar({
   readonly children: ReactNode;
 }) {
   const windowBar = use(WindowBarContext);
-  const shown = hidden ? null : (
+  const content = (
     <>
       <View
         pointerEvents="box-none"
@@ -442,7 +450,7 @@ export function FloatingBar({
     </>
   );
   useLayoutEffect(() => {
-    windowBar?.show(shown);
+    windowBar?.show(content, hidden);
   });
   useLayoutEffect(
     () => () => {
