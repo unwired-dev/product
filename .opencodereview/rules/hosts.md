@@ -565,6 +565,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   registered finish callback rejects: refuse that destination and permit a later
   attempt, or one unexpected failure blocks navigation for the session.
 
+- `evaluation-composer.tsx` registering a navigation guard that waits whenever
+  Close returns false, even when no Save/Delete question opened. Distinguish an
+  unanswered choice from failed empty-Draft discard or page termination before
+  the freeze acknowledgement; refuse navigation immediately in the latter cases.
+  Exercise a failed Close and a later Retry or Close through the real navigation
+  coordinator on both hosts, or the abandoned destination can run unexpectedly.
+
 - Reviewing a Mac composer exit only through React callbacks. Inventory native
   window close and application Quit alongside router/pane navigation, applying
   `.opencodereview/rules/native.md`'s AppKit exit check to the collaborating host.
