@@ -195,7 +195,14 @@ final class InboxTests: XCTestCase {
       let folders = app.scrollViews.containing(
         .staticText, identifier: "No folders match your search."
       ).firstMatch
-      for _ in 0..<5 where noMatch.frame.maxY > keyboard.frame.minY { folders.swipeUp() }
+      XCTAssertGreaterThanOrEqual(folders.frame.height, 44)
+      // A default swipe across a short viewport can become a tap-length gesture.
+      for _ in 0..<5 where !folders.frame.contains(noMatch.frame) {
+        folders.swipeUp(velocity: .slow)
+        XCTAssertTrue(keyboard.exists)
+      }
+      XCTAssertTrue(folders.frame.contains(noMatch.frame))
+      XCTAssertTrue(noMatch.isHittable)
       XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
       let sheet = XCTAttachment(screenshot: app.screenshot())

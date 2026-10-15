@@ -16,6 +16,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   its target despite passing component tests. Record unavailable native
   execution separately from static or predicate-only evidence.
 
+- A native keyboard-visibility check such as `InboxTests.appleRegistrationJourney`
+  comparing only a result's bounds with the keyboard. Require the complete result
+  inside its scroller's visible rectangle and enough viewport height for a full
+  touch row, then inspect the native capture. Exercise required list gestures
+  while the keyboard stays present. An element can lie above the
+  keyboard while its scroller clips it, so a boundary-only assertion can falsely
+  qualify an unreadable result or unreachable destination.
+
 - A Draft editor keyboard regression in `packages/draft-editor/test/editor.test.ts` invoking a command that replays only document steps while the real key handler dispatches a caret change. Exercise the page's keydown handlers and subsequent typing as well as its posted semantic body; otherwise a passing document-only assertion can hide text entering the previous or wrong block. Page key-handler evidence remains distinct from native WebKit keyboard interaction.
 
 - A native test mirror such as `RegistrationFlowSupport.swift` classifying failures

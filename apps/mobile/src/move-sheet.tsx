@@ -23,8 +23,6 @@ const styles = StyleSheet.create({
   sheetBackdrop: { justifyContent: 'flex-end' },
   sheet: {
     flex: 1,
-    gap: spacing.m,
-    paddingTop: spacing.m,
     paddingHorizontal: spacing.l,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
@@ -136,6 +134,7 @@ export function MoveSheet({
     };
   }, [height]);
   const motion = useMenuMotion(open, 'grow');
+  const landscapeKeyboard = keyboardHeight > 0 && width > height;
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState<string>();
   const [wasOpen, setWasOpen] = useState(open);
@@ -198,6 +197,9 @@ export function MoveSheet({
             styles.sheet,
             motion.style,
             {
+              // Leave a full folder row visible in the short space above a landscape keyboard.
+              gap: landscapeKeyboard ? 0 : spacing.m,
+              paddingTop: landscapeKeyboard ? spacing.s : spacing.m,
               boxShadow: colors.menuGlassShadow,
               backgroundColor: colors.surfaceContent,
               // Above the keyboard the search needs no home-indicator inset.
@@ -249,7 +251,7 @@ export function MoveSheet({
             </Pressable>
           </View>
           <ScrollView
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps={landscapeKeyboard ? 'always' : 'handled'}
             style={styles.sheetList}>
             <View style={[styles.message, { borderColor: colors.separator }]}>
               <Monogram name={message.sender} />
