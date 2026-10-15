@@ -155,6 +155,12 @@ bytes against the declared part size. HTML with no readable paragraphs falls
 back to a plain alternative. Native cache envelopes fail closed on malformed
 shape; an absent or corrupt body document may be downloaded again.
 
+Issue #838 adds explicit non-UTF-8 decoding through
+`@exodus/bytes/encoding-lite.js`, without replacing the global decoder. Its
+bundled WHATWG decoder handles legacy single-byte charsets independently of the
+host's UTF-8-only decoder. UTF-8 and unsupported labels retain the host UTF-8 path;
+multi-byte CJK support remains deferred to a separate dependency-size decision.
+
 MIME admission examines every repeated header: dispositions must all declare
 inline, media-type tokens must agree, and normalized Content-ID values must agree.
 CID traversal accepts image leaves and descends only through recognized multipart
