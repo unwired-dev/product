@@ -51,7 +51,7 @@ import {
   retires,
   SendingMailbox,
 } from './composer.tsx';
-import { Button, ToolbarButton } from './design.tsx';
+import { Button, MenuPresence, ToolbarButton } from './design.tsx';
 import {
   PageFormatBar,
   DraftFields,
@@ -72,6 +72,7 @@ import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
 const styles = StyleSheet.create({
+  controls: { zIndex: 1 },
   scroll: { flexGrow: 1 },
   // The regular composer's minimum body height.
   body: { flex: 1, minHeight: 160 },
@@ -149,7 +150,9 @@ function EvaluationEditor({
       mounted.current = false;
       paused.current?.(false);
       leaving.current?.(false);
-      store.release(rebind);
+      if (!busy.current) {
+        store.release(rebind);
+      }
     };
   }, [rebind, store]);
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
@@ -265,8 +268,12 @@ function EvaluationEditor({
   // Try again or when storage becomes available. A page that loads later receives all of them.
   const previews = useRef(new Map<string, string>());
   const showPreview = useCallback(
-    (id: string, uri: string) => {
-      previews.current.set(id, uri);
+    (id: string, uri: string | null) => {
+      if (uri === null) {
+        previews.current.delete(id);
+      } else {
+        previews.current.set(id, uri);
+      }
       if (pageNow.current !== undefined) {
         run({ type: 'previews', previews: { [id]: uri } });
       }
@@ -379,6 +386,9 @@ function EvaluationEditor({
     }
     paused.current = undefined;
     busy.current = false;
+    if (!mounted.current) {
+      store.release(rebind);
+    }
     setSending(false);
     answerLeave(closed);
     if (!closed) {
@@ -539,21 +549,26 @@ function EvaluationEditor({
             />
           )}
         </View>
-        {shown === undefined ? null : (
-          <PageFormatBar
-            draft={draft}
-            page={shown}
-            tools={open === 'tools'}
-            run={run}
-            onTools={(next) => {
-              setOpen(next ? 'tools' : undefined);
-            }}
-            onAdd={(from, inline) => {
-              void add(from, inline);
-            }}
-            onCapture={capture}
-          />
-        )}
+        <MenuPresence
+          open={shown !== undefined}
+          origin="top"
+          style={styles.controls}>
+          {pageState === undefined ? null : (
+            <PageFormatBar
+              draft={draft}
+              page={pageState}
+              tools={open === 'tools'}
+              run={run}
+              onTools={(next) => {
+                setOpen(next ? 'tools' : undefined);
+              }}
+              onAdd={(from, inline) => {
+                void add(from, inline);
+              }}
+              onCapture={capture}
+            />
+          )}
+        </MenuPresence>
         {/* The body, files and fields scroll together in a short window. */}
         <ScrollView contentContainerStyle={styles.scroll}>
           <ComposerNotices
@@ -702,19 +717,18 @@ function EvaluationEditor({
           />
         </View>
       </SaveBackground>
-      {open === 'save' ? (
-        <SaveSheet
-          onSave={() => {
-            void saveDraft();
-          }}
-          onDelete={() => {
-            void deleteDraft();
-          }}
-          onCancel={() => {
-            setOpen(undefined);
-          }}
-        />
-      ) : null}
+      <SaveSheet
+        open={open === 'save'}
+        onSave={() => {
+          void saveDraft();
+        }}
+        onDelete={() => {
+          void deleteDraft();
+        }}
+        onCancel={() => {
+          setOpen(undefined);
+        }}
+      />
     </View>
   );
 }

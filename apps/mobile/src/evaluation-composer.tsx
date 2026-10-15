@@ -64,6 +64,7 @@ import {
   FormatPanel,
   PhoneControls,
   phoneControlsInset,
+  useRetainedControls,
   PadFormatBar,
   DraftFields,
   EditorHeader,
@@ -87,6 +88,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 160, backgroundColor: 'transparent' },
   notice: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
   // Menus float over the content below or above their control.
+  controls: { zIndex: 4 },
+  padControls: { zIndex: 1 },
   closeMenu: {
     position: 'absolute',
     zIndex: 4,
@@ -172,7 +175,9 @@ function EvaluationEditor({
       mounted.current = false;
       paused.current?.(false);
       leaving.current?.(false);
-      store.release(rebind);
+      if (!busy.current) {
+        store.release(rebind);
+      }
     };
   }, [rebind, store]);
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
@@ -289,8 +294,12 @@ function EvaluationEditor({
   // Try again or when storage becomes available. A page that loads later receives all of them.
   const previews = useRef(new Map<string, string>());
   const showPreview = useCallback(
-    (id: string, uri: string) => {
-      previews.current.set(id, uri);
+    (id: string, uri: string | null) => {
+      if (uri === null) {
+        previews.current.delete(id);
+      } else {
+        previews.current.set(id, uri);
+      }
       if (pageNow.current !== undefined) {
         run({ type: 'previews', previews: { [id]: uri } });
       }
@@ -405,6 +414,9 @@ function EvaluationEditor({
     }
     paused.current = undefined;
     busy.current = false;
+    if (!mounted.current) {
+      store.release(rebind);
+    }
     setSending(false);
     answerLeave(closed);
     if (!closed) {
@@ -529,6 +541,11 @@ function EvaluationEditor({
   // Controls appear once the page reports that it is ready for commands.
   const shown = stopped || closing === 'saving' ? undefined : pageState;
   const phone = layout.size === 'compact' ? shown : undefined;
+  const retained = useRetainedControls(
+    pageState,
+    shown !== undefined,
+    layout.size,
+  );
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
@@ -566,37 +583,41 @@ function EvaluationEditor({
             }}
           />
           {/* Delete Draft and Save Draft grow out of Close. */}
-          {open === 'close' ? (
+          <View
+            accessibilityRole="menu"
+            accessibilityElementsHidden={open !== 'close'}
+            pointerEvents={open === 'close' ? 'box-none' : 'none'}
+            style={styles.closeMenu}>
+            <GlassPanel
+              open={open === 'close'}
+              origin="top left">
+              <MenuItem
+                destructive
+                label={t('drafts.deleteDraft')}
+                selected={false}
+                onPress={() => {
+                  void deleteDraft();
+                }}
+              />
+              <MenuItem
+                label={t('drafts.saveDraft')}
+                selected={false}
+                onPress={() => {
+                  void saveDraft();
+                }}
+              />
+            </GlassPanel>
+          </View>
+          {retained.pad === undefined ? null : (
             <View
-              accessibilityRole="menu"
-              style={styles.closeMenu}>
-              <GlassPanel
-                open
-                origin="top left">
-                <MenuItem
-                  destructive
-                  label={t('drafts.deleteDraft')}
-                  selected={false}
-                  onPress={() => {
-                    void deleteDraft();
-                  }}
-                />
-                <MenuItem
-                  label={t('drafts.saveDraft')}
-                  selected={false}
-                  onPress={() => {
-                    void saveDraft();
-                  }}
-                />
-              </GlassPanel>
+              style={styles.padControls}
+              {...retained.input}>
+              <PadFormatBar
+                page={retained.pad}
+                {...controls}
+              />
             </View>
-          ) : null}
-          {layout.size === 'regular' && shown !== undefined ? (
-            <PadFormatBar
-              page={shown}
-              {...controls}
-            />
-          ) : null}
+          )}
           {/* The body, files and fields scroll together when the keyboard leaves them too little
             room, as in landscape; the iPhone controls float over them above the keyboard. */}
           <ScrollView
@@ -742,16 +763,21 @@ function EvaluationEditor({
               }}
             />
           </ScrollView>
-          {phone === undefined ? null : (
-            <PhoneControls
-              page={phone}
-              {...controls}
-            />
+          {retained.phone === undefined ? null : (
+            <View
+              style={[StyleSheet.absoluteFill, styles.controls]}
+              {...retained.input}>
+              <PhoneControls
+                page={retained.phone}
+                {...controls}
+              />
+            </View>
           )}
         </View>
-        {phone === undefined || open !== 'format' ? null : (
+        {retained.phone === undefined ? null : (
           <FormatPanel
-            page={phone}
+            open={open === 'format'}
+            page={retained.phone}
             run={run}
             onClose={() => {
               setOpen(undefined);

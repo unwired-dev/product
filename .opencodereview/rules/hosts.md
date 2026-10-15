@@ -339,6 +339,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Otherwise the row recovers while the page keeps its placeholder until an
   unrelated edit. Exercise locked storage, unlock and the visible retry on both
   hosts, and preserve ordinary composers that do not render images in a page.
+  Revoke a previously published thumbnail when an inline row reports locked,
+  missing or damaged storage, including after conversion from an
+  Attachment. Trace revocation through the host and page caches, Undo and retry;
+  otherwise the page shows stale bytes while the row reports an unavailable image.
 - `composer.tsx.transferred` or picker handlers constructing a prepared asset,
   starting an import or mounting a row for every selected file before applying
   `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
@@ -848,6 +852,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   or menu controls. Preserve the shared panel's palette-backed surface beneath the
   material, or the presentations overlap two sets of text and icons even though
   rendered component tests pass.
+- `evaluation-composer.tsx` or `evaluation-composer-controls.tsx` conditionally
+  mounting `GlassPanel` only while open, or replacing its content as it closes.
+  Keep the panel mounted with its actual open state through the shared presence
+  transition; hide closing wrappers from accessibility and pointer input too.
+  Otherwise dismissal skips the exit animation or exposes stale controls during it.
 - Mobile `reply-sheet.tsx.ReplySheet` invoking a selected action before its retained
   exit and native Modal dismissal finish. Trace Move's sibling Modal through the
   installed iOS presenter and keep the closing Modal mounted to receive `onDismiss`;

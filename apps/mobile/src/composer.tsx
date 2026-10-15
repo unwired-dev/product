@@ -914,7 +914,7 @@ function AssetRow({
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
   // An editor that shows Inline Images itself receives each verified thumbnail.
-  readonly onPreview?: ((id: string, uri: string) => void) | undefined;
+  readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -925,10 +925,10 @@ function AssetRow({
   const { preview, retry } = usePreview(asset, inline);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
-    if (uri !== undefined) {
-      onPreview?.(asset.id, uri);
+    if (inline) {
+      onPreview?.(asset.id, uri ?? null);
     }
-  }, [asset.id, onPreview, uri]);
+  }, [asset.id, inline, onPreview, uri]);
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
@@ -1068,7 +1068,7 @@ export function DraftAssets({
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
   // An editor that shows Inline Images itself receives each verified thumbnail.
-  readonly onPreview?: ((id: string, uri: string) => void) | undefined;
+  readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();

@@ -672,6 +672,13 @@ describe('the Tiptap evaluation page', () => {
     page.command({ type: 'remove', id: photo.id });
     page.command({ type: 'undo' });
     const restored = shown();
+    page.command({ type: 'previews', previews: { [photo.id]: null } });
+    const revoked = shown();
+    page.command({ type: 'convert', id: photo.id });
+    page.command({ type: 'convert', id: photo.id });
+    const unverified = shown();
+    page.command({ type: 'previews', previews: { [photo.id]: thumbnail } });
+    const rechecked = shown();
     const { view } = page.editor;
     const files = { types: ['Files', 'image/png'] };
     const paste = new ClipboardEvent('paste', { cancelable: true });
@@ -696,6 +703,9 @@ describe('the Tiptap evaluation page', () => {
       before,
       after,
       restored,
+      revoked,
+      unverified,
+      rechecked,
       handled,
       prevented: [paste, drop, move].map(
         ({ defaultPrevented }) => defaultPrevented,
@@ -706,6 +716,9 @@ describe('the Tiptap evaluation page', () => {
       before: null,
       after: thumbnail,
       restored: thumbnail,
+      revoked: null,
+      unverified: null,
+      rechecked: thumbnail,
       handled: [true, true, undefined],
       prevented: [true, true, false],
       pastes: 1,

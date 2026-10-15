@@ -17,3 +17,5 @@ Save and Send feedback, errors and assistance reviews scroll with the evaluation
 iPhone floating menus receive taps when they extend over the composer header in landscape.
 
 Queued toolbar and file actions leave the acknowledged page unchanged while Save or Send finishes, keeping the shown document consistent with the version being stored.
+
+Evaluation panels finish their closing animation while their controls become inactive immediately. Pending deletion follows the editor's conflicting copy after its window closes. Previously shown inline thumbnails are cleared when native revalidation finds the bytes unavailable.

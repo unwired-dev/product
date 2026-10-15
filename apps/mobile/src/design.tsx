@@ -304,10 +304,12 @@ export function GlassPanel({
   children,
   cornerRadius = radius.menu,
   origin = iphone ? 'bottom' : 'top right',
+  style,
 }: {
   readonly open: boolean;
   readonly children: ReactNode;
   readonly cornerRadius?: number;
+  readonly style?: StyleProp<ViewStyle>;
   // Where the panel grows from: the control that opened it.
   readonly origin?: string;
 }) {
@@ -322,6 +324,7 @@ export function GlassPanel({
       pointerEvents={open ? 'auto' : 'none'}
       style={[
         styles.panel,
+        style,
         motion.style,
         {
           borderRadius: cornerRadius,

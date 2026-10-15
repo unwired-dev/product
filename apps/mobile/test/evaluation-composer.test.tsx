@@ -54,7 +54,7 @@ jest.mock('@private-email/draft-editor/page', () => ({
 // That command as the page receives it.
 const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
 const Previews = Schema.optionalKey(
-  Schema.Record(Schema.String, Schema.String),
+  Schema.Record(Schema.String, Schema.NullOr(Schema.String)),
 );
 const SentSchema = Schema.fromJsonString(
   Schema.Struct({
@@ -144,6 +144,7 @@ async function settledImport(action: 'save' | 'delete' | 'unchanged') {
 
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
+
   it('keeps edits in the editor until Save Draft, and reopens them after relaunch', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
@@ -922,6 +923,35 @@ describe('the Tiptap evaluation composer', () => {
     await act(async () => {
       await fireEvent.press(retry);
     });
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+    await choose(screen.getByText('chart.png'), 'Attach Instead');
+    const nextPage = simulatedPage();
+    await nextPage.report({
+      document: [{ kind: 'paragraph', spans: [] }],
+      attachments: [chart],
+    });
+    storage.setLocked(true);
+    await choose(screen.getByText('chart.png'), 'Show Inline');
+    await nextPage.report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
+    });
+    await screen.findByLabelText(
+      'chart.png, 5 bytes · Not checked while private storage is locked',
+    );
+    expect(lastSent()).toStrictEqual({
+      type: 'previews',
+      previews: { [chart.id]: null },
+    });
+    storage.setLocked(false);
+    await press('Check chart.png again');
     await waitFor(() => {
       expect(lastSent()).toStrictEqual({
         type: 'previews',

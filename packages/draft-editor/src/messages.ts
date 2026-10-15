@@ -75,8 +75,11 @@ export type Command =
   // Attachment and an Attachment into an Inline Image at the selection.
   | Readonly<{ type: 'remove'; id: string }>
   | Readonly<{ type: 'convert'; id: string }>
-  // Thumbnails native code made from verified bytes: the only image data the page receives.
-  | Readonly<{ type: 'previews'; previews: Readonly<Record<string, string>> }>;
+  // Verified native thumbnails; null revokes bytes that are no longer available or verified.
+  | Readonly<{
+      type: 'previews';
+      previews: Readonly<Record<string, string | null>>;
+    }>;
 
 // The script that runs a command in the page; the page defines `draftCommand`.
 export const commandScript = (command: Command) =>

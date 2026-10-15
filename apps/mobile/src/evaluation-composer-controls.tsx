@@ -43,6 +43,7 @@ import {
   NativeGlass,
   SFSymbol,
   ToolbarButton,
+  useMenuMotion,
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
@@ -91,7 +92,7 @@ const styles = StyleSheet.create({
     bottom: 64,
     minWidth: 240,
   },
-  format: { padding: spacing.s, paddingTop: 0 },
+  format: { margin: spacing.s, marginTop: 0 },
   formatContent: { padding: spacing.l, gap: spacing.m },
   formatHeader: {
     flexDirection: 'row',
@@ -246,11 +247,13 @@ function FormatChoice({
 // The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks and the
 // remaining block kinds, each one page command.
 export function FormatPanel({
+  open,
   page,
   run,
   onClose,
   onHide,
 }: {
+  readonly open: boolean;
   readonly page: PageState;
   readonly run: (command: Command) => void;
   // Closes the panel and resumes typing; `onHide` only closes it.
@@ -261,145 +264,166 @@ export function FormatPanel({
   const { t } = useLocalization();
   // Tapping into the body again brings the keyboard back in place of the panel.
   useEffect(() => {
+    if (!open) {
+      return;
+    }
     const shown = Keyboard.addListener('keyboardWillShow', onHide);
     return () => {
       shown.remove();
     };
-  }, [onHide]);
+  }, [onHide, open]);
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
-    <View style={styles.format}>
-      <GlassPanel
-        open
-        cornerRadius={radius.formatPanel}>
-        <View
-          accessibilityLabel={t('drafts.formatting')}
-          accessibilityRole="toolbar"
-          style={styles.formatContent}>
-          <View style={styles.formatHeader}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.formatTitle, { color: colors.textPrimary }]}>
-              {t('drafts.format')}
-            </Text>
+    <GlassPanel
+      open={open}
+      style={styles.format}
+      cornerRadius={radius.formatPanel}>
+      <View
+        accessibilityLabel={t('drafts.formatting')}
+        accessibilityRole="toolbar"
+        style={styles.formatContent}>
+        <View style={styles.formatHeader}>
+          <Text
+            accessibilityRole="header"
+            style={[styles.formatTitle, { color: colors.textPrimary }]}>
+            {t('drafts.format')}
+          </Text>
+          <ToolbarButton
+            disabled={!page.undo}
+            icon="arrow.uturn.backward"
+            label={t('drafts.undo')}
+            onPress={() => {
+              run({ type: 'undo' });
+            }}
+          />
+          <ToolbarButton
+            disabled={!page.redo}
+            icon="arrow.uturn.forward"
+            label={t('drafts.redo')}
+            onPress={() => {
+              run({ type: 'redo' });
+            }}
+          />
+          <View style={[styles.formatClose, rowFill]}>
             <ToolbarButton
-              disabled={!page.undo}
-              icon="arrow.uturn.backward"
-              label={t('drafts.undo')}
-              onPress={() => {
-                run({ type: 'undo' });
-              }}
+              icon="xmark"
+              label={t('drafts.closeFormat')}
+              onPress={onClose}
             />
-            <ToolbarButton
-              disabled={!page.redo}
-              icon="arrow.uturn.forward"
-              label={t('drafts.redo')}
-              onPress={() => {
-                run({ type: 'redo' });
-              }}
-            />
-            <View style={[styles.formatClose, rowFill]}>
-              <ToolbarButton
-                icon="xmark"
-                label={t('drafts.closeFormat')}
-                onPress={onClose}
-              />
-            </View>
           </View>
-          <View style={[styles.formatStyles, rowFill]}>
-            {headings.map((kind) => {
-              const name = t(
-                `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
-              );
-              return (
+        </View>
+        <View style={[styles.formatStyles, rowFill]}>
+          {headings.map((kind) => {
+            const name = t(
+              `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
+            );
+            return (
+              <FormatChoice
+                key={kind}
+                command={{ type: 'block', kind }}
+                name={name}
+                run={run}
+                selected={page.kind === kind}>
+                {(color) => (
+                  <Text style={[textStyles.subheadline, { color }]}>
+                    {name}
+                  </Text>
+                )}
+              </FormatChoice>
+            );
+          })}
+        </View>
+        <View style={styles.formatRow}>
+          {Object.entries(markGroups).map(([key, group]) => (
+            <View
+              key={key}
+              style={[
+                styles.formatGroup,
+                rowFill,
+                { minWidth: group.length * 44 },
+              ]}>
+              {group.map(([mark, , name]) => (
+                <FormatChoice
+                  key={mark}
+                  command={{ type: 'mark', mark }}
+                  name={t(name)}
+                  run={run}
+                  selected={page.marks.includes(mark)}>
+                  {(color) => (
+                    <SFSymbol
+                      name={
+                        mark === 'code'
+                          ? 'chevron.left.forwardslash.chevron.right'
+                          : mark
+                      }
+                      size={20}
+                      color={color}
+                    />
+                  )}
+                </FormatChoice>
+              ))}
+            </View>
+          ))}
+        </View>
+        <View style={styles.formatRow}>
+          {/* Lists, quotes and code blocks follow the three headings. */}
+          {Object.entries(blockGroups).map(([key, group]) => (
+            <View
+              key={key}
+              style={[styles.formatGroup, rowFill]}>
+              {group.map(([kind, , name]) => (
                 <FormatChoice
                   key={kind}
                   command={{ type: 'block', kind }}
-                  name={name}
+                  name={t(name)}
                   run={run}
                   selected={page.kind === kind}>
-                  {(color) => (
-                    <Text style={[textStyles.subheadline, { color }]}>
-                      {name}
-                    </Text>
-                  )}
-                </FormatChoice>
-              );
-            })}
-          </View>
-          <View style={styles.formatRow}>
-            {Object.entries(markGroups).map(([key, group]) => (
-              <View
-                key={key}
-                style={[
-                  styles.formatGroup,
-                  rowFill,
-                  { minWidth: group.length * 44 },
-                ]}>
-                {group.map(([mark, , name]) => (
-                  <FormatChoice
-                    key={mark}
-                    command={{ type: 'mark', mark }}
-                    name={t(name)}
-                    run={run}
-                    selected={page.marks.includes(mark)}>
-                    {(color) => (
+                  {(color) =>
+                    kind === 'bulleted' || kind === 'numbered' ? (
                       <SFSymbol
                         name={
-                          mark === 'code'
-                            ? 'chevron.left.forwardslash.chevron.right'
-                            : mark
+                          kind === 'bulleted' ? 'list.bullet' : 'list.number'
                         }
                         size={20}
                         color={color}
                       />
-                    )}
-                  </FormatChoice>
-                ))}
-              </View>
-            ))}
-          </View>
-          <View style={styles.formatRow}>
-            {/* Lists, quotes and code blocks follow the three headings. */}
-            {Object.entries(blockGroups).map(([key, group]) => (
-              <View
-                key={key}
-                style={[styles.formatGroup, rowFill]}>
-                {group.map(([kind, , name]) => (
-                  <FormatChoice
-                    key={kind}
-                    command={{ type: 'block', kind }}
-                    name={t(name)}
-                    run={run}
-                    selected={page.kind === kind}>
-                    {(color) =>
-                      kind === 'bulleted' || kind === 'numbered' ? (
-                        <SFSymbol
-                          name={
-                            kind === 'bulleted' ? 'list.bullet' : 'list.number'
-                          }
-                          size={20}
-                          color={color}
-                        />
-                      ) : (
-                        <SFSymbol
-                          name={
-                            kind === 'quote' ? 'quote.opening' : 'curlybraces'
-                          }
-                          size={20}
-                          color={color}
-                        />
-                      )
-                    }
-                  </FormatChoice>
-                ))}
-              </View>
-            ))}
-          </View>
+                    ) : (
+                      <SFSymbol
+                        name={
+                          kind === 'quote' ? 'quote.opening' : 'curlybraces'
+                        }
+                        size={20}
+                        color={color}
+                      />
+                    )
+                  }
+                </FormatChoice>
+              ))}
+            </View>
+          ))}
         </View>
-      </GlassPanel>
-    </View>
+      </View>
+    </GlassPanel>
   );
+}
+
+// Finishing retires input immediately while the controls' menus complete their exit.
+export function useRetainedControls(
+  page: PageState | undefined,
+  active: boolean,
+  size: 'compact' | 'regular',
+) {
+  const motion = useMenuMotion(active, 'menu');
+  const retained = motion.shown ? page : undefined;
+  const pointerEvents: 'box-none' | 'none' = active ? 'box-none' : 'none';
+  return {
+    phone: size === 'compact' ? retained : undefined,
+    pad: size === 'regular' ? retained : undefined,
+    input: {
+      accessibilityElementsHidden: !active,
+      pointerEvents,
+    },
+  };
 }
 
 // Leave room to scroll the final field above the 52pt controls and their 8pt insets.
@@ -433,77 +457,82 @@ export function PhoneControls({
 }) {
   const { t } = useLocalization();
   const offersTools = useOffersTools();
-  // The Format panel takes the controls' place.
-  if (open === 'format') {
-    return null;
-  }
   const toggle = (menu: Open) => {
     onOpen(open === menu ? undefined : menu);
   };
   return (
     <>
-      {open === 'attach' || open === 'tools' ? (
-        <View
-          accessibilityRole="menu"
-          style={styles.pillMenu}>
-          <GlassPanel
-            open
-            origin="bottom right">
-            {open === 'attach' ? (
-              pickers.map(([label, from, inline]) => (
-                <MenuItem
-                  key={label}
-                  label={t(label)}
-                  selected={false}
-                  onPress={() => {
-                    onAdd(from, inline);
-                  }}
-                />
-              ))
-            ) : (
-              <WritingTools
-                draft={draft}
-                page={page}
-                onCapture={onCapture}
-              />
-            )}
-          </GlassPanel>
-        </View>
-      ) : null}
       <View
-        pointerEvents="box-none"
-        style={styles.pill}>
-        <GlassGroup style={styles.pillGroup}>
-          <ToolbarButton
-            icon="textformat"
-            label={t('drafts.format')}
-            onPress={() => {
-              run({ type: 'blur' });
-              onOpen('format');
-            }}
+        accessibilityRole="menu"
+        accessibilityElementsHidden={open !== 'attach'}
+        pointerEvents={open === 'attach' ? 'box-none' : 'none'}
+        style={styles.pillMenu}>
+        <GlassPanel
+          open={open === 'attach'}
+          origin="bottom right">
+          {pickers.map(([label, from, inline]) => (
+            <MenuItem
+              key={label}
+              label={t(label)}
+              selected={false}
+              onPress={() => {
+                onAdd(from, inline);
+              }}
+            />
+          ))}
+        </GlassPanel>
+      </View>
+      <View
+        accessibilityRole="menu"
+        accessibilityElementsHidden={open !== 'tools'}
+        pointerEvents={open === 'tools' ? 'box-none' : 'none'}
+        style={styles.pillMenu}>
+        <GlassPanel
+          open={open === 'tools'}
+          origin="bottom right">
+          <WritingTools
+            draft={draft}
+            page={page}
+            onCapture={onCapture}
           />
-          <ToolbarButton
-            expanded={open === 'attach'}
-            icon="paperclip"
-            label={t('drafts.assets.toolbar')}
-            onPress={() => {
-              toggle('attach');
-            }}
-          />
-        </GlassGroup>
-        {offersTools ? (
+        </GlassPanel>
+      </View>
+      {open === 'format' ? null : (
+        <View
+          pointerEvents="box-none"
+          style={styles.pill}>
           <GlassGroup style={styles.pillGroup}>
             <ToolbarButton
-              expanded={open === 'tools'}
-              icon="sparkles"
-              label={t('drafts.writingTools')}
+              icon="textformat"
+              label={t('drafts.format')}
               onPress={() => {
-                toggle('tools');
+                run({ type: 'blur' });
+                onOpen('format');
+              }}
+            />
+            <ToolbarButton
+              expanded={open === 'attach'}
+              icon="paperclip"
+              label={t('drafts.assets.toolbar')}
+              onPress={() => {
+                toggle('attach');
               }}
             />
           </GlassGroup>
-        ) : null}
-      </View>
+          {offersTools ? (
+            <GlassGroup style={styles.pillGroup}>
+              <ToolbarButton
+                expanded={open === 'tools'}
+                icon="sparkles"
+                label={t('drafts.writingTools')}
+                onPress={() => {
+                  toggle('tools');
+                }}
+              />
+            </GlassGroup>
+          ) : null}
+        </View>
+      )}
     </>
   );
 }
@@ -583,19 +612,19 @@ export function PadFormatBar({
         ))}
       </FormatBar>
       {/* The bar's controls scroll and would clip the menu, so it opens below the bar. */}
-      {open === 'tools' ? (
-        <View
-          accessibilityRole="menu"
-          style={styles.padMenu}>
-          <GlassPanel open>
-            <WritingTools
-              draft={draft}
-              page={page}
-              onCapture={onCapture}
-            />
-          </GlassPanel>
-        </View>
-      ) : null}
+      <View
+        accessibilityRole="menu"
+        accessibilityElementsHidden={open !== 'tools'}
+        pointerEvents={open === 'tools' ? 'box-none' : 'none'}
+        style={styles.padMenu}>
+        <GlassPanel open={open === 'tools'}>
+          <WritingTools
+            draft={draft}
+            page={page}
+            onCapture={onCapture}
+          />
+        </GlassPanel>
+      </View>
     </View>
   );
 }

@@ -548,9 +548,13 @@ if (draftEditor !== undefined && element !== null) {
     }
     editor.view.dispatch(tr);
   };
-  const showPreviews = (next: Readonly<Record<string, string>>) => {
+  const showPreviews = (next: Readonly<Record<string, string | null>>) => {
     for (const [id, preview] of Object.entries(next)) {
-      previews.set(id, preview);
+      if (preview === null) {
+        previews.delete(id);
+      } else {
+        previews.set(id, preview);
+      }
     }
     for (const image of element.querySelectorAll('img')) {
       show(image);

@@ -43,7 +43,8 @@ command input and expand control when the reading pane is narrow.
 Save and Send feedback, errors and assistance reviews scroll with the body, files
 and fields, so they can scroll away in a short window or above the keyboard.
 On iPhone, the floating menus remain interactive when a short landscape viewport
-places them over the header.
+places them over the header. Closing panels fade away with the shared menu motion;
+their controls stop accepting input and leave VoiceOver immediately.
 
 - **Saving.** Nothing is saved while editing, and no save status is shown. The
   Draft is stored only when the person chooses **Save Draft** (**Save** on Mac) or
@@ -67,6 +68,8 @@ places them over the header.
   the Draft. Editing pauses while saving or sending, and resumes if the operation
   cannot finish. Queued formatting, history and file actions cannot change the
   paused page. A pending navigation continues after the chosen save or deletion.
+  A deletion already in progress still removes this editor's conflicting copy if
+  its window closes before storage finishes.
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
@@ -173,7 +176,9 @@ again, and **Remove**.
 - **Pictures.** Native code checks an image's bytes against its digest and returns a
   thumbnail at most 256 pixels on its longest side. Only that thumbnail reaches the
   page, which shows a dashed placeholder until then and for damaged, missing or
-  locked bytes; the rows say why, as in the current composer.
+  locked bytes; the rows say why, as in the current composer. A previously shown thumbnail is removed when a later check finds its bytes
+  unavailable, including after converting an Attachment back to an Inline
+  Image; a successful retry restores it.
 - **Identity.** The page names images and Attachments by asset identifier. The host
   accepts only assets it gave the page, keeps their latest native state, and saves
   the Semantic Message Document with them. A thumbnail never becomes part of the

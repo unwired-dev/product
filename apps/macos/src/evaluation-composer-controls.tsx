@@ -289,10 +289,12 @@ export function SaveBackground({
 
 // Asks whether to keep changed Draft content, as Mail does when a message window closes.
 export function SaveSheet({
+  open,
   onSave,
   onDelete,
   onCancel,
 }: {
+  readonly open: boolean;
   readonly onSave: () => void;
   readonly onDelete: () => void;
   readonly onCancel: () => void;
@@ -301,6 +303,9 @@ export function SaveSheet({
   const { t } = useLocalization();
   const buttons = useRef<Array<View | null>>([]);
   const [focused, setFocused] = useState<number>();
+  if (!open && focused !== undefined) {
+    setFocused(undefined);
+  }
   const choices = [
     { label: t('drafts.saveAction'), onPress: onSave },
     { label: t('drafts.dontSave'), onPress: onDelete },
@@ -313,14 +318,24 @@ export function SaveSheet({
     }
   };
   useEffect(() => {
+    if (!open) {
+      for (const button of buttons.current) {
+        if (button !== null && 'blur' in button) {
+          button.blur();
+        }
+      }
+      return;
+    }
     const [first] = buttons.current;
     if (first !== null && first !== undefined && 'focus' in first) {
       first.focus();
     }
-  }, []);
+  }, [open]);
   return (
     <View
-      accessibilityViewIsModal
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'box-none' : 'none'}
+      accessibilityViewIsModal={open}
       onAccessibilityEscape={onCancel}
       keyDownEvents={[
         { key: 'Escape' },
@@ -328,6 +343,9 @@ export function SaveSheet({
         { key: 'Tab', shiftKey: true },
       ]}
       onKeyDown={({ nativeEvent }) => {
+        if (!open) {
+          return;
+        }
         if (nativeEvent.key === 'Escape') {
           onCancel();
         } else if (nativeEvent.key === 'Tab') {
@@ -338,7 +356,7 @@ export function SaveSheet({
       }}
       style={styles.sheet}>
       <GlassPanel
-        open
+        open={open}
         origin="top">
         <View style={styles.sheetContent}>
           <Text
@@ -355,6 +373,7 @@ export function SaveSheet({
           {choices.map(({ label, onPress }, index) => (
             <Button
               key={label}
+              disabled={!open}
               ref={(button) => {
                 buttons.current[index] = button;
               }}
