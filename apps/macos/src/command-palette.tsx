@@ -97,6 +97,9 @@ interface CommandMenu extends TurboModule {
   // The window's first responder, which can be an Inbox row or a button as well as a text field.
   readonly saveFocus: (window: string) => void;
   readonly restoreFocus: (window: string) => void;
+  // A guarded window asks its JavaScript before Command-W, its close button or Quit closes it.
+  readonly guardClose: (window: string, guarded: boolean) => void;
+  readonly finishClose: (window: string, allowed: boolean) => void;
 }
 
 // The Commands… menu item, Command-P, names the key window it was chosen in.
@@ -237,6 +240,50 @@ const styles = StyleSheet.create({
   hint: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   hintText: { fontSize: 10, lineHeight: 13 },
 });
+
+// While mounted, closing this window or quitting first runs `leave`, the composer's own Close,
+// and closes the window only once it allows leaving.
+export function useCloseGuard(leave: () => Promise<boolean>) {
+  const { windowId } = use(PaletteContext);
+  const identifier = `inbox-window-${windowId}`;
+  const leaveNow = useRef(leave);
+  useLayoutEffect(() => {
+    leaveNow.current = leave;
+  }, [leave]);
+  useEffect(() => {
+    const menu = commandMenu();
+    if (menu === null) {
+      return undefined;
+    }
+    let pending = false;
+    const subscription = new NativeEventEmitter(menu).addListener(
+      'windowShouldClose',
+      ({ window }: { readonly window: string }) => {
+        if (window !== identifier || pending) {
+          return;
+        }
+        pending = true;
+        const answer = async () => {
+          // A failed leave keeps the window open and cancels a pending Quit.
+          let allowed = false;
+          try {
+            allowed = await leaveNow.current();
+          } catch {
+            // The window stays open, as when the person cancels.
+          }
+          menu.finishClose(identifier, allowed);
+          pending = false;
+        };
+        void answer();
+      },
+    );
+    menu.guardClose(identifier, true);
+    return () => {
+      subscription.remove();
+      menu.guardClose(identifier, false);
+    };
+  }, [identifier]);
+}
 
 // Collects the commands the window's screens offer; every window has one, above every screen that
 // shows the CommandBar.

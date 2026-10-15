@@ -1,223 +1,134 @@
-import type { Command, Update } from '@private-email/draft-editor/messages';
+import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
-import type { Draft } from '@private-email/mail-core/drafts';
+import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type { SendRefusal } from '@private-email/mail-core/outbox';
 
-import { supported } from '@private-email/draft-editor/conversion';
 import {
   commandScript,
-  decodeUpdate,
+  decodeMessage,
+  knownAssets,
 } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import {
-  canRewrite,
-  canSuggestReply,
   captureDraftText,
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
-import { draftOf, isEmptyDraft } from '@private-email/mail-core/drafts';
 import {
+  addRecipients,
+  draftOf,
+  entryOf,
+  isEmptyDraft,
+  withAsset,
+  withSender,
+} from '@private-email/mail-core/drafts';
+import {
+  clip,
+  imagesOf,
   replaceSelection,
-  selectedText,
 } from '@private-email/mail-core/semantic-document';
-import { radius, spacing } from '@private-email/mail-core/theme';
 import {
-  hasTranslatableText,
-  translationInputLimit,
-} from '@private-email/mail-core/translation';
-import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+  use,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import { blockControls, markControls } from './composer-controls.tsx';
+import type { Closing } from './composer.tsx';
+import type { PageState } from './evaluation-composer-controls.tsx';
+
+import { useCloseGuard } from './command-palette.tsx';
 import {
-  Action,
   CapturedAssistance,
   Composer,
+  ComposerNotices,
+  composerStyles,
+  DraftAssets,
   Notice,
   retires,
-  rewriteLabel,
+  SendingMailbox,
 } from './composer.tsx';
+import { Button, MenuPresence, ToolbarButton } from './design.tsx';
+import {
+  PageFormatBar,
+  DraftFields,
+  SaveBackground,
+  SaveSheet,
+} from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { useComposerNavigation, useDrafts, useDraftStore } from './mailbox.tsx';
+import {
+  useComposerNavigation,
+  useDraftStore,
+  useDrafts,
+  useOutbox,
+} from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
+const s = composerStyles;
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  content: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    gap: spacing.l,
-  },
-  bar: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
-  },
-  grow: { flex: 1 },
-  title: { ...textStyles.bodyEmphasized },
-  status: { ...textStyles.body },
-  notice: { ...textStyles.body },
-  format: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  body: { flex: 1 },
+  controls: { zIndex: 1 },
+  scroll: { flexGrow: 1 },
+  // The regular composer's minimum body height.
+  body: { flex: 1, minHeight: 160 },
 });
 
-type PageState = Omit<Update, 'type' | 'document'>;
-
-// The current composer's formatting, history and assistance controls, acting on the page. Each
-// press is one page command; the page reports the formatting at its selection.
-function Toolbar({
-  page,
-  draft,
-  run,
-  capture,
-}: {
-  readonly page: PageState;
-  readonly draft: Draft;
-  readonly run: (command: Command) => void;
-  readonly capture: (purpose: CapturedDraftText['purpose']) => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  const { selection } = page;
-  return (
-    <View
-      accessibilityLabel={t('drafts.formatting')}
-      accessibilityRole="toolbar"
-      style={styles.bar}>
-      <Action
-        disabled={!page.undo}
-        label={t('drafts.undo')}
-        onPress={() => {
-          run({ type: 'undo' });
-        }}
-      />
-      <Action
-        disabled={!page.redo}
-        label={t('drafts.redo')}
-        onPress={() => {
-          run({ type: 'redo' });
-        }}
-      />
-      {markControls.map(([mark, label, name, style]) => (
-        <Pressable
-          key={mark}
-          accessibilityLabel={t(name)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: page.marks.includes(mark) }}
-          onPress={() => {
-            run({ type: 'mark', mark });
-          }}
-          style={[
-            styles.format,
-            page.marks.includes(mark) && {
-              backgroundColor: colors.accentSelectionSubtle,
-              borderWidth: 2,
-              borderColor: colors.textPrimary,
-            },
-          ]}>
-          <Text style={[{ color: colors.textPrimary }, style]}>{label}</Text>
-        </Pressable>
-      ))}
-      {blockControls.map(([kind, label, name]) => (
-        <Pressable
-          key={kind}
-          accessibilityLabel={t(name)}
-          accessibilityRole="button"
-          accessibilityState={{ selected: page.kind === kind }}
-          onPress={() => {
-            run({ type: 'block', kind });
-          }}
-          style={[
-            styles.format,
-            page.kind === kind && {
-              backgroundColor: colors.accentSelectionSubtle,
-              borderWidth: 2,
-              borderColor: colors.textPrimary,
-            },
-          ]}>
-          <Text style={{ color: colors.textPrimary }}>{label}</Text>
-        </Pressable>
-      ))}
-      {translation === undefined ? null : (
-        <Action
-          disabled={
-            !hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
-            )
-          }
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          onPress={() => {
-            capture('translate');
-          }}
-        />
-      )}
-      {assistance === undefined ? null : (
-        <Action
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
-          onPress={() => {
-            capture('rewrite');
-          }}
-        />
-      )}
-      {assistance !== undefined && canSuggestReply(draft) ? (
-        <Action
-          label={t('assistance.suggestReply')}
-          accessibilityLabel={t('assistance.suggestReplyLabel')}
-          onPress={() => {
-            capture('reply');
-          }}
-        />
-      ) : null}
-    </View>
-  );
-}
-
-// The Tiptap evaluation editor for one Draft: the packaged page edits the body, and each change
-// saves through the Draft store like the current composer's edits. Assistance captures the body
-// the page last reported, and an accepted result replaces it in the page as one undoable edit.
+// The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
+// edits the body, and native controls format it, add files and offer writing tools. Nothing is
+// saved until the person chooses Save on Close, as in Mail; Don't Save removes the Draft.
 function EvaluationEditor({
   page,
   initial,
   onClose,
   onRebind,
+  expanded = false,
+  onExpand,
 }: {
   readonly page: string;
   readonly initial: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
+  readonly expanded?: boolean | undefined;
+  readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
+  const outbox = useOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
-  // Page messages can arrive before React commits an earlier edit or a rebind.
+  // Page messages and field edits can arrive before React commits an earlier edit or a rebind.
   const authored = useRef(initial);
+  const getDraft = useCallback(() => authored.current, []);
+  // The version the store holds: the Draft as opened, until Save or Send stores this one.
+  const stored = useRef(initial);
   const [draft, setDraft] = useState(initial);
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
   const view = useRef<WebView>(null);
   const pageStopped = useRef(false);
-  const [closing, setClosing] = useState<'saving' | 'blocked'>();
+  const [open, setOpen] = useState<'save' | 'tools'>();
+  const [closing, setClosing] = useState<Closing>();
+  // Why the last Send left this Draft here.
+  const [refused, setRefused] = useState<SendRefusal>();
+  const [sending, setSending] = useState(false);
+  // Save, Don't Save and Send each finish before another starts.
+  const busy = useRef(false);
+  const paused = useRef<((ready: boolean) => void) | undefined>(undefined);
+  const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
+  // Whether the last Close opened its question rather than finishing or failing.
+  const asked = useRef(false);
+  const answerLeave = useCallback((allowed: boolean) => {
+    const answer = leaving.current;
+    leaving.current = undefined;
+    answer?.(allowed);
+  }, []);
   const [stopped, setStopped] = useState(false);
   const mounted = useRef(true);
   const onRebindNow = useRef(onRebind);
@@ -225,8 +136,14 @@ function EvaluationEditor({
     onRebindNow.current = onRebind;
   }, [onRebind]);
   const rebind = useCallback((id: string) => {
-    authored.current = { ...authored.current, id, conflict: true };
+    const previous = authored.current;
+    authored.current = { ...previous, id, conflict: true };
+    stored.current =
+      stored.current === previous
+        ? authored.current
+        : { ...stored.current, id, conflict: true };
     if (mounted.current) {
+      setDraft(authored.current);
       onRebindNow.current(id);
     }
   }, []);
@@ -234,7 +151,11 @@ function EvaluationEditor({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      store.release(rebind);
+      paused.current?.(false);
+      leaving.current?.(false);
+      if (!busy.current) {
+        store.release(rebind);
+      }
     };
   }, [rebind, store]);
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
@@ -259,18 +180,131 @@ function EvaluationEditor({
   }
   const stop = () => {
     pageStopped.current = true;
+    paused.current?.(false);
     pageNow.current = undefined;
     forget();
     setStopped(true);
   };
-  const run = (command: Command) => {
+  const run = useCallback((command: Command) => {
     if (mounted.current && !pageStopped.current) {
       view.current?.injectJavaScript(commandScript(command));
     }
+  }, []);
+  // An edit in this editor only; the store learns of it on Save or Send.
+  const change = (next: Draft) => {
+    if (busy.current && paused.current === undefined) {
+      return;
+    }
+    authored.current = next;
+    setDraft(next);
+    if (!busy.current) {
+      setClosing(undefined);
+      setRefused(undefined);
+    }
   };
+  // Every asset this editor gave its page, as native code last settled it. The page reports only
+  // these, and Undo in the page can restore any of them.
+  const known = useRef(
+    new Map(
+      [...imagesOf(initial.body), ...(initial.attachments ?? [])].map(
+        (asset) => [asset.id, asset],
+      ),
+    ),
+  );
+  // An import settles in this editor, and the store keeps every asset the page can restore while
+  // the Draft exists.
+  useLayoutEffect(
+    () =>
+      store.onSettle((id, next) => {
+        const asset = known.current.get(id);
+        if (asset !== undefined) {
+          known.current.set(id, next(asset));
+        }
+        const previous = authored.current;
+        authored.current = withAsset(previous, id, next);
+        stored.current =
+          stored.current === previous
+            ? authored.current
+            : withAsset(stored.current, id, next);
+        if (mounted.current) {
+          setDraft(authored.current);
+        }
+        return [
+          authored.current,
+          { ...authored.current, attachments: [...known.current.values()] },
+        ];
+      }),
+    [store],
+  );
+  // Files the person chose become Attachments, and images placed inline go at the page's
+  // selection, as one edit in the page; native code then imports their bytes.
+  const add = async (from: PickSource, inline: boolean) => {
+    const files = await store.pick(
+      from,
+      () => mounted.current && !pageStopped.current && !busy.current,
+    );
+    const imports = files.map((file) => ({ file, asset: store.prepare(file) }));
+    for (const { asset } of imports) {
+      known.current.set(asset.id, asset);
+    }
+    const inlined = imports.filter(
+      ({ file }) => inline && file.type.startsWith('image/'),
+    );
+    if (imports.length > 0) {
+      run({
+        type: 'add',
+        images: inlined.map(({ asset }) => asset),
+        attachments: imports
+          .filter((each) => !inlined.includes(each))
+          .map(({ asset }) => asset),
+      });
+    }
+    for (const { asset, file } of imports) {
+      void store.importAsset(asset, file.source);
+    }
+  };
+  // Remove and Cancel already queued when Save Draft or Send starts leave the frozen version alone.
+  const removeAsset = (id: string) => {
+    if (busy.current) {
+      return;
+    }
+    void store.cancelImport(id);
+    run({ type: 'remove', id });
+  };
+  // Verified thumbnails of the body's images, which the image rows read and read again on
+  // Try again or when storage becomes available. A page that loads later receives all of them.
+  const previews = useRef(new Map<string, string>());
+  const showPreview = useCallback(
+    (id: string, uri: string | null) => {
+      if (uri === null) {
+        previews.current.delete(id);
+      } else {
+        previews.current.set(id, uri);
+      }
+      if (pageNow.current !== undefined) {
+        run({ type: 'previews', previews: { [id]: uri } });
+      }
+    },
+    [run],
+  );
+  const ready = pageState !== undefined;
+  useEffect(() => {
+    if (ready && previews.current.size > 0) {
+      run({
+        type: 'previews',
+        previews: Object.fromEntries(previews.current),
+      });
+    }
+  }, [ready, run]);
   const capture = (purpose: CapturedDraftText['purpose']) => {
+    setOpen(undefined);
     const reported = pageNow.current;
-    if (!mounted.current || !assistanceEnabled() || reported === undefined) {
+    if (
+      !mounted.current ||
+      busy.current ||
+      !assistanceEnabled() ||
+      reported === undefined
+    ) {
       return;
     }
     captureGeneration.current += 1;
@@ -282,12 +316,13 @@ function EvaluationEditor({
     setCaptured(next);
   };
   // Replaces exactly the captured text with its reviewed result, in the body revision it was
-  // captured from. The page saves the result through its next update.
+  // captured from, as one undoable edit in the page.
   const applyCaptured = (replacement: string) => {
     const latest = authored.current;
     const reported = pageNow.current;
     if (
       !mounted.current ||
+      busy.current ||
       reported === undefined ||
       captured === undefined ||
       captureNow.current !== captured ||
@@ -314,157 +349,407 @@ function EvaluationEditor({
   // oxlint-disable-next-line react/hook-use-state -- Injected once, before the page's script.
   const [injected] = useState(
     () =>
-      `window.draftEditor = ${JSON.stringify({ document: initial.body, label: t('drafts.body') })}; true;`,
+      `window.draftEditor = ${JSON.stringify({ document: initial.body, attachments: initial.attachments ?? [], label: t('drafts.body') })}; true;`,
   );
-  const close = useCallback(async () => {
-    if (!mounted.current) {
+  // Entries still being typed become recipients; an invalid one keeps the Draft here.
+  const finishEntries = () => {
+    let finished = authored.current;
+    for (const field of ['to', 'cc', 'bcc'] as const) {
+      finished = addRecipients(finished, {
+        field,
+        text: entryOf(finished, field),
+        all: true,
+      }).draft;
+    }
+    authored.current = finished;
+    setDraft(finished);
+    return finished.entries === undefined;
+  };
+  // Runs one Save, Don't Save or Send; `finish` resolves whether the editor may close. One that
+  // fails without explaining why offers to try saving again.
+  const finishing = async (finish: () => Promise<boolean>) => {
+    if (busy.current) {
       return false;
     }
+    busy.current = true;
+    setOpen(undefined);
     setClosing('saving');
     let closed = false;
     try {
-      closed = isEmptyDraft(authored.current)
-        ? await store.discard(() => authored.current.id, {
-            onlyIfEmpty: true,
-            expected: () => authored.current,
-          })
-        : await store.save();
+      // A WebKit edit may still be queued when a native control is pressed. Freeze the page and
+      // receive its final document before storing or admitting exactly that version.
+      const pageReady =
+        pageStopped.current || pageNow.current === undefined
+          ? true
+          : // oxlint-disable-next-line promise/avoid-new -- The page acknowledges its ordered edit flush.
+            await new Promise<boolean>((resolve) => {
+              paused.current = resolve;
+              run({ type: 'editable', editable: false });
+            });
+      paused.current = undefined;
+      closed = pageReady && (await finish());
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
+    paused.current = undefined;
+    busy.current = false;
     if (!mounted.current) {
-      return closed;
+      store.release(rebind);
     }
-    if (closed) {
+    setSending(false);
+    answerLeave(closed);
+    if (!closed) {
+      run({ type: 'editable', editable: true });
+    }
+    if (closed && mounted.current) {
       mounted.current = false;
       onClose();
-      return true;
+    } else if (!closed) {
+      setClosing((current) => (current === 'saving' ? 'blocked' : current));
     }
-    setClosing('blocked');
-    return false;
-  }, [onClose, store]);
+    return closed;
+  };
+  // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
+  // opened becomes a conflicting copy.
+  const saveDraft = () =>
+    finishing(async () => {
+      if (!finishEntries()) {
+        setClosing('recipients');
+        return false;
+      }
+      void store.update(authored.current, stored.current, rebind);
+      stored.current = authored.current;
+      return store.save();
+    });
+  const deleteDraft = () =>
+    finishing(async () => {
+      if (
+        await store.discard(() => authored.current.id, {
+          expected: () => stored.current,
+        })
+      ) {
+        return true;
+      }
+      setClosing('discard-blocked');
+      return false;
+    });
+  // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
+  // keeps it open.
+  const send = () =>
+    finishing(async () => {
+      if (!finishEntries()) {
+        setClosing(undefined);
+        setRefused('entries');
+        return false;
+      }
+      forget();
+      setSending(true);
+      const shown = authored.current;
+      void store.update(shown, stored.current, rebind);
+      stored.current = shown;
+      const refusal = await outbox.send(() => ({
+        ...shown,
+        id: authored.current.id,
+        ...(authored.current.conflict ? { conflict: true as const } : {}),
+      }));
+      if (refusal === undefined) {
+        return true;
+      }
+      setClosing(undefined);
+      setRefused(refusal);
+      return false;
+    });
+  // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
+  // removed and an unchanged one closes.
+  const close = async () => {
+    if (busy.current) {
+      return false;
+    }
+    return finishing(async () => {
+      if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
+        return store.discard(() => authored.current.id, {
+          onlyIfEmpty: true,
+          expected: () => stored.current,
+        });
+      }
+      if (
+        authored.current === stored.current &&
+        state.kind === 'ready' &&
+        state.save === 'saved'
+      ) {
+        return true;
+      }
+      setClosing(undefined);
+      setOpen('save');
+      asked.current = true;
+      return false;
+    });
+  };
+  // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
-  useLayoutEffect(() => navigation.register(close), [navigation, close]);
-  const save = state.kind === 'ready' ? state.save : 'failed';
+  // Command-W, the window's close button and Quit ask the same question before closing.
+  useCloseGuard(navigation.leave);
+  useLayoutEffect(() =>
+    navigation.register(async () => {
+      asked.current = false;
+      if (await close()) {
+        return true;
+      }
+      // Only an open question can still answer; a refused Close leaves at once.
+      if (!asked.current || busy.current || !mounted.current) {
+        return false;
+      }
+      // oxlint-disable-next-line promise/avoid-new -- Navigation waits for Save, Delete or dismissal.
+      return new Promise<boolean>((resolve) => {
+        leaving.current = resolve;
+      });
+    }),
+  );
+  useEffect(() => {
+    if (open !== 'save' && !busy.current) {
+      answerLeave(false);
+    }
+  }, [answerLeave, open]);
+  useEffect(() => {
+    if (open === 'save') {
+      run({ type: 'editable', editable: false });
+    } else if (!busy.current) {
+      run({ type: 'editable', editable: true });
+    }
+  }, [open, run]);
+  const title = clip(draft.subject) || t('drafts.newMessage');
+  const titleLabel =
+    title.length < draft.subject.length
+      ? t('drafts.titleShortened', { title })
+      : title;
+  // Quoted correspondence and its images stay as the Draft has them.
+  const { quoted: _quoted, ...owned } = draft;
+  // Controls appear once the page reports that it is ready for commands.
+  const shown = stopped || closing === 'saving' ? undefined : pageState;
   return (
-    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.content}>
-        <View style={styles.bar}>
-          <Action
+    <View style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
+      <SaveBackground active={open === 'save'}>
+        <View style={s.header}>
+          <ToolbarButton
             disabled={closing === 'saving'}
+            icon="xmark"
             label={t('drafts.close')}
             onPress={() => {
               void close();
             }}
           />
-          <Text
+          <View
             accessible
+            accessibilityLabel={titleLabel}
             accessibilityRole="header"
-            numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.title')}
-          </Text>
+            style={s.grow}>
+            <Text
+              numberOfLines={1}
+              style={[s.title, { color: colors.textPrimary }]}>
+              {title}
+            </Text>
+          </View>
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              icon={
+                expanded
+                  ? 'arrow.down.right.and.arrow.up.left'
+                  : 'arrow.up.left.and.arrow.down.right'
+              }
+              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+              onPress={onExpand}
+            />
+          )}
         </View>
-        <Notice style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.from', { from: initial.from })}
-        </Notice>
-        <Notice style={[styles.status, { color: colors.textSecondary }]}>
-          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-        </Notice>
-        {closing === 'blocked' ? (
-          <View style={styles.bar}>
+        <MenuPresence
+          open={shown !== undefined}
+          origin="top"
+          style={styles.controls}>
+          {pageState === undefined ? null : (
+            <PageFormatBar
+              draft={draft}
+              page={pageState}
+              tools={open === 'tools'}
+              run={run}
+              onTools={(next) => {
+                setOpen(next ? 'tools' : undefined);
+              }}
+              onAdd={(from, inline) => {
+                void add(from, inline);
+              }}
+              onCapture={capture}
+            />
+          )}
+        </MenuPresence>
+        {/* The body, files and fields scroll together in a short window. */}
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <ComposerNotices
+            closing={closing}
+            draft={draft}
+            refused={refused}
+            onClose={() => {
+              void saveDraft();
+            }}
+            onDiscard={() => {
+              void deleteDraft();
+            }}
+            onKeepEditing={() => {
+              setClosing(undefined);
+            }}
+          />
+          {stopped ? (
             <Notice
               alert
-              style={[styles.notice, { color: colors.textPrimary }]}>
-              {t('drafts.evaluation.saveBlocked')}
+              style={[s.notice, { color: colors.textPrimary }]}>
+              {t('drafts.evaluation.stopped')}
             </Notice>
-            <Action
-              label={t('common.retry')}
-              onPress={() => {
-                void close();
+          ) : null}
+          {captured === undefined ? null : (
+            <View style={s.review}>
+              <CapturedAssistance
+                key={captured.id}
+                captured={captured}
+                assistance={assistance}
+                translation={translation}
+                onApply={applyCaptured}
+                onClose={forget}
+              />
+            </View>
+          )}
+          {stopped ? (
+            <View style={s.fill} />
+          ) : (
+            <WebView
+              ref={view}
+              allowsInlineMediaPlayback={false}
+              allowsLinkPreview={false}
+              cacheEnabled={false}
+              dataDetectorTypes="none"
+              incognito
+              injectedJavaScriptBeforeContentLoaded={injected}
+              javaScriptCanOpenWindowsAutomatically={false}
+              mediaPlaybackRequiresUserAction
+              onContentProcessDidTerminate={stop}
+              onError={stop}
+              onMessage={({ nativeEvent }) => {
+                if (!mounted.current || pageStopped.current) {
+                  return;
+                }
+                const message = decodeMessage(nativeEvent.data);
+                // The page refused a paste carrying files; the Mac has no native pasteboard import
+                // for the page, so pasted images are not added here.
+                if (message === undefined || message.type === 'paste') {
+                  return;
+                }
+                const {
+                  document: reported,
+                  attachments: attached = [],
+                  type: _,
+                  frozen,
+                  ...next
+                } = message;
+                const flushed =
+                  frozen && next.revision === pageNow.current?.revision;
+                pageNow.current = next;
+                setPageState(next);
+                if (reported === undefined || flushed) {
+                  if (frozen) {
+                    paused.current?.(true);
+                  }
+                  return;
+                }
+                // Editing again retires captured text, as in the current composer.
+                forget();
+                const previous = authored.current;
+                const { body, attachments } = knownAssets(known.current, {
+                  document: reported,
+                  attachments: attached,
+                });
+                change({
+                  ...previous,
+                  body,
+                  ...(attachments.length === 0 &&
+                  previous.attachments === undefined
+                    ? {}
+                    : { attachments }),
+                });
+                if (frozen) {
+                  paused.current?.(true);
+                }
               }}
+              // Only the page itself loads; every navigation it could start is cancelled.
+              onShouldStartLoadWithRequest={({ url, navigationType }) =>
+                url === 'about:blank' && navigationType === 'other'
+              }
+              pointerEvents={closing === 'saving' ? 'none' : 'auto'}
+              originWhitelist={['*']}
+              setSupportMultipleWindows={false}
+              source={source}
+              style={[styles.body, { backgroundColor: colors.surfaceContent }]}
             />
-          </View>
-        ) : null}
-        {stopped ? (
-          <Notice
-            alert
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.stopped')}
-          </Notice>
-        ) : null}
-        {/* Controls appear once the page reports that it is ready for commands. */}
-        {stopped || pageState === undefined ? null : (
-          <Toolbar
-            page={pageState}
+          )}
+          <DraftAssets
+            draft={owned}
+            editable={shown !== undefined}
+            onCancel={(id) => {
+              if (!busy.current) {
+                void store.cancelImport(id);
+              }
+            }}
+            onConvert={(id) => {
+              run({ type: 'convert', id });
+            }}
+            onPreview={showPreview}
+            onRemove={removeAsset}
+          />
+          <DraftFields
             draft={draft}
-            run={run}
-            capture={capture}
+            getDraft={getDraft}
+            editable={closing !== 'saving' && !sending}
+            onChange={change}
+            onCaretMove={() => {
+              setOpen(undefined);
+            }}
           />
-        )}
-        {captured === undefined ? null : (
-          <CapturedAssistance
-            key={captured.id}
-            captured={captured}
-            assistance={assistance}
-            translation={translation}
-            onApply={applyCaptured}
-            onClose={forget}
+        </ScrollView>
+        <View style={[s.actions, { borderTopColor: colors.separator }]}>
+          <SendingMailbox
+            draft={draft}
+            editable={closing !== 'saving' && !sending}
+            onChange={(mailbox) => {
+              change(withSender(authored.current, mailbox));
+            }}
           />
-        )}
-      </View>
-      {stopped ? null : (
-        <WebView
-          ref={view}
-          allowsInlineMediaPlayback={false}
-          allowsLinkPreview={false}
-          cacheEnabled={false}
-          dataDetectorTypes="none"
-          incognito
-          injectedJavaScriptBeforeContentLoaded={injected}
-          javaScriptCanOpenWindowsAutomatically={false}
-          mediaPlaybackRequiresUserAction
-          onContentProcessDidTerminate={stop}
-          onError={stop}
-          onMessage={({ nativeEvent }) => {
-            if (!mounted.current || pageStopped.current) {
-              return;
-            }
-            const update = decodeUpdate(nativeEvent.data);
-            if (update === undefined) {
-              return;
-            }
-            const { document: body, type: _, ...next } = update;
-            pageNow.current = next;
-            setPageState(next);
-            if (body === undefined) {
-              return;
-            }
-            // Editing again replaces a failed Close's notice, as in the current composer, and
-            // retires captured text.
-            setClosing(undefined);
-            forget();
-            const previous = authored.current;
-            authored.current = { ...previous, body };
-            setDraft(authored.current);
-            void store.update(authored.current, previous, rebind);
-          }}
-          // Only the page itself loads; every navigation it could start is cancelled.
-          onShouldStartLoadWithRequest={({ url, navigationType }) =>
-            url === 'about:blank' && navigationType === 'other'
-          }
-          originWhitelist={['*']}
-          setSupportMultipleWindows={false}
-          source={source}
-          style={[styles.body, { backgroundColor: colors.surfaceContent }]}
-        />
-      )}
+          <View style={s.grow} />
+          <Button
+            disabled={closing === 'saving'}
+            label={t('drafts.send')}
+            fill="accent"
+            onPress={() => {
+              void send();
+            }}
+          />
+        </View>
+      </SaveBackground>
+      <SaveSheet
+        open={open === 'save'}
+        onSave={() => {
+          void saveDraft();
+        }}
+        onDelete={() => {
+          void deleteDraft();
+        }}
+        onCancel={() => {
+          setOpen(undefined);
+        }}
+      />
     </View>
   );
 }
 
-// A Draft the page cannot show without loss, or one that is not available, stays with the current
-// composer's own views.
+// A Draft that is not available yet, or never was, stays with the current composer's own views.
+// Once open, the editor keeps its unsaved version even if the Draft is removed elsewhere, so
+// Save can still keep it as a copy.
 function EvaluationComposer({
   page,
   id,
@@ -481,22 +766,27 @@ function EvaluationComposer({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
-  const colors = usePalette();
-  const { t } = useLocalization();
+  const draft = draftOf(state, id);
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
-  const [editor, setEditor] = useState({ key: id, followed: id });
+  const [editor, setEditor] = useState({
+    key: id,
+    followed: id,
+    opened: draft,
+  });
   if (editor.followed !== id) {
-    setEditor({ key: id, followed: id });
+    setEditor({ key: id, followed: id, opened: draft });
+  } else if (editor.opened === undefined && draft !== undefined) {
+    setEditor({ ...editor, opened: draft });
   }
   const rebind = useCallback(
     (copy: string) => {
-      setEditor((current) => ({ key: current.key, followed: copy }));
+      setEditor((current) => ({ ...current, followed: copy }));
       onRebind(copy);
     },
     [onRebind],
   );
-  const draft = draftOf(state, id);
-  if (draft === undefined) {
+  const opened = editor.followed === id ? editor.opened : draft;
+  if (opened === undefined) {
     return (
       <Composer
         id={id}
@@ -507,29 +797,14 @@ function EvaluationComposer({
       />
     );
   }
-  if (!supported(draft.body)) {
-    return (
-      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-        <View style={styles.content}>
-          <Notice
-            alert
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.unsupported')}
-          </Notice>
-          <Action
-            label={t('drafts.close')}
-            onPress={onClose}
-          />
-        </View>
-      </View>
-    );
-  }
   return (
     <EvaluationEditor
       key={editor.key}
       page={page}
-      initial={draft}
+      initial={opened}
+      expanded={expanded}
       onClose={onClose}
+      onExpand={onExpand}
       onRebind={rebind}
     />
   );
@@ -540,7 +815,7 @@ type ComposerProps = Readonly<{
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
-  // The window-level expand control, which only the current composer offers.
+  // The window-level expand control.
   expanded?: boolean | undefined;
   onExpand?: (() => void) | undefined;
 }>;

@@ -343,6 +343,18 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   damaged, or permanently hides an Inline Image after storage unlocks. Fence
   retry, replacement and unmount results as for image previews, and remove
   foreground subscriptions when their row no longer needs them.
+- `evaluation-composer.tsx` displaying an Inline Image through a page while
+  `composer.tsx.usePreview` owns the row's verified thumbnail. Trace explicit
+  retry and foreground recovery to every presentation, including a page that
+  becomes ready after the read. Share the successful result or give each reader
+  a real retry trigger; deleting a request marker alone does not rerun an effect.
+  Otherwise the row recovers while the page keeps its placeholder until an
+  unrelated edit. Exercise locked storage, unlock and the visible retry on both
+  hosts, and preserve ordinary composers that do not render images in a page.
+  Revoke a previously published thumbnail when an inline row reports locked,
+  missing or damaged storage, including after conversion from an
+  Attachment. Trace revocation through the host and page caches, Undo and retry;
+  otherwise the page shows stale bytes while the row reports an unavailable image.
 - `composer.tsx.transferred` or picker handlers constructing a prepared asset,
   starting an import or mounting a row for every selected file before applying
   `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
@@ -429,14 +441,21 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   overflow's queued Discard, queued Close and later typing, then durable Close
   completion; otherwise Discard or an edit re-enables controls and starts a second
   close, deletion or delivery operation against the same Draft.
-- `composer.tsx.Editor` putting variable-height save status, errors or
-  confirmations outside its single outer content scroll. Verify failed saving,
-  refusal and Discard feedback with the body/fields in that scroll; otherwise
+- `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` putting
+  variable-height save status, errors, confirmations or assistance reviews outside
+  its single outer content scroll. Verify failed saving, refusal, Discard and
+  assistance feedback with the body/fields in that scroll; otherwise
   stacked banners consume a short overlay or keyboard-reduced viewport and
   cannot scroll away. Preserve ADR 0057's platform-placement amendment: the
   fixed mobile From row, Mac From/Send footer, Mac/iPad top format bar and compact
   iPhone above-keyboard format bar are deliberate exceptions. Do not apply the
   superseded header-only-fixed constraint to those controls.
+
+- Mobile `evaluation-composer.tsx` mounting `PhoneControls` inside a container
+  bounded to the body and fields, or stacking its menu below the header. Verify rows that overlap the
+  fixed header in landscape with the keyboard open receive native taps;
+  visible overflow alone does not prove hit testing. Otherwise selecting Rewrite
+  can activate Send underneath it.
 
 - `Editor.close` catching failure only through `createComposerNavigation.leave`.
   The Close button also calls it directly as `void close()`: catch unexpected
@@ -557,6 +576,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   `createComposerNavigation.leave` must also release its pending guard when the
   registered finish callback rejects: refuse that destination and permit a later
   attempt, or one unexpected failure blocks navigation for the session.
+
+- `evaluation-composer.tsx` registering a navigation guard that waits whenever
+  Close returns false, even when no Save/Delete question opened. Distinguish an
+  unanswered choice from failed empty-Draft discard or page termination before
+  the freeze acknowledgement; refuse navigation immediately in the latter cases.
+  Exercise a failed Close and a later Retry or Close through the real navigation
+  coordinator on both hosts, or the abandoned destination can run unexpectedly.
 
 - Reviewing a Mac composer exit only through React callbacks. Inventory native
   window close and application Quit alongside router/pane navigation, applying
@@ -766,7 +792,10 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores.
+  that rendered tests recognize but the native host ignores. Apply the same native
+  suppression to `evaluation-composer.tsx`'s background while `SaveSheet` is open;
+  keep its choices keyboard-owned and pause the page, or background edits and
+  Send remain reachable during the save decision.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for
@@ -842,6 +871,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   or menu controls. Preserve the shared panel's palette-backed surface beneath the
   material, or the presentations overlap two sets of text and icons even though
   rendered component tests pass.
+- `evaluation-composer.tsx` or `evaluation-composer-controls.tsx` conditionally
+  mounting `GlassPanel` only while open, or replacing its content as it closes.
+  Keep the panel mounted with its actual open state through the shared presence
+  transition; hide closing wrappers from accessibility and pointer input too.
+  Otherwise dismissal skips the exit animation or exposes stale controls during it.
 - Mobile `reply-sheet.tsx.ReplySheet` invoking a selected action before its retained
   exit and native Modal dismissal finish. Trace Move's sibling Modal through the
   installed iOS presenter and keep the closing Modal mounted to receive `onDismiss`;

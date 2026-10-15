@@ -54,6 +54,8 @@ for device_type in "${device_types[@]}"; do
     print "$device_id" >> "$run_dir/devices.txt"
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
+    # A library photo for journeys that insert an image through the system Photos picker.
+    xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
     test_exit=0
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \

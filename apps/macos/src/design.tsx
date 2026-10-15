@@ -2,7 +2,7 @@ import type {
   MenuSection,
   NativeMenuItem,
 } from '@private-email/mail-core/context-menu';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import type {
   ColorValue,
   NativeSyntheticEvent,
@@ -302,15 +302,18 @@ export function MenuPresence({
 export function GlassPanel({
   open,
   children,
+  origin = 'top right',
 }: {
   readonly open: boolean;
   readonly children: ReactNode;
+  // Where the panel grows from: the control or window edge that opened it.
+  readonly origin?: string;
 }) {
   const colors = usePalette();
   return (
     <MenuPresence
       open={open}
-      origin="top right"
+      origin={origin}
       style={[
         styles.panel,
         {
@@ -469,6 +472,9 @@ export function Button({
   disabled = false,
   destructive = false,
   accessibilityLabel,
+  ref,
+  onFocus,
+  onBlur,
 }: {
   readonly label: string;
   readonly onPress: () => void;
@@ -476,7 +482,7 @@ export function Button({
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly accessibilityLabel?: string;
-}) {
+} & Pick<ComponentProps<typeof Pressable>, 'ref' | 'onFocus' | 'onBlur'>) {
   const colors = usePalette();
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
@@ -486,6 +492,9 @@ export function Button({
   }
   return (
     <Pressable
+      ref={ref}
+      onFocus={onFocus}
+      onBlur={onBlur}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
