@@ -41,7 +41,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
-import { AppState, Pressable, Text } from 'react-native';
+import { Animated, AppState, Pressable, Text } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -800,7 +800,36 @@ describe('product registration', () => {
     });
     expect(sheet.queryByRole('button', { name: 'Inbox' })).toBeNull();
     imap.server.loseReply = true;
-    await press('Move to Projects');
+    // The picker shrinks away before the message moves; a second choice meanwhile is ignored.
+    const exits: Array<() => void> = [];
+    jest.mocked(Animated.timing).mockImplementation((value, { toValue }) => ({
+      start: (complete) => {
+        exits.push(() => {
+          value.setValue(toValue);
+          complete?.({ finished: true });
+        });
+      },
+      stop: () => undefined,
+      reset: () => undefined,
+    }));
+    const projects = sheet.getByRole('button', { name: 'Move to Projects' });
+    await fireEvent.press(projects);
+    await fireEvent.press(projects);
+    expect(
+      screen.getByTestId('move-sheet', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('header', {
+        name: 'Team lunch',
+        includeHiddenElements: true,
+      }),
+    ).toBeOnTheScreen();
+    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+    await act(() => {
+      for (const exit of exits.splice(0)) {
+        exit();
+      }
+    });
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`move INBOX ${lunch} Projects`);
     });
