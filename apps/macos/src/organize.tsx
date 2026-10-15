@@ -28,6 +28,7 @@ import {
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
@@ -439,7 +440,7 @@ function ImapMessageActions({
 // Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
   id,
-  view,
+  view: opened,
   onClose,
   children,
 }: {
@@ -457,11 +458,11 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
   useLayoutEffect(() => {
-    if (view === inboxFolder || !('retainView' in store)) {
+    if (opened === inboxFolder || !('retainView' in store)) {
       return undefined;
     }
-    return store.retainView(view);
-  }, [store, view]);
+    return store.retainView(opened);
+  }, [store, opened]);
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
@@ -469,6 +470,8 @@ function GmailMessageActions({
   ) {
     return null;
   }
+  // A label Gmail removed falls back to the Inbox, as the list does.
+  const view = gmailViewName(state, opened);
   const message = viewMessage(state, id, view);
   // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {

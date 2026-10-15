@@ -1302,6 +1302,33 @@ describe('connected Gmail Inbox', () => {
     ).toBeVisible();
   });
 
+  it('keeps organizing a message whose label Gmail removed while it was open', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(flight, travel, true);
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Travel. In alex@example.invalid',
+        }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    gmail.deleteLabel(travel);
+    await act(connected.store().load);
+    // The message is still in the Inbox, so the reader keeps the Inbox's actions.
+    expect(
+      screen.getByRole('header', { name: 'Flight to Zagreb' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+  });
+
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({
