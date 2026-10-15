@@ -558,6 +558,13 @@ if (draftEditor !== undefined && element !== null) {
   };
   // fallow-ignore-next-line complexity -- One dispatcher maps each host command to its page edit.
   globalThis.draftCommand = (command) => {
+    if (
+      !editor.isEditable &&
+      command.type !== 'editable' &&
+      command.type !== 'previews'
+    ) {
+      return;
+    }
     if (command.type === 'add') {
       add(command);
     } else if (command.type === 'remove') {

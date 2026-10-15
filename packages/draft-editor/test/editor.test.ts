@@ -255,8 +255,13 @@ describe('the Tiptap evaluation page', () => {
       document: paragraphs('Before queued'),
       attachments: [],
     });
+    // A native toolbar callback can already be queued when the host freezes the page.
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual(paragraphs('Before queued'));
     page.command({ type: 'editable', editable: true });
     expect(page.editor.isEditable).toBe(true);
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual(paragraphs('Before '));
   });
 
   it('formats the selection and the next typed text', async () => {

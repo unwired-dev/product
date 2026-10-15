@@ -65,7 +65,8 @@ places them over the header.
   editor's version; **Save Draft** stores it as a conflicting copy.
 - **Finishing.** Close, Save Draft and Send finish queued body edits before inspecting
   the Draft. Editing pauses while saving or sending, and resumes if the operation
-  cannot finish. A pending navigation continues after the chosen save or deletion.
+  cannot finish. Queued formatting, history and file actions cannot change the
+  paused page. A pending navigation continues after the chosen save or deletion.
 - **Failures.** If the page stops, the editor says so and clears assistance previews.
   Callbacks from a stopped or closed page cannot submit edits or accept results.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
