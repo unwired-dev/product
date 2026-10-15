@@ -1206,6 +1206,48 @@ export function createGmailInbox(
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   >;
+  type ViewEntry = NonNullable<MailboxDocument['views']>[number];
+  type ListedView = ViewEntry &
+    Readonly<{ listing: NonNullable<ViewEntry['listing']> }>;
+
+  // Reads and reconciles one page for the Inbox or another Gmail view. Callers own their
+  // checkpoint publication and recovery when Gmail rejects a page token.
+  const readListingPage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { label: view, messages, listing }: ListedView,
+  ) {
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ...(view === allMail ? [] : [['labelIds', view] as const]),
+        ['maxResults', String(pageSize)],
+        ...(listing.pageToken === undefined
+          ? []
+          : [['pageToken', listing.pageToken] as const]),
+      ],
+      decodeList,
+    );
+    const ids = (page.messages ?? []).map(({ id }) => id);
+    const seen = Arr.dedupe([...listing.seen, ...ids]);
+    const { nextPageToken } = page;
+    const found = (yield* fetchAll(scope, ids, view !== 'INBOX')).map(
+      ([id, message]) =>
+        [
+          id,
+          message !== undefined && inView(view, labelsOf(message))
+            ? message
+            : undefined,
+        ] as const,
+    );
+    return {
+      ...listedPage(messages, found, {
+        seen,
+        more: nextPageToken !== undefined,
+      }),
+      seen,
+      nextPageToken,
+    };
+  });
 
   // Lists the next Inbox page from a backfill checkpoint.
   const continueListing = Effect.fnUntraced(function* (
@@ -1213,17 +1255,11 @@ export function createGmailInbox(
     document: MailboxDocument,
     checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'backfill' }>,
   ): Step {
-    const page = yield* gmail(scope)(
-      'messages',
-      [
-        ['labelIds', 'INBOX'],
-        ['maxResults', String(pageSize)],
-        ...(checkpoint.pageToken === undefined
-          ? []
-          : [['pageToken', checkpoint.pageToken] as const]),
-      ],
-      decodeList,
-    ).pipe(
+    const page = yield* readListingPage(scope, {
+      label: 'INBOX',
+      messages: document.messages,
+      listing: checkpoint,
+    }).pipe(
       Effect.asSome,
       Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
     );
@@ -1232,18 +1268,12 @@ export function createGmailInbox(
         yield* startListing(scope, document, checkpoint.historyId),
       );
     }
-    const ids = (page.value.messages ?? []).map(({ id }) => id);
-    const seen = Arr.dedupe([...checkpoint.seen, ...ids]);
-    const { nextPageToken } = page.value;
-    const listed = listedPage(document.messages, yield* fetchAll(scope, ids), {
-      seen,
-      more: nextPageToken !== undefined,
-    });
+    const { nextPageToken, seen, messages, done } = page.value;
     return Option.some({
       ...document,
-      messages: listed.messages,
+      messages,
       checkpoint:
-        listed.done || nextPageToken === undefined
+        done || nextPageToken === undefined
           ? { kind: 'current', historyId: checkpoint.historyId }
           : { ...checkpoint, pageToken: nextPageToken, seen },
     });
@@ -1349,10 +1379,6 @@ export function createGmailInbox(
     });
   };
 
-  type ViewEntry = NonNullable<MailboxDocument['views']>[number];
-  type ListedView = ViewEntry &
-    Readonly<{ listing: NonNullable<ViewEntry['listing']> }>;
-
   // Lists the next page of a view, as continueListing does for the Inbox.
   const continueView = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -1360,39 +1386,14 @@ export function createGmailInbox(
     entry: ListedView,
   ): Step {
     const { listing } = entry;
-    const page = yield* gmail(scope)(
-      'messages',
-      [
-        ...(entry.label === allMail
-          ? []
-          : [['labelIds', entry.label] as const]),
-        ['maxResults', String(pageSize)],
-        ...(listing.pageToken === undefined
-          ? []
-          : [['pageToken', listing.pageToken] as const]),
-      ],
-      decodeList,
+    const { messages, done, seen, nextPageToken } = yield* readListingPage(
+      scope,
+      entry,
     );
-    const ids = (page.messages ?? []).map(({ id }) => id);
-    const seen = Arr.dedupe([...listing.seen, ...ids]);
-    const { nextPageToken } = page;
-    const found = (yield* fetchAll(scope, ids, true)).map(
-      ([id, message]) =>
-        [
-          id,
-          message !== undefined && inView(entry.label, labelsOf(message))
-            ? message
-            : undefined,
-        ] as const,
-    );
-    const listed = listedPage(entry.messages, found, {
-      seen,
-      more: nextPageToken !== undefined,
-    });
     const next: ViewEntry = {
       label: entry.label,
-      messages: listed.messages,
-      ...(listed.done || nextPageToken === undefined
+      messages,
+      ...(done || nextPageToken === undefined
         ? {}
         : {
             listing: {
