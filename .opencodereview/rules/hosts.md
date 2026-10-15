@@ -253,6 +253,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   message while browsing more views than the cache keeps. Otherwise list
   navigation evicts the open message and removes its reader and actions.
 
+- `organize.tsx.GmailMessageActions` retaining a deleted Gmail label as its action
+  context while the list and reader fall back to a surviving Inbox message.
+  Resolve the action view through the current mailbox's shared view projection,
+  require the message in that exact view, and keep the opened-view lease separate.
+  Exercise provider label deletion while its message stays open in the Inbox;
+  otherwise organizing controls disappear or Move and close decisions use the
+  removed label. Preserve Inbox context for Microsoft mail and online or widened
+  results, and preserve the restoration actions in Spam and Trash.
+
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
   Use the saved host and port to choose the heading and app-specific-password
