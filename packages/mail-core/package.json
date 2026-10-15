@@ -42,13 +42,17 @@
     "./outbox": "./src/outbox.ts",
     "./outgoing-message": "./src/outgoing-message.ts",
     "./commands": "./src/commands.ts",
-    "./context-menu": "./src/context-menu.ts"
+    "./context-menu": "./src/context-menu.ts",
+    "./inline-style": "./src/inline-style.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "record:webkit-css": "node scripts/record-webkit-css.ts",
     "test": "vitest run"
   },
   "dependencies": {
+    "@csstools/css-parser-algorithms": "catalog:",
+    "@csstools/css-tokenizer": "catalog:",
     "@exodus/bytes": "catalog:",
     "@private-email/localization": "workspace:*",
     "effect": "catalog:",
