@@ -60,10 +60,13 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   an archived message stays in its labels, and All Mail lists every message outside
   Spam and Trash. Each window chooses its view on its own; the list heading names it,
   and a label's row counts the unread mail of its saved view. The device keeps the
-  newest 200 messages of the eight most recently opened views beside the Inbox, kept
-  current by the same Gmail history as the Inbox and saved across relaunch; a view
-  that loses one of 200 messages is listed again. A view holding 200 says that only
-  its newest mail is saved and older mail stays in Gmail. A view Gmail could not read
+  newest 200 messages per view beside the Inbox, keeping the eight most recently
+  opened views and protecting views currently shown in windows. With more than eight
+  distinct active views, the bound grows to that active count; inactive extras leave
+  on the next synchronization after windows close or change views. These views stay
+  current by the same Gmail history as the Inbox and are saved across relaunch; a view
+  that loses one of 200 messages is listed again. Every view says that only its
+  newest mail is saved and older mail stays in Gmail. A view Gmail could not read
   keeps its saved messages and shows **… could not be read from Gmail** in the list
   and on its sidebar row until a later synchronization reads it. A label removed in
   Gmail leaves the sidebar with its saved view, and a window that showed it returns
@@ -1195,8 +1198,9 @@ They cover pagination, relaunch with history only, interrupted pages and commits
 expired history, authorization and retry classification, competing stores,
 mailbox reselection and log privacy. Views other than the Inbox (#1004) cover label,
 All Mail, Spam and Trash membership, history across relaunch without listing again,
-Move to Inbox and moves out of a label, a failed view read and its recovery, removed
-labels, the bound of eight views and the listing that refills a full view. The #605 body reading cases cover:
+Move to Inbox and moves out of a label, moving to the current label, a failed view
+read and its recovery, history replay after an interrupted listing resumes across
+relaunch, removed labels, the bound of eight views and the listing that refills a full view. The #605 body reading cases cover:
 
 - untrusted HTML sanitized into the CSP-bound document, with vetted links, sender
   colors and remote loads removed, tracking pixels dropped and hidden preheaders

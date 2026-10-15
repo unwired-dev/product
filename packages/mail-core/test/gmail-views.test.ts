@@ -58,6 +58,33 @@ const viewListings = (gmail: ReturnType<typeof createSyntheticGmail>) =>
       path === 'messages' && query.get('labelIds') !== 'INBOX',
   );
 
+// The second label page fails once after a new message arrives and history can observe it.
+const interruptedView = (
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  travel: string,
+) => {
+  let arrived: string | undefined = undefined;
+  const native: typeof gmail.native = {
+    ...gmail.native,
+    gmailRequest: (path, query, mailbox) => {
+      if (
+        arrived === undefined &&
+        path === 'messages' &&
+        query.some(
+          ([name, value]) => name === 'labelIds' && value === travel,
+        ) &&
+        query.some(([name]) => name === 'pageToken')
+      ) {
+        arrived = gmail.deliver({ subject: 'Arrived during interruption' });
+        gmail.setLabel(arrived, travel, true);
+        return Promise.resolve({ status: 503, body: '{}' });
+      }
+      return gmail.native.gmailRequest(path, query, mailbox);
+    },
+  };
+  return { native, arrived: () => arrived };
+};
+
 describe('browsing Gmail views other than the Inbox', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one view's path end to end. */
   it('lists labels, All Mail, Spam and Trash and keeps them current through history and relaunch', async () => {
@@ -84,6 +111,8 @@ describe('browsing Gmail views other than the Inbox', () => {
     expect(view(inbox, travel)).toMatchObject({ status: 'current' });
     // An archived message keeps its label.
     expect(ids(view(inbox, travel).messages)).toStrictEqual([hotel, flight]);
+    await inbox.readMessage(hotel);
+    expect(inbox.messageBody(hotel)?.kind).toBe('ready');
     await inbox.openView(allMail);
     expect(ids(view(inbox, allMail).messages)).toStrictEqual([
       lunch,
@@ -121,6 +150,8 @@ describe('browsing Gmail views other than the Inbox', () => {
     ]);
     // Relaunch read history only; no view was listed again.
     expect(viewListings(gmail)).toHaveLength(listed);
+    await relaunched.readMessage(hotel);
+    expect(relaunched.messageBody(hotel)?.kind).toBe('ready');
 
     // Trash lists the trashed message; moving it back shows it in the Inbox and its label at once.
     await relaunched.openView('TRASH');
@@ -172,6 +203,50 @@ describe('browsing Gmail views other than the Inbox', () => {
     );
   });
 
+  it('keeps history changes when an interrupted label listing resumes after relaunch', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    for (let index = 0; index < 51; index += 1) {
+      const id = gmail.deliver({ subject: `Flight ${index}` });
+      gmail.setLabel(id, travel, true);
+    }
+    const interrupted = interruptedView(gmail, travel);
+    const { native } = interrupted;
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    await inbox.openView(travel);
+    expect(view(inbox, travel).status).toBe('failed');
+    expect(ids(view(inbox, travel).messages)).toContain(interrupted.arrived());
+
+    const relaunched = createGmailInbox(native);
+    await relaunched.load();
+    expect(view(relaunched, travel).status).toBe('current');
+    expect(ids(view(relaunched, travel).messages)).toContain(
+      interrupted.arrived(),
+    );
+    expect(view(relaunched, travel).messages).toHaveLength(52);
+  });
+
+  it('keeps a message visible when moving it to its current label', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const id = gmail.deliver({ subject: 'Flight' });
+    gmail.setLabel(id, travel, true);
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.openView(travel);
+    const moving = inbox.organize(
+      first(view(inbox, travel).messages),
+      gmailAction.move(travel, travel),
+    );
+    expect(ids(view(inbox, travel).messages)).toContain(id);
+    await moving;
+    expect(ids(view(inbox, travel).messages)).toContain(id);
+    expect(gmail.modifies.at(-1)).toMatchObject({ add: [travel], remove: [] });
+  });
+
   it('keeps a view whose read fails with its saved messages, and drops a label Gmail removed', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -189,6 +264,7 @@ describe('browsing Gmail views other than the Inbox', () => {
       label: projects,
       messages: [],
       status: 'failed',
+      limited: true,
     });
     expect(ready(inbox.getSnapshot()).sync).toBe('current');
 
@@ -215,6 +291,40 @@ describe('browsing Gmail views other than the Inbox', () => {
     expect(
       ready(inbox.getSnapshot()).views?.map(({ label }) => label),
     ).toStrictEqual([projects]);
+  });
+
+  it('protects concurrent window views and releases only the closing window lease', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const labels = Array.from({ length: cachedViews + 1 }, (_, index) =>
+      gmail.createLabel(`Window ${index}`),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const releases = labels.map((label) => inbox.retainView(label));
+    try {
+      for (const label of labels) {
+        await inbox.openView(label);
+      }
+      expect(ready(inbox.getSnapshot()).views).toHaveLength(cachedViews + 1);
+      const oldest = first(labels);
+      const releaseShared = inbox.retainView(oldest);
+      releases.push(releaseShared);
+      first(releases)();
+      await inbox.load();
+      expect(ready(inbox.getSnapshot()).views).toHaveLength(cachedViews + 1);
+      expect(view(inbox, oldest).status).toBe('current');
+      releaseShared();
+      await inbox.load();
+      expect(ready(inbox.getSnapshot()).views).toHaveLength(cachedViews);
+      expect(
+        ready(inbox.getSnapshot()).views?.map(({ label }) => label),
+      ).not.toContain(oldest);
+    } finally {
+      for (const release of releases) {
+        release();
+      }
+    }
   });
 
   it('keeps a bounded number of views and lists a full view again when one of its messages leaves', async () => {

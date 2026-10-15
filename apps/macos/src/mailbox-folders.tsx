@@ -1,11 +1,18 @@
 import { gmailViewTitle } from '@private-email/mail-core/gmail-actions';
 import {
   imapFolderFailed,
-  imapFolderName,
   inboxFolder,
 } from '@private-email/mail-core/imap-inbox';
-import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import {
+  gmailMailbox,
+  mailboxFolder,
+} from '@private-email/mail-core/mailboxes';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useSyncExternalStore,
+} from 'react';
 
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
@@ -13,35 +20,6 @@ import type { MailboxView } from './sidebar.tsx';
 import { useLocalization } from './localization.ts';
 
 const noSubscription = () => () => undefined;
-
-// A Gmail mailbox's store and its ready state; Microsoft mail shares the store but has no views.
-const gmailOf = (mailbox: InboxMailbox | undefined) => {
-  if (mailbox === undefined || (mailbox.provider ?? 'gmail') !== 'gmail') {
-    return undefined;
-  }
-  const { inbox, state } = mailbox;
-  return 'openView' in inbox && state.kind === 'ready' && 'labels' in state
-    ? { inbox, state }
-    : undefined;
-};
-
-// The folder a chosen mailbox lists: its window's choice while the mailbox still offers it.
-const shownFolder = (mailbox: InboxMailbox | undefined, requested: string) => {
-  if (mailbox === undefined) {
-    return inboxFolder;
-  }
-  const { inbox, state } = mailbox;
-  if ('openFolder' in inbox) {
-    return imapFolderName(
-      state.kind === 'ready' && 'folders' in state ? state : undefined,
-      requested,
-    );
-  }
-  const gmail = gmailOf(mailbox);
-  return gmail === undefined
-    ? requested
-    : gmailViewName(gmail.state, requested);
-};
 
 // A mailbox shown on its own lists the IMAP folder or Gmail view its window chose; the Inbox is
 // listed otherwise. A folder or label the mailbox no longer offers falls back to the Inbox and
@@ -65,7 +43,7 @@ export function useMailboxFolder<E>(
       ? single
       : undefined;
   const requested = view.folder ?? inboxFolder;
-  const folder = shownFolder(chosen, requested);
+  const folder = mailboxFolder(chosen, requested);
   const dropped = chosen !== undefined && folder !== requested;
   useEffect(() => {
     if (dropped) {
@@ -104,18 +82,20 @@ export function useMailboxFolder<E>(
 }
 
 // The chosen Gmail view's messages as list entries, or undefined for the Inbox and other
-// providers. Another window's views can evict this one's; it is listed again while shown.
+// providers. Its window retains the view before requesting it, so another cannot evict it.
 function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   const { t } = useLocalization();
-  const gmail = folder === inboxFolder ? undefined : gmailOf(mailbox);
+  const gmail = folder === inboxFolder ? undefined : gmailMailbox(mailbox);
   const shown = gmail?.state.views?.find(({ label }) => label === folder);
-  const reopen = gmail !== undefined && shown === undefined;
   const store = gmail?.inbox;
-  useEffect(() => {
-    if (reopen) {
-      void store?.openView(folder);
+  useLayoutEffect(() => {
+    if (store === undefined) {
+      return undefined;
     }
-  }, [reopen, store, folder]);
+    const release = store.retainView(folder);
+    void store.openView(folder);
+    return release;
+  }, [store, folder]);
   const listed =
     mailbox === undefined || shown === undefined
       ? []

@@ -1,10 +1,14 @@
-import type { GmailInboxState } from './gmail-inbox.ts';
-import type { ImapFolderView, ImapInboxState } from './imap-inbox.ts';
-import type { InboxState } from './persistent-inbox.ts';
+import type { GmailInbox, GmailInboxState } from './gmail-inbox.ts';
+import type {
+  ImapFolderView,
+  ImapInbox,
+  ImapInboxState,
+} from './imap-inbox.ts';
+import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
 import type { MailboxConnection, MailProvider } from './registration.ts';
 
 import { systemViews } from './gmail-actions.ts';
-import { imapFolderFailed, inboxFolder } from './imap-inbox.ts';
+import { imapFolderFailed, imapFolderName, inboxFolder } from './imap-inbox.ts';
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
 export const profileMailboxes = <L extends Readonly<{ profile: string }>>(
@@ -55,6 +59,44 @@ export const gmailViewName = (state: GmailInboxState, requested: string) =>
   state.labels.some(({ id }) => id === requested)
     ? requested
     : inboxFolder;
+
+type BrowsableMailbox = Readonly<{
+  provider?: MailProvider;
+  inbox: Readonly<GmailInbox | ImapInbox | PersistentInbox>;
+  state: GmailInboxState | ImapInboxState | InboxState;
+}>;
+
+// Only a ready Gmail connection offers label views; Microsoft shares its store, without views.
+export const gmailMailbox = (mailbox: BrowsableMailbox | undefined) => {
+  if (mailbox === undefined || (mailbox.provider ?? 'gmail') !== 'gmail') {
+    return undefined;
+  }
+  const { inbox, state } = mailbox;
+  return 'openView' in inbox && state.kind === 'ready' && 'labels' in state
+    ? { inbox, state }
+    : undefined;
+};
+
+// A window keeps its chosen folder while the provider still offers it.
+export const mailboxFolder = (
+  mailbox: BrowsableMailbox | undefined,
+  requested: string,
+) => {
+  if (mailbox === undefined) {
+    return inboxFolder;
+  }
+  const { inbox, state } = mailbox;
+  if ('openFolder' in inbox) {
+    return imapFolderName(
+      state.kind === 'ready' && 'folders' in state ? state : undefined,
+      requested,
+    );
+  }
+  const gmail = gmailMailbox(mailbox);
+  return gmail === undefined
+    ? requested
+    : gmailViewName(gmail.state, requested);
+};
 
 // A window's chosen mailbox and the connections whose authorization notices its Inbox shows. A
 // chosen connection waiting for provider authorization has no Inbox store but stays chosen with

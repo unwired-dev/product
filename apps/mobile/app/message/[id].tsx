@@ -23,7 +23,7 @@ export default function MessageRoute() {
         onCompose={(draft) => {
           router.replace({
             pathname: '/compose/[draft]',
-            params: { draft, id, mailbox, profileId: profile },
+            params: { draft, id, mailbox, folder, profileId: profile },
           });
         }}
       />

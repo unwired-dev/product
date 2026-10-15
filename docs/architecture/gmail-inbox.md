@@ -52,6 +52,19 @@ the mailbox history ID. Gmail documents that history IDs increase in
 Expired history relists; losing an entry from a full cache relists to admit an
 unchanged older message. An unreadable document fails closed without replacement.
 
+Issue #1004 adds the most recently opened Gmail label, All Mail, Spam and Trash
+views to that encrypted document. A 2026-10-15 decision panel unanimously chose
+active-window protection over a second in-memory metadata ledger. Window-scoped
+leases protect active views before listing; the cache budget is the larger of
+eight and the number of distinct active views, with pending opens protected until
+adoption. Closing or changing views releases leases, and the next synchronization
+trims inactive extras. Forget clears every lease; opaque lease tokens prevent an
+old cleanup from releasing a new owner's view. Each listing saves its starting history ID
+beside its seen IDs and next page token. The mailbox may apply history while a
+view's listing is interrupted; completing that listing replays mailbox history
+from the view's saved start so list-page reconciliation cannot discard a newer
+history addition permanently. Expired history restarts the Inbox and view listings.
+
 The [native cache companion](private-inbox-storage.md#gmail-mailbox-cache) owns
 encryption and compare-and-swap. The sync loop and action intake each serialize with a semaphore; compare-and-swap
 rejects a stale sync commit after independent intake. Publications reject older

@@ -1202,6 +1202,11 @@ describe('connected Gmail Inbox', () => {
       screen.findByRole('button', { name: /Flight to Zagreb/u }),
     ).resolves.toBeVisible();
     expect(screen.getByRole('header', { name: 'Travel' })).toBeVisible();
+    expect(
+      screen.getByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeVisible();
     expect(screen.queryByText('Lunch on Friday')).toBeNull();
 
     await act(async () => {

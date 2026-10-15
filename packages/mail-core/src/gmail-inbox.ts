@@ -1195,7 +1195,7 @@ export function createGmailInbox(
         ? {
             views: previous.views.map((entry) => ({
               ...entry,
-              listing: { seen: [] },
+              listing: { historyId: profile.historyId, seen: [] },
             })),
           }
         : {}),
@@ -1314,7 +1314,7 @@ export function createGmailInbox(
         : {
             views: next.views.map((entry) =>
               entry.listing === undefined && refilled.has(entry.label)
-                ? { ...entry, listing: { seen: [] } }
+                ? { ...entry, listing: { historyId, seen: [] } }
                 : entry,
             ),
           }),
@@ -1332,6 +1332,22 @@ export function createGmailInbox(
   // and views whose read failed during this synchronization, which wait for the next one.
   const requestedViews = new Set<string>();
   const failedViews = new Set<string>();
+  // Window lifetimes protect shown views from another window's LRU eviction.
+  const activeViews = new Map<symbol, string>();
+  const retainedViews = (views: NonNullable<MailboxDocument['views']>) => {
+    const active = new Set([...activeViews.values(), ...requestedViews]);
+    let spare = Math.max(cachedViews, active.size) - active.size;
+    return views.filter(({ label }) => {
+      if (active.has(label)) {
+        return true;
+      }
+      if (spare === 0) {
+        return false;
+      }
+      spare -= 1;
+      return true;
+    });
+  };
 
   type ViewEntry = NonNullable<MailboxDocument['views']>[number];
   type ListedView = ViewEntry &
@@ -1378,10 +1394,26 @@ export function createGmailInbox(
       messages: listed.messages,
       ...(listed.done || nextPageToken === undefined
         ? {}
-        : { listing: { pageToken: nextPageToken, seen } }),
+        : {
+            listing: {
+              historyId: listing.historyId,
+              pageToken: nextPageToken,
+              seen,
+            },
+          }),
     };
     return Option.some({
       ...document,
+      // History may have advanced while this listing was interrupted. Replay from its start
+      // after completion so unseen history additions discarded by listedPage return.
+      ...(next.listing === undefined
+        ? {
+            checkpoint: {
+              kind: 'current' as const,
+              historyId: listing.historyId,
+            },
+          }
+        : {}),
       views: (document.views ?? []).map((view) =>
         view.label === entry.label ? next : view,
       ),
@@ -1390,21 +1422,21 @@ export function createGmailInbox(
 
   // The document with the first requested view most recently opened, or none once every
   // requested view is.
-  const openedView = (document: MailboxDocument) => {
+  const openedView = (document: MailboxDocument, historyId: string) => {
     for (const requested of requestedViews) {
       const views = document.views ?? [];
       if (views[0]?.label !== requested) {
         const entry = views.find(({ label }) => label === requested) ?? {
           label: requested,
           messages: [],
-          listing: { seen: [] },
+          listing: { historyId, seen: [] },
         };
         return {
           ...document,
-          views: [
+          views: retainedViews([
             entry,
             ...views.filter(({ label }) => label !== requested),
-          ].slice(0, cachedViews),
+          ]),
         };
       }
       requestedViews.delete(requested);
@@ -1432,7 +1464,15 @@ export function createGmailInbox(
               Option.some({
                 ...document,
                 views: (document.views ?? []).map((view) =>
-                  view === listing ? { ...view, listing: { seen: [] } } : view,
+                  view === listing
+                    ? {
+                        ...view,
+                        listing: {
+                          historyId: listing.listing.historyId,
+                          seen: [],
+                        },
+                      }
+                    : view,
                 ),
               }),
             ),
@@ -1466,7 +1506,14 @@ export function createGmailInbox(
     if (checkpoint.kind === 'backfill') {
       return continueListing(scope, document, checkpoint);
     }
-    const opened = openedView(document);
+    // A cache written before messages kept their labels needs a fresh Inbox listing.
+    if (
+      checkpoint.kind !== 'current' ||
+      document.messages.some(({ labels }) => labels === undefined)
+    ) {
+      return startListing(scope, document).pipe(Effect.asSome);
+    }
+    const opened = openedView(document, checkpoint.historyId);
     if (opened !== undefined) {
       return Effect.succeedSome(opened);
     }
@@ -1481,11 +1528,7 @@ export function createGmailInbox(
         ),
       );
     }
-    // A cache written before messages kept their labels is listed again to read them.
-    return checkpoint.kind !== 'current' ||
-      document.messages.some(({ labels }) => labels === undefined)
-      ? startListing(scope, document).pipe(Effect.asSome)
-      : applyHistory(scope, document, checkpoint);
+    return applyHistory(scope, document, checkpoint);
   };
 
   const semaphore = Semaphore.makeUnsafe(1);
@@ -1582,14 +1625,17 @@ export function createGmailInbox(
     const views: GmailView[] = [
       ...[...requestedViews]
         .filter((label) => saved.every((entry) => entry.label !== label))
-        .map((label) => ({ label, messages: [], status: viewStatus() })),
+        .map((label) => ({
+          label,
+          messages: [],
+          status: viewStatus(),
+          limited: true as const,
+        })),
       ...saved.map((entry) => ({
         label: entry.label,
         messages: organized(entry.messages, changes, entry.label),
         status: viewStatus(entry),
-        ...(entry.messages.length >= cacheLimit
-          ? { limited: true as const }
-          : {}),
+        limited: true as const,
       })),
     ];
     claim(views.flatMap((view) => view.messages));
@@ -3382,6 +3428,7 @@ export function createGmailInbox(
     found.clear();
     requestedViews.clear();
     failedViews.clear();
+    activeViews.clear();
     settledMessages.clear();
     bodies.clear();
     readers.clear();
@@ -3774,6 +3821,20 @@ export function createGmailInbox(
       )
       .pipe(Effect.andThen(schedulePrefetch), Effect.andThen(rereadBodies));
 
+  // Window exits release protection immediately; the next sync durably trims inactive extras.
+  const trimViewCache = Effect.fnUntraced(function* (
+    cache: Cache,
+    document: MailboxDocument | undefined,
+  ) {
+    if (document?.views === undefined) {
+      return { cache, document };
+    }
+    const views = retainedViews(document.views);
+    return views.length === document.views.length
+      ? { cache, document }
+      : yield* commitOver(cache, document, { ...document, views });
+  });
+
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
@@ -3787,6 +3848,7 @@ export function createGmailInbox(
       return yield* ready(cache, document, 'retry');
     }
     yield* ready(cache, document, 'syncing');
+    ({ cache, document } = yield* trimViewCache(cache, document));
     let restarts = 0;
     for (let step = 0; ; step += 1) {
       if (document !== undefined) {
@@ -4133,9 +4195,15 @@ export function createGmailInbox(
     forget: forgetOpenInbox,
     load,
     resolvePending,
-    // Lists a Gmail view other than the Inbox: one of the mailbox's labels, All Mail, Spam or
-    // Trash. The view stays with the cache, kept current by the mailbox's history, until more
-    // recently opened views replace it.
+    // A window protects its chosen view before opening it, then releases this exact lease on exit.
+    retainView: (label: string) => {
+      const token = Symbol('gmail-view');
+      activeViews.set(token, label);
+      return () => {
+        activeViews.delete(token);
+      };
+    },
+    // Lists a Gmail label, All Mail, Spam or Trash, kept current through mailbox history.
     openView: (label: string) => {
       const labels = shown?.document?.labels ?? [];
       if (

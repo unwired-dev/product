@@ -64,7 +64,7 @@ export const gmailAction = {
   move: (label: string, view = 'INBOX'): GmailAction => ({
     kind: 'move',
     add: [label],
-    remove: [view === allMail ? 'INBOX' : view],
+    remove: label === view ? [] : [view === allMail ? 'INBOX' : view],
   }),
   // Takes a message out of Trash or Spam and back into the Inbox.
   restore: (view: string) => ({

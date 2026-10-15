@@ -677,6 +677,60 @@ function holdingListing(
 }
 
 describe('mac windows over a connected Gmail mailbox', () => {
+  it('keeps Gmail view selection independent across windows and restores Trash mail', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({
+      subject: 'Archived flight',
+      content: { text: 'Your seat is booked.' },
+    });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    const receipt = gmail.deliver({ subject: 'Old receipt' });
+    gmail.setLabel(receipt, 'TRASH', true);
+    gmail.setLabel(receipt, 'INBOX', false);
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await fireEvent.press(
+        await first.findByRole('button', { name: /^Travel\. In/u }),
+      );
+      await fireEvent.press(
+        await first.findByRole('button', { name: /Archived flight/u }),
+      );
+      await expect(
+        first.findByText('Your seat is booked.'),
+      ).resolves.toBeVisible();
+      await fireEvent.press(
+        await second.findByRole('button', { name: /^Trash\. In/u }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Old receipt/u }),
+      );
+      expect(first.getByRole('header', { name: 'Travel' })).toBeVisible();
+      expect(first.getByText('Your seat is booked.')).toBeVisible();
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Move to Inbox' }),
+      );
+      await waitFor(() => {
+        expect(gmail.labelsOf(receipt)).toContain('INBOX');
+      });
+      expect(second.queryByRole('button', { name: /Old receipt/u })).toBeNull();
+      expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
   it('keeps Command-P from opening behind a link confirmation in its window', async () => {
     expect.hasAssertions();
     const menu: TurboModule &

@@ -8,6 +8,7 @@ import {
 } from '@private-email/mail-core/gmail-actions';
 import {
   failedFolders,
+  gmailMailbox,
   mailboxSidebar,
 } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -230,15 +231,7 @@ function FolderRows({
             .join('\n')
         : '',
   ).split('\n');
-  const { state } = mailbox;
-  // Microsoft mail shares the Gmail store but lists only its Inbox here.
-  const gmail =
-    (mailbox.provider ?? 'gmail') === 'gmail' &&
-    'openView' in inbox &&
-    state.kind === 'ready' &&
-    'labels' in state
-      ? { inbox, state }
-      : undefined;
+  const gmail = gmailMailbox(mailbox);
   const title = (folder: string, isInbox: boolean) => {
     if (gmail !== undefined) {
       return gmailViewTitle(t, folder, gmail.state.labels);
@@ -296,9 +289,6 @@ function FolderRows({
                   });
                   if ('openFolder' in inbox) {
                     void inbox.openFolder(folder);
-                  }
-                  if (gmail !== undefined && !isInbox) {
-                    void gmail.inbox.openView(folder);
                   }
                 }}
               />
