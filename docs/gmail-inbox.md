@@ -311,11 +311,11 @@ iPad, secondary click with an iPad pointer, and right-click or Control-click on 
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
 **Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
-and **Delete** (Move to Trash), placed last on every platform. Report spam stays a
-row accessibility action and a reader action. The
+and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every platform.
+Report spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
 **Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
-the reader's Move to, and **Delete Message**; its sender offers **Copy Address**. A link in the reader's link list
+the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address**. A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.

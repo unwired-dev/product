@@ -225,12 +225,19 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   distinct folders appear to be the same Inbox.
 
 - `inbox.tsx` retaining the Inbox title while the sidebar selects a
-  different IMAP folder. Trace the effective folder from `useImapFolder` into
+  different IMAP folder. Trace the effective folder from `useMailboxFolder` into
   the visible and accessible list heading on both hosts, including names with
   embedded newlines and fallback after folder retirement. Otherwise the list
   labels Archive or another folder's messages as Inbox. Preserve the Mac search
   title while searching, the iPhone/iPad search scope controls under #974, and the
   aggregate Inbox title for aggregate mail.
+
+- `inbox.tsx` carrying the sidebar's Gmail view into actions or reader selection
+  after `useInboxSearch` widens results to All Mailboxes. Derive both row actions
+  and the selected reader's folder from the results' effective scope, and trace
+  that context through reader/composer routes. Exercise Inbox results found from
+  Spam or Trash; otherwise ordinary mail offers Move to Inbox and Move removes
+  the wrong source label.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
@@ -239,7 +246,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   including iCloud's full-address fallback. Otherwise repairs hide required
   password guidance or authorize a different connection identity.
 
-- `imap-folders.tsx.useImapFolder` treating only a `failed` folder view as a
+- `mailbox-folders.tsx.useMailboxFolder` treating only a `failed` folder view as a
   synchronization failure, or retaining a choice absent from the ready listing's
   selectable folders. Use the shared IMAP projections: cached `ready` rows with
   `retry` or `authentication` still need the folder notice, and a removed,

@@ -411,6 +411,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.readListingPage` selecting Spam or Trash by `labelIds` alone.
+  Check the provider's exclusion flags as well as label membership: these views
+  require `includeSpamTrash=true`, while ordinary label and All Mail listings
+  exclude them. Keep `testing/gmail-mailbox.ts` and `testing/synthetic-gmail.ts`
+  faithful to that contract so a missing request flag fails the public-store
+  journey; otherwise synthetic tests pass while Gmail shows an empty view.
+
 - `testing/registration-vault.ts` and `testing/registration-product-sync.ts` deriving
   connection IDs from a bare subject or address without its provider account.
   Preserve established fixture IDs while scoping unfamiliar and shared addresses
