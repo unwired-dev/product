@@ -105,6 +105,40 @@ describe('evaluation Draft save ordering', () => {
     expect(lastCommand()).toContain('"type":"replace","revision":2');
   });
 
+  it('refuses an earlier writing-tools result while a newer body is in flight', async () => {
+    expect.hasAssertions();
+    const mock = createMockMailSession('open-read-relaunch');
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <AssistanceContext value={mock.assistance}>
+        <App drafts={createDrafts(storage.native, registration)} />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const { report, typed } = simulatedPage();
+    await typed('One');
+    await press('Writing tools');
+    await press('Rewrite the message body');
+    await screen.findByText(syntheticRewrite);
+    // The preview belongs to revision 1, but only revision 2's selection has arrived.
+    await report({ revision: 2, selection: { start: 7, end: 7 } });
+    const before = lastCommand();
+    await press('Replace your text with this rewrite');
+    expect(lastCommand()).toBe(before);
+    expect(screen.getByText(syntheticRewrite)).toBeOnTheScreen();
+    // Receiving the new body retires the earlier preview rather than reviving its Apply action.
+    await report({
+      revision: 2,
+      document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }],
+    });
+    expect(screen.queryByText(syntheticRewrite)).toBeNull();
+    expect(
+      screen.queryByRole('button', {
+        name: 'Replace your text with this rewrite',
+      }),
+    ).toBeNull();
+  });
+
   it('keeps the surviving Draft and its image when Delete Draft races an import', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
