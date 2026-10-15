@@ -1,8 +1,7 @@
-import type { Command, Update } from '@private-email/draft-editor/messages';
+import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
-import type { ReactNode } from 'react';
 
 import {
   commandScript,
@@ -11,8 +10,6 @@ import {
 } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import {
-  canRewrite,
-  canSuggestReply,
   captureDraftText,
   draftReplacement,
   sameDraftAssistanceSource,
@@ -26,16 +23,10 @@ import {
   withSender,
 } from '@private-email/mail-core/drafts';
 import {
-  clip,
   imagesOf,
   replaceSelection,
-  selectedText,
 } from '@private-email/mail-core/semantic-document';
-import { radius, spacing } from '@private-email/mail-core/theme';
-import {
-  hasTranslatableText,
-  translationInputLimit,
-} from '@private-email/mail-core/translation';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useCallback,
@@ -45,47 +36,37 @@ import {
   useState,
 } from 'react';
 import {
-  Keyboard,
   KeyboardAvoidingView,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 import { WebView } from 'react-native-webview';
 
 import type { Closing } from './composer.tsx';
+import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
-import { CommandInput, usePaletteHeader } from './command-palette.tsx';
+import { MenuItem } from './composer-controls.tsx';
 import {
-  blockControls,
-  FormatBar,
-  markControls,
-  MenuItem,
-} from './composer-controls.tsx';
-import {
-  Action,
   CapturedAssistance,
   Composer,
   ComposerLayoutContext,
   ComposerNotices,
   composerStyles,
   DraftAssets,
-  Recipients,
   retires,
-  rewriteLabel,
   SendingMailbox,
 } from './composer.tsx';
+import { GlassPanel } from './design.tsx';
 import {
-  GlassGroup,
-  GlassPanel,
-  NativeGlass,
-  SFSymbol,
-  ToolbarButton,
-} from './design.tsx';
+  FormatPanel,
+  PhoneControls,
+  PadFormatBar,
+  DraftFields,
+  EditorHeader,
+} from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import {
@@ -112,622 +93,7 @@ const styles = StyleSheet.create({
     left: spacing.l,
     minWidth: 240,
   },
-  // The iPhone controls float at the trailing edge above the keyboard, with their menus above.
-  pill: {
-    position: 'absolute',
-    right: spacing.l,
-    bottom: spacing.s,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  pillGroup: { borderRadius: 26 },
-  // Above the content below it, so the Writing tools menu opens over the body.
-  padBar: { zIndex: 1 },
-  padMenu: {
-    position: 'absolute',
-    top: '100%',
-    right: spacing.l,
-    minWidth: 240,
-  },
-  pillMenu: {
-    position: 'absolute',
-    right: spacing.l,
-    bottom: 64,
-    minWidth: 240,
-  },
-  format: { padding: spacing.s, paddingTop: 0 },
-  formatContent: { padding: spacing.s },
-  formatHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: spacing.m,
-  },
-  formatTitle: { ...textStyles.headline, flex: 1 },
-  formatRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    padding: spacing.xs,
-    marginTop: spacing.s,
-    borderRadius: radius.card,
-  },
-  formatChoice: {
-    flex: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
 });
-
-type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
-// The open menu, or on iPhone the Format panel in place of the keyboard.
-type Open = 'close' | 'attach' | 'tools' | 'format';
-type Add = (source: PickSource, inline: boolean) => void;
-type Capture = (purpose: CapturedDraftText['purpose']) => void;
-
-// The current composer's file controls: the system pickers, and images on the pasteboard placed
-// inline. Native code reads the chosen files.
-const pickers = [
-  ['drafts.assets.attachFile', 'files', false, 'paperclip'],
-  ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
-  ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
-  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
-] as const;
-const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
-
-// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
-function WritingTools({
-  draft,
-  page,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly onCapture: Capture;
-}) {
-  const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  const { selection } = page;
-  return (
-    <>
-      {assistance === undefined ? null : (
-        <MenuItem
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
-          selected={false}
-          onPress={() => {
-            onCapture('rewrite');
-          }}
-        />
-      )}
-      {translation === undefined ? null : (
-        <MenuItem
-          disabled={
-            !hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
-            )
-          }
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('translate');
-          }}
-        />
-      )}
-      {assistance !== undefined && canSuggestReply(draft) ? (
-        <MenuItem
-          label={t('assistance.suggestReply')}
-          accessibilityLabel={t('assistance.suggestReplyLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('reply');
-          }}
-        />
-      ) : null}
-    </>
-  );
-}
-
-// Writing tools appear only where assistance or translation is available.
-function useOffersTools() {
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  return assistance !== undefined || translation !== undefined;
-}
-
-// One choice in the Format panel, filled while it applies at the selection.
-function FormatChoice({
-  name,
-  selected,
-  command,
-  run,
-  children,
-}: {
-  readonly name: string;
-  readonly selected: boolean;
-  readonly command: Command;
-  readonly run: (command: Command) => void;
-  readonly children: (color: string) => ReactNode;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={name}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={() => {
-        run(command);
-      }}
-      style={[
-        styles.formatChoice,
-        selected && { backgroundColor: colors.accentFill },
-      ]}>
-      {children(selected ? colors.accentOnFill : colors.textPrimary)}
-    </Pressable>
-  );
-}
-
-// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks and the
-// remaining block kinds, each one page command.
-function FormatPanel({
-  page,
-  run,
-  onClose,
-  onHide,
-}: {
-  readonly page: PageState;
-  readonly run: (command: Command) => void;
-  // Closes the panel and resumes typing; `onHide` only closes it.
-  readonly onClose: () => void;
-  readonly onHide: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  // Tapping into the body again brings the keyboard back in place of the panel.
-  useEffect(() => {
-    const shown = Keyboard.addListener('keyboardWillShow', onHide);
-    return () => {
-      shown.remove();
-    };
-  }, [onHide]);
-  const rowFill = { backgroundColor: colors.fillQuiet };
-  return (
-    <View style={styles.format}>
-      <GlassPanel>
-        <View
-          accessibilityLabel={t('drafts.formatting')}
-          accessibilityRole="toolbar"
-          style={styles.formatContent}>
-          <View style={styles.formatHeader}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.formatTitle, { color: colors.textPrimary }]}>
-              {t('drafts.format')}
-            </Text>
-            <ToolbarButton
-              disabled={!page.undo}
-              icon="arrow.uturn.backward"
-              label={t('drafts.undo')}
-              onPress={() => {
-                run({ type: 'undo' });
-              }}
-            />
-            <ToolbarButton
-              disabled={!page.redo}
-              icon="arrow.uturn.forward"
-              label={t('drafts.redo')}
-              onPress={() => {
-                run({ type: 'redo' });
-              }}
-            />
-            <ToolbarButton
-              icon="xmark"
-              label={t('drafts.closeFormat')}
-              onPress={onClose}
-            />
-          </View>
-          <View style={[styles.formatRow, rowFill]}>
-            {headings.map((kind) => {
-              const name = t(
-                `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
-              );
-              return (
-                <FormatChoice
-                  key={kind}
-                  command={{ type: 'block', kind }}
-                  name={name}
-                  run={run}
-                  selected={page.kind === kind}>
-                  {(color) => (
-                    <Text style={[textStyles.subheadline, { color }]}>
-                      {name}
-                    </Text>
-                  )}
-                </FormatChoice>
-              );
-            })}
-          </View>
-          <View style={[styles.formatRow, rowFill]}>
-            {markControls.map(([mark, label, name, style]) => (
-              <FormatChoice
-                key={mark}
-                command={{ type: 'mark', mark }}
-                name={t(name)}
-                run={run}
-                selected={page.marks.includes(mark)}>
-                {(color) => (
-                  <Text style={[textStyles.body, { color }, style]}>
-                    {label}
-                  </Text>
-                )}
-              </FormatChoice>
-            ))}
-          </View>
-          <View style={[styles.formatRow, rowFill]}>
-            {/* Lists, quotes and code blocks follow the three headings. */}
-            {blockControls.slice(3).map(([kind, label, name]) => (
-              <FormatChoice
-                key={kind}
-                command={{ type: 'block', kind }}
-                name={t(name)}
-                run={run}
-                selected={page.kind === kind}>
-                {(color) => (
-                  <Text style={[textStyles.body, { color }]}>{label}</Text>
-                )}
-              </FormatChoice>
-            ))}
-          </View>
-        </View>
-      </GlassPanel>
-    </View>
-  );
-}
-
-// iPhone adds files and offers writing tools from a floating Liquid Glass pill and button, whose
-// Format control opens the panel that replaces the keyboard.
-function PhoneControls({
-  draft,
-  page,
-  open,
-  run,
-  onOpen,
-  onAdd,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly open: Open | undefined;
-  readonly run: (command: Command) => void;
-  readonly onOpen: (open: Open | undefined) => void;
-  readonly onAdd: Add;
-  readonly onCapture: Capture;
-}) {
-  const { t } = useLocalization();
-  const offersTools = useOffersTools();
-  // The Format panel takes the controls' place.
-  if (open === 'format') {
-    return null;
-  }
-  const toggle = (menu: Open) => {
-    onOpen(open === menu ? undefined : menu);
-  };
-  return (
-    <>
-      {open === 'attach' || open === 'tools' ? (
-        <View
-          accessibilityRole="menu"
-          style={styles.pillMenu}>
-          <GlassPanel>
-            {open === 'attach' ? (
-              pickers.map(([label, from, inline]) => (
-                <MenuItem
-                  key={label}
-                  label={t(label)}
-                  selected={false}
-                  onPress={() => {
-                    onAdd(from, inline);
-                  }}
-                />
-              ))
-            ) : (
-              <WritingTools
-                draft={draft}
-                page={page}
-                onCapture={onCapture}
-              />
-            )}
-          </GlassPanel>
-        </View>
-      ) : null}
-      <View
-        pointerEvents="box-none"
-        style={styles.pill}>
-        <GlassGroup style={styles.pillGroup}>
-          <ToolbarButton
-            icon="textformat"
-            label={t('drafts.format')}
-            onPress={() => {
-              run({ type: 'blur' });
-              onOpen('format');
-            }}
-          />
-          <ToolbarButton
-            expanded={open === 'attach'}
-            icon="paperclip"
-            label={t('drafts.assets.toolbar')}
-            onPress={() => {
-              toggle('attach');
-            }}
-          />
-        </GlassGroup>
-        {offersTools ? (
-          <GlassGroup style={styles.pillGroup}>
-            <ToolbarButton
-              expanded={open === 'tools'}
-              icon="sparkles"
-              label={t('drafts.writingTools')}
-              onPress={() => {
-                toggle('tools');
-              }}
-            />
-          </GlassGroup>
-        ) : null}
-      </View>
-    </>
-  );
-}
-
-// iPad keeps the current composer's format bar, with Writing tools in place of its separate
-// assistance buttons.
-function PadFormatBar({
-  draft,
-  page,
-  open,
-  run,
-  onOpen,
-  onAdd,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly open: Open | undefined;
-  readonly run: (command: Command) => void;
-  readonly onOpen: (open: Open | undefined) => void;
-  readonly onAdd: Add;
-  readonly onCapture: Capture;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const offersTools = useOffersTools();
-  return (
-    <View style={styles.padBar}>
-      <FormatBar
-        active={page.marks}
-        kind={page.kind}
-        disabled={false}
-        onBlock={(kind) => {
-          run({ type: 'block', kind });
-        }}
-        onMark={(mark) => {
-          run({ type: 'mark', mark });
-        }}>
-        <View style={[s.divider, { backgroundColor: colors.separator }]} />
-        <ToolbarButton
-          disabled={!page.undo}
-          icon="arrow.uturn.backward"
-          label={t('drafts.undo')}
-          onPress={() => {
-            run({ type: 'undo' });
-          }}
-        />
-        <ToolbarButton
-          disabled={!page.redo}
-          icon="arrow.uturn.forward"
-          label={t('drafts.redo')}
-          onPress={() => {
-            run({ type: 'redo' });
-          }}
-        />
-        <View style={s.grow} />
-        {offersTools ? (
-          <ToolbarButton
-            expanded={open === 'tools'}
-            icon="sparkles"
-            label={t('drafts.writingTools')}
-            onPress={() => {
-              onOpen(open === 'tools' ? undefined : 'tools');
-            }}
-          />
-        ) : null}
-        <View style={[s.divider, { backgroundColor: colors.separator }]} />
-        {pickers.map(([label, from, inline, icon]) => (
-          <ToolbarButton
-            key={label}
-            icon={icon}
-            label={t(label)}
-            onPress={() => {
-              onAdd(from, inline);
-            }}
-          />
-        ))}
-      </FormatBar>
-      {/* The bar's controls scroll and would clip the menu, so it opens below the bar. */}
-      {open === 'tools' ? (
-        <View
-          accessibilityRole="menu"
-          style={styles.padMenu}>
-          <GlassPanel>
-            <WritingTools
-              draft={draft}
-              page={page}
-              onCapture={onCapture}
-            />
-          </GlassPanel>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-// Subject, To, and Cc and Bcc once shown, below the body.
-function DraftFields({
-  draft,
-  getDraft,
-  editable,
-  onChange,
-  onCaretMove,
-}: {
-  readonly draft: Draft;
-  readonly getDraft: () => Draft;
-  readonly editable: boolean;
-  readonly onChange: (draft: Draft) => void;
-  readonly onCaretMove: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
-  const copiesShown =
-    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
-  const recipients = (field: 'to' | 'cc' | 'bcc', trailing?: ReactNode) => (
-    <Recipients
-      draft={draft}
-      getDraft={getDraft}
-      editable={editable}
-      field={field}
-      onChange={onChange}
-      onCaretMove={onCaretMove}
-      trailing={trailing}
-    />
-  );
-  return (
-    <View style={s.fields}>
-      <View style={[s.field, { borderTopColor: colors.separator }]}>
-        <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>
-          {`${t('drafts.subject')}:`}
-        </Text>
-        <TextInput
-          accessibilityLabel={t('drafts.subject')}
-          editable={editable}
-          accessibilityState={{ disabled: !editable }}
-          onChangeText={(subject) => {
-            onChange({ ...getDraft(), subject });
-          }}
-          placeholder={t('drafts.subject')}
-          placeholderTextColor={colors.textSecondary}
-          style={[s.input, { color: colors.textPrimary }]}
-          value={draft.subject}
-        />
-      </View>
-      {recipients(
-        'to',
-        copiesShown ? undefined : (
-          <Action
-            disabled={!editable}
-            accessibilityLabel={t('drafts.showCcBcc')}
-            label={t('drafts.ccBcc')}
-            onPress={() => {
-              onChange({ ...getDraft(), copies: true });
-            }}
-          />
-        ),
-      )}
-      {copiesShown ? (
-        <>
-          {recipients('cc')}
-          {recipients('bcc')}
-        </>
-      ) : null}
-    </View>
-  );
-}
-
-// The current composer's header: the glass Close, the title, which opens the Command Palette by a
-// downward swipe as other screens' do, the window's expand control and Send.
-function EditorHeader({
-  subject,
-  busy,
-  closeOpen,
-  expanded = false,
-  onExpand,
-  onClose,
-  onSend,
-}: {
-  readonly subject: string;
-  // Save Draft, Delete Draft or Send is running.
-  readonly busy: boolean;
-  readonly closeOpen: boolean;
-  readonly expanded?: boolean | undefined;
-  readonly onExpand?: (() => void) | undefined;
-  readonly onClose: () => void;
-  readonly onSend: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const paletteHeader = usePaletteHeader();
-  const title = clip(subject) || t('drafts.newMessage');
-  const titleLabel =
-    title.length < subject.length
-      ? t('drafts.titleShortened', { title })
-      : title;
-  return (
-    <View
-      style={s.header}
-      {...paletteHeader.swipe}>
-      <Pressable
-        accessibilityLabel={t('drafts.close')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy, expanded: closeOpen }}
-        disabled={busy}
-        onPress={onClose}
-        style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
-        <NativeGlass
-          cornerRadius={22}
-          style={StyleSheet.absoluteFill}
-        />
-        <SFSymbol
-          name="xmark"
-          color={colors.textPrimary}
-        />
-      </Pressable>
-      <Text
-        accessibilityLabel={titleLabel}
-        accessibilityRole="header"
-        numberOfLines={1}
-        style={[s.grow, s.title, { color: colors.textPrimary }]}
-        {...paletteHeader.action}>
-        {title}
-      </Text>
-      <CommandInput />
-      {onExpand === undefined ? null : (
-        <ToolbarButton
-          icon={
-            expanded
-              ? 'arrow.down.right.and.arrow.up.left'
-              : 'arrow.up.left.and.arrow.down.right'
-          }
-          label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-          onPress={onExpand}
-        />
-      )}
-      <Pressable
-        accessibilityLabel={t('drafts.send')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy }}
-        disabled={busy}
-        onPress={onSend}
-        style={[s.circle, { backgroundColor: colors.accentFill }]}>
-        <SFSymbol
-          name="arrow.up"
-          color={colors.accentOnFill}
-        />
-      </Pressable>
-    </View>
-  );
-}
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is

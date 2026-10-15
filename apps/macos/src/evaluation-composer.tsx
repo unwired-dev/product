@@ -1,8 +1,7 @@
-import type { Command, Update } from '@private-email/draft-editor/messages';
+import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
-import type { ReactNode } from 'react';
 
 import {
   commandScript,
@@ -11,8 +10,6 @@ import {
 } from '@private-email/draft-editor/messages';
 import { editorPage } from '@private-email/draft-editor/page';
 import {
-  canRewrite,
-  canSuggestReply,
   captureDraftText,
   draftReplacement,
   sameDraftAssistanceSource,
@@ -29,13 +26,7 @@ import {
   clip,
   imagesOf,
   replaceSelection,
-  selectedText,
 } from '@private-email/mail-core/semantic-document';
-import { spacing } from '@private-email/mail-core/theme';
-import {
-  hasTranslatableText,
-  translationInputLimit,
-} from '@private-email/mail-core/translation';
 import {
   use,
   useCallback,
@@ -44,26 +35,28 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import type { Closing } from './composer.tsx';
+import type { PageState } from './evaluation-composer-controls.tsx';
 
-import { FormatBar, MenuItem, PopUp } from './composer-controls.tsx';
 import {
-  Action,
   CapturedAssistance,
   Composer,
   ComposerNotices,
   composerStyles,
   DraftAssets,
   Notice,
-  Recipients,
   retires,
-  rewriteLabel,
   SendingMailbox,
 } from './composer.tsx';
-import { Button, GlassPanel, ToolbarButton } from './design.tsx';
+import { Button, ToolbarButton } from './design.tsx';
+import {
+  PageFormatBar,
+  DraftFields,
+  SaveSheet,
+} from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import {
@@ -73,7 +66,7 @@ import {
   useOutbox,
 } from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
@@ -81,283 +74,7 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   // The regular composer's minimum body height.
   body: { flex: 1, minHeight: 160 },
-  // The save question drops from the window's top edge, over the composer.
-  sheet: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 52,
-    alignSelf: 'center',
-    width: 300,
-  },
-  sheetContent: { padding: 20, gap: spacing.s },
-  sheetTitle: { ...textStyles.bodyEmphasized, textAlign: 'center' },
-  sheetDetail: { ...textStyles.subheadline, textAlign: 'center' },
 });
-
-type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
-type Capture = (purpose: CapturedDraftText['purpose']) => void;
-
-// The current composer's file controls, through the system open panel. Native code reads the
-// chosen files.
-const pickers = [
-  ['drafts.assets.attachFilesPanel', 'files', false, 'paperclip'],
-  ['drafts.assets.insertImagePanel', 'photos', true, 'photo.on.rectangle'],
-] as const;
-
-// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
-function WritingTools({
-  draft,
-  page,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly onCapture: Capture;
-}) {
-  const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  const { selection } = page;
-  return (
-    <>
-      {assistance === undefined ? null : (
-        <MenuItem
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
-          selected={false}
-          onPress={() => {
-            onCapture('rewrite');
-          }}
-        />
-      )}
-      {translation === undefined ? null : (
-        <MenuItem
-          disabled={
-            !hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
-            )
-          }
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('translate');
-          }}
-        />
-      )}
-      {assistance !== undefined && canSuggestReply(draft) ? (
-        <MenuItem
-          label={t('assistance.suggestReply')}
-          accessibilityLabel={t('assistance.suggestReplyLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('reply');
-          }}
-        />
-      ) : null}
-    </>
-  );
-}
-
-// The current composer's format bar, with Writing tools in place of its separate assistance
-// buttons; each control is one page command.
-function PageFormatBar({
-  draft,
-  page,
-  tools,
-  run,
-  onTools,
-  onAdd,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly tools: boolean;
-  readonly run: (command: Command) => void;
-  readonly onTools: (open: boolean) => void;
-  readonly onAdd: (source: PickSource, inline: boolean) => void;
-  readonly onCapture: Capture;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  return (
-    <FormatBar
-      active={page.marks}
-      kind={page.kind}
-      disabled={false}
-      onBlock={(kind) => {
-        run({ type: 'block', kind });
-      }}
-      onMark={(mark) => {
-        run({ type: 'mark', mark });
-      }}>
-      <View style={[s.divider, { backgroundColor: colors.separator }]} />
-      <ToolbarButton
-        disabled={!page.undo}
-        icon="arrow.uturn.backward"
-        label={t('drafts.undo')}
-        onPress={() => {
-          run({ type: 'undo' });
-        }}
-      />
-      <ToolbarButton
-        disabled={!page.redo}
-        icon="arrow.uturn.forward"
-        label={t('drafts.redo')}
-        onPress={() => {
-          run({ type: 'redo' });
-        }}
-      />
-      <View style={s.grow} />
-      {assistance === undefined && translation === undefined ? null : (
-        <PopUp
-          accessibilityLabel={t('drafts.writingTools')}
-          icon="sparkles"
-          open={tools}
-          onToggle={() => {
-            onTools(!tools);
-          }}>
-          <WritingTools
-            draft={draft}
-            page={page}
-            onCapture={onCapture}
-          />
-        </PopUp>
-      )}
-      <View style={[s.divider, { backgroundColor: colors.separator }]} />
-      {pickers.map(([label, from, inline, icon]) => (
-        <ToolbarButton
-          key={label}
-          icon={icon}
-          label={t(label)}
-          onPress={() => {
-            onAdd(from, inline);
-          }}
-        />
-      ))}
-    </FormatBar>
-  );
-}
-
-// Subject, To, and Cc and Bcc once shown, below the body.
-function DraftFields({
-  draft,
-  getDraft,
-  editable,
-  onChange,
-  onCaretMove,
-}: {
-  readonly draft: Draft;
-  readonly getDraft: () => Draft;
-  readonly editable: boolean;
-  readonly onChange: (draft: Draft) => void;
-  readonly onCaretMove: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
-  const copiesShown =
-    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
-  const recipients = (field: 'to' | 'cc' | 'bcc', trailing?: ReactNode) => (
-    <Recipients
-      draft={draft}
-      getDraft={getDraft}
-      editable={editable}
-      field={field}
-      onChange={onChange}
-      onCaretMove={onCaretMove}
-      trailing={trailing}
-    />
-  );
-  return (
-    <View style={s.fields}>
-      <View style={[s.field, { borderTopColor: colors.separator }]}>
-        <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>
-          {`${t('drafts.subject')}:`}
-        </Text>
-        <TextInput
-          accessibilityLabel={t('drafts.subject')}
-          editable={editable}
-          accessibilityState={{ disabled: !editable }}
-          onChangeText={(subject) => {
-            onChange({ ...getDraft(), subject });
-          }}
-          placeholder={t('drafts.subject')}
-          placeholderTextColor={colors.textSecondary}
-          style={[s.input, { color: colors.textPrimary }]}
-          value={draft.subject}
-        />
-      </View>
-      {recipients(
-        'to',
-        copiesShown ? undefined : (
-          <Action
-            disabled={!editable}
-            accessibilityLabel={t('drafts.showCcBcc')}
-            label={t('drafts.ccBcc')}
-            onPress={() => {
-              onChange({ ...getDraft(), copies: true });
-            }}
-          />
-        ),
-      )}
-      {copiesShown ? (
-        <>
-          {recipients('cc')}
-          {recipients('bcc')}
-        </>
-      ) : null}
-    </View>
-  );
-}
-
-// Asks whether to keep changed Draft content, as Mail does when a message window closes.
-function SaveSheet({
-  onSave,
-  onDelete,
-  onCancel,
-}: {
-  readonly onSave: () => void;
-  readonly onDelete: () => void;
-  readonly onCancel: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  return (
-    <View
-      accessibilityViewIsModal
-      style={styles.sheet}>
-      <GlassPanel>
-        <View style={styles.sheetContent}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.sheetTitle, { color: colors.textPrimary }]}>
-            {t('drafts.saveQuestion')}
-          </Text>
-          <Text style={[styles.sheetDetail, { color: colors.textSecondary }]}>
-            {t('drafts.saveQuestionDetail')}
-          </Text>
-          <Button
-            fill="accent"
-            label={t('drafts.saveAction')}
-            onPress={onSave}
-          />
-          <Button
-            label={t('drafts.dontSave')}
-            onPress={onDelete}
-          />
-          <Button
-            label={t('common.cancel')}
-            onPress={onCancel}
-          />
-        </View>
-      </GlassPanel>
-    </View>
-  );
-}
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
 // edits the body, and native controls format it, add files and offer writing tools. Nothing is

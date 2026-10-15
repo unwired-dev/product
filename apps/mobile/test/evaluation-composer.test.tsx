@@ -3,10 +3,7 @@ import { ok } from 'node:assert/strict';
 import type { Command } from '@private-email/draft-editor/messages';
 import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type {
-  Asset,
-  SemanticDocument,
-} from '@private-email/mail-core/semantic-document';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { KeyboardEvent } from 'react-native';
 
 import { commandScript } from '@private-email/draft-editor/messages';
@@ -47,6 +44,7 @@ import { InboxProvider, useComposerNavigation } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { lastCommand, press, simulatedPage } from './evaluation-page.ts';
 import { injectedScripts } from './webview.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -142,80 +140,6 @@ function App({
   );
 }
 
-// The command the host last sent its page.
-const lastCommand = () => injectedScripts.at(-1);
-
-const press = async (name: string | RegExp, flush = true) => {
-  const button = await screen.findByRole('button', { name });
-  await act(async () => {
-    await fireEvent.press(button);
-    // The native WebView boundary acknowledges a finishing command after queued edits.
-    if (
-      flush &&
-      lastCommand() === commandScript({ type: 'editable', editable: false })
-    ) {
-      const page = screen.queryByTestId('message-webview', {
-        includeHiddenElements: true,
-      });
-      if (page !== null) {
-        fireEvent(page, 'message', {
-          nativeEvent: {
-            data: JSON.stringify({
-              type: 'update',
-              frozen: true,
-              revision: 0,
-              selection: { start: 0, end: 0 },
-              marks: [],
-              kind: 'paragraph',
-              undo: false,
-              redo: false,
-            }),
-          },
-        });
-      }
-    }
-  });
-};
-
-// The packaged page, as the host sees it: after each edit or selection change it reports its
-// state, with the whole body after an edit. `revision` counts its body edits.
-function simulatedPage() {
-  let revision = 0;
-  const report = async (
-    state: Readonly<{
-      frozen?: boolean;
-      document?: SemanticDocument;
-      attachments?: readonly Asset[];
-      selection?: Readonly<{ start: number; end: number }>;
-      marks?: readonly string[];
-      kind?: string;
-    }>,
-  ) => {
-    revision += state.document === undefined ? 0 : 1;
-    await act(async () => {
-      await fireEvent(screen.getByTestId('message-webview'), 'message', {
-        nativeEvent: {
-          data: JSON.stringify({
-            type: 'update',
-            revision,
-            selection: { start: 0, end: 0 },
-            marks: [],
-            kind: 'paragraph',
-            undo: revision > 0,
-            redo: false,
-            ...state,
-          }),
-        },
-      });
-    });
-  };
-  return {
-    report,
-    typed: async (text: string) =>
-      report({ document: [{ kind: 'paragraph', spans: [{ text }] }] }),
-    revision: () => revision,
-  };
-}
 // That command as the page receives it.
 const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
 const Previews = Schema.optionalKey(
