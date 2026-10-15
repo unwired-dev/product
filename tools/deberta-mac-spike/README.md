@@ -15,7 +15,9 @@ Category definitions from the benchmark and never changes them.
 The weights are not committed. Reproduce them with the benchmark's commands
 (`run.py deberta xsmall body256`, `run.py deberta mdeberta body512` and
 `custom.py adapt` for the two Custom candidates), then pass each weights directory.
-`export.py` refuses weights whose SHA-256 differs from the frozen bundle.
+`export.py` refuses weights whose SHA-256 differs from the frozen bundle and
+tokenizers whose SHA-256 differs from the files verified against every golden
+input ID, before replacing any output.
 
 ```sh
 cd tools/deberta-mac-spike
@@ -88,3 +90,13 @@ mise exec -- uv run pytest
 mise exec -- uv run ruff check . && mise exec -- uv run ruff format --check .
 cd ../../native/categorization-spike && swift test
 ```
+
+The unattended `probe/autorun.zsh App.app matrix` run validates all 43 expected
+successful action records before exiting successfully and saves `host-tables.md`
+beside the raw evidence. Failed, missing, duplicate or unexpected actions fail
+the run. To validate a retained matrix, run
+`mise exec -- uv run python summarize.py --check-matrix results/host-matrix-2026-10-15.jsonl`
+from this directory. The `states` run similarly requires both sample results,
+including Custom abstention, and its two intentional cancellations and releases
+with `--check-states`. Ordinary summaries still accept mixed result and lifecycle
+records without either check flag.

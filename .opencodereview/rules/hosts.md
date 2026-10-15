@@ -4,6 +4,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### The host stays thin
 
+- A visible selection serialized differently by actions that share it, such as
+  `categorization-spike-page.tsx` sending the golden six Category IDs for Classify
+  but a prefix count for Benchmark. Trace each applicable action through request
+  construction to its native consumer, including default and alternate choices;
+  otherwise the displayed workload and measured workload differ. Verify outgoing
+  request meaning through the component journey, not just the selected label.
+
 - `registration-gate.tsx` offering a provider's first-mailbox or add-mailbox
   action when this build's native adapter cannot authorize that provider.
   Trace the native build capability and provider construction together, and

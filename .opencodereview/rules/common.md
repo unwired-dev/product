@@ -40,6 +40,12 @@ Apply the same compatibility checks when assembling frozen candidate bundles,
 including referenced System results in `custom_report.py` `golden()`; validating
 only Custom results or table aggregation still admits stale native prerequisites.
 
+For frozen-input exports such as `tools/deberta-mac-spike/export.py`, verify
+companion artifacts as well as weights before replacing output or copying them
+into the native bundle. A matching weights hash does not establish tokenizer
+identity; require the companion's frozen provenance or verified digest, or an
+export can silently change token IDs while claiming the frozen pipeline.
+
 Independently reproduce or substantiate each finding against source and applicable decisions. Fix confirmed issues in the authorized checkout, preserving unrelated work; update affected tests and operational/architecture documentation. Rerun appropriate checks, refresh coverage and resolved rules after edits, and rereview the corrected artifact until no in-scope issue remains. Reviewer fixes stay within this review; later implementer edits require a new pinned review. Report sources consulted, applicable conditional sections and their dispositions, coverage, validated findings/fixes, changed files, checks/results, unavailable tooling and unresolved decision blockers. Separate OCR selection/rule-resolution evidence from host reasoning and actual integration/native/CI evidence; an unavailable check is deferred or blocked, never passing. Do not disclose architecture source or rule bodies in the implementer handback. Review completion and required CI are independent.
 
 #### R4 — Identity, authorization and recovery (conditional)
@@ -101,6 +107,19 @@ Before reviewing TypeScript, read docs/agents/effect.md and, for services, effec
 #### R10 — Testing, native ownership and CI (conditional)
 
 For tests, mock sessions, harnesses, qualification, workflows or operational changes, read ADR 0060, ADR 0049 Use a risk-weighted test portfolio, docs/agents/testing.md, native-validation.md, pull-request-babysitting.md and relevant architecture/qualification companions. Prefer real integration and E2E evidence for named failure risks; mocks/stubs and packaged synthetic journeys do not prove provider authentication, persistence, native bindings or live compatibility. Keep synthetic identities, external scenario/reset ownership and test-only production isolation; no production credential or reset backdoor belongs in mock testing. Preserve owned native resources and fail-closed cleanup, deterministic isolation and required release qualification. Retain coverage for privacy, identity isolation, encryption, data loss and duplicate delivery when retiring implementation; disabled legacy Swift CI is not a replacement-host merge gate. Preserve credential-free PR babysitter isolation and remote-CI policy; do not execute PR-controlled code outside the permitted sandbox or broaden permissions to make local validation pass.
+
+For UI automation such as `tools/deberta-mac-spike/probe/SpikeProbe.swift` `run`,
+tie completion to the action just started before accepting a ready/enabled
+control. That control can already be enabled before dispatch; require evidence
+of the new operation or its completed outcome, including fast operations whose
+busy state polling can miss, or the probe can capture stale results or start
+the next action before the previous one begins.
+
+For evidence-driven runners such as `tools/deberta-mac-spike/probe/autorun.zsh`,
+verify expected successful action identities as well as record counts before
+returning success. Native failures can append records too; otherwise a failed
+or partial matrix qualifies as complete. Keep intentionally cancelled lifecycle
+records distinct from successful matrix results.
 
 #### R11 — Documentation and review-rule changes (conditional)
 

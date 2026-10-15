@@ -4,6 +4,12 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A measured comparison in a report such as `tools/deberta-mac-spike/REPORT.md`
+  generalized beyond its raw records. Compare every claimed direction against
+  the matching candidate, precision, compute units and workload rows; retain
+  counterexamples and distinguish download size from peak runtime memory, or a
+  recommendation can claim a consistent improvement where results are mixed.
+
 - A command, script name, path, flag, version or environment variable that does not exist as written. Check it against `package.json`, the workflow files and the tree.
 - A mandatory external skill in `AGENTS.md` or `docs/agents/` with no actionable source and discovery/install fallback when it is absent from a host's session catalogue. Distinguish globally installed skills from repository-local files and check the named source; repository absence alone does not establish unavailability. Otherwise another host cannot satisfy the required workflow.
 - A GitHub environment setup or recovery snippet in `docs/convex-deploy.md` or another operational guide that claims a branch-only secret boundary but only enables custom-policy mode and adds the allowed branch. Existing branch or tag policies survive those calls; verify that recreation or explicit policy deletion removes every unwanted policy before storing secrets, and that recreation restores deleted secrets. Otherwise a stale allowed ref can run its own workflow definition with deployment credentials.

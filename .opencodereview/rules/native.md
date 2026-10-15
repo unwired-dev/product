@@ -144,6 +144,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `Measurement.Sampler` or another native owner using an `unowned` capture in
+  an escaping timer, task or queue callback. Trace every queue hop through stop,
+  cancellation and owner release, including the outer timer handler. Cancelling
+  the source does not drain already-enqueued work; require weak ownership or a
+  proven lifetime covering every callback, or dismissal can crash after release.
+
 - `RegistrationStore.registration` projecting independently saved Profile state
   only inside `productSyncState`'s key-dependent result. A sibling key failure
   must not erase retained ownership or replay floors: project saved Profile state

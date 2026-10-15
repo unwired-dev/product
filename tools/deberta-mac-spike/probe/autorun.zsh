@@ -68,6 +68,13 @@ case "$mode" in
     sleep 23; capture benchmarking
     wait_lines 3 600; sleep 2; capture cancelled
     # The dismissal cancels the second benchmark, then releases the model.
-    wait_lines 6 600; sleep 2; capture dismissed ;;
-  matrix) wait_lines 43 14400 ;;
+    wait_lines 6 600; sleep 2; capture dismissed
+    mise exec -- uv run --project "$root/tools/deberta-mac-spike" python \
+      "$root/tools/deberta-mac-spike/summarize.py" --check-states "$results" \
+      > "$evidence/host-tables.md" ;;
+  matrix)
+    wait_lines 43 14400
+    mise exec -- uv run --project "$root/tools/deberta-mac-spike" python \
+      "$root/tools/deberta-mac-spike/summarize.py" --check-matrix "$results" \
+      > "$evidence/host-tables.md" ;;
 esac
