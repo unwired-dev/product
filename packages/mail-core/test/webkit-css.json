@@ -2329,5 +2329,41 @@
   {
     "style": "font-size:0!important;font-size:16px!important",
     "declared": [["font-size", "16px", "16px", "16px"]]
+  },
+  {
+    "style": "background:url(a}b);display:none",
+    "declared": [
+      ["background", "url(a}b)", "url(\"a}b\")", "url(\"a}b\")"],
+      ["display", "none", "none", "none"]
+    ]
+  },
+  {
+    "style": "background:url(\"a}b\");display:none",
+    "declared": [
+      ["background", "url(\"a}b\")", "url(\"a}b\")", "url(\"a}b\")"],
+      ["display", "none", "none", "none"]
+    ]
+  },
+  {
+    "style": "background:url('a}b');display:none",
+    "declared": [
+      ["background", "url('a}b')", "url(\"a}b\")", "url(\"a}b\")"],
+      ["display", "none", "none", "none"]
+    ]
+  },
+  {
+    "style": "background:url(a\\}b);display:none",
+    "declared": [["display", "none", "none", "none"]]
+  },
+  {
+    "style": "background:url(a\\7d b);display:none",
+    "declared": [["display", "none", "none", "none"]]
+  },
+  {
+    "style": "background:url(a};b);display:none",
+    "declared": [
+      ["background", "url(a};b)", "url(\"a};b\")", "url(\"a};b\")"],
+      ["display", "none", "none", "none"]
+    ]
   }
 ]
