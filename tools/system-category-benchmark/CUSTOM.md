@@ -174,7 +174,7 @@ instead of replacing their digests. The original runs' digests were backfilled
 after a review audit of execution logs and local source snapshots; predictions,
 weights and measured timings were retained, and evaluations were rerun. A second
 backfill followed the removal of `custom_report.py` from the digest (decision
-panel, 2–0): `git diff` against the stamped commit `5d96e0a9d` showed no change to
+panel, 3-0): `git diff` against the stamped commit `5d96e0a9d` showed no change to
 scoring or evaluation code, every cache carried that commit's digest, and all
 evaluations were rerun.
 `golden` needs the #828 System candidate artifacts in `work/runs/` (from

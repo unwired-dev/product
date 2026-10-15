@@ -153,8 +153,8 @@ experiment changes require regeneration rather than restamping.
 
 The thermo-nuclear review split the Custom command entry point, benchmark operations
 and artifact rendering into `custom.py`, `custom_benchmark.py` and
-`custom_report.py`. All three files participate in the conservative experiment
-digest. Against reviewed commit `39e8c70cb`, every moved function body and constant
+`custom_report.py`. Initially all three files participated in the conservative
+experiment digest. Against reviewed commit `39e8c70cb`, every moved function body and constant
 is AST-identical except the expanded provenance file list; CLI command targets and
 arguments are unchanged. After verifying the old digests, corpus, labels, scores
 and weight identities, this mechanical refactor received updated digest metadata.
@@ -172,6 +172,15 @@ against `a1fb52eae`. Only System-result admission and reuse of the existing tabl
 guard changed; scoring, adaptation, calibration and table formatting are
 unchanged. Reevaluation and golden regeneration retain all measured values and
 reference outputs. This audited guard-only migration adds no general bypass.
+
+A later decision panel unanimously approved excluding `custom_report.py` from the
+digest, matching #828's exclusion of `report.py`. GPT-6.1-Sol, Claude Fable 5.1 and
+GPT-6-Astra all chose that option. The one-time migration at `92806bf5f` verified
+unchanged scoring/evaluation code, score arrays and weight identities against
+`5d96e0a9d`; only benchmark digests changed in caches and results. Evaluations and
+golden outputs were regenerated without changing measured values. Golden generation
+also now requires local System thresholds to match the committed results and local
+System weights to match the existing bundle before loading each System model.
 
 ## Extraction inventory
 
