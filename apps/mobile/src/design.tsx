@@ -2,7 +2,7 @@ import type {
   MenuSection,
   NativeMenuItem,
 } from '@private-email/mail-core/context-menu';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type {
   ColorValue,
   GestureResponderEvent,
@@ -267,14 +267,18 @@ export function ContextMenu({
 export function GlassGroup({
   children,
   style,
+  ref,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
+  // Where a popover anchors to the group.
+  readonly ref?: Ref<View> | undefined;
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
     <View
+      ref={ref}
       style={[
         styles.group,
         {

@@ -971,7 +971,7 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name })).toBeOnTheScreen();
   });
 
-  it('hides Drafts during local and online search and saves before selecting a Gmail result', async () => {
+  it('hides Drafts and New Message during local and online search and saves before selecting a message', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1031,21 +1031,30 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('header', { name: 'Drafts' }),
     ).not.toBeOnTheScreen();
+    // Search offers Close in place of New Message, which returns with the Drafts once it closes.
     expect(
-      screen.getByRole('button', { name: 'New Message' }),
-    ).toBeOnTheScreen();
+      screen.queryByRole('button', { name: 'New Message' }),
+    ).not.toBeOnTheScreen();
+    await press('Close Search');
+    await expect(
+      screen.findByRole('button', { name: draftName }),
+    ).resolves.toBeOnTheScreen();
+    const inboxName = /^Unread\. Maya Chen\. Synthetic message 0$/u;
+    const inboxRow = () => screen.getByRole('button', { name: inboxName });
+    const pressRow = async () => {
+      await act(async () => {
+        await fireEvent.press(inboxRow());
+      });
+    };
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('To'), 'not valid');
-    await press(onlineName);
+    await pressRow();
     expect(
       screen.getByText(
         'Correct or remove the invalid address to close this Draft.',
       ),
     ).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
-      'accessibilityState',
-      { selected: false },
-    );
+    expect(inboxRow()).toHaveProp('accessibilityState', { selected: false });
     await fireEvent.changeText(
       screen.getByLabelText('To'),
       'maya@example.com,',
@@ -1064,7 +1073,7 @@ describe('composing Drafts', () => {
       expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
     });
     storage.failNextCommit('locked');
-    await press(onlineName);
+    await pressRow();
     expect(screen.getByLabelText('Subject')).toHaveProp(
       'value',
       'Authored while searching',
@@ -1074,20 +1083,10 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
-      'accessibilityState',
-      { selected: false },
-    );
-    await press(onlineName);
+    expect(inboxRow()).toHaveProp('accessibilityState', { selected: false });
+    await pressRow();
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
-      'accessibilityState',
-      { selected: true },
-    );
-    await search('');
-    expect(
-      screen.queryByRole('header', { name: 'From mail servers' }),
-    ).not.toBeOnTheScreen();
+    expect(inboxRow()).toHaveProp('accessibilityState', { selected: true });
     await expect(
       screen.findByRole('button', {
         name: /^Draft\. Authored while searching\./u,

@@ -9,6 +9,7 @@ const expoPreset = require('jest-expo/jest-preset');
 
 module.exports = {
   preset: 'jest-expo/ios',
+  resolver: '<rootDir>/test/animation-resolver.cjs',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
   clearMocks: true,
   setupFilesAfterEnv: ['<rootDir>/test/animations.cjs'],

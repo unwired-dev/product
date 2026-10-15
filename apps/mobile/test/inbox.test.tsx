@@ -29,9 +29,17 @@ import {
   within,
 } from '@testing-library/react-native';
 import { setStringAsync } from 'expo-clipboard';
-import { useState } from 'react';
-import { AccessibilityInfo, AppState, Linking } from 'react-native';
+import { useMemo, useState } from 'react';
+import {
+  AccessibilityInfo,
+  AppState,
+  Dimensions,
+  Linking,
+  StyleSheet,
+  View,
+} from 'react-native';
 
+import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
 import type { mailboxes } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
@@ -39,6 +47,11 @@ import type { usePalette } from '../src/theme.ts';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
+import {
+  createWindowBar,
+  WindowBarContext,
+  WindowBarHost,
+} from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -82,6 +95,14 @@ function InboxJourney() {
     </InboxProvider>
   );
 }
+
+const modalFor = (panel: ReturnType<typeof screen.getByTestId>) => {
+  let modal = panel.parent;
+  while (modal !== null && modal.props.animationType === undefined) {
+    modal = modal.parent;
+  }
+  return modal;
+};
 
 describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
@@ -139,7 +160,51 @@ describe('preview Inbox', () => {
     },
   );
 
-  it('shows saved search matches with the default row preview and result count', async () => {
+  it.each(['light', 'dark'] as const)(
+    'keeps Apply Filters legible while held in %s appearance',
+    async (appearance) => {
+      expect.hasAssertions();
+      const colors = palette[appearance];
+      const paletteSpy = jest
+        .spyOn(
+          jest.requireActual<{ usePalette: typeof usePalette }>(
+            '../src/theme.ts',
+          ),
+          'usePalette',
+        )
+        .mockReturnValue(colors);
+      try {
+        await render(<InboxJourney />);
+        await screen.findByRole('button', {
+          name: 'Unread. Oliver Park. Saturday, by the river?',
+        });
+        await fireEvent.press(
+          screen.getByRole('togglebutton', { name: 'Filter' }),
+        );
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Filtered by Unread' }),
+        );
+        const confirm = screen.getByRole('button', { name: 'Apply Filters' });
+        await fireEvent(confirm, 'responderGrant', {
+          persist: () => undefined,
+          currentTarget: 1,
+          nativeEvent: {
+            pageX: 0,
+            pageY: 0,
+            locationX: 0,
+            locationY: 0,
+            timestamp: 0,
+          },
+        });
+        expect(confirm).toHaveStyle({ backgroundColor: colors.accentFill });
+      } finally {
+        paletteSpy.mockRestore();
+      }
+    },
+  );
+
+  /* oxlint-disable vitest/max-expects -- Each journey proves one search or filter flow end to end. */
+  it('opens search over a blank list, marks matches under Top Results, keeps search through edits and closes back to the Inbox', async () => {
     expect.hasAssertions();
     await render(<InboxJourney />);
     const row = await screen.findByRole('button', {
@@ -150,13 +215,323 @@ describe('preview Inbox', () => {
         'The forecast looks good. Coffee first, then the long way home.',
       ),
     ).toHaveProp('numberOfLines', 1);
-    await fireEvent.changeText(
-      screen.getByLabelText('Search senders and subjects'),
-      'Maya',
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    // Before typing, search shows neither the Inbox heading nor its rows.
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Oliver Park/u })).toBeNull();
+    await fireEvent.changeText(field, 'MAYA room');
+    const results = await screen.findByRole('header', {
+      name: 'Top Results. 1 result in Preview mailbox',
+    });
+    expect(results).toHaveTextContent('Top Results');
+    const maya = screen.getByRole('button', {
+      name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
+    });
+    // Each matched word is bold where search found it, ignoring case.
+    expect(within(maya).getByText('Maya')).toHaveStyle({ fontWeight: '600' });
+    expect(within(maya).getByText('room')).toHaveStyle({ fontWeight: '600' });
+    // Unread must not give the surrounding text the same weight as a match.
+    expect(within(maya).getByText('Maya Chen')).toHaveStyle({
+      fontWeight: '400',
+    });
+    expect(within(maya).getByText('A little more room to think')).toHaveStyle({
+      fontWeight: '400',
+    });
+    // Clearing the query keeps search open rather than flashing the Inbox.
+    await fireEvent.changeText(field, '');
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('header', { name: /^Top Results/u }),
+      ).toBeNull();
+    });
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Oliver Park/u })).toBeNull();
+    await fireEvent.changeText(field, 'nothing like this');
+    await expect(
+      screen.findByText(
+        'No mail saved on this device matches “nothing like this”.',
+      ),
+    ).resolves.toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    expect(screen.getByRole('header', { name: 'Inbox' })).toBeVisible();
+    expect(screen.getByLabelText('Search senders and subjects')).toHaveProp(
+      'value',
+      '',
     );
-    expect(screen.getByRole('header', { name: 'Search' })).toBeVisible();
-    expect(screen.getByText('1 result in Preview mailbox')).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
+    const restored = within(
+      screen.getByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      }),
+    );
+    expect(restored.getByText('Maya Chen')).toHaveStyle({ fontWeight: '600' });
+    expect(restored.getByText('A little more room to think')).toHaveStyle({
+      fontWeight: '600',
+    });
   });
+
+  it.each([false, true])(
+    'shows search day dividers only on iPad and one empty notice (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      const clock = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+      try {
+        await render(<InboxJourney />);
+        await screen.findByRole('button', {
+          name: 'Unread. Maya Chen. A little more room to think',
+        });
+        const field = screen.getByLabelText('Search senders and subjects');
+        await fireEvent(field, 'focus');
+        await fireEvent.changeText(field, 'Maya');
+        await expect(
+          screen.findByRole('header', {
+            name: 'Top Results. 1 result in Preview mailbox',
+          }),
+        ).resolves.toBeVisible();
+        expect(screen.getAllByText('Top Results')).toHaveLength(1);
+        expect(screen.queryByRole('header', { name: 'Today' }) !== null).toBe(
+          isPad,
+        );
+        expect(
+          screen.getByRole('button', {
+            name: 'Unread. Maya Chen. A little more room to think. Saved on this device',
+          }),
+        ).toBeVisible();
+        await fireEvent.changeText(field, 'no matching mail');
+        await waitFor(() => {
+          expect(
+            screen.getAllByText(
+              'No mail saved on this device matches “no matching mail”.',
+            ),
+          ).toHaveLength(1);
+        });
+      } finally {
+        clock.mockRestore();
+        platform.restore();
+      }
+    },
+  );
+
+  it('filters the Inbox by Unread and Today, leaves search unfiltered and turns off when nothing narrows', async () => {
+    expect.hasAssertions();
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+    try {
+      await render(<InboxJourney />);
+      const fieldNotes = { name: 'Field Notes. Things worth keeping' };
+      await expect(
+        screen.findByRole('button', fieldNotes),
+      ).resolves.toBeVisible();
+      const filter = screen.getByRole('togglebutton', { name: 'Filter' });
+      expect(filter).toHaveProp('accessibilityState', { checked: false });
+      // Filtering starts from Unread.
+      await fireEvent.press(filter);
+      expect(screen.getByRole('togglebutton', { name: 'Filter' })).toHaveProp(
+        'accessibilityState',
+        { checked: true },
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+      expect(
+        screen.getByRole('button', {
+          name: 'Unread. Maya Chen. A little more room to think',
+        }),
+      ).toBeVisible();
+
+      // The sheet edits a copy: Today instead of Unread keeps today's mail, read or not.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      const sheet = within(screen.getByTestId('filters-sheet'));
+      expect(sheet.getByRole('header', { name: 'Filters' })).toBeVisible();
+      // A single mailbox offers no mailboxes to leave out.
+      expect(sheet.queryByText('Include Mail From')).toBeNull();
+      const unread = sheet.getByRole('checkbox', { name: 'Unread' });
+      expect(unread).toBeChecked();
+      // Leaving the sheet discards its edits and restores the applied criterion.
+      await fireEvent.press(unread);
+      await fireEvent(
+        screen.getByTestId('filters-sheet'),
+        'accessibilityEscape',
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      const reopened = within(screen.getByTestId('filters-sheet'));
+      expect(reopened.getByRole('checkbox', { name: 'Unread' })).toBeChecked();
+      await fireEvent.press(reopened.getByRole('checkbox', { name: 'Unread' }));
+      await fireEvent(
+        reopened.getByLabelText('Only Mail from Today'),
+        'valueChange',
+        true,
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+      await fireEvent.press(
+        reopened.getByRole('button', { name: 'Apply Filters' }),
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Filtered by Today' }),
+      ).toBeVisible();
+      expect(
+        screen.getAllByRole('button', { name: /^Unread\. /u }),
+      ).toHaveLength(2);
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+
+      // Search reaches mail the filter leaves out, and Close returns to the filtered Inbox.
+      await fireEvent.press(screen.getByRole('button', { name: 'Search' }));
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'field notes',
+      );
+      await expect(
+        screen.findByRole('button', {
+          name: `${fieldNotes.name}. Saved on this device`,
+        }),
+      ).resolves.toBeVisible();
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Close Search' }),
+      );
+      expect(screen.queryByRole('button', fieldNotes)).toBeNull();
+
+      // Applying a filter that leaves nothing out turns filtering off.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Filtered by Today' }),
+      );
+      await fireEvent(
+        within(screen.getByTestId('filters-sheet')).getByLabelText(
+          'Only Mail from Today',
+        ),
+        'valueChange',
+        false,
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Apply Filters' }),
+      );
+      expect(screen.getByRole('togglebutton', { name: 'Filter' })).toHaveProp(
+        'accessibilityState',
+        { checked: false },
+      );
+      expect(screen.getByRole('button', fieldNotes)).toBeVisible();
+      // Turning it on again starts from Unread.
+      await fireEvent.press(
+        screen.getByRole('togglebutton', { name: 'Filter' }),
+      );
+      expect(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('spans a regular-width window with its bar and opens Filters as a popover above the Filter control', async () => {
+    expect.hasAssertions();
+    const window = Dimensions.get('window');
+    // The Filter control's place in the window, which the test host cannot lay out.
+    const measure = jest
+      .spyOn(View.prototype, 'measureInWindow')
+      .mockImplementation((measured) => {
+        measured(240, 770, 124, 48);
+      });
+    function WindowJourney({
+      keyboardLift = 0,
+    }: {
+      readonly keyboardLift?: number;
+    }) {
+      const windowBar = useMemo(() => createWindowBar(), []);
+      return (
+        <WindowBarContext value={windowBar}>
+          <InboxJourney />
+          <WindowBarHost
+            windowBar={windowBar}
+            readerWidth={500}
+            bottom={20 + keyboardLift}
+            keyboardLift={keyboardLift}
+          />
+        </WindowBarContext>
+      );
+    }
+    try {
+      const app = await render(<WindowJourney />);
+      await screen.findByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      });
+      const bar = within(screen.getByTestId('window-bar'));
+      expect(
+        screen.getAllByLabelText('Search senders and subjects'),
+      ).toStrictEqual([bar.getByLabelText('Search senders and subjects')]);
+      // Filtered, the window keeps its search field beside what the Inbox is filtered by.
+      await fireEvent.press(bar.getByRole('togglebutton', { name: 'Filter' }));
+      expect(bar.getByLabelText('Search senders and subjects')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
+      await fireEvent.press(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      // jest-expo's window is 750 by 1334 points.
+      expect(screen.getByTestId('filters-popover')).toHaveStyle({
+        width: 420,
+        left: 240,
+        bottom: 1334 - 770 + 8,
+      });
+      // The popover fades on entry only; the native modal must not animate dismissal.
+      expect(modalFor(screen.getByTestId('filters-popover'))).toHaveProp(
+        'animationType',
+        'none',
+      );
+      const popover = within(screen.getByTestId('filters-popover'));
+      expect(popover.getByRole('header', { name: 'Filters' })).toBeVisible();
+      await fireEvent.press(popover.getByRole('checkbox', { name: 'Unread' }));
+      measure.mockImplementation((measured) => {
+        measured(180, 700, 124, 48);
+      });
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
+      });
+      expect(screen.getByTestId('filters-popover')).toHaveStyle({
+        left: 180,
+        bottom: 768 - 700 + 8,
+      });
+      expect(popover.getByRole('checkbox', { name: 'Unread' })).toHaveProp(
+        'accessibilityState',
+        { checked: false },
+      );
+      await fireEvent(
+        screen.getByTestId('filters-popover'),
+        'accessibilityEscape',
+      );
+      expect(screen.queryByTestId('filters-popover')).toBeNull();
+      await fireEvent(
+        bar.getByLabelText('Search senders and subjects'),
+        'focus',
+      );
+      await app.rerender(<WindowJourney keyboardLift={280} />);
+      expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
+      const edge = screen
+        .getAllByTestId('scroll-edge')
+        .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);
+      expect(edge).toHaveStyle({ bottom: 280 });
+    } finally {
+      Dimensions.set({ window });
+      measure.mockRestore();
+    }
+  });
+
+  /* oxlint-enable vitest/max-expects */
 
   it('groups rows under the day they arrived and names today by the clock', async () => {
     expect.hasAssertions();
@@ -509,6 +884,46 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
 };
 
 describe('connected Gmail Inbox', () => {
+  it.each([false, true])(
+    'shows one Top Results header for provider-only matches (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+        gmail.deliver({ subject: 'Saved Inbox message' });
+        const archived = gmail.deliver({ subject: 'Studio archive' });
+        gmail.archive(archived);
+        await renderConnected(gmail.native).rendered;
+        await screen.findByRole('button', { name: /Saved Inbox message/u });
+        const field = screen.getByLabelText('Search senders and subjects');
+        await fireEvent(field, 'focus');
+        await fireEvent.changeText(field, 'Studio archive');
+        await screen.findAllByText(
+          'No mail saved on this device matches “Studio archive”.',
+        );
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Search mail servers for “Studio archive”',
+          }),
+        );
+        await expect(
+          screen.findByRole('header', { name: /Top Results\. 1 result/u }),
+        ).resolves.toBeVisible();
+        expect(screen.getAllByText('Top Results')).toHaveLength(1);
+        expect(
+          screen.getByRole('button', { name: /Studio archive/u }),
+        ).toBeVisible();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
     expect.hasAssertions();
@@ -1203,6 +1618,60 @@ const listedMessage = (
 };
 
 describe('command palette', () => {
+  it('opens by swipe and accessibility action while search replaces the Inbox heading', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const field = await screen.findByLabelText('Search senders and subjects');
+    await act(async () => {
+      await fireEvent(field, 'focus');
+    });
+    expect(screen.queryByRole('header', { name: 'Inbox' })).toBeNull();
+    await fireEvent(field, 'touchStart', {
+      nativeEvent: { pageX: 10, pageY: 10 },
+    });
+    await expect(
+      fireEvent(field, 'moveShouldSetResponder', {
+        nativeEvent: { pageX: 14, pageY: 60 },
+      }),
+    ).resolves.toBe(true);
+    await fireEvent(field, 'responderGrant');
+    expect(
+      openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      openedPalette().getByRole('button', { name: 'Cancel' }),
+    );
+    await openPalette(field);
+    expect(
+      openedPalette().getByRole('button', { name: 'Search Mail' }),
+    ).toBeVisible();
+  });
+
+  it('keeps the search field palette action when private storage locks', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const field = await screen.findByLabelText('Search senders and subjects');
+    await act(async () => {
+      await fireEvent(field, 'focus');
+    });
+    gmail.failOpen('locked');
+    await act(async () => {
+      await connected.store().load();
+    });
+    await openPalette(screen.getByLabelText('Search senders and subjects'));
+    expect(
+      openedPalette().getByRole('button', { name: 'Cancel' }),
+    ).toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */
   it('lists contextual commands first, narrows by typing and moves the open message from its picker', async () => {
     expect.hasAssertions();

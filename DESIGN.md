@@ -426,6 +426,7 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
+- iPad popovers, such as Filters, use the 18pt `radius.popover`.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - Monograms and avatars are circles. Message list rows show a real contact photo
@@ -450,7 +451,9 @@ form accessories, keyboards, status bar).
   the saved Inbox presentation preferences; every unified-list Thread identifies its Mailbox Connection,
   per the [list requirements](docs/product/mailboxes.md#unified-list-behavior).
   Unread shows a stronger sender and subject weight and an accent
-  dot; selected is the graphite fill with white text. No generated initials and
+  dot. On iPhone and iPad, search uses regular sender and subject text with only
+  the query's matching words emphasized; unread results retain the dot.
+  Selected is the graphite fill with white text. No generated initials and
   no hover actions; a real contact photo may appear, per the
   [list requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Sidebar Item / Sidebar Section Header:** 28pt items with tinted SF Symbols
