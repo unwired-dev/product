@@ -6,15 +6,17 @@ import { ReaderPane } from '../../src/reader-chrome.tsx';
 
 export default function MessageRoute() {
   const profile = useProfile();
-  const { id, mailbox } = useLocalSearchParams<{
+  const { id, mailbox, folder } = useLocalSearchParams<{
     id: string;
     mailbox?: string;
+    folder?: string;
   }>();
   return (
     <ReaderPane>
       <MessageDetail
         id={id}
         mailbox={mailbox}
+        folder={folder}
         onClose={() => {
           router.replace({ pathname: '/', params: { profileId: profile } });
         }}

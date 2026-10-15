@@ -1,8 +1,9 @@
 import type { GmailInboxState } from './gmail-inbox.ts';
 import type { ImapFolderView, ImapInboxState } from './imap-inbox.ts';
 import type { InboxState } from './persistent-inbox.ts';
-import type { MailboxConnection } from './registration.ts';
+import type { MailboxConnection, MailProvider } from './registration.ts';
 
+import { systemViews } from './gmail-actions.ts';
 import { imapFolderFailed, inboxFolder } from './imap-inbox.ts';
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
@@ -45,6 +46,16 @@ export const failedFolders = (
     (name) => name !== inboxFolder && imapFolderFailed(inbox.folder(name)),
   );
 
+// The Gmail view a window shows: the one it chose while the mailbox still has it, otherwise the
+// Inbox, as for an IMAP folder the server no longer offers.
+export const gmailViewName = (state: GmailInboxState, requested: string) =>
+  state.kind !== 'ready' ||
+  requested === inboxFolder ||
+  systemViews.some((view) => view === requested) ||
+  state.labels.some(({ id }) => id === requested)
+    ? requested
+    : inboxFolder;
+
 // A window's chosen mailbox and the connections whose authorization notices its Inbox shows. A
 // chosen connection waiting for provider authorization has no Inbox store but stays chosen with
 // its own notice, so New Message cannot fall back to another sender; a removed mailbox's view
@@ -74,10 +85,44 @@ export function inboxChoice<C extends Pick<MailboxConnection, 'id' | 'state'>>({
     : { keepsChoice: true, chosenWaiting, waiting: [chosenWaiting] };
 }
 
+// A mailbox's sidebar rows: an IMAP connection's selectable folders, or a Gmail mailbox's Inbox,
+// its own labels by name, then All Mail, Spam and Trash; other mailboxes list their Inbox.
+const folderNames = (
+  state: InboxState | GmailInboxState | ImapInboxState,
+  provider: MailProvider | undefined,
+): readonly string[] => {
+  if (state.kind !== 'ready') {
+    return [inboxFolder];
+  }
+  if ('folders' in state) {
+    return state.folders
+      .filter(({ selectable }) => selectable)
+      .map(({ name }) => name);
+  }
+  return 'labels' in state && (provider ?? 'gmail') === 'gmail'
+    ? [inboxFolder, ...state.labels.map(({ id }) => id), ...systemViews]
+    : [inboxFolder];
+};
+
+// The unread mail of an opened Gmail label's saved view; Gmail counts none for All Mail, Spam
+// and Trash, and an IMAP folder's count is not known here.
+const viewUnread = (
+  state: InboxState | GmailInboxState | ImapInboxState,
+  name: string,
+) =>
+  state.kind !== 'ready' ||
+  !('labels' in state) ||
+  systemViews.some((system) => system === name)
+    ? 0
+    : (state.views
+        ?.find(({ label }) => label === name)
+        ?.messages.filter((message) => message.unread).length ?? 0);
+
 // The sidebar projects already-decoded stores; hosts retain rendering and navigation callbacks.
 export function mailboxSidebar<
   L extends Readonly<{
     id: string;
+    provider?: MailProvider | undefined;
     state: InboxState | GmailInboxState | ImapInboxState;
   }>,
   C extends Pick<MailboxConnection, 'id' | 'profile' | 'provider' | 'state'>,
@@ -99,18 +144,14 @@ export function mailboxSidebar<
       'messages' in state
         ? state.messages.filter((message) => message.unread).length
         : 0;
-    const folders =
-      state.kind === 'ready' && 'folders' in state
-        ? state.folders.filter(({ selectable }) => selectable)
-        : [{ name: inboxFolder }];
     return {
       mailbox,
       unread,
       problem: problemOf(state),
-      folders: folders.map(({ name }) => ({
+      folders: folderNames(state, mailbox.provider).map((name) => ({
         name,
         inbox: name === inboxFolder,
-        unread: name === inboxFolder ? unread : 0,
+        unread: name === inboxFolder ? unread : viewUnread(state, name),
         selected: chosen === mailbox && (view.folder ?? inboxFolder) === name,
       })),
     };

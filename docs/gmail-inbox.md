@@ -53,6 +53,23 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
   its heading's subtitle shows the same status as its sidebar row, and
   **New Message** stays unavailable until access is allowed again.
+- **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
+  lists the mailbox's own labels by name, then **All Mail**, **Spam** and **Trash**
+  ([#1004](https://github.com/unwired-dev/product/issues/1004)). Choosing one lists
+  that view's newest messages, as Gmail shows them: a label leaves out Spam and Trash,
+  an archived message stays in its labels, and All Mail lists every message outside
+  Spam and Trash. Each window chooses its view on its own; the list heading names it,
+  and a label's row counts the unread mail of its saved view. The device keeps the
+  newest 200 messages of the eight most recently opened views beside the Inbox, kept
+  current by the same Gmail history as the Inbox and saved across relaunch; a view
+  that loses one of 200 messages is listed again. A view holding 200 says that only
+  its newest mail is saved and older mail stays in Gmail. A view Gmail could not read
+  keeps its saved messages and shows **… could not be read from Gmail** in the list
+  and on its sidebar row until a later synchronization reads it. A label removed in
+  Gmail leaves the sidebar with its saved view, and a window that showed it returns
+  to the Inbox. The unified Sent, Archive, All Mail, Spam and Trash mailboxes and
+  complete history remain with [#1006](https://github.com/unwired-dev/product/issues/1006)
+  and [#1007](https://github.com/unwired-dev/product/issues/1007).
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -279,19 +296,23 @@ iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward the
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
-synchronization and kept with the cache. Restoring from Trash or Spam is the
-**Undo** of the latest removal; browsing Trash, Spam or a label is not part of
-this slice.
+synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
+takes the place of Archive, Move to Trash and Report spam, and **Undo** of the
+latest removal also restores. **Move to** from a label removes that label instead
+of the Inbox, keeping the message's other labels; from Trash or Spam it takes the
+message out of them. A message that leaves the view it was opened in closes the
+reader, as leaving the Inbox does.
 
 Inbox rows and the reader also offer native context menus: long-press on iPhone and
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
-Mac. A row's menu lists the row's own actions in the design's order: **Archive**,
+Mac. A row's menu lists the row's own actions in the design's order: **Archive**
+(or **Move to Inbox** in Trash and Spam),
 **Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
 and **Delete** (Move to Trash), placed last on every platform. Report spam stays a
 row accessibility action and a reader action. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
-**Move Message** with the same destinations as the reader's Move to, and **Delete
-Message**; its sender offers **Copy Address**. A link in the reader's link list
+**Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
+the reader's Move to, and **Delete Message**; its sender offers **Copy Address**. A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
@@ -1172,7 +1193,10 @@ The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).
 They cover pagination, relaunch with history only, interrupted pages and commits,
 expired history, authorization and retry classification, competing stores,
-mailbox reselection and log privacy. The #605 body reading cases cover:
+mailbox reselection and log privacy. Views other than the Inbox (#1004) cover label,
+All Mail, Spam and Trash membership, history across relaunch without listing again,
+Move to Inbox and moves out of a label, a failed view read and its recovery, removed
+labels, the bound of eight views and the listing that refills a full view. The #605 body reading cases cover:
 
 - untrusted HTML sanitized into the CSP-bound document, with vetted links, sender
   colors and remote loads removed, tracking pixels dropped and hidden preheaders
@@ -1414,8 +1438,9 @@ synthetic. An earlier run replacing only Keychain with an in-memory stand-in pas
 the then 40 tests; that run is logic evidence, not Keychain qualification.
 
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
-preflight, from a synthetic mailbox of three Inbox messages over two pages and one
-label. Each message has an HTML or plain-text body; label changes apply for the
+preflight, from a synthetic mailbox of three Inbox messages over two pages, one
+label with an archived message, and a trashed message; its other views list them as
+Gmail does. Each message has an HTML or plain-text body; label changes apply for the
 rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
 render the opened HTML body in WebKit, confirm and cancel a link destination,

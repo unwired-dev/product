@@ -3,6 +3,10 @@ import type { MailboxProblem } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
 import {
+  gmailViewSymbol,
+  gmailViewTitle,
+} from '@private-email/mail-core/gmail-actions';
+import {
   failedFolders,
   mailboxSidebar,
 } from '@private-email/mail-core/mailboxes';
@@ -169,7 +173,8 @@ const problemText = (
 
 const noSubscription = () => () => undefined;
 
-// A Mailbox Connection's folder rows. An IMAP folder whose last read failed keeps its warning
+// A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
+// labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
 // after another mailbox is chosen; the connection's own problem rides on its Inbox row.
 function FolderRows({
   mailbox,
@@ -203,16 +208,45 @@ function FolderRows({
             .join('\n')
         : '',
   ).split('\n');
-  const folderTrouble = (folder: string) =>
-    failed.includes(JSON.stringify(folder))
+  const { state } = mailbox;
+  // Microsoft mail shares the Gmail store but lists only its Inbox here.
+  const gmail =
+    (mailbox.provider ?? 'gmail') === 'gmail' &&
+    'openView' in inbox &&
+    state.kind === 'ready' &&
+    'labels' in state
+      ? { inbox, state }
+      : undefined;
+  const title = (folder: string, isInbox: boolean) => {
+    if (gmail !== undefined) {
+      return gmailViewTitle(t, folder, gmail.state.labels);
+    }
+    return isInbox ? t('inbox.title') : folder;
+  };
+  const folderTrouble = (folder: string) => {
+    if (gmail !== undefined) {
+      return gmail.state.views?.find(({ label }) => label === folder)
+        ?.status === 'failed'
+        ? t('mailboxes.viewUnavailable', {
+            view: title(folder, false),
+            provider: t('mailProviders.gmail'),
+          })
+        : undefined;
+    }
+    return failed.includes(JSON.stringify(folder))
       ? t('imap.foldersUnavailable')
       : undefined;
+  };
   return folders.map(({ name: folder, inbox: isInbox, unread, selected }) => {
-    const label = isInbox ? t('inbox.title') : folder;
+    const label = title(folder, isInbox);
+    let icon = isInbox ? 'tray' : 'folder';
+    if (gmail !== undefined) {
+      icon = gmailViewSymbol(folder);
+    }
     return (
       <Item
         key={folder}
-        icon={isInbox ? 'tray' : 'folder'}
+        icon={icon}
         label={label}
         accessibilityLabel={t('inbox.rowLabel_mailbox', {
           row: label,
@@ -228,6 +262,9 @@ function FolderRows({
           });
           if ('openFolder' in inbox) {
             void inbox.openFolder(folder);
+          }
+          if (gmail !== undefined && !isInbox) {
+            void gmail.inbox.openView(folder);
           }
         }}
       />

@@ -4,9 +4,10 @@ import { MessageDetail } from '../../src/message-detail.tsx';
 import { ReaderPane } from '../../src/reader-chrome.tsx';
 
 export default function ComposeRoute() {
-  const { id, mailbox } = useLocalSearchParams<{
+  const { id, mailbox, folder } = useLocalSearchParams<{
     id?: string;
     mailbox?: string;
+    folder?: string;
   }>();
   return (
     <ReaderPane
@@ -16,6 +17,7 @@ export default function ComposeRoute() {
       <MessageDetail
         id={id}
         mailbox={mailbox}
+        folder={folder}
       />
     </ReaderPane>
   );

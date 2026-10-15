@@ -14,9 +14,11 @@ import {
   canOrganize,
   gmailAction,
   gmailActionCopy,
-  restoreAfter,
+  leavesView,
   quickActions,
+  restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
+import { listedMessage } from '@private-email/mail-core/gmail-inbox';
 import {
   imapActionCopy,
   imapMoveTargets,
@@ -144,16 +146,20 @@ const icons: Readonly<Record<string, string>> = {
   archive: 'archivebox',
   trash: 'trash',
   spam: 'xmark.bin',
+  restore: 'tray.and.arrow.down',
 };
 
 // The reader's actions for the message's provider: glass groups of Archive, Delete and Move,
 // the response actions passed as children, then the remaining actions.
 export function MessageActions({
   id,
+  folder,
   onClose,
   children,
 }: {
   readonly id: string;
+  // The Gmail view the message was chosen in, when not the Inbox.
+  readonly folder?: string | undefined;
   readonly onClose?: (() => void) | undefined;
   readonly children?: ReactNode;
 }) {
@@ -176,6 +182,7 @@ export function MessageActions({
   ) : (
     <GmailMessageActions
       id={id}
+      view={folder ?? inboxFolder}
       onClose={onClose}>
       {children}
     </GmailMessageActions>
@@ -197,7 +204,7 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
   ) {
     return null;
   }
-  const message = state.messages.find((item) => item.id === id);
+  const message = listedMessage(state, id);
   return message !== undefined && canOrganize(message) ? (
     <Notice
       icon="info.circle"
@@ -420,13 +427,16 @@ function ImapMessageActions({
   );
 }
 
-// The reader's Gmail and Microsoft actions. A message that leaves the Inbox closes the reader.
+// The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
+// Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
   id,
+  view,
   onClose,
   children,
 }: {
   readonly id: string;
+  readonly view: string;
   readonly onClose?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
@@ -444,7 +454,7 @@ function GmailMessageActions({
   ) {
     return null;
   }
-  const message = state.messages.find((item) => item.id === id);
+  const message = listedMessage(state, id);
   // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {
     return children;
@@ -454,7 +464,7 @@ function GmailMessageActions({
   }
   const act = (action: GmailAction) => {
     void store.organize(message, action);
-    if (restoreAfter(action) !== undefined) {
+    if (leavesView(view, message.labels ?? [], action)) {
       onClose?.();
     }
   };
@@ -464,6 +474,7 @@ function GmailMessageActions({
   const actions = quickActions(t, message, {
     provider,
     unavailableActions: state.unavailableActions,
+    view,
   });
   return (
     <>
@@ -477,7 +488,7 @@ function GmailMessageActions({
               id: label.id,
               title: label.name,
               run: () => {
-                act(gmailAction.move(label.id));
+                act(gmailAction.move(label.id, view));
               },
             })),
           })
@@ -543,7 +554,7 @@ function GmailMessageActions({
                   <ActionButton
                     label={t('gmailActions.moveTo', { label: label.name })}
                     onPress={() => {
-                      act(gmailAction.move(label.id));
+                      act(gmailAction.move(label.id, view));
                     }}
                   />
                 </View>

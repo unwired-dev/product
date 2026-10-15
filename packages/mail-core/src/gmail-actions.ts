@@ -36,6 +36,11 @@ export const GmailLabelSchema = Schema.Struct({
 });
 export type GmailLabel = typeof GmailLabelSchema.Type;
 
+// Gmail's All Mail view has no label of its own: it lists every message outside Spam and Trash.
+export const allMail = 'ALL_MAIL';
+// The views every Gmail mailbox has after its Inbox and its own labels.
+export const systemViews = [allMail, 'SPAM', 'TRASH'] as const;
+
 export const gmailAction = {
   read: { kind: 'read', add: [], remove: ['UNREAD'] },
   unread: { kind: 'unread', add: ['UNREAD'], remove: [] },
@@ -54,22 +59,57 @@ export const gmailAction = {
     add: [],
     remove: [label],
   }),
-  // Gmail's Move to: the label replaces the Inbox and every other label stays.
-  move: (label: string): GmailAction => ({
+  // Gmail's Move to: the label replaces the view's label, or the Inbox from All Mail, and every
+  // other label stays.
+  move: (label: string, view = 'INBOX'): GmailAction => ({
     kind: 'move',
     add: [label],
-    remove: ['INBOX'],
+    remove: [view === allMail ? 'INBOX' : view],
+  }),
+  // Takes a message out of Trash or Spam and back into the Inbox.
+  restore: (view: string) => ({
+    kind: 'restore' as const,
+    add: ['INBOX'],
+    remove: [view],
   }),
 } as const satisfies Record<
   string,
   GmailAction | ((label: string) => GmailAction)
 >;
 
-// Gmail lists neither Trash nor Spam in the Inbox, whatever other labels a message keeps.
-export const inInbox = (labels: readonly string[]) =>
-  labels.includes('INBOX') &&
-  !labels.includes('TRASH') &&
-  !labels.includes('SPAM');
+// Spam and Trash list only their own messages, and every other view leaves them out.
+export const inView = (view: string, labels: readonly string[]) =>
+  view === 'SPAM' || view === 'TRASH'
+    ? labels.includes(view)
+    : !labels.includes('SPAM') &&
+      !labels.includes('TRASH') &&
+      (view === allMail || labels.includes(view));
+
+export const inInbox = (labels: readonly string[]) => inView('INBOX', labels);
+
+// A Gmail view's name: the Inbox, one of the mailbox's own labels, All Mail, Spam or Trash.
+export const gmailViewTitle = (
+  t: Translate,
+  view: string,
+  labels: readonly GmailLabel[],
+) => {
+  if (view === allMail) {
+    return t('mailboxes.allMail');
+  }
+  if (view === 'SPAM' || view === 'TRASH') {
+    return t(view === 'SPAM' ? 'mailboxes.spam' : 'mailboxes.trash');
+  }
+  return labels.find(({ id }) => id === view)?.name ?? t('inbox.title');
+};
+
+const viewSymbols: Readonly<Record<string, string>> = {
+  INBOX: 'tray',
+  [allMail]: 'tray.2',
+  SPAM: 'xmark.bin',
+  TRASH: 'trash',
+};
+// The SF Symbol of a Gmail view's sidebar row; a label is a folder.
+export const gmailViewSymbol = (view: string) => viewSymbols[view] ?? 'folder';
 
 export const relabel = (labels: readonly string[], action: GmailAction) => [
   ...labels.filter((label) => !action.remove.includes(label)),
@@ -125,16 +165,26 @@ export const gmailActionCopy = (
 export const canOrganize = (message: GmailMessage) =>
   message.labels !== undefined;
 
-// Microsoft mail has no star; its Spam is the Junk Email folder.
+// Whether an action takes a message shown in `view` out of it.
+export const leavesView = (
+  view: string,
+  labels: readonly string[],
+  action: GmailAction,
+) => inView(view, labels) && !inView(view, relabel(labels, action));
+
+// Microsoft mail has no star; its Spam is the Junk Email folder. Mail in Gmail's Trash or Spam
+// moves back to the Inbox instead of being archived, trashed or reported again.
 export const quickActions = (
   t: Translate,
   message: GmailMessage,
   {
     provider = 'gmail',
     unavailableActions = [],
+    view = 'INBOX',
   }: Readonly<{
     provider?: MailProvider;
     unavailableActions?: ReadonlyArray<GmailAction['kind']> | undefined;
+    view?: string | undefined;
   }> = {},
 ) =>
   (canOrganize(message)
@@ -147,9 +197,9 @@ export const quickActions = (
                 : gmailAction.star,
             ]
           : []),
-        gmailAction.archive,
-        gmailAction.trash,
-        gmailAction.spam,
+        ...(view === 'TRASH' || view === 'SPAM'
+          ? [gmailAction.restore(view)]
+          : [gmailAction.archive, gmailAction.trash, gmailAction.spam]),
       ]
     : []
   )

@@ -125,6 +125,7 @@ export const messageContextMenu = (
     },
     {
       items: items([
+        ['restore', t('contextMenu.restore'), 'tray.and.arrow.down'],
         ['move', t('contextMenu.moveMessage'), 'folder'],
         ['trash', t('contextMenu.trashMessage'), 'trash'],
       ]),
@@ -158,7 +159,10 @@ export const rowContextMenu = (
     });
   return [
     {
-      items: menuItems([['archive', t('contextMenu.archive'), 'archivebox']]),
+      items: menuItems([
+        ['archive', t('contextMenu.archive'), 'archivebox'],
+        ['restore', t('contextMenu.restore'), 'tray.and.arrow.down'],
+      ]),
     },
     {
       items: menuItems([

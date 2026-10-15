@@ -41,6 +41,7 @@ export type { InboxFilter } from './mailbox-matching.ts';
 export type { MailboxProblem } from './mailbox-views.ts';
 export {
   failedFolders,
+  gmailViewName,
   inboxChoice,
   mailboxSidebar,
   profileMailboxes,

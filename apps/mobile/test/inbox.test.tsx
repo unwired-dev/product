@@ -785,6 +785,7 @@ function renderConnected(
             <MessageDetail
               id={selected?.id}
               mailbox={selected?.mailbox}
+              folder={selected?.folder}
               onClose={() => {
                 setSelected(undefined);
               }}
@@ -1172,6 +1173,59 @@ describe('connected Gmail Inbox', () => {
         .mocked(AccessibilityInfo.announceForAccessibility)
         .mock.calls.filter(([message]) => message === unsaved),
     ).toStrictEqual([[unsaved]]);
+  });
+
+  it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const receipt = gmail.deliver({ subject: 'Old receipt' });
+    gmail.setLabel(receipt, 'TRASH', true);
+    gmail.setLabel(receipt, 'INBOX', false);
+    await renderConnected(gmail.native).rendered;
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    // Each label follows the Inbox, then All Mail, Spam and Trash.
+    expect(
+      screen.getByRole('button', { name: 'All Mail. In alex@example.invalid' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Travel. In alex@example.invalid' }),
+      );
+    });
+    // An archived message stays in its label.
+    await expect(
+      screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    ).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Travel' })).toBeVisible();
+    expect(screen.queryByText('Lunch on Friday')).toBeNull();
+
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Old receipt/u }),
+    );
+    // Trashed mail moves back to the Inbox instead of being archived again.
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Move to Inbox' }),
+      );
+    });
+    expect(
+      screen.getByText('Moved back to the Inbox: “Old receipt”.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Old receipt/u })).toBeNull();
+    expect(gmail.labelsOf(receipt)).toContain('INBOX');
+    expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
   });
 
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {

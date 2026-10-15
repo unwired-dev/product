@@ -72,9 +72,10 @@ function MailShell() {
       }) as const,
     [regular, expanded, insets.top],
   );
-  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
+  const { id, mailbox, folder, draft, profileId } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
+    folder?: string;
     draft?: string;
     profileId?: string | string[];
   }>();
@@ -118,10 +119,10 @@ function MailShell() {
   const shownProfile = readingProfile(profileId);
   // Close or New Message can finish saving after the reader beneath it changes. The router
   // commits navigation after this render, so a handler that changes the reader updates this first.
-  const reader = useRef({ id, mailbox, profile: shownProfile });
+  const reader = useRef({ id, mailbox, folder, profile: shownProfile });
   useLayoutEffect(() => {
-    reader.current = { id, mailbox, profile: shownProfile };
-  }, [id, mailbox, shownProfile]);
+    reader.current = { id, mailbox, folder, profile: shownProfile };
+  }, [id, mailbox, folder, shownProfile]);
   // Likewise the open composer's Draft: a command that leaves the composer and then closes the
   // reader runs both closes before the next render.
   const composing = useRef(draft);
@@ -139,7 +140,11 @@ function MailShell() {
   }, [detail]);
 
   function selectMessage(selection: Selection) {
-    reader.current = { ...selection, profile: shownProfile };
+    reader.current = {
+      ...selection,
+      folder: selection.folder,
+      profile: shownProfile,
+    };
     router.replace({
       pathname: '/message/[id]',
       params: { ...selection, profileId: shownProfile },
@@ -158,6 +163,7 @@ function MailShell() {
         draft: opened,
         id: latest.id,
         mailbox: latest.mailbox,
+        ...(latest.folder === undefined ? {} : { folder: latest.folder }),
         profileId: latest.profile,
       },
     });
@@ -213,6 +219,7 @@ function MailShell() {
                       reader.current = {
                         id: undefined,
                         mailbox: undefined,
+                        folder: undefined,
                         profile: shownProfile,
                       };
                       const open = regular ? composing.current : undefined;
@@ -231,11 +238,13 @@ function MailShell() {
                     onSelectBehindComposer={
                       regular && draft !== undefined
                         ? (selection) => {
-                            reader.current = {
-                              ...reader.current,
+                            // A message chosen in the Inbox clears the previous one's view.
+                            const next = {
                               ...selection,
+                              folder: selection.folder,
                             };
-                            router.setParams(selection);
+                            reader.current = { ...reader.current, ...next };
+                            router.setParams(next);
                           }
                         : undefined
                     }
@@ -317,6 +326,9 @@ function MailShell() {
                       params: {
                         id: latest.id,
                         mailbox: latest.mailbox,
+                        ...(latest.folder === undefined
+                          ? {}
+                          : { folder: latest.folder }),
                         profileId: latest.profile,
                       },
                     });
