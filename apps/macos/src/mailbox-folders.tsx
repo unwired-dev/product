@@ -1,3 +1,5 @@
+import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
+
 import { gmailViewTitle } from '@private-email/mail-core/gmail-actions';
 import {
   imapFolderFailed,
@@ -81,6 +83,27 @@ export function useMailboxFolder<E>(
   };
 }
 
+const noEntries: readonly [] = [];
+// List entries stay the same array while the store publishes the same messages, so searches and
+// saved-body checks over them are not repeated on every render.
+const entriesOf = new WeakMap<
+  readonly GmailMessage[],
+  ReadonlyArray<Readonly<{ mailbox: InboxMailbox; message: GmailMessage }>>
+>();
+const viewEntries = (
+  mailbox: InboxMailbox,
+  messages: readonly GmailMessage[],
+) => {
+  const cached = entriesOf.get(messages);
+  // A newer snapshot of the same mailbox lists entries again, so rows act on its current state.
+  if (cached !== undefined && (cached[0]?.mailbox ?? mailbox) === mailbox) {
+    return cached;
+  }
+  const entries = messages.map((message) => ({ mailbox, message }));
+  entriesOf.set(messages, entries);
+  return entries;
+};
+
 // The chosen Gmail view's messages as list entries, or undefined for the Inbox and other
 // providers. Its window retains the view before requesting it, so another cannot evict it.
 function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
@@ -98,8 +121,8 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   }, [store, folder]);
   const listed =
     mailbox === undefined || shown === undefined
-      ? []
-      : shown.messages.map((message) => ({ mailbox, message }));
+      ? noEntries
+      : viewEntries(mailbox, shown.messages);
   return gmail === undefined
     ? undefined
     : {

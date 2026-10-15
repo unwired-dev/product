@@ -271,13 +271,19 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           }),
         modify: ({ segments }, body) => modify(segments.at(-2) ?? '', body),
         // The Inbox and search keep their two pages; another view lists its messages as Gmail
-        // does, Spam and Trash only when asked for and every other message without a label.
+        // does, Spam and Trash only with includeSpamTrash and every other message without a label.
         messages: ({ item }) =>
           item('labelIds') !== 'INBOX' && item('q') === undefined
             ? reply(200, {
                 messages: Arr.sort(
-                  Object.entries(messages).filter(([id]) =>
-                    inView(item('labelIds') ?? allMail, labels.get(id) ?? []),
+                  Object.entries(messages).filter(
+                    ([id]) =>
+                      inView(
+                        item('labelIds') ?? allMail,
+                        labels.get(id) ?? [],
+                      ) &&
+                      (item('includeSpamTrash') === 'true' ||
+                        !['SPAM', 'TRASH'].includes(item('labelIds') ?? '')),
                   ),
                   newestFirst,
                 ).map(([id]) => ({ id, threadId: id })),

@@ -285,11 +285,11 @@ export function createSyntheticGmail({
   };
 
   // Gmail lists Spam and Trash only when asked for them, and every other message without a label.
-  const newestWith = (label: string | null) =>
+  const newestWith = (label: string | null, spamTrash: boolean) =>
     Arr.sort(
       [...messages.values()].filter(({ labels }) =>
         label === 'SPAM' || label === 'TRASH'
-          ? labels.has(label)
+          ? spamTrash && labels.has(label)
           : !labels.has('SPAM') &&
             !labels.has('TRASH') &&
             (label === null || labels.has(label)),
@@ -328,7 +328,12 @@ export function createSyntheticGmail({
   const listPage = (params: URLSearchParams) => {
     const query = params.get('q');
     const inbox =
-      query === null ? newestWith(params.get('labelIds')) : searched(query);
+      query === null
+        ? newestWith(
+            params.get('labelIds'),
+            params.get('includeSpamTrash') === 'true',
+          )
+        : searched(query);
     const start = Number(params.get('pageToken') ?? 0);
     const end = start + Number(params.get('maxResults') ?? 100);
     return respond({

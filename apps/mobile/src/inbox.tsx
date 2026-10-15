@@ -13,6 +13,7 @@ import {
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
   inboxChoice,
   inboxMessages,
@@ -632,6 +633,10 @@ export function Inbox({
     folder,
   });
   const { searching, searched, results, online } = searchState;
+  // Search widened to every Inbox lists Inbox mail, whatever view the list shows.
+  const origin = searchState.searchesAll
+    ? { view: inboxFolder, selection: {} }
+    : { view: folder, selection };
   // Asked again when a result is opened or the reader closes, since opening saves the body.
   const saved = useSavedBodies(
     results,
@@ -721,12 +726,12 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
-        view: folder,
+        view: origin.view,
       }).map(({ name, label, action }) => ({
         name,
         label,
         run: () => {
-          leaving(leavesView(folder, message.labels ?? [], action));
+          leaving(leavesView(origin.view, message.labels ?? [], action));
           void inbox.organize(message, action);
         },
       }));
@@ -942,7 +947,7 @@ export function Inbox({
                     void select({
                       mailbox: item.mailbox.id,
                       id: item.message.id,
-                      ...selection,
+                      ...origin.selection,
                     });
                   }}
                   selected={

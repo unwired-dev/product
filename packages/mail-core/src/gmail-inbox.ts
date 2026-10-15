@@ -1220,6 +1220,10 @@ export function createGmailInbox(
       'messages',
       [
         ...(view === allMail ? [] : [['labelIds', view] as const]),
+        // Gmail leaves Spam and Trash out of a listing unless it is asked to include them.
+        ...(view === 'SPAM' || view === 'TRASH'
+          ? [['includeSpamTrash', 'true'] as const]
+          : []),
         ['maxResults', String(pageSize)],
         ...(listing.pageToken === undefined
           ? []

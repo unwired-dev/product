@@ -259,6 +259,12 @@ describe('the synthetic Gmail mailbox answers as Gmail does', () => {
           nextPageToken: undefined,
         });
         expect(yield* page('?labelIds=TRASH')).toStrictEqual({
+          ids: [],
+          nextPageToken: undefined,
+        });
+        expect(
+          yield* page('?labelIds=TRASH&includeSpamTrash=true'),
+        ).toStrictEqual({
           ids: ['19a0c0ffee000005'],
           nextPageToken: undefined,
         });

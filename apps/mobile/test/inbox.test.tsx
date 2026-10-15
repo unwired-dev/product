@@ -1231,6 +1231,20 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: /Old receipt/u })).toBeNull();
     expect(gmail.labelsOf(receipt)).toContain('INBOX');
     expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+
+    // Search widened from Trash to every Inbox opens Inbox mail with Inbox actions.
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Lunch');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('tab', { name: 'All Mailboxes' }));
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Lunch on Friday/u }),
+    );
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(screen.queryByRole('button', { name: 'Move to Inbox' })).toBeNull();
   });
 
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
