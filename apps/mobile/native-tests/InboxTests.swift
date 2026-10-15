@@ -169,9 +169,22 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     if UIDevice.current.userInterfaceIdiom == .phone {
-      // A no-match search shrinks the Move sheet; its field and explanation must stay above the keyboard.
-      app.buttons["Folders"].tap()
-      XCTAssertTrue(app.staticTexts["Move to…"].waitForExistence(timeout: 10))
+      // Landscape leaves little room above the keyboard; Search and its explanation stay reachable.
+      XCUIDevice.shared.orientation = .landscapeLeft
+      let landscape = NSPredicate { _, _ in
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+      }
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 5),
+        .completed)
+      app.buttons["Reply"].tap()
+      let actions = app.scrollViews.containing(.button, identifier: "Reply All").firstMatch
+      let move = actions.buttons["Folders"]
+      XCTAssertTrue(move.waitForExistence(timeout: 10))
+      move.tap()
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForExistence(timeout: 10))
       let search = app.textFields["Search"]
       search.tap()
       let keyboard = app.keyboards.firstMatch
@@ -179,14 +192,27 @@ final class InboxTests: XCTestCase {
       for character in "missing folder" { search.typeText(String(character)) }
       let noMatch = text("No folders match your search.", in: app)
       XCTAssertTrue(noMatch.waitForExistence(timeout: 5))
+      let folders = app.scrollViews.containing(
+        .staticText, identifier: "No folders match your search."
+      ).firstMatch
+      XCTAssertGreaterThanOrEqual(folders.frame.height, 44)
+      // A default swipe across a short viewport can become a tap-length gesture.
+      for _ in 0..<5 where !folders.frame.contains(noMatch.frame) {
+        folders.swipeUp(velocity: .slow)
+        XCTAssertTrue(keyboard.exists)
+      }
+      XCTAssertTrue(folders.frame.contains(noMatch.frame))
+      XCTAssertTrue(noMatch.isHittable)
       XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
       let sheet = XCTAttachment(screenshot: app.screenshot())
       sheet.name = "Move sheet no-match search above the keyboard"
       sheet.lifetime = .keepAlways
       add(sheet)
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
-      XCTAssertFalse(app.staticTexts["Move to…"].exists)
+      app.buttons["Close"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForNonExistence(timeout: 5))
+      XCUIDevice.shared.orientation = .portrait
     }
     app.terminate()
     app.launch()
@@ -702,7 +728,13 @@ final class InboxTests: XCTestCase {
     message.tap()
     app.buttons["Reply"].tap()
     if app.buttons["Reply All"].waitForExistence(timeout: 2) {
-      app.buttons.matching(identifier: "Reply").allElementsBoundByIndex.last?.tap()
+      // iPhone's Reply sheet names the sender beside its Close button.
+      XCTAssertTrue(app.buttons["Close"].exists)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Reply sheet"
+      sheet.lifetime = .keepAlways
+      add(sheet)
+      app.scrollViews.containing(.button, identifier: "Reply All").firstMatch.buttons["Reply"].tap()
     }
     XCTAssertTrue(app.staticTexts["Evaluation editor"].waitForExistence(timeout: 15))
     // The controls appear once the page has loaded and can take the accepted reply.

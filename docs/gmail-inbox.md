@@ -263,12 +263,20 @@ then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
-opens a glass-backed modal sheet offering Reply, Reply All and Forward. For IMAP and
-Microsoft mail, iPhone's **Folders** opens a glass **Move to…** sheet: the
-connection's provider and address, a search field that narrows the folders by name,
-and one row per folder, with the message's current folder checked and unavailable.
-Choosing a folder moves the message and closes the sheet. More lists the remaining
-actions as text buttons. The action buttons and label checkboxes are keyboard-focusable
+grows a floating glass sheet out of the button: the sender's initials, name and
+message preview beside a Close button, then Reply, Reply All, Forward and Archive
+tiles and the Thread's other actions in grouped rows — star and read state, then
+Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
+beside them.
+Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
+Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
+like Reply: a caption, the mailbox's address with a Close button, the message's sender
+and subject, one row per folder with its role's symbol (the message's current folder
+dimmed and unavailable), and a search field at the bottom that narrows the folders by
+name. Choosing a folder moves the message and closes the picker. More lists the remaining
+actions as text buttons. Menu panels ease in from their toolbar and fade out on
+iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
+button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. Restoring from Trash or Spam is the

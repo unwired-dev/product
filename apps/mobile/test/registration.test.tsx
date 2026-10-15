@@ -41,7 +41,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
-import { AppState, Pressable, Text } from 'react-native';
+import { Animated, AppState, Pressable, Text } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -783,12 +783,15 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders. On iPhone it is a sheet: the current folder is
-    // checked and cannot be chosen again, and a search narrows the rest.
+    // Move to lists the mailbox's other folders. On iPhone it is a picker naming the message: the
+    // current folder cannot be chosen again, and a search narrows the rest.
     await press(/Team lunch/u);
     await press('Folders');
     const sheet = within(screen.getByTestId('move-sheet'));
-    expect(sheet.getByRole('header', { name: 'Move to…' })).toBeVisible();
+    expect(
+      sheet.getByText('Move this message to another folder.'),
+    ).toBeVisible();
+    expect(sheet.getByText('Team lunch')).toBeVisible();
     expect(
       sheet.getByRole('button', { name: 'Inbox', selected: true }),
     ).toBeDisabled();
@@ -797,7 +800,39 @@ describe('product registration', () => {
     });
     expect(sheet.queryByRole('button', { name: 'Inbox' })).toBeNull();
     imap.server.loseReply = true;
-    await press('Move to Projects');
+    // The picker shrinks away before the message moves; a second choice meanwhile is ignored.
+    const exits: Array<() => void> = [];
+    jest.mocked(Animated.timing).mockImplementation((value, { toValue }) => ({
+      start: (complete) => {
+        // Menu motion animates a single value to a number.
+        assert.ok(value instanceof Animated.Value);
+        assert.ok(typeof toValue === 'number');
+        exits.push(() => {
+          value.setValue(toValue);
+          complete?.({ finished: true });
+        });
+      },
+      stop: () => undefined,
+      reset: () => undefined,
+    }));
+    const projects = sheet.getByRole('button', { name: 'Move to Projects' });
+    await fireEvent.press(projects);
+    await fireEvent.press(projects);
+    expect(
+      screen.getByTestId('move-sheet', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('header', {
+        name: 'Team lunch',
+        includeHiddenElements: true,
+      }),
+    ).toBeOnTheScreen();
+    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+    await act(() => {
+      for (const exit of exits.splice(0)) {
+        exit();
+      }
+    });
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`move INBOX ${lunch} Projects`);
     });

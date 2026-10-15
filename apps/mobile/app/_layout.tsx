@@ -72,14 +72,33 @@ function MailShell() {
       }) as const,
     [regular, expanded, insets.top],
   );
+  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
+    id?: string;
+    mailbox?: string;
+    draft?: string;
+    profileId?: string | string[];
+  }>();
   // A docked software keyboard leaves the overlay only the height above it; a floating one is ignored.
+  // Only an open composer listens: re-rendering the shell for every keyboard change remounts the
+  // reader beneath it, which would close a sheet whose field raised the keyboard.
+  // Each opened composer starts without a keyboard: one closed with its keyboard up hears no hide.
+  // A conflict copy replaces the Draft in place, keeping its editor and keyboard.
   const [keyboardTop, setKeyboardTop] = useState<number>();
+  const composerOpen = draft !== undefined;
+  const [wasOpen, setWasOpen] = useState(composerOpen);
+  if (wasOpen !== composerOpen) {
+    setWasOpen(composerOpen);
+    setKeyboardTop(undefined);
+  }
   useEffect(() => {
+    if (draft === undefined) {
+      return undefined;
+    }
+    const docked = (frame: { width: number; screenY: number }) =>
+      frame.width < width ? undefined : frame.screenY;
     const subscriptions = [
       Keyboard.addListener('keyboardWillChangeFrame', ({ endCoordinates }) => {
-        setKeyboardTop(
-          endCoordinates.width < width ? undefined : endCoordinates.screenY,
-        );
+        setKeyboardTop(docked(endCoordinates));
       }),
       Keyboard.addListener('keyboardWillHide', () => {
         setKeyboardTop(undefined);
@@ -90,15 +109,9 @@ function MailShell() {
         subscription.remove();
       }
     };
-  }, [width]);
+  }, [draft, width]);
   const available =
     keyboardTop === undefined ? height : Math.min(height, keyboardTop);
-  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
-    id?: string;
-    mailbox?: string;
-    draft?: string;
-    profileId?: string | string[];
-  }>();
   // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
   // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
   // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.

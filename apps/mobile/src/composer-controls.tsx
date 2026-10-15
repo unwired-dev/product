@@ -7,9 +7,21 @@ import type { StyleProp, TextStyle } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { NativeGlass, SFSymbol, ToolbarButton } from './design.tsx';
+import {
+  NativeGlass,
+  SFSymbol,
+  ToolbarButton,
+  useMenuMotion,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -164,6 +176,7 @@ export function PopUp({
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
+  const motion = useMenuMotion(open, 'menu');
   return (
     <View style={styles.menuAnchor}>
       <Pressable
@@ -203,16 +216,22 @@ export function PopUp({
           </>
         )}
       </Pressable>
-      {open ? (
-        <View
+      {motion.shown ? (
+        <Animated.View
           accessibilityRole="menu"
+          // A closing menu leaves VoiceOver and touch at once; only its picture fades.
+          accessibilityElementsHidden={!open}
+          pointerEvents={open ? 'auto' : 'none'}
           style={[
+            motion.style,
             styles.menu,
             label === undefined ? styles.menuTrailing : null,
             above ? styles.menuAbove : styles.menuBelow,
             {
+              backgroundColor: colors.surfaceContent,
               borderColor: colors.separator,
               boxShadow: colors.menuShadow,
+              transformOrigin: `${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`,
             },
           ]}>
           <NativeGlass
@@ -220,7 +239,7 @@ export function PopUp({
             style={StyleSheet.absoluteFill}
           />
           {children}
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );

@@ -136,6 +136,7 @@ jest.mock('expo-router', () => {
   const getSnapshot = () => params;
   const useParams = () => useSyncExternalStore(subscribe, getSnapshot);
   return {
+    params: getSnapshot,
     setParams: (next: typeof params) => {
       pathname = '/';
       previous = undefined;
@@ -183,6 +184,7 @@ jest.mock('react-native-screens/experimental', () => ({
 }));
 
 const route = jest.requireMock<{
+  params: () => Readonly<Record<string, unknown>>;
   setParams: (params: Readonly<Record<string, unknown>>) => void;
   router: typeof ExpoRouter;
 }>('expo-router');
@@ -423,6 +425,27 @@ describe('profile-scoped mobile routes', () => {
       expect(overlay()).toHaveStyle({
         bottom: 756,
         height: 450 - insets.top - 24,
+      });
+      // A composer closed with its keyboard up hears no hide; reopening it starts unraised.
+      const { draft: open } = route.params();
+      ok(typeof open === 'string');
+      await act(() => {
+        route.router.setParams({ draft: undefined });
+      });
+      await act(() => {
+        route.router.setParams({ draft: open });
+      });
+      expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
+      // A conflict copy rebinds the open composer in place; its keyboard stays raised.
+      await act(() => {
+        keyboard('keyboardWillChangeFrame', 794, 400);
+      });
+      await act(() => {
+        route.router.setParams({ draft: `${open}-copy` });
+      });
+      expect(overlay()).toHaveStyle({ bottom: 412 });
+      await act(() => {
+        route.router.setParams({ draft: open });
       });
       await act(() => {
         keyboard('keyboardWillHide', 1194, 0);

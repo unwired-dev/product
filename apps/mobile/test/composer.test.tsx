@@ -3453,6 +3453,77 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('offers the Thread actions in the iPhone Reply sheet beside More', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Sheet plans',
+      content: { text: 'Meet on Friday?' },
+      headers: { 'Message-ID': '<sheet@example.invalid>' },
+    });
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Reply' });
+    // The owner kept More beside Reply; the sheet repeats its actions.
+    expect(screen.getByRole('button', { name: 'More' })).toBeVisible();
+    await press('Reply');
+    expect(
+      [
+        'Reply',
+        'Forward',
+        'Archive',
+        'Mark as read',
+        'Star',
+        'Labels',
+        'Move to Trash',
+        'Report spam',
+      ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
+    ).toHaveLength(8);
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Report spam|Move to Trash)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Report spam', 'Move to Trash']);
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Star|Mark as read)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Star', 'Mark as read']);
+    // Choosing an action runs it and closes the sheet.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
+    });
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    await press('Reply');
+    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(?:Remove star|Mark as read)$/u })
+        .map((button) => button.props.accessibilityLabel),
+    ).toStrictEqual(['Remove star', 'Mark as read']);
+    await press('Close');
+    // With Labels already shown, the sheet's Labels still opens them rather than hiding them.
+    await press('Labels');
+    await press('Reply');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+    });
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hide labels' })).toBeVisible();
+    expect(
+      screen.getByText('This Gmail mailbox has no labels of its own yet.'),
+    ).toBeVisible();
+  });
+
   it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');
@@ -3492,11 +3563,13 @@ describe('replying to and forwarding from the reader', () => {
         'accessibilityState',
         { disabled: false, expanded: true },
       );
-      await press('Cancel');
+      await press('Close');
       expect(screen.getByRole('button', { name: 'Reply' })).toHaveProp(
         'accessibilityState',
         { disabled: false, expanded: false },
       );
+      expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
       expect(screen.queryByLabelText('Subject')).toBeNull();
       await press('Reply');
       await press('Reply All');

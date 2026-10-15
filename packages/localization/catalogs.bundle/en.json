@@ -63,6 +63,7 @@
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
+    "closeResponses": "Close",
     "preparingForward": "Preparing to forward…",
     "respondFailed": "A reply or forward could not be started. Try again."
   },
@@ -628,8 +629,7 @@
     "noFolders": "This Microsoft mailbox has no folders of its own yet.",
     "foldersLimited": "Showing the first {{count}} folders.",
     "moveTo": "Move to {{label}}",
-    "moveToTitle": "Move to…",
-    "connection": "{{provider}} · {{address}}",
+    "moveCaption": "Move this message to another folder.",
     "noMatchingFolders": "No folders match your search.",
     "undo": "Undo",
     "saving": "Saving the change on this device…",

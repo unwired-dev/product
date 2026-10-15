@@ -9,7 +9,12 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { NativeGlass, SFSymbol, ToolbarButton } from './design.tsx';
+import {
+  MenuPresence,
+  NativeGlass,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -197,25 +202,25 @@ export function PopUp({
           </>
         )}
       </Pressable>
-      {open ? (
-        <View
-          accessibilityRole="menu"
-          style={[
-            styles.menu,
-            label === undefined ? styles.menuTrailing : null,
-            above ? styles.menuAbove : styles.menuBelow,
-            {
-              borderColor: colors.separator,
-              boxShadow: colors.menuShadow,
-            },
-          ]}>
-          <NativeGlass
-            cornerRadius={radius.card}
-            style={StyleSheet.absoluteFill}
-          />
-          {children}
-        </View>
-      ) : null}
+      <MenuPresence
+        accessibilityRole="menu"
+        open={open}
+        origin={`${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`}
+        style={[
+          styles.menu,
+          label === undefined ? styles.menuTrailing : null,
+          above ? styles.menuAbove : styles.menuBelow,
+          {
+            borderColor: colors.separator,
+            boxShadow: colors.menuShadow,
+          },
+        ]}>
+        <NativeGlass
+          cornerRadius={radius.card}
+          style={StyleSheet.absoluteFill}
+        />
+        {children}
+      </MenuPresence>
     </View>
   );
 }
