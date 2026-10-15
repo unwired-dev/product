@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
 
+import { CategorizationSpike } from './categorization-spike.ts';
 import { CommandBar, CommandPaletteProvider } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
@@ -248,12 +249,17 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
                 styles.detail,
                 { backgroundColor: colors.surfaceContent },
               ]}>
-              <MessageDetail
-                id={selected?.id}
-                mailbox={selected?.mailbox}
-                onClose={close}
-                onCompose={compose}
-              />
+              {/* Only the categorization-spike build has a page for the empty reader. */}
+              {selected === undefined && CategorizationSpike !== undefined ? (
+                <CategorizationSpike />
+              ) : (
+                <MessageDetail
+                  id={selected?.id}
+                  mailbox={selected?.mailbox}
+                  onClose={close}
+                  onCompose={compose}
+                />
+              )}
             </View>
             {composing === undefined ? null : (
               <View

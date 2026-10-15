@@ -25,7 +25,10 @@ const relayed =
 const substitutes = {
   ...(seeded && {
     '@private-email/mail-core/registration-mode': testing('registration-mode'),
-    '@private-email/mail-core/inbox-seed': testing(scenario),
+    // The spike reuses the persistence journey's mailbox beside its research page.
+    '@private-email/mail-core/inbox-seed': testing(
+      scenario === 'categorization-spike' ? 'open-read-relaunch' : scenario,
+    ),
   }),
   ...(relayed && {
     '@private-email/mail-core/synthetic-registration': testing(
@@ -35,6 +38,12 @@ const substitutes = {
   // Built before Metro crawls, so the substitute exists in its file map.
   ...(scenario === 'registration-draft-editor' && {
     '@private-email/draft-editor/page': buildPage(),
+  }),
+  ...(scenario === 'categorization-spike' && {
+    './categorization-spike.ts': path.resolve(
+      __dirname,
+      '../apps/macos/src/categorization-spike-page.tsx',
+    ),
   }),
 };
 

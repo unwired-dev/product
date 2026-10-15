@@ -4,6 +4,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### The host stays thin
 
+- A visible selection serialized differently by actions that share it, such as
+  `categorization-spike-page.tsx` sending the golden six Category IDs for Classify
+  but a prefix count for Benchmark. Trace each applicable action through request
+  construction to its native consumer, including default and alternate choices;
+  otherwise the displayed workload and measured workload differ. Verify outgoing
+  request meaning through the component journey, not just the selected label.
+
 - `registration-gate.tsx` offering a provider's first-mailbox or add-mailbox
   action when this build's native adapter cannot authorize that provider.
   Trace the native build capability and provider construction together, and
@@ -60,7 +67,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   move the shared logic to `mail-core` unless it depends on a host API. Keep
   React subscriptions, rendering and native adapters in their host.
 
+The isolated #831 `categorization-spike` research build has a narrow exception to
+shared-store ownership. Its Mac-only request and presentation state may remain in
+`categorization-spike-page.tsx`; all native payload decoding belongs in the
+non-React `categorization-spike-client.ts` adapter. This exception adds no shared
+product behavior or production adoption. See `docs/architecture/macos-client.md`.
+
 #### React correctness
+
+- `categorization-spike-page.tsx` reusing request identities across window roots
+  or remounts, retaining results after selector changes, or continuing unattended
+  actions after dismissal. Trace its process-wide native cancellation/progress
+  keys and queued work, including a successful response racing with Cancel;
+  otherwise one window cancels another or dismissed/stale work becomes visible.
 
 - `apps/mobile/src/registration-gate.tsx.RegistrationPage` placing scrollable
   setup content beneath the status bar or home indicator, or retaining spacing

@@ -13,7 +13,8 @@
     "registration-revocation",
     "registration-revoked",
     "registration-removal",
-    "registration-draft-editor"
+    "registration-draft-editor",
+    "categorization-spike"
   ],
   "nativeJourney": [
     "open-read-relaunch",
