@@ -677,6 +677,49 @@ function holdingListing(
 }
 
 describe('mac windows over a connected Gmail mailbox', () => {
+  it.each([
+    ['Travel', 'Inbox', true],
+    ['Inbox', 'Travel', false],
+  ] as const)(
+    'keeps the %s reader according to its own view when archiving from %s',
+    async (opened, browsing, remains) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const travel = gmail.createLabel('Travel');
+      const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(flight, travel, true);
+      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      await fireEvent.press(
+        await app.findByRole('button', {
+          name: new RegExp(`^${opened}\\. In`, 'u'),
+        }),
+      );
+      await fireEvent.press(
+        await app.findByRole('button', { name: /Flight to Zagreb/u }),
+      );
+      await fireEvent.press(
+        await app.findByRole('button', {
+          name: new RegExp(`^${browsing}\\. In`, 'u'),
+        }),
+      );
+      await act(async () => {
+        await fireEvent(
+          await app.findByRole('button', { name: /Flight to Zagreb/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      const reader = app.queryByRole('header', { name: 'Flight to Zagreb' });
+      expect(reader !== null).toBe(remains);
+    },
+  );
+
   it('keeps Gmail view selection independent across windows and restores Trash mail', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

@@ -15,6 +15,7 @@ import {
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
+  gmailViewName,
   inboxChoice,
   inboxMessages,
   messageDateSections,
@@ -731,7 +732,13 @@ export function Inbox({
         name,
         label,
         run: () => {
-          leaving(leavesView(origin.view, message.labels ?? [], action));
+          leaving(
+            leavesView(
+              gmailViewName(state, selected?.folder ?? inboxFolder),
+              message.labels ?? [],
+              action,
+            ),
+          );
           void inbox.organize(message, action);
         },
       }));

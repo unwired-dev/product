@@ -40,6 +40,7 @@ export { filterMessages, matchedRanges } from './mailbox-matching.ts';
 export type { InboxFilter } from './mailbox-matching.ts';
 export type { MailboxProblem } from './mailbox-views.ts';
 export {
+  createGmailViewEntries,
   failedFolders,
   gmailMailbox,
   gmailViewRow,

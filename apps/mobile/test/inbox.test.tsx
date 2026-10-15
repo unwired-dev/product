@@ -1329,6 +1329,47 @@ describe('connected Gmail Inbox', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
   });
 
+  it.each([
+    ['Travel', 'Inbox', true],
+    ['Inbox', 'Travel', false],
+  ] as const)(
+    'keeps the %s reader according to its own view when archiving from %s',
+    async (opened, browsing, remains) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const travel = gmail.createLabel('Travel');
+      const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(flight, travel, true);
+      await renderConnected(gmail.native).rendered;
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', {
+            name: `${opened}. In alex@example.invalid`,
+          }),
+        );
+      });
+      await fireEvent.press(
+        await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      );
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: `${browsing}. In alex@example.invalid`,
+          }),
+        );
+      });
+      await act(async () => {
+        await fireEvent(
+          await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      const reader = screen.queryByRole('header', { name: 'Flight to Zagreb' });
+      expect(reader !== null).toBe(remains);
+    },
+  );
+
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({

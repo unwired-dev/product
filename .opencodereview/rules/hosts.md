@@ -262,6 +262,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   removed label. Preserve Inbox context for Microsoft mail and online or widened
   results, and preserve the restoration actions in Spam and Trash.
 
+- `inbox.tsx.rowActions` deciding whether to close the selected reader from the
+  list's current view after the person browses elsewhere. Keep row operations in
+  the list's context, but test reader departure against its retained, currently
+  resolved `Selection.folder`, including that folder in the mobile shell's
+  selected props. Exercise Archive in both directions between Inbox and a label;
+  otherwise a surviving label reader closes or a departed Inbox reader stays open.
+
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
   Use the saved host and port to choose the heading and app-specific-password

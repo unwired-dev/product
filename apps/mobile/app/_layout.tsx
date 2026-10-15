@@ -252,7 +252,11 @@ function MailShell() {
                     selected={
                       id === undefined || mailbox === undefined
                         ? undefined
-                        : { mailbox, id }
+                        : {
+                            mailbox,
+                            id,
+                            ...(folder === undefined ? {} : { folder }),
+                          }
                     }
                     view={view}
                   />

@@ -1,6 +1,10 @@
 import type { Translate } from '@private-email/localization';
 
-import type { GmailInbox, GmailInboxState } from './gmail-inbox.ts';
+import type {
+  GmailInbox,
+  GmailInboxState,
+  GmailMessage,
+} from './gmail-inbox.ts';
 import type {
   ImapFolderView,
   ImapInbox,
@@ -65,6 +69,23 @@ export const gmailViewName = (state: GmailInboxState, requested: string) =>
   state.labels.some(({ id }) => id === requested)
     ? requested
     : inboxFolder;
+
+// Stable list entries for the same messages and mailbox snapshot, without retaining old messages.
+export const createGmailViewEntries = <M>() => {
+  const entries = new WeakMap<
+    readonly GmailMessage[],
+    ReadonlyArray<Readonly<{ mailbox: M; message: GmailMessage }>>
+  >();
+  return (mailbox: M, messages: readonly GmailMessage[]) => {
+    const cached = entries.get(messages);
+    if (cached !== undefined && (cached[0]?.mailbox ?? mailbox) === mailbox) {
+      return cached;
+    }
+    const listed = messages.map((message) => ({ mailbox, message }));
+    entries.set(messages, listed);
+    return listed;
+  };
+};
 
 type BrowsableMailbox = Readonly<{
   provider?: MailProvider;
