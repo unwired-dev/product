@@ -1,10 +1,6 @@
 import type { TurboModule } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import * as Arr from 'effect/Array';
-import * as Option from 'effect/Option';
-import * as Order from 'effect/Order';
-import * as Schema from 'effect/Schema';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
@@ -13,6 +9,21 @@ import {
   View,
 } from 'react-native';
 
+import type {
+  CatalogValue,
+  ClassificationValue,
+  ProgressValue,
+  ResultValue,
+} from './categorization-spike-client.ts';
+
+import {
+  decodeCatalog,
+  decodeProgress,
+  decodeResult,
+  failureText,
+  median,
+  unavailable,
+} from './categorization-spike-client.ts';
 import { MenuItem, PopUp } from './composer-controls.tsx';
 import { Button, Notice } from './design.tsx';
 import { Label } from './label.tsx';
@@ -35,89 +46,6 @@ interface SpikeModule extends TurboModule {
   readonly release: () => Promise<unknown>;
 }
 
-const CategoryText = Schema.Struct({
-  name: Schema.String,
-  description: Schema.String,
-});
-const CandidateEntry = Schema.Struct({
-  run: Schema.String,
-  mode: Schema.Literals(['system', 'custom']),
-  maxLength: Schema.Finite,
-  precisions: Schema.Array(Schema.Literals(['fp16', 'int8'])),
-});
-const SampleEntry = Schema.Struct({
-  id: Schema.String,
-  language: Schema.String,
-  subject: Schema.String,
-});
-const CategoryEntry = Schema.Struct({
-  id: Schema.String,
-  en: CategoryText,
-  cs: CategoryText,
-});
-const Host = Schema.Struct({ model: Schema.String, os: Schema.String });
-const AutorunMode = Schema.NullOr(Schema.Literals(['matrix', 'states']));
-const Catalog = Schema.fromJsonString(
-  Schema.Struct({
-    candidates: Schema.Array(CandidateEntry),
-    messages: Schema.Array(SampleEntry),
-    categories: Schema.Array(CategoryEntry),
-    host: Host,
-    evidence: Schema.String,
-    autorun: AutorunMode,
-  }),
-);
-type CatalogValue = typeof Catalog.Type;
-
-const Score = Schema.Struct({
-  category: Schema.String,
-  probability: Schema.Finite,
-  threshold: Schema.Finite,
-  member: Schema.Boolean,
-});
-const Classification = Schema.Struct({
-  scores: Schema.Array(Score),
-  categories: Schema.Array(Schema.String),
-  tokens: Schema.Array(Schema.Finite),
-  passes: Schema.Finite,
-  milliseconds: Schema.Array(Schema.Finite),
-});
-const Lag = Schema.Struct({ p95: Schema.Finite });
-const Process = Schema.Struct({
-  peakFootprintMB: Schema.Finite,
-  energyMillijoules: Schema.Finite,
-  thermalBefore: Schema.String,
-  thermalAfter: Schema.String,
-  mainThreadLagMs: Lag,
-});
-const PassTimes = Schema.Struct({ p50: Schema.Finite, p95: Schema.Finite });
-const GoldenReport = Schema.Struct({
-  checked: Schema.Finite,
-  tokenMismatches: Schema.Array(Schema.String),
-  maxAbsProbabilityDifference: Schema.Finite,
-  decisionChanges: Schema.Array(Schema.String),
-});
-const Counts = Schema.Record(Schema.String, Schema.Finite);
-const Plan = Schema.Struct({ preferred: Counts, withoutNeuralEngine: Counts });
-const Result = Schema.fromJsonString(
-  Schema.Struct({
-    loadMs: Schema.optional(Schema.Finite),
-    process: Process,
-    input: Schema.optional(Schema.String),
-    classification: Schema.optional(Classification),
-    messagesPerSecond: Schema.optional(Schema.Finite),
-    passMs: Schema.optional(PassTimes),
-    golden: Schema.optional(GoldenReport),
-    plan: Schema.optional(Plan),
-  }),
-);
-type ResultValue = typeof Result.Type;
-const Progress = Schema.NullOr(
-  Schema.Struct({ done: Schema.Finite, total: Schema.Finite }),
-);
-type ProgressValue = typeof Progress.Type;
-const NativeCode = Schema.Struct({ code: Schema.String });
-
 const units = [
   ['all', 'CPU, GPU and Neural Engine'],
   ['cpuAndGPU', 'CPU and GPU'],
@@ -137,9 +65,8 @@ const goldenCategories = [
 const categoryCounts = [6, 5, 20, 50] as const;
 type CategoryCount = (typeof categoryCounts)[number];
 const rounds = 3;
-const unavailable =
-  'The candidate could not run on this Mac. Categorization stays unavailable; it has no server fallback.';
-
+// All Mac windows share this runtime, so identities survive page remounts too.
+let requests = 0;
 const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 40,
@@ -168,8 +95,7 @@ type Selection = Readonly<{
 }>;
 
 const ms = (value: number) => `${value.toFixed(value < 10 ? 1 : 0)} ms`;
-const median = (values: readonly number[]) =>
-  Arr.sort(values, Order.Number)[Math.floor(values.length / 2)] ?? 0;
+
 const probability = (value: number) => value.toFixed(value < 0.01 ? 3 : 2);
 const candidateName = (run: string) => {
   const model = run.includes('mdeberta')
@@ -212,13 +138,6 @@ const requestBody = (
     rounds,
     ...categories,
   });
-};
-
-const failureText = (error: unknown) => {
-  const code = Schema.decodeUnknownOption(NativeCode)(error);
-  return Option.isSome(code) && code.value.code === 'cancelled'
-    ? 'Cancelled before the next model pass; no partial result is shown.'
-    : unavailable;
 };
 
 const pause = (seconds: number) =>
@@ -326,10 +245,10 @@ export function CategorizationSpike() {
     }
     const load = async () => {
       try {
-        const decoded = Schema.decodeOption(Catalog)(await native.catalog());
+        const decoded = decodeCatalog(await native.catalog());
         setCatalog(
-          Option.isSome(decoded) && decoded.value.candidates.length > 0
-            ? decoded.value
+          decoded !== undefined && decoded.candidates.length > 0
+            ? decoded
             : 'unavailable',
         );
       } catch {
@@ -386,31 +305,47 @@ function Spike({
   const [result, setResult] = useState<ResultValue>();
   const [failure, setFailure] = useState<string>();
   const current = useRef<string>(undefined);
-  const requests = useRef(0);
+  const mounted = useRef(true);
+  const cancelled = useRef<string>(undefined);
   const candidate = catalog.candidates.find((each) => each.run === run);
   const sample = catalog.messages.find((each) => each.id === message);
   const custom = candidate?.mode === 'custom';
 
   // Dismissal stops the running request before its next model pass and releases the model.
-  useEffect(
-    () => () => {
-      if (current.current !== undefined) {
-        void module.cancel(current.current);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const request = current.current;
+      current.current = undefined;
+      if (request !== undefined) {
+        void module.cancel(request);
       }
       void module.release();
-    },
-    [module],
-  );
+    };
+  }, [module]);
+
+  const cancel = useCallback(() => {
+    const request = current.current;
+    if (request !== undefined) {
+      cancelled.current = request;
+      void module.cancel(request);
+      void module.release();
+    }
+  }, [module]);
 
   const start = useCallback(
     async (kind: Kind, picked: Selection) => {
+      if (!mounted.current) {
+        return;
+      }
       setRun(picked.run);
       setPrecision(picked.precision);
       setUnit(picked.unit);
       setMessage(picked.message);
       setCount(picked.count);
-      requests.current += 1;
-      const request = `${kind}-${requests.current}`;
+      requests += 1;
+      const request = `${kind}-${requests}`;
       current.current = request;
       setBusy({ request, kind });
       setFailure(undefined);
@@ -437,12 +372,16 @@ function Spike({
       }
       current.current = undefined;
       setBusy(undefined);
+      if (cancelled.current === request) {
+        setFailure(failureText({ code: 'cancelled' }));
+        return;
+      }
       if (text !== undefined) {
-        const decoded = Schema.decodeOption(Result)(text);
-        if (Option.isSome(decoded)) {
-          setResult(decoded.value);
-        } else {
+        const decoded = decodeResult(text);
+        if (decoded === undefined) {
           setFailure(unavailable);
+        } else {
+          setResult(decoded);
         }
       }
     },
@@ -459,21 +398,25 @@ function Spike({
     autorunStarted.current = true;
     const actions: Autorun = {
       start,
-      cancel: () => {
-        if (current.current !== undefined) {
-          void module.cancel(current.current);
+      cancel,
+      dismiss: () => {
+        if (mounted.current) {
+          onDismiss();
         }
       },
-      dismiss: onDismiss,
     };
     void (catalog.autorun === 'states'
       ? autorunStates(catalog, actions)
       : autorunMatrix(catalog, actions));
-  }, [catalog, module, onDismiss, start]);
+  }, [cancel, catalog, onDismiss, start]);
 
   return (
     <>
       <Setup
+        onChange={() => {
+          setResult(undefined);
+          setFailure(undefined);
+        }}
         catalog={catalog}
         disabled={busy !== undefined}
         run={run}
@@ -492,6 +435,7 @@ function Spike({
           module={module}
           request={busy.request}
           samples={catalog.messages.length}
+          onCancel={cancel}
         />
       ) : (
         <Actions
@@ -499,9 +443,7 @@ function Spike({
           onStart={(kind) => {
             void start(kind, { run, precision, unit, message, count });
           }}
-          onCancel={(request) => {
-            void module.cancel(request);
-          }}
+          onCancel={cancel}
         />
       )}
       {failure === undefined ? null : (
@@ -597,6 +539,7 @@ function Pick({
 }
 
 function Setup({
+  onChange,
   catalog,
   disabled,
   run,
@@ -610,6 +553,7 @@ function Setup({
   count,
   onCount,
 }: {
+  readonly onChange: () => void;
   readonly catalog: CatalogValue;
   readonly disabled: boolean;
   readonly run: string;
@@ -648,7 +592,10 @@ function Setup({
         choices={candidates}
         value={run}
         disabled={disabled}
-        onChoose={onRun}
+        onChoose={(choice) => {
+          onChange();
+          onRun(choice);
+        }}
       />
       <Pick
         label="Precision"
@@ -656,6 +603,7 @@ function Setup({
         value={precision}
         disabled={disabled}
         onChoose={(choice) => {
+          onChange();
           onPrecision(choice === 'int8' ? 'int8' : 'fp16');
         }}
       />
@@ -665,6 +613,7 @@ function Setup({
         value={unit}
         disabled={disabled}
         onChoose={(choice) => {
+          onChange();
           onUnit(units.find(([each]) => each === choice)?.[0] ?? 'all');
         }}
       />
@@ -673,7 +622,10 @@ function Setup({
         choices={samples}
         value={message}
         disabled={disabled}
-        onChoose={onMessage}
+        onChoose={(choice) => {
+          onChange();
+          onMessage(choice);
+        }}
       />
       {count === undefined ? null : (
         <Pick
@@ -682,6 +634,7 @@ function Setup({
           value={String(count)}
           disabled={disabled}
           onChoose={(choice) => {
+            onChange();
             onCount(
               categoryCounts.find((each) => String(each) === choice) ?? 6,
             );
@@ -749,20 +702,20 @@ function BenchmarkProgress({
   module,
   request,
   samples,
+  onCancel,
 }: {
   readonly module: SpikeModule;
   readonly request: string;
   readonly samples: number;
+  readonly onCancel: () => void;
 }) {
   const colors = usePalette();
   const [progress, setProgress] = useState<ProgressValue>(null);
   useEffect(() => {
     const poll = async () => {
-      const decoded = Schema.decodeUnknownOption(Progress)(
-        await module.progress(request),
-      );
-      if (Option.isSome(decoded) && decoded.value !== null) {
-        setProgress(decoded.value);
+      const decoded = decodeProgress(await module.progress(request));
+      if (decoded !== undefined && decoded !== null) {
+        setProgress(decoded);
       }
     };
     const timer = setInterval(() => {
@@ -795,9 +748,7 @@ function BenchmarkProgress({
         <View style={styles.start}>
           <Button
             label="Cancel"
-            onPress={() => {
-              void module.cancel(request);
-            }}
+            onPress={onCancel}
           />
         </View>
       </View>
@@ -848,7 +799,7 @@ function Scores({
   readonly language: string;
   readonly maxLength: number;
   readonly input: string;
-  readonly classification: typeof Classification.Type;
+  readonly classification: ClassificationValue;
 }) {
   const colors = usePalette();
   const decided = classification.categories.map((id) =>

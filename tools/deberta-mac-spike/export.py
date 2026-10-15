@@ -105,15 +105,19 @@ class Logits(torch.nn.Module):
         return self.model(input_ids=input_ids, attention_mask=attention_mask).logits
 
 
-def convert(weights: Path, length: int) -> ct.models.MLModel:
+def convert(weights: Path, length: int, shape_kind: str = "fixed") -> ct.models.MLModel:
     model = AutoModelForSequenceClassification.from_pretrained(
         weights, dtype=torch.float32, attn_implementation="eager"
     ).eval()
     example = torch.ones(1, length, dtype=torch.long)
     traced = torch.jit.trace(Logits(model).eval(), (example, example), strict=False)
-    # Enumerated or flexible lengths convert but crash Core ML prediction (SIGSEGV) on
-    # macOS 27.0.1; fixed shapes pad every input to the candidate's token budget.
     shape = (1, length)
+    if shape_kind == "enumerated":
+        shape = ct.EnumeratedShapes([(1, length // 2), (1, length)], default=(1, length))
+    elif shape_kind == "flexible":
+        shape = (1, ct.RangeDim(lower_bound=1, upper_bound=length, default=length))
+    elif shape_kind != "fixed":
+        raise ValueError(f"unsupported shape kind: {shape_kind}")
     return ct.convert(
         traced,
         inputs=[

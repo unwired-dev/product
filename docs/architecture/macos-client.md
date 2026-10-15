@@ -52,3 +52,23 @@ properties.
 
 The native build phase exports and verifies the bundle before
 copying it into the app.
+
+## Isolated categorization research
+
+Issue #831 authorizes an isolated, build-time `categorization-spike` Mock Mail
+Session, with public/synthetic bundled samples and no mailbox assignments or
+production adoption. The Mac-local `categorization-spike-client.ts` adapter owns
+Schema decoding for native payloads; the React page owns only this research
+interaction's request and presentation state. This narrowly qualifies the normal
+shared-store ownership rule for this one Mac-specific research build. Future
+product integration follows the normal mail-core store rules and needs its own
+qualification. Bundle verification excludes both page and adapter from every
+other scenario and production.
+
+The OCR decision panel on 2026-10-15 considered A, a non-React Mac-local research
+adapter with local presentation state, and B, a testing-only mail-core store
+owning decoding and requests. Claude Fable 5.1, GPT-6.1-Sol and GPT-6-Astra all
+chose A, because there is no shared product behavior to own and adding a shared
+experimental API would broaden the spike. All required decoding and production
+isolation remain enforced. No earlier model/runtime or visual-design decision
+changed.

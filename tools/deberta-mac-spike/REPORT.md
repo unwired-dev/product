@@ -67,8 +67,9 @@ tables regenerate with `uv run python summarize.py results/host-matrix-2026-10-1
   request, including the Inbox host.
 - **Energy** is the kernel's CPU energy estimate for the process; it does not
   attribute GPU or Neural Engine energy, so accelerator runs understate their cost.
-- **Interface responsiveness** is how late the main thread answered a 10 ms probe
-  while inference ran on a background queue beside the live Inbox.
+- **Main-thread delay** is how late the main thread answered a 10 ms probe while
+  inference ran on a background queue in the otherwise idle Inbox host. The
+  unattended run performed no concurrent Inbox workload.
 
 ## Results
 
@@ -103,9 +104,10 @@ XSmall FP16 exports and most INT8 exports exceed it without changing decisions.
 | Custom mDeBERTa             | 31.5 ms  | 32.1 ms  | 17.5 s     | 434–928 MB   |
 
 Custom latency scales linearly with the category count, one pass per category.
-Main-thread delay stayed at or below 0.24 ms at p95 in every run, and the thermal
-state stayed nominal throughout; no sustained-load throttling was observed in
-runs of up to about 2.5 minutes.
+In the idle host, main-thread delay stayed at or below 0.24 ms at p95 in every
+run, and the thermal state stayed nominal throughout; no sustained-load
+throttling was observed in runs of up to about 2.5 minutes. This does not qualify
+responsiveness during concurrent Inbox work.
 
 ### Compute units (System XSmall FP16)
 
@@ -133,9 +135,14 @@ cancellation on Profile Lock is unavailable to demonstrate.
 
 ## Failed and unexplored paths
 
-- Enumerated or flexible sequence lengths convert but crash Core ML prediction
-  (SIGSEGV), so every input pads to its full budget; short messages pay for 256 or
-  512 tokens. Multifunction models with a few fixed lengths were not tried.
+- Original enumerated and flexible sequence-length experiments reported SIGSEGV
+  during Core ML prediction, without a retained crash log. The bounded
+  [enumerated System XSmall reproduction](results/shape-deberta-xsmall-body256-enumerated.json)
+  converted, predicted finite logits at 128 tokens, then failed at 256 tokens with
+  Core ML error `-5` in 44.7 seconds, exit 1 and no signal. The flexible path is
+  runnable through `probe/shapes.py` but was not rerun. Fixed exports still pad
+  every input to 256 or 512 tokens; multifunction models with a few fixed lengths
+  were not tried.
 - Batched passes for Custom Categories were not tried; each category is a separate
   pass.
 - The System mDeBERTa relative-position export was not reworked.
@@ -146,8 +153,11 @@ cancellation on Profile Lock is unavailable to demonstrate.
 
 - One physical Mac on a shared host; another session's work could add noise,
   though load stayed low.
-- Ad-hoc signing: the synthetic Inbox beside the page could not open its private
-  storage (an expected Keychain limitation), which does not affect the spike.
+- Ad-hoc signing: the synthetic Inbox could not open its private storage because
+  of the Keychain limitation. Concurrent Inbox workload qualification is deferred
+  until a signing identity that can open storage is available. The main-thread
+  timer measures only the otherwise idle host, not responsiveness while syncing,
+  opening messages or scrolling the Inbox.
 - The run drove the page through its own actions, not synthetic clicks; pop-up
   and button interaction are covered by the component tests.
 - CPU-only energy attribution, no reboot-cold loads, and no runs longer than a few

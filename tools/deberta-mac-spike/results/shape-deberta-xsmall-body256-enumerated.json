@@ -1,0 +1,43 @@
+{
+  "recorded_at": "2026-10-15T11:21:44.903257+00:00",
+  "run": "deberta-xsmall-body256",
+  "shape": "enumerated",
+  "prediction_lengths": [128, 256],
+  "compute_units": "CPU_ONLY",
+  "weights_sha256": "615ac04a05d4a9c35d1fb5f94b3cabee4a0d124170be6ef5e0d06f3205bc5896",
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "python": "3.12.15",
+  "versions": {
+    "coremltools": "9.0",
+    "torch": "2.7.0",
+    "transformers": "5.19.0",
+    "numpy": "2.3.5"
+  },
+  "command": [
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/.venv/bin/python",
+    "probe/shapes.py",
+    "deberta-xsmall-body256",
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261011-1626/tools/system-category-benchmark/work/runs/deberta-xsmall-body256",
+    "--shape",
+    "enumerated",
+    "--timeout",
+    "300"
+  ],
+  "worker_command": [
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/.venv/bin/python",
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/probe/shapes.py",
+    "deberta-xsmall-body256",
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261011-1626/tools/system-category-benchmark/work/runs/deberta-xsmall-body256",
+    "--shape",
+    "enumerated",
+    "--worker-output",
+    "/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/work/shape-3tas5lqc"
+  ],
+  "timeout_seconds": 300,
+  "elapsed_seconds": 44.7,
+  "timed_out": false,
+  "exit_code": 1,
+  "signal": null,
+  "stdout": "converting\nconverted; loading CPU_ONLY\npredicting [1, 128]\n{\"length\": 128, \"finite\": true}\npredicting [1, 256]\n",
+  "stderr_tail": "\rLoading weights:   0%|          | 0/202 [00:00<?, ?it/s]\rLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 202/202 [00:00<00:00, 72526.06it/s]\n[transformers] `loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.\n<string>:6: TracerWarning: torch.tensor results are registered as constants in the trace. You can safely ignore this warning if you use this function to create tensors out of constant variables that would be the same every time you call this function. In any other case, this might cause the trace to be incorrect.\n<string>:10: TracerWarning: torch.tensor results are registered as constants in the trace. You can safely ignore this warning if you use this function to create tensors out of constant variables that would be the same every time you call this function. In any other case, this might cause the trace to be incorrect.\n<string>:2: TracerWarning: torch.tensor results are registered as constants in the trace. You can safely ignore this warning if you use this function to create tensors out of constant variables that would be the same every time you call this function. In any other case, this might cause the trace to be incorrect.\n<string>:2: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).\n<string>:2: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!\n\rConverting PyTorch Frontend ==> MIL Ops:   0%|          | 0/2276 [00:00<?, ? ops/s]Core ML embedding (gather) layer does not support any inputs besides the weights and indices. Those given will be ignored.\nSaving value type of float64 into a builtin type of fp32, might lose precision!\n\rConverting PyTorch Frontend ==> MIL Ops:  18%|\u2588\u258a        | 406/2276 [00:00<00:00, 3975.34 ops/s]\rConverting PyTorch Frontend ==> MIL Ops:  35%|\u2588\u2588\u2588\u258c      | 804/2276 [00:00<00:00, 3918.63 ops/s]\rConverting PyTorch Frontend ==> MIL Ops:  53%|\u2588\u2588\u2588\u2588\u2588\u258e    | 1196/2276 [00:00<00:00, 3858.48 ops/s]\rConverting PyTorch Frontend ==> MIL Ops:  70%|\u2588\u2588\u2588\u2588\u2588\u2588\u2589   | 1582/2276 [00:00<00:00, 3225.66 ops/s]\rConverting PyTorch Frontend ==> MIL Ops:  90%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2589 | 2038/2276 [00:00<00:00, 3647.72 ops/s]\rConverting PyTorch Frontend ==> MIL Ops: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2589| 2275/2276 [00:00<00:00, 3647.70 ops/s]\n\rRunning MIL frontend_pytorch pipeline:   0%|          | 0/5 [00:00<?, ? passes/s]\rRunning MIL frontend_pytorch pipeline: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 5/5 [00:00<00:00, 62.63 passes/s]\n\rRunning MIL default pipeline:   0%|          | 0/95 [00:00<?, ? passes/s]\rRunning MIL default pipeline:   7%|\u258b         | 7/95 [00:00<00:01, 63.29 passes/s]\rRunning MIL default pipeline:  15%|\u2588\u258d        | 14/95 [00:00<00:01, 62.45 passes/s]\rRunning MIL default pipeline:  22%|\u2588\u2588\u258f       | 21/95 [00:00<00:01, 47.08 passes/s]\rRunning MIL default pipeline:  31%|\u2588\u2588\u2588       | 29/95 [00:00<00:01, 56.01 passes/s]\rRunning MIL default pipeline:  38%|\u2588\u2588\u2588\u258a      | 36/95 [00:00<00:01, 33.32 passes/s]\rRunning MIL default pipeline:  44%|\u2588\u2588\u2588\u2588\u258d     | 42/95 [00:00<00:01, 38.33 passes/s]\rRunning MIL default pipeline:  53%|\u2588\u2588\u2588\u2588\u2588\u258e    | 50/95 [00:01<00:00, 46.31 passes/s]\rRunning MIL default pipeline:  59%|\u2588\u2588\u2588\u2588\u2588\u2589    | 56/95 [00:01<00:01, 28.64 passes/s]\rRunning MIL default pipeline:  64%|\u2588\u2588\u2588\u2588\u2588\u2588\u258d   | 61/95 [00:02<00:02, 12.22 passes/s]/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/.venv/lib/python3.12/site-packages/coremltools/converters/mil/mil/passes/defs/optimize_repeat_ops.py:433: RuntimeWarning: overflow encountered in cast\n  max(cur_range.low, tmp_range.low), min(cur_range.high, tmp_range.high)\n\rRunning MIL default pipeline:  68%|\u2588\u2588\u2588\u2588\u2588\u2588\u258a   | 65/95 [00:02<00:02, 13.08 passes/s]\rRunning MIL default pipeline:  79%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2589  | 75/95 [00:02<00:00, 21.25 passes/s]\rRunning MIL default pipeline:  93%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u258e| 88/95 [00:03<00:00, 33.68 passes/s]\rRunning MIL default pipeline: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 95/95 [00:03<00:00, 27.43 passes/s]\rRunning MIL default pipeline: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 95/95 [00:03<00:00, 27.42 passes/s]\n\rRunning MIL backend_mlprogram pipeline:   0%|          | 0/12 [00:00<?, ? passes/s]\rRunning MIL backend_mlprogram pipeline: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 12/12 [00:00<00:00, 128.83 passes/s]\nTraceback (most recent call last):\n  File \"/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/probe/shapes.py\", line 117, in <module>\n    main()\n  File \"/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/probe/shapes.py\", line 56, in main\n    predict(args.weights, entry[\"max_length\"], args.shape, args.worker_output)\n  File \"/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/probe/shapes.py\", line 34, in predict\n    logits = model.predict({\"input_ids\": inputs, \"attention_mask\": inputs})[\"logits\"]\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/.venv/lib/python3.12/site-packages/coremltools/models/model.py\", line 842, in predict\n    return self._get_predictions(self.__proxy__,\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/macmini/.t3/worktrees/product/t3-auto-issue-20261015-1042/tools/deberta-mac-spike/.venv/lib/python3.12/site-packages/coremltools/models/model.py\", line 892, in _get_predictions\n    return proxy.predict(data, state)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: {\n    NSLocalizedDescription = \"Unable to compute the prediction using a neural network model. It can be an invalid input data or broken/unsupported model (error code: -5).\";\n}\n"
+}

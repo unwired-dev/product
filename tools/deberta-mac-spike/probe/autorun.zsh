@@ -27,6 +27,9 @@ cleanup() {
   print "Spike evidence: $evidence"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # A disposable identity keeps the ordinary app's container and data untouched.
 cp -R "$source_app" "$work/UnwiredMail.app"
@@ -65,6 +68,6 @@ case "$mode" in
     sleep 23; capture benchmarking
     wait_lines 3 600; sleep 2; capture cancelled
     # The dismissal cancels the second benchmark, then releases the model.
-    wait_lines 5 600; sleep 2; capture dismissed ;;
+    wait_lines 6 600; sleep 2; capture dismissed ;;
   matrix) wait_lines 43 14400 ;;
 esac

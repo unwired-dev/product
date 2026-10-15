@@ -20,6 +20,9 @@ cleanup() {
   rm -rf "$work" "$HOME/Library/Containers/$bundle"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # A disposable identity keeps the ordinary app's container and data untouched.
 cp -R "$source_app" "$work/UnwiredMail.app"

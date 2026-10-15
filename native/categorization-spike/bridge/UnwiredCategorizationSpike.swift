@@ -15,6 +15,7 @@ final class UnwiredCategorizationSpike: NSObject {
   private static var loaded: (key: String, candidate: Candidate)?
   private static let cancelled = NSLock()
   nonisolated(unsafe) private static var cancelledRequests: Set<String> = []
+  nonisolated(unsafe) private static var activeRequests: Set<String> = []
   // Benchmark progress by request, guarded by `cancelled`'s lock: samples done and planned.
   nonisolated(unsafe) private static var progress: [String: (done: Int, total: Int)] = [:]
 
@@ -63,10 +64,17 @@ final class UnwiredCategorizationSpike: NSObject {
     _ reject: @escaping RCTPromiseRejectBlock,
     _ work: @escaping (Request, Candidate, Bool) throws -> [String: Any]
   ) {
-    cancelled.withLock { _ = cancelledRequests.remove(request) }
+    cancelled.withLock { _ = activeRequests.insert(request) }
     queue.async {
+      defer {
+        cancelled.withLock {
+          activeRequests.remove(request)
+          cancelledRequests.remove(request)
+        }
+      }
       let sampler = Measurement.Sampler()
       do {
+        if isCancelled(request) { throw SpikeError.cancelled }
         let parsed = try JSONDecoder().decode(Request.self, from: Data(body.utf8))
         let (candidate, cold) = try candidate(parsed)
         var result = try work(parsed, candidate, cold)
@@ -263,7 +271,9 @@ final class UnwiredCategorizationSpike: NSObject {
     _ request: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    Self.cancelled.withLock { _ = Self.cancelledRequests.insert(request) }
+    Self.cancelled.withLock {
+      if Self.activeRequests.contains(request) { Self.cancelledRequests.insert(request) }
+    }
     resolve(nil)
   }
 

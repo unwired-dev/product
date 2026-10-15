@@ -55,10 +55,31 @@ Face DeBERTa v2 model, applied only inside `export.py`:
   later layers. The export fills with `-1e4`, which leaves every unmasked score
   unchanged.
 
-Failed paths, kept reproducible here: enumerated or flexible sequence lengths
-convert but crash Core ML prediction (SIGSEGV) on macOS 27.0.1; NumPy 2.4 and later
-break Core ML Tools 9.0 (`only 0-dimensional arrays can be converted`); PyTorch
-2.7.1 and later are untested by Core ML Tools 9.0.
+The original experiments with enumerated or flexible sequence lengths reported
+Core ML prediction crashes (SIGSEGV) on macOS 27.0.1. To exercise either path
+without changing `work/models` or the fixed-export results, run one opt-in probe:
+
+```sh
+mise exec -- uv run python probe/shapes.py deberta-xsmall-body256 "$benchmark/runs/deberta-xsmall-body256" --shape enumerated --timeout 300
+# Substitute --shape flexible to try a bounded sequence-length range.
+```
+
+The probe reuses the FP16 converter, checks the frozen weights hash, and predicts
+at half and full token budgets on CPU_ONLY. Enumerated inputs allow those two
+lengths; flexible inputs allow 1 through the full budget. A subprocess contains
+prediction crashes and limits conversion plus prediction to 300 seconds. Temporary
+models go under ignored `work/` and are removed afterward. The probe writes
+`results/shape-<run>-<shape>.json` with the command, versions, hash, progress,
+exit code, signal, timeout and stderr tail. It exits 1 for a failed or timed-out
+worker. These are failure probes, not parity checks or alternate deployable exports.
+The retained [enumerated XSmall run](results/shape-deberta-xsmall-body256-enumerated.json)
+converted and predicted at 128 tokens, then failed at 256 tokens with Core ML error
+`-5`, exit 1 and no signal in 44.7 seconds. The flexible path was not rerun, and the
+original SIGSEGV observation has no retained crash log.
+
+NumPy 2.4 and later break Core ML Tools 9.0 (`only 0-dimensional arrays can be
+converted`); this project pins NumPy below 2.4. PyTorch 2.7.1 and later are untested
+by Core ML Tools 9.0. Neither dependency-upgrade path has a retained reproduction.
 
 ## Test
 

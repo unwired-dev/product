@@ -11,7 +11,10 @@ const candidates = [
     precisions: ['fp16', 'int8'],
   },
 ];
-const catalogWith = (offered: readonly object[]) =>
+const catalogWith = (
+  offered: readonly object[],
+  autorun: string | null = null,
+) =>
   JSON.stringify({
     candidates: offered,
     messages: [
@@ -24,7 +27,7 @@ const catalogWith = (offered: readonly object[]) =>
     categories: [],
     host: { model: 'Mac16,10', os: 'Version 27.0.1' },
     evidence: '/tmp/categorization-spike.jsonl',
-    autorun: null,
+    autorun,
   });
 const catalog = catalogWith(candidates);
 
@@ -73,7 +76,13 @@ function scriptedSpike(catalogText = catalog) {
         }),
     ),
     benchmark: jest.fn(() => Promise.resolve('')),
-    golden: jest.fn(() => Promise.resolve('')),
+    golden: jest.fn(
+      (request: string, _body: string) =>
+        // oxlint-disable-next-line promise/avoid-new -- Hold the unattended native action across dismissal.
+        new Promise<string>((resolve, reject) => {
+          pending.set(request, { resolve, reject });
+        }),
+    ),
     computePlan: jest.fn(() => Promise.resolve('')),
     progress: jest.fn(() => Promise.resolve(null)),
     cancel: jest.fn((request: string) => {
@@ -99,6 +108,14 @@ async function renderWith(module: object | null) {
   });
   get.mockRestore();
   return view;
+}
+
+function requestAt(pending: ReadonlyMap<string, Deferred>, index: number) {
+  const request = [...pending.keys()][index];
+  if (request === undefined) {
+    throw new Error('The action did not start a native request');
+  }
+  return request;
 }
 
 async function settle(
@@ -131,7 +148,7 @@ describe('categorization spike page', () => {
     expect(module.classify.mock.calls[0]?.[1]).toBe(
       '{"run":"deberta-xsmall-body256","precision":"fp16","units":"all","message":"synthetic:en-overlap-orders-flights-2:4","rounds":3,"categoryCount":0}',
     );
-    await settle(pending, 'classify-1', classified);
+    await settle(pending, requestAt(pending, 0), classified);
     expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
     expect(screen.getByLabelText('Member, 0.41, threshold 0.4')).toBeVisible();
     expect(
@@ -144,7 +161,7 @@ describe('categorization spike page', () => {
     const { module, pending } = scriptedSpike();
     await renderWith(module);
     await fireEvent.press(screen.getByText('Classify'));
-    await settle(pending, 'classify-1', '{"scores": "not a result"}');
+    await settle(pending, requestAt(pending, 0), '{"scores": "not a result"}');
     expect(screen.queryByText(/RESULT/u)).toBeNull();
     expect(screen.getByText(/could not run on this Mac/u)).toBeVisible();
   });
@@ -155,8 +172,8 @@ describe('categorization spike page', () => {
     await renderWith(module);
     await fireEvent.press(screen.getByText('Classify'));
     await fireEvent.press(screen.getByText('Cancel'));
-    await settle(pending, 'classify-1', classified);
-    expect(module.cancel).toHaveBeenCalledWith('classify-1');
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(module.cancel).toHaveBeenCalledWith([...pending.keys()][0]);
     expect(
       screen.getByText(/Cancelled before the next model pass/u),
     ).toBeVisible();
@@ -165,12 +182,75 @@ describe('categorization spike page', () => {
 
   it('cancels the running request and releases the model on dismissal', async () => {
     expect.hasAssertions();
-    const { module } = scriptedSpike();
+    const { module, pending } = scriptedSpike();
     const view = await renderWith(module);
     await fireEvent.press(screen.getByText('Classify'));
     await view.unmount();
-    expect(module.cancel).toHaveBeenLastCalledWith('classify-1');
+    expect(module.cancel).toHaveBeenLastCalledWith([...pending.keys()][0]);
     // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
     expect(module.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires the displayed result when a selector changes', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike();
+    await renderWith(module);
+    await fireEvent.press(screen.getByText('Classify'));
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Precision' }));
+    await fireEvent.press(screen.getByText('INT8'));
+    expect(screen.queryByText('RESULT · ORDERS AND FLIGHTS')).toBeNull();
+  });
+
+  it('rejects a result that won the native race with Cancel', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike();
+    module.cancel.mockResolvedValue(undefined);
+    await renderWith(module);
+    await fireEvent.press(screen.getByText('Classify'));
+    await fireEvent.press(screen.getByText('Cancel'));
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(screen.queryByText('RESULT · ORDERS AND FLIGHTS')).toBeNull();
+    expect(
+      screen.getByText(/Cancelled before the next model pass/u),
+    ).toBeVisible();
+  });
+
+  it('keeps requests distinct across windows and page remounts', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike();
+    const first = await renderWith(module);
+    await fireEvent.press(first.getByText('Classify'));
+    const oldRequest = requestAt(pending, 0);
+    const second = await renderWith(module);
+    await fireEvent.press(second.getByText('Classify'));
+    await first.unmount();
+    expect(module.cancel).toHaveBeenLastCalledWith(oldRequest);
+    const otherRequest = requestAt(pending, 1);
+    expect(otherRequest).not.toBe(oldRequest);
+    await settle(pending, otherRequest, classified);
+    expect(second.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
+    const reopened = await renderWith(module);
+    await fireEvent.press(reopened.getByText('Classify'));
+    expect(new Set(pending.keys()).size).toBe(3);
+  });
+
+  it('does not continue an unattended matrix after dismissal', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike(
+      catalogWith(candidates, 'matrix'),
+    );
+    module.cancel.mockResolvedValue(undefined);
+    const view = await renderWith(module);
+    expect(module.golden).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+    );
+    await view.unmount();
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(module.classify).not.toHaveBeenCalled();
+    expect(module.benchmark).not.toHaveBeenCalled();
+    expect(module.computePlan).not.toHaveBeenCalled();
   });
 });
