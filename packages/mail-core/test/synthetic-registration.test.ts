@@ -394,7 +394,7 @@ describe('the synthetic backend keeps its state across launches', () => {
     });
   });
 
-  it('admits a Pending Device that presents the Recovery Key proof for the lost device account', async () => {
+  it('admits a Pending Device once when recovery completion requests overlap', async () => {
     /* oxlint-disable vitest/max-expects -- One recovery spans request, proof, admission and readback. */
     expect.hasAssertions();
     const ask = launch('registration-recovery', { state: null });
@@ -436,14 +436,23 @@ describe('the synthetic backend keeps its state across launches', () => {
       }),
     ).resolves.toMatchObject({ schemaVersion: 3, keyVersion: 1 });
     await expect(
-      call('productSyncEnrollment:complete', {
-        keyVersion: 1,
-        deviceEncryptionPublicKey: deviceKey,
-      }),
-    ).resolves.toStrictEqual({
-      admitted: true,
-      trustedDeviceId: 'synthetic-device-installation-1',
-    });
+      Promise.all([
+        call('productSyncEnrollment:complete', {
+          keyVersion: 1,
+          deviceEncryptionPublicKey: deviceKey,
+        }),
+        call('productSyncEnrollment:complete', {
+          keyVersion: 1,
+          deviceEncryptionPublicKey: deviceKey,
+        }),
+      ]),
+    ).resolves.toStrictEqual([
+      {
+        admitted: true,
+        trustedDeviceId: 'synthetic-device-installation-1',
+      },
+      { admitted: false },
+    ]);
     await expect(
       call('productSync:listEncryptedPayloadsForTrustedDevice', {
         payloadIdentifierPrefix: 'mailbox.',

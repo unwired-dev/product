@@ -514,18 +514,18 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
       )(function* ({ args, product }: Presented) {
         const account = product.productAccountId;
         const id = product.trustedDeviceId;
-        const authorized = state.recovered[id];
-        if (
-          args.keyVersion !== epoch(account) ||
-          product.pending !== true ||
-          !id.startsWith(pendingPrefix) ||
-          authorized === undefined ||
-          authorized !== args.deviceEncryptionPublicKey
-        ) {
-          return yield* success({ admitted: false });
-        }
-        const trustedDeviceId = devicePrefix + id.slice(pendingPrefix.length);
-        yield* changed((next) => {
+        const result = yield* changed((next) => {
+          const authorized = next.recovered[id];
+          if (
+            args.keyVersion !== (next.epochs[account] ?? 1) ||
+            product.pending !== true ||
+            !id.startsWith(pendingPrefix) ||
+            authorized === undefined ||
+            authorized !== args.deviceEncryptionPublicKey
+          ) {
+            return { admitted: false };
+          }
+          const trustedDeviceId = devicePrefix + id.slice(pendingPrefix.length);
           next.requests = without(next.requests, id);
           next.recovered = without(next.recovered, id);
           next.admitted[account] = [
@@ -533,8 +533,9 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
             id.slice(pendingPrefix.length),
           ];
           next.deviceKeys[trustedDeviceId] = authorized;
+          return { admitted: true, trustedDeviceId };
         });
-        return yield* success({ admitted: true, trustedDeviceId });
+        return yield* success(result);
       });
       const putPayload = Effect.fn('SyntheticConvex.putPayload')(function* ({
         args,
