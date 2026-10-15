@@ -768,8 +768,20 @@ final class InboxTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
       .completed)
+    // Search lists matches under Top Results until Close returns to the Inbox.
+    search.typeText("Maya")
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(maya.waitForExistence(timeout: 10))
+    let results = XCTAttachment(screenshot: app.screenshot())
+    results.name = "Search results"
+    results.lifetime = .keepAlways
+    add(results)
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
+    app.buttons["Close Search"].tap()
+    XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))

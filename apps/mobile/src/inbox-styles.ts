@@ -19,6 +19,7 @@ const subheadline = ipad
 // iPad keeps the scaled Mac list recipe in both orientations; iPhone uses its touch layout.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
+  searchField: { flex: 1, flexDirection: 'row' },
   heading: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -45,6 +46,36 @@ export const styles = StyleSheet.create({
   subtitleText: {
     ...(ipad ? typography.ipadList.subheadline : textStyles.caption1),
     flexShrink: 1,
+  },
+  // Search's scope: two equal pill segments, the chosen one in the selected chip's graphite.
+  segments: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginHorizontal: spacing.l,
+    marginTop: spacing.xs,
+    marginBottom: spacing.s,
+    padding: 2,
+    // Pills are fully rounded.
+    borderRadius: 20,
+    borderCurve: 'continuous',
+  },
+  segment: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m,
+    borderRadius: 18,
+  },
+  segmentLabel: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.subheadline),
+  },
+  resultsHeader: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+    fontWeight: '600',
+    paddingTop: spacing.s,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
   },
   // Rows scroll under the floating bar.
   list: {
@@ -79,6 +110,8 @@ export const styles = StyleSheet.create({
   sender: { ...(ipad ? body : textStyles.headline), flex: 1 },
   date: { ...subheadline, flexShrink: 1 },
   subject: { ...body },
+  // A search's matched words.
+  match: { fontWeight: '600' },
   unread: {
     position: 'absolute',
     left: ipad ? 8 * scale - 2 : 0,

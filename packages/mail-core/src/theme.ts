@@ -18,6 +18,8 @@ export const radius = {
   // iPhone's Move to… sheet: its top corners, search field and inset row groups.
   sheet: 38,
   searchField: 18,
+  // iPad's popovers, such as Filters.
+  popover: 18,
   insetGroup: 22,
   settingsDetail: 16.923076629638672,
 };
