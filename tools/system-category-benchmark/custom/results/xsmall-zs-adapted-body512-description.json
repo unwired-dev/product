@@ -32,7 +32,7 @@
  "truncated_pair_fraction": 0.1510149898970913,
  "premise_tokens_median": 96.0,
  "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
- "benchmark_sha256": "4510f80a0acd9591afae104bf19335e93c0d4c9fba385b868c3ad95f2517437f",
+ "benchmark_sha256": "0bc21e51019a98fa77e9bb8c2b85706eebf6c9250919966a43618c8109cc8b82",
  "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4",
  "thresholds": {
   "en": 0.66,

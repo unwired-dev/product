@@ -46,6 +46,17 @@ LICENSES = {
 }
 
 
+def load_system_result(name: str) -> dict:
+    result = json.loads((ROOT / "results" / f"{name}.json").read_text())
+    expected = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
+    if (
+        result.get("corpus_sha256") != expected
+        or result.get("benchmark_sha256") != run.benchmark_sha256()
+    ):
+        raise ValueError(f"#828 {name}: stale corpus or benchmark; rerun run.py")
+    return result
+
+
 def golden(*custom_runs: str) -> None:
     """Freeze the candidate bundle and reference outputs on synthetic test messages."""
     import torch
@@ -129,6 +140,7 @@ def golden(*custom_runs: str) -> None:
             }
         )
     for name in SYSTEM_RUNS:
+        result = load_system_result(name)
         path = WORK / "runs" / name
         tokenizer = AutoTokenizer.from_pretrained(path)
         model = AutoModelForSequenceClassification.from_pretrained(path, dtype=torch.float32)
@@ -156,7 +168,6 @@ def golden(*custom_runs: str) -> None:
                 }
             )
         golden["system"].append({"run": name, "outputs": outputs})
-        result = json.loads((ROOT / "results" / f"{name}.json").read_text())
         bundle["system"].append(
             {
                 "run": name,
@@ -374,13 +385,7 @@ def tables() -> None:
         if "system" in r and r["mode"] == "description"
     }
     for name in ("tfidf-minimized", "deberta-xsmall-body256", "deberta-mdeberta-body512"):
-        result = json.loads((ROOT / "results" / f"{name}.json").read_text())
-        expected = json.loads(corpus.MANIFEST.read_text())["corpus_sha256"]
-        if (
-            result.get("corpus_sha256") != expected
-            or result.get("benchmark_sha256") != run.benchmark_sha256()
-        ):
-            raise ValueError(f"#828 {name}: stale corpus or benchmark; rerun run.py")
+        result = load_system_result(name)
         system[f"#828 {name}"] = result["slices"]
     keys = ["all", "en/real-random", "en/real-enriched", "en/synthetic", "cs/synthetic"]
     out.append(

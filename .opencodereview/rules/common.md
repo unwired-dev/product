@@ -36,6 +36,9 @@ partial reruns must not silently combine stale and current results. Preserve
 intentional model, input-budget and seed variants. Before backfilling provenance,
 verify the old artifacts' corpus and experiment from recorded execution evidence
 and history rather than asserting that every existing result is current.
+Apply the same compatibility checks when assembling frozen candidate bundles,
+including referenced System results in `custom_report.py` `golden()`; validating
+only Custom results or table aggregation still admits stale native prerequisites.
 
 Independently reproduce or substantiate each finding against source and applicable decisions. Fix confirmed issues in the authorized checkout, preserving unrelated work; update affected tests and operational/architecture documentation. Rerun appropriate checks, refresh coverage and resolved rules after edits, and rereview the corrected artifact until no in-scope issue remains. Reviewer fixes stay within this review; later implementer edits require a new pinned review. Report sources consulted, applicable conditional sections and their dispositions, coverage, validated findings/fixes, changed files, checks/results, unavailable tooling and unresolved decision blockers. Separate OCR selection/rule-resolution evidence from host reasoning and actual integration/native/CI evidence; an unavailable check is deferred or blocked, never passing. Do not disclose architecture source or rule bodies in the implementer handback. Review completion and required CI are independent.
 

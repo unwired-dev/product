@@ -140,3 +140,26 @@ def test_tables_refuses_stale_reports(tmp_path, monkeypatch, field):
     monkeypatch.setattr(custom_report, "CUSTOM", tmp_path)
     with pytest.raises(ValueError, match=field):
         custom_report.tables()
+
+
+@pytest.mark.parametrize("field", ["corpus_sha256", "benchmark_sha256"])
+def test_golden_refuses_stale_system_results_before_loading_models(tmp_path, monkeypatch, field):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    metadata = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        field: "stale",
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(metadata))
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("stale System results must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="#828 .*stale corpus or benchmark"):
+        custom_report.golden()

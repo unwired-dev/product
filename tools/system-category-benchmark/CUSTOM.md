@@ -169,7 +169,9 @@ instead of replacing their digests. The original runs' digests were backfilled
 after a review audit of execution logs and local source snapshots; predictions,
 weights and measured timings were retained, and evaluations were rerun.
 `golden` needs the #828 System candidate artifacts in `work/runs/` (from
-`run.py deberta xsmall body256` and `run.py deberta mdeberta body512`).
+`run.py deberta xsmall body256` and `run.py deberta mdeberta body512`) and rejects
+System results with an incompatible corpus or shared experiment digest before
+loading those models.
 
 ## Data
 

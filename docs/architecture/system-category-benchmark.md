@@ -162,6 +162,17 @@ All cached evaluations, baselines, agreement, override replays and golden output
 were regenerated and compared with that commit. Measured results and reference
 outputs are unchanged; the source split is not a general cache-migration bypass.
 
+The next OCR pass found that golden-bundle assembly checked Custom provenance
+but omitted the corpus and shared experiment guards for its System results.
+The existing table guard now also runs before loading each System golden model.
+Regression tests reject either stale digest before any model load. Before updating
+the conservative Custom digest, review verified all eleven finite score arrays,
+twenty result records, two adaptation manifests and four frozen weight identities
+against `a1fb52eae`. Only System-result admission and reuse of the existing table
+guard changed; scoring, adaptation, calibration and table formatting are
+unchanged. Reevaluation and golden regeneration retain all measured values and
+reference outputs. This audited guard-only migration adds no general bypass.
+
 ## Extraction inventory
 
 The operational README retains all input fields, token budgets, training settings,
