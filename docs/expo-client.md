@@ -7,8 +7,10 @@ The review agent owns the separate [architecture companion](architecture/expo-cl
 a deterministic Inbox and message detail for iPhone and iPad. The shell is a native
 split view: a Mailboxes sidebar column (**All inboxes**, each Mailbox Connection with
 its Inbox and IMAP folders, and **Account**), the message list with a floating
-search and **New Message** bar, which rises above the software keyboard while its
-search field is in use, and the reader. On iPhone the columns collapse into
+**Filter**, search and **New Message** bar, which rises above the software keyboard while its
+search field is in use, and the reader. Search opens a search mode with **Close Search**
+and a scope choice, and Filter narrows the Inbox
+([search and filters](gmail-inbox.md#searching-saved-mail)). On iPhone the columns collapse into
 one navigation stack that opens on the Inbox, with Mailboxes one Back away. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
@@ -41,7 +43,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   its diagnostics run once through Oxlint. The shared
   [Effect lint policy](agents/effect.md#enforcement) applies to every configuration.
 - Vitest tests the shared core; Jest Expo and React Native Testing Library test
-  message selection and unavailable routes. Fallow scans the root and mobile entry points separately.
+  message selection and unavailable routes. Their animation resolver uses the
+  Reanimated and Worklets JavaScript implementations; native motion still needs
+  device qualification. Fallow scans the root and mobile entry points separately.
 
 One root `pnpm-workspace.yaml` and lockfile manage all packages under
 [ADR 0064](adr/0064-isolate-mobile-and-macos-native-dependencies.md). Shared tooling
@@ -209,7 +213,7 @@ app path limit the run to those devices; without them both devices run in turn. 
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
 these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, the floating search field
-staying above the software keyboard, selecting and replacing a message, and compact
+staying above the software keyboard, a search result under Top Results and Close Search, selecting and replacing a message, and compact
 back navigation. It does not claim hardware keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).

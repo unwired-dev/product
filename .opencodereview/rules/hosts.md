@@ -176,13 +176,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   from the mailbox-scoped Thread projection. `ThreadMessages` must count that
   same projection, or the reader mislabels multi-message conversations.
 
-- `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
+- Mac `inbox.tsx.statusOf` or `headingOf` deriving connectivity only from cached
   Inbox state while an explicit online search reports an `offline` failure.
   Trace the online answer as well as the displayed mailbox states: an unreachable
   server must select the documented Offline subtitle instead of a result count,
   while preserving Syncing precedence. Exercise partial failure, fresh retry and
-  query/scope replacement through the real search store on both hosts; otherwise
-  current cached mail makes a failed online search appear connected.
+  query/scope replacement through the real search store; otherwise current cached
+  mail makes a failed online search appear connected. On iPhone and iPad, where
+  search replaces the subtitle with scope controls under #974, preserve each
+  connection's failure under From mail servers instead of requiring that subtitle.
 
 - `sidebar.tsx.FolderRows` localizing every folder with the inbox role as
   Inbox. Only the reserved normalized `INBOX` name matches `inboxFolder`; other
@@ -190,12 +192,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
   distinct folders appear to be the same Inbox.
 
-- `inbox.tsx.headingOf` retaining the Inbox title while the sidebar selects a
+- `inbox.tsx` retaining the Inbox title while the sidebar selects a
   different IMAP folder. Trace the effective folder from `useImapFolder` into
   the visible and accessible list heading on both hosts, including names with
   embedded newlines and fallback after folder retirement. Otherwise the list
-  labels Archive or another folder's messages as Inbox. Preserve the search
-  title while searching and the aggregate Inbox title for aggregate mail.
+  labels Archive or another folder's messages as Inbox. Preserve the Mac search
+  title while searching, the iPhone/iPad search scope controls under #974, and the
+  aggregate Inbox title for aggregate mail.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
@@ -660,6 +663,23 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Keep the Drafts heading conditional on the same search mode as its rows;
   otherwise received-mail-only search exposes an empty Drafts section to sighted
   and accessibility users. Preserve New Message and storage-recovery controls.
+- `inbox.tsx.Inbox` combining a standalone search-header section with
+  `mailboxes.ts.messageDateSections` without accounting for its empty `saved`
+  fallback. Keep one saved-result header/empty notice and unique section keys
+  with no local matches, including provider-only results; otherwise iPad search
+  duplicates Top Results or its no-matches notice. Exercise both platforms and
+  retain their deliberate day-divider difference.
+- `inbox-filters.tsx.useInboxFilter` treating a saved enabled flag as proof that
+  its settings narrow the current view. Reconcile eligible connections after a
+  scope change or connection removal, and use the effective active state for
+  rows, the bar and filtered-empty copy; otherwise exclusions that no longer
+  apply leave an enabled control labelled Filtered by None. Returning to a scope
+  where the retained settings apply may restore filtering without resetting them.
+- `inbox-rows.tsx.Marked` giving matches the same weight as their unread parent.
+  Compare the surrounding sender and subject with the matched spans in unread
+  search results, not just the nested span's style. Preserve ordinary Inbox
+  unread emphasis; otherwise bold matches have no visible emphasis where mail
+  is unread despite a passing assertion on the span alone.
 - `message-body.tsx.ReceivedAttachments` eagerly mounting a native row/control tree
   for every sender-controlled descriptor. The MIME part limit bounds decoding,
   not acceptable native view count; cap, batch or virtualize before constructing
@@ -802,6 +822,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   component label assertions do not qualify native VoiceOver pronunciation.
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- `inbox-bar.tsx.FilterControl` retaining a sheet-specific `accessibilityHint`
+  after a regular-width layout opens a popover. Trace the destination in compact
+  and regular modes; name the common Filters destination or localize each
+  presentation, or VoiceOver announces the wrong presentation.
+- A primary action such as `inbox-filters.tsx.FiltersSheet` changing its pressed
+  background to `accentInk` while keeping `accentOnFill` text or symbols. Check
+  the held state in both palettes against DESIGN.md's contrast requirements;
+  Dark's light ink token is not a fill for white foregrounds. Preserve the
+  shared primary button's `accentFill` treatment, or the action becomes illegible
+  precisely while it is being activated.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
   not itself `accessible`, such as the Inbox heading row or the composer's top
@@ -815,6 +845,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   but forwards touch and accessibility props to a spinner-sized native view that
   is not an accessibility element unless `accessible`. Put the swipe on a
   full-size wrapper `View` and the action on an `accessible` element.
+  Check modes that replace the ready heading too, such as
+  `inbox-search.tsx.SearchHeading`: move the action to a focused accessible
+  replacement, such as `inbox-bar.tsx.SearchField`, while retaining a reachable
+  swipe carrier, using the search field when the approved layout removes the
+  heading. Keep both entries when mailbox readiness changes during open search;
+  otherwise search removes command entry until Close, despite ordinary Inbox,
+  initial loading and accessibility-only search tests passing.
 - A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
   `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
   every other screen the host mounts for the same state, such as
