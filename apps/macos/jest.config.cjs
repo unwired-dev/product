@@ -10,6 +10,6 @@ module.exports = {
     '^react-native/(.*)$': 'react-native-macos/$1',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(?:.pnpm/)?(?:react-native|@react-native|@private-email|effect|parse5|entities))',
+    'node_modules/(?!(?:.pnpm/)?(?:react-native|@react-native|@private-email|@exodus|effect|parse5|entities))',
   ],
 };

@@ -1,3 +1,7 @@
+import {
+  normalizeEncoding,
+  TextDecoder as LegacyTextDecoder,
+} from '@exodus/bytes/encoding-lite.js';
 import * as Arr from 'effect/Array';
 import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
@@ -673,18 +677,6 @@ export const singleReadablePart = (payload: GmailPart) =>
   wellFormedHeaders(payload) &&
   !outsideBody(payload);
 
-// Windows-1252 differs from ISO-8859-1 only in 0x80–0x9F; browsers treat both labels alike.
-const windows1252 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ';
-const westernLabels = new Set([
-  'iso-8859-1',
-  'latin1',
-  'l1',
-  'windows-1252',
-  'cp1252',
-  'us-ascii',
-  'ascii',
-]);
-
 // Base64url data whose decoded length matches Gmail's declared size.
 export const partBytes = (data: string, size: number | undefined) => {
   const bytes = Base64Url.decode(data);
@@ -695,8 +687,10 @@ export const partBytes = (data: string, size: number | undefined) => {
     : bytes.success;
 };
 
-// Gmail returns part bytes in the part's own charset. A label the host cannot decode falls back
-// to UTF-8, with replacement characters for invalid sequences.
+// Gmail returns part bytes in the part's own charset. Legacy charsets decode through the bundled
+// WHATWG decoder, never a host decoder that may only know UTF-8. UTF-8 and a label the bundled
+// decoder cannot decode, such as a multi-byte CJK charset, decode as UTF-8, with replacement
+// characters for invalid sequences.
 const decodeText = (
   data: string,
   charset: string,
@@ -706,19 +700,16 @@ const decodeText = (
   if (bytes === undefined) {
     return undefined;
   }
-  // Western labels decode here, never through a host decoder that may only know UTF-8.
-  if (westernLabels.has(charset)) {
-    return Array.from(bytes, (byte) =>
-      byte >= 128 && byte < 160
-        ? windows1252.charAt(byte - 128)
-        : String.fromCodePoint(byte),
-    ).join('');
+  const encoding = normalizeEncoding(charset);
+  // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- WHATWG names UTF-8 `utf-8`.
+  if (encoding !== null && encoding !== 'utf-8') {
+    try {
+      return new LegacyTextDecoder(encoding).decode(bytes);
+    } catch {
+      // shortcut: the lite decoder omits multi-byte CJK charsets; adopt `encoding.js` when CJK mail matters.
+    }
   }
-  try {
-    return new TextDecoder(charset).decode(bytes);
-  } catch {
-    return new TextDecoder().decode(bytes);
-  }
+  return new TextDecoder().decode(bytes);
 };
 
 class InvalidBodyEncoding extends Schema.TaggedError<InvalidBodyEncoding>()(
