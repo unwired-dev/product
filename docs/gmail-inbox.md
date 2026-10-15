@@ -515,8 +515,9 @@ outside strings, URL tokens, functions and parenthesis, square-bracket or curly
 blocks, as WebKit reads them; mismatched closing brackets do not end an open
 block. A declaration starts with an identifier and a colon. A declaration with a
 bad string or URL token, or a string the end of the attribute interrupts, is
-removed. A style that nests blocks or functions more than 512 levels deep keeps
-no declarations, so it cannot fail message preparation. `packages/mail-core/test/webkit-css.json` records how macOS WebKit reads
+removed. A declaration that nests blocks or functions more than 512 levels deep is
+removed before parsing; other declarations in the style still apply.
+`packages/mail-core/test/webkit-css.json` records how macOS WebKit reads
 every sanitizer fixture style and adversarial CSS, and a test compares the parsed
 declarations with it. Properties WebKit sets that the parser omits must match a
 reviewed list in `webkit-css.test.ts`, so a newly unaccounted property fails even after
