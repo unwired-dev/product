@@ -1208,6 +1208,11 @@ describe('connected Gmail Inbox', () => {
       ),
     ).toBeVisible();
     expect(screen.queryByText('Lunch on Friday')).toBeNull();
+    // Archived mail in a label has nothing for Archive to remove.
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
 
     await act(async () => {
       await fireEvent.press(

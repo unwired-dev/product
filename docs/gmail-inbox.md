@@ -266,16 +266,16 @@ Gmail's label semantics. These are **Provider Mail Actions** for Gmail only; fut
 IMAP or Microsoft connections need their own actions rather than pretending to match
 Gmail's labels.
 
-| Action                            | Gmail change                                  |
-| --------------------------------- | --------------------------------------------- |
-| **Mark as read** / **unread**     | Removes or adds `UNREAD`                      |
-| **Star** / **Remove star**        | Adds or removes `STARRED`                     |
-| **Archive**                       | Removes `INBOX`                               |
-| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                 |
-| **Report spam**                   | Adds `SPAM`, removes `INBOX`                  |
-| A label checkbox under **Labels** | Adds or removes that label                    |
-| **Move to** a label               | Adds the label, removes `INBOX`, keeps others |
-| **Undo**                          | Reverses the latest removal from the Inbox    |
+| Action                            | Gmail change                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mark as read** / **unread**     | Removes or adds `UNREAD`                                                                                                                 |
+| **Star** / **Remove star**        | Adds or removes `STARRED`                                                                                                                |
+| **Archive**                       | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
+| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                                                                                                            |
+| **Report spam**                   | Adds `SPAM`, removes `INBOX`                                                                                                             |
+| A label checkbox under **Labels** | Adds or removes that label                                                                                                               |
+| **Move to** a label               | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
+| **Undo**                          | Reverses the latest removal from the Inbox                                                                                               |
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar

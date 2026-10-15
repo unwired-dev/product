@@ -199,7 +199,14 @@ export const quickActions = (
           : []),
         ...(view === 'TRASH' || view === 'SPAM'
           ? [gmailAction.restore(view)]
-          : [gmailAction.archive, gmailAction.trash, gmailAction.spam]),
+          : [
+              // A label or All Mail can list mail already out of the Inbox, which Archive cannot move.
+              ...(view === 'INBOX' || message.labels?.includes('INBOX') === true
+                ? [gmailAction.archive]
+                : []),
+              gmailAction.trash,
+              gmailAction.spam,
+            ]),
       ]
     : []
   )
