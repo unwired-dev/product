@@ -113,6 +113,12 @@ constant clarification.
 Figma file define how the maintained clients look and behave. Implement every
 user-visible change according to them.
 
+- For any task involving design, load and follow both the `impeccable` and
+  `apple-design` skills before design planning, implementation or review.
+  Resolve both through the session skill catalogue. If either is missing, follow
+  the [Work](#work) skill discovery, vetting and installation workflow using
+  `rajzik/agent-config@impeccable` or `rajzik/agent-config@apple-design` from
+  [agent-config](https://github.com/rajzik/agent-config).
 - Before changing UI, read DESIGN.md and inspect the matching frames through the
   Figma MCP server: the macOS, iPadOS and iOS pages are organized into numbered
   or platform-prefixed sections (for example "2 · Inbox" or "iPhone · Mail"), each

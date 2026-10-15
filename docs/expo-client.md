@@ -30,7 +30,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
 
-- Expo 57.0.28, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.26.
+- Expo 57.0.29, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.27.
 - Route parameters identify the selected message.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
@@ -79,7 +79,7 @@ and rejected import forms and the [boundary rules](agents/effect.md#enforcement)
 
 ### Compatibility pins
 
-Expo compatibility patches were refreshed on 2026-10-12. Native packages follow Expo 57's exact
+Expo compatibility patches were refreshed on 2026-10-15. Native packages follow Expo 57's exact
 compatibility map, rather than independently upgrading the renderer or native
 peers. Keep the mobile Babel preset within the selected Expo package's declared
 dependency range; [`catalogs.mobile`](../pnpm-workspace.yaml) holds both pins.
