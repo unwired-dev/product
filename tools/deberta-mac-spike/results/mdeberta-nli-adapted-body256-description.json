@@ -1,0 +1,89 @@
+{
+  "run": "mdeberta-nli-adapted-body256-description",
+  "mode": "custom",
+  "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7",
+  "tolerance": {
+    "fp16": 0.02,
+    "int8": 0.05
+  },
+  "convert_seconds": 10.8,
+  "exports": {
+    "fp16": {
+      "package_bytes": 579076796,
+      "compiled_bytes": 579086958,
+      "zipped_compiled_bytes": 530580464,
+      "quantization": null,
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.032704,
+          "decision_changes": [],
+          "python_predict_ms_median": 54.5
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.040871,
+          "decision_changes": [],
+          "python_predict_ms_median": 20.9
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.031181,
+          "decision_changes": [],
+          "python_predict_ms_median": 26.4
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.034585,
+          "decision_changes": [],
+          "python_predict_ms_median": 27.3
+        }
+      }
+    },
+    "int8": {
+      "package_bytes": 292058900,
+      "compiled_bytes": 292072988,
+      "zipped_compiled_bytes": 256588388,
+      "quantization": {
+        "quantized_tensors": 99,
+        "quantized_elements": 287731968,
+        "dense_tensors": [
+          "model_deberta_encoder_layer_0_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_10_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_11_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_1_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_2_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_3_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_4_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_5_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_6_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_7_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_8_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_9_intermediate_dense_bias_to_fp16",
+          "var_249_to_uint16",
+          "var_274_to_uint16"
+        ],
+        "dense_elements": 1609728,
+        "word_embeddings_quantized": true
+      },
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.100022,
+          "decision_changes": [],
+          "python_predict_ms_median": 56.6
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.12122,
+          "decision_changes": [],
+          "python_predict_ms_median": 26.6
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.105735,
+          "decision_changes": [],
+          "python_predict_ms_median": 28.5
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.120327,
+          "decision_changes": [],
+          "python_predict_ms_median": 29.1
+        }
+      }
+    }
+  }
+}

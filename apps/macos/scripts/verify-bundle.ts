@@ -91,6 +91,14 @@ assert.ok(
   !sources.some((source) => /@tiptap|prosemirror-/u.test(source)),
   'Tiptap must stay inside the packaged evaluation page.',
 );
+// Only `categorization-spike` bundles carry spike #831's research page.
+assert.equal(
+  sources.some((source) =>
+    source.endsWith('/src/categorization-spike-page.tsx'),
+  ),
+  scenario === 'categorization-spike',
+  'The categorization spike page must appear only in categorization-spike bundles.',
+);
 process.stdout.write(
   `Verified ${sources.length} Mac sources and shared fixture.\n`,
 );

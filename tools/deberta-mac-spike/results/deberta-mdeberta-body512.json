@@ -1,0 +1,89 @@
+{
+  "run": "deberta-mdeberta-body512",
+  "mode": "system",
+  "weights_sha256": "18b3be73e2a0814fd9df9c85c3307124304168c0bad3b81009cabb513d32a800",
+  "tolerance": {
+    "fp16": 0.02,
+    "int8": 0.05
+  },
+  "convert_seconds": 24.3,
+  "exports": {
+    "fp16": {
+      "package_bytes": 588517056,
+      "compiled_bytes": 588527243,
+      "zipped_compiled_bytes": 529250907,
+      "quantization": null,
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.107192,
+          "decision_changes": [],
+          "python_predict_ms_median": 180.1
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.03253,
+          "decision_changes": [],
+          "python_predict_ms_median": 46.5
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.024699,
+          "decision_changes": [],
+          "python_predict_ms_median": 529.9
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.024699,
+          "decision_changes": [],
+          "python_predict_ms_median": 528.9
+        }
+      }
+    },
+    "int8": {
+      "package_bytes": 301497662,
+      "compiled_bytes": 301511764,
+      "zipped_compiled_bytes": 256264300,
+      "quantization": {
+        "quantized_tensors": 99,
+        "quantized_elements": 287733504,
+        "dense_tensors": [
+          "model_deberta_encoder_layer_0_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_10_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_11_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_1_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_2_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_3_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_4_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_5_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_6_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_7_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_8_intermediate_dense_bias_to_fp16",
+          "model_deberta_encoder_layer_9_intermediate_dense_bias_to_fp16",
+          "var_249_to_uint16",
+          "var_274_to_uint16"
+        ],
+        "dense_elements": 6328320,
+        "word_embeddings_quantized": true
+      },
+      "parity": {
+        "CPU_ONLY": {
+          "max_abs_probability_difference": 0.092246,
+          "decision_changes": [],
+          "python_predict_ms_median": 178.5
+        },
+        "CPU_AND_GPU": {
+          "max_abs_probability_difference": 0.289738,
+          "decision_changes": [],
+          "python_predict_ms_median": 57.7
+        },
+        "CPU_AND_NE": {
+          "max_abs_probability_difference": 0.065027,
+          "decision_changes": [],
+          "python_predict_ms_median": 529.2
+        },
+        "ALL": {
+          "max_abs_probability_difference": 0.065027,
+          "decision_changes": [],
+          "python_predict_ms_median": 558.6
+        }
+      }
+    }
+  }
+}

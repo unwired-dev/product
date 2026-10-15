@@ -62,6 +62,24 @@ manifest.scan(/url: "([^"]+)",\s*revision: "([0-9a-f]{40})"/) do |url, revision|
     target.frameworks_build_phase.add_file_reference(nil).product_ref = product
   end
 end
+# Spike #831: only its Mock Mail Session build compiles the Core ML runner and bundles the models.
+if scenario == 'categorization-spike'
+  spike = project.main_group.new_group('CategorizationSpike', '../../../native/categorization-spike')
+  Dir.glob('../../../native/categorization-spike/{Sources/CategorizationSpike,bridge}/*.{swift,m}').sort.each do |file|
+    target.add_file_references([spike.new_file(file.delete_prefix('../../../native/categorization-spike/'))])
+  end
+  resources = target.new_shell_script_build_phase('Bundle categorization spike')
+  resources.shell_script = <<~SH
+    set -e
+    spike="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CategorizationSpike"
+    mkdir -p "$spike"
+    cp "$SRCROOT/../../../tools/system-category-benchmark/custom/golden-v1.json" "$SRCROOT/../../../tools/system-category-benchmark/custom/categories-v1.json" "$spike/"
+    # Exported by tools/deberta-mac-spike/export.py; without them the page reports the models unavailable.
+    models="$SRCROOT/../../../tools/deberta-mac-spike/work/models"
+    if [ -d "$models" ]; then rsync -a --delete --exclude '*.mlpackage' "$models/" "$spike/models/"; else rm -rf "$spike/models"; fi
+  SH
+  resources.always_out_of_date = '1'
+end
 localization = project.main_group.new_group('Localization', '../../../native/localization')
 target.add_file_references(%w[UnwiredLocalization.m UnwiredLanguagePreferences.m].map { |name| localization.new_file(name) })
 localization.new_file('UnwiredLanguagePreferences.h')
