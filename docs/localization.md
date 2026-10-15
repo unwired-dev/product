@@ -1,7 +1,7 @@
 # Interface translations
 
 The Expo iOS/iPadOS and React Native Mac clients ship English. The **Language**
-control below the Inbox, at the end of the welcome page and in Settings' **Language** offers
+control below the Inbox, at the end of the Sign In and setup pages and in Settings' **Language** offers
 **System default** and **English**, so the language can be chosen before signing in. System default
 matches the device's preferred languages against the shipped catalogs, including
 regional variants, and falls back to English. An explicit selection overrides the

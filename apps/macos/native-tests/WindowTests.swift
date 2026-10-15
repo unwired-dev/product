@@ -33,9 +33,11 @@ final class WindowTests: XCTestCase {
   }
 
   // Selectable keys are native text views holding the grouped characters as their value.
+  // Enrollment codes display their groups separated by spaces so they wrap; Recovery Keys keep
+  // hyphens.
   private func key(groups: Int, in window: XCUIElement) -> XCUIElement {
     window.textViews.matching(
-      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){\(groups - 1)}[0-9A-Z]{4}")
+      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}[- ]){\(groups - 1)}[0-9A-Z]{4}")
     ).firstMatch
   }
 
@@ -50,6 +52,8 @@ final class WindowTests: XCTestCase {
   // This device created the keys; removing the account's iPad first proposes a replacement
   // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
@@ -91,8 +95,10 @@ final class WindowTests: XCTestCase {
 
   // Another device removed this one: the relaunch purges the account and explains it.
   private func revokedJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     first.buttons["Sign in with Google"].click()
-    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(first.buttons["Gmail"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
@@ -106,17 +112,19 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(enrollmentCode(in: resumed).exists)
     XCTAssertTrue(text("Use your Recovery Key", in: resumed).exists)
     XCTAssertTrue(resumed.buttons["Check for approval"].exists)
-    XCTAssertFalse(resumed.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(resumed.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: resumed).exists)
     // Signing out of the gate leaves nothing of the account on this device.
     resumed.buttons["Sign out of this device"].click()
     XCTAssertTrue(text("Your other devices", in: resumed).waitForExistence(timeout: 15))
     resumed.buttons["Sign out of this device"].click()
-    XCTAssertTrue(text("Welcome to Unwired Mail", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Your mail,", in: resumed).waitForExistence(timeout: 15))
   }
 
   // Sign-out keeps nothing of the account on this device; deletion ends the account everywhere.
   private func removalJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let key = recoveryKey(in: first).value as? String ?? ""
@@ -128,12 +136,14 @@ final class WindowTests: XCTestCase {
     first.buttons["Sign out of this device"].click()
     XCTAssertTrue(text("Your other devices", in: first).waitForExistence(timeout: 15))
     first.buttons["Sign out of this device"].click()
-    XCTAssertTrue(text("Welcome to Unwired Mail", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Your mail,", in: first).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
-    XCTAssertTrue(text("Welcome to Unwired Mail", in: resumed).waitForExistence(timeout: 20))
+    XCTAssertTrue(text("Your mail,", in: resumed).waitForExistence(timeout: 20))
     // The keys left with the sign-out, so the account must approve this device again.
+    XCTAssertTrue(resumed.buttons["Continue"].waitForExistence(timeout: 20))
+    resumed.buttons["Continue"].click()
     resumed.buttons["Sign in with Google"].click()
     XCTAssertTrue(text("Approve this device", in: resumed).waitForExistence(timeout: 15))
     XCTAssertFalse(recoveryKey(in: resumed).exists)
@@ -149,11 +159,13 @@ final class WindowTests: XCTestCase {
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
     // Apple identifies the Product Account; Gmail access still needs its own Google grant.
     let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons[signIn].waitForExistence(timeout: 20))
     first.buttons[signIn].click()
-    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(first.buttons["Gmail"].waitForExistence(timeout: 15))
     // Sign-in connects no mailbox; Gmail and Microsoft mail are offered alike.
-    XCTAssertTrue(first.buttons["Connect Microsoft mail"].exists)
+    XCTAssertTrue(first.buttons["Microsoft 365 and Outlook"].exists)
     XCTAssertFalse(text("connected on this device", in: first).exists)
     if apple {
       XCTAssertTrue(text("relay@privaterelay.example.invalid", in: first).exists)
@@ -165,10 +177,10 @@ final class WindowTests: XCTestCase {
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
-    XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    XCTAssertTrue(resumed.buttons["Gmail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
-    resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
+    resumed.buttons[apple ? "Gmail" : "Choose another Google mailbox"].click()
     XCTAssertTrue(text("connected on this device", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
@@ -220,6 +232,8 @@ final class WindowTests: XCTestCase {
   // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
   // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
   private func draftEditorJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
@@ -432,12 +446,14 @@ final class WindowTests: XCTestCase {
   // A new device of an existing account waits until a trusted device approves it; signing in alone
   // admits nothing, so Gmail authorization appears only afterwards.
   private func enrollmentJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(text("Approve this device", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(enrollmentCode(in: first).exists)
     XCTAssertFalse(recoveryKey(in: first).exists)
-    XCTAssertFalse(first.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(first.buttons["Gmail"].exists)
     XCTAssertFalse(first.buttons["Choose another Google mailbox"].exists)
     let mailboxes = "Encrypted mailbox list: alex@example.invalid."
     XCTAssertFalse(text(mailboxes, in: first).exists)
@@ -446,7 +462,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: first).exists)
     // Gmail on this device still needs its own authorization.
-    XCTAssertTrue(first.buttons["Authorize Gmail"].exists)
+    XCTAssertTrue(first.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
@@ -457,11 +473,13 @@ final class WindowTests: XCTestCase {
 
   // Without a trusted device, the Recovery Key admits this device and unlocks the account's keys.
   private func recoveryJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(text("Use your Recovery Key", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(enrollmentCode(in: first).exists)
-    XCTAssertFalse(first.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(first.buttons["Gmail"].exists)
     let mailboxes = "Encrypted mailbox list: alex@example.invalid."
     XCTAssertFalse(text(mailboxes, in: first).exists)
     let entry = first.textFields["Recovery Key"]
@@ -480,7 +498,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text(mailboxes, in: first).exists)
     XCTAssertFalse(enrollmentCode(in: first).exists)
     // Gmail on this device still needs its own authorization.
-    XCTAssertTrue(first.buttons["Authorize Gmail"].exists)
+    XCTAssertTrue(first.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
@@ -491,10 +509,12 @@ final class WindowTests: XCTestCase {
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
     XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Apple"].click()
-    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
-    first.buttons["Authorize Gmail"].click()
+    XCTAssertTrue(first.buttons["Gmail"].waitForExistence(timeout: 15))
+    first.buttons["Gmail"].click()
     XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Only Apple opens this Product Account", in: first).exists)
     first.buttons["Link Google sign-in"].click()
