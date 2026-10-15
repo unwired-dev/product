@@ -1,0 +1,851 @@
+[
+  {
+    "id": "online-purchases",
+    "theme": "shopping",
+    "overlaps_system": ["Orders"],
+    "overlaps": ["bills-to-pay", "refunds-returns"],
+    "en": {
+      "name": "Online purchases",
+      "description": "Order confirmations and receipts for things I buy from online shops.",
+      "paraphrase": "Proof that I bought something on the web: what I ordered, what it cost and that the shop received it."
+    },
+    "cs": {
+      "name": "Nákupy online",
+      "description": "Potvrzení objednávek a účtenky za věci, které kupuji v e-shopech.",
+      "paraphrase": "Doklad, že jsem něco koupil na internetu: co jsem objednal, kolik to stálo a že to obchod přijal."
+    }
+  },
+  {
+    "id": "deliveries",
+    "theme": "shopping",
+    "overlaps_system": ["Orders"],
+    "overlaps": ["online-purchases"],
+    "en": {
+      "name": "Deliveries",
+      "description": "Shipping updates and tracking numbers for packages on their way to me.",
+      "paraphrase": "Notices that a parcel was dispatched, where it is now and when the courier will bring it."
+    },
+    "cs": {
+      "name": "Doručení",
+      "description": "Informace o odeslání a sledovací čísla zásilek, které jsou na cestě ke mně.",
+      "paraphrase": "Oznámení, že balík byl odeslán, kde právě je a kdy ho kurýr přiveze."
+    }
+  },
+  {
+    "id": "refunds-returns",
+    "theme": "shopping",
+    "overlaps_system": ["Orders"],
+    "overlaps": ["online-purchases"],
+    "en": {
+      "name": "Refunds and returns",
+      "description": "Messages about sending goods back and getting my money refunded.",
+      "paraphrase": "Anything about a return I made or money a seller is giving back to me."
+    },
+    "cs": {
+      "name": "Vrácení a refundace",
+      "description": "Zprávy o vrácení zboží a o tom, že mi vracejí peníze.",
+      "paraphrase": "Cokoli o zboží, které jsem vrátil, nebo o penězích, které mi prodejce vrací."
+    }
+  },
+  {
+    "id": "bills-to-pay",
+    "theme": "money",
+    "overlaps_system": ["Orders"],
+    "overlaps": ["utilities", "online-purchases", "payment-problems"],
+    "en": {
+      "name": "Bills to pay",
+      "description": "Invoices and payment requests that I or my company still have to pay, with an amount and a due date.",
+      "paraphrase": "Someone is asking for money we owe: an invoice, an amount due and a deadline."
+    },
+    "cs": {
+      "name": "Účty k zaplacení",
+      "description": "Faktury a výzvy k platbě, které já nebo moje firma ještě musíme zaplatit, s částkou a splatností.",
+      "paraphrase": "Někdo po nás chce peníze, které dlužíme: faktura, dlužná částka a termín."
+    }
+  },
+  {
+    "id": "payment-problems",
+    "theme": "money",
+    "overlaps_system": ["Orders"],
+    "overlaps": ["bills-to-pay", "bank-cards"],
+    "en": {
+      "name": "Payment problems",
+      "description": "Failed, declined or overdue payments that need me to act.",
+      "paraphrase": "A charge did not go through or a payment is late, and I have to fix it."
+    },
+    "cs": {
+      "name": "Problémy s platbou",
+      "description": "Neúspěšné, zamítnuté nebo opožděné platby, které musím vyřešit.",
+      "paraphrase": "Platba neprošla nebo je po splatnosti a musím to napravit."
+    }
+  },
+  {
+    "id": "deals-coupons",
+    "theme": "shopping",
+    "overlaps_system": ["Newsletters & Promotions"],
+    "overlaps": ["loyalty-rewards", "airfare-deals"],
+    "en": {
+      "name": "Deals and coupons",
+      "description": "Sales, discount codes and special offers from shops and brands.",
+      "paraphrase": "Marketing that tries to get me to buy with a lower price or a promo code."
+    },
+    "cs": {
+      "name": "Slevy a kupóny",
+      "description": "Výprodeje, slevové kódy a speciální nabídky od obchodů a značek.",
+      "paraphrase": "Reklama, která mě láká k nákupu nižší cenou nebo promo kódem."
+    }
+  },
+  {
+    "id": "loyalty-rewards",
+    "theme": "shopping",
+    "overlaps_system": ["Newsletters & Promotions"],
+    "overlaps": ["deals-coupons"],
+    "en": {
+      "name": "Loyalty rewards",
+      "description": "Points balances, member rewards and loyalty programme updates.",
+      "paraphrase": "How many points or miles I have collected with a store or programme and what I can redeem."
+    },
+    "cs": {
+      "name": "Věrnostní program",
+      "description": "Stav bodů, odměny pro členy a novinky věrnostních programů.",
+      "paraphrase": "Kolik bodů nebo mil jsem nasbíral u obchodu či programu a za co je můžu vyměnit."
+    }
+  },
+  {
+    "id": "airfare-deals",
+    "theme": "travel",
+    "overlaps_system": ["Newsletters & Promotions"],
+    "overlaps": ["deals-coupons", "flights-booked"],
+    "en": {
+      "name": "Cheap flight offers",
+      "description": "Airline and travel-site marketing about discounted fares, not trips I have booked.",
+      "paraphrase": "Advertised low airfares and travel sales that I have not bought."
+    },
+    "cs": {
+      "name": "Levné letenky",
+      "description": "Reklama aerolinek a cestovních webů na zlevněné letenky, ne cesty, které mám zarezervované.",
+      "paraphrase": "Inzerované levné letenky a cestovní výprodeje, které jsem nekoupil."
+    }
+  },
+  {
+    "id": "flights-booked",
+    "theme": "travel",
+    "overlaps_system": ["Flights"],
+    "overlaps": ["trip-itineraries", "airfare-deals"],
+    "en": {
+      "name": "My flights",
+      "description": "Bookings, e-tickets, check-in, boarding passes and delays for flights I am taking.",
+      "paraphrase": "Everything about a flight I am actually on: ticket, check-in, gate, seat or a schedule change."
+    },
+    "cs": {
+      "name": "Moje lety",
+      "description": "Rezervace, e-letenky, odbavení, palubní lístky a zpoždění letů, kterými letím.",
+      "paraphrase": "Vše o letu, kterým opravdu poletím: letenka, odbavení, gate, sedadlo nebo změna času."
+    }
+  },
+  {
+    "id": "trip-itineraries",
+    "theme": "travel",
+    "overlaps_system": ["Flights"],
+    "overlaps": ["flights-booked"],
+    "en": {
+      "name": "Trip plans",
+      "description": "Itineraries and travel arrangements for a trip, such as flights, hotels, cars and agency bookings, including business travel.",
+      "paraphrase": "The schedule and bookings for a journey someone is making, from a travel agent, an assistant or a booking site."
+    },
+    "cs": {
+      "name": "Plány cest",
+      "description": "Itineráře a cestovní zajištění pro cestu, například lety, hotely, auta a rezervace přes agenturu, včetně služebních cest.",
+      "paraphrase": "Program a rezervace cesty, kterou někdo podniká, od cestovní kanceláře, asistentky nebo rezervačního webu."
+    }
+  },
+  {
+    "id": "event-invitations",
+    "theme": "events",
+    "overlaps_system": ["Invites"],
+    "overlaps": [
+      "parties-social",
+      "work-social",
+      "conferences-speaking",
+      "webinars-online-events",
+      "weddings"
+    ],
+    "en": {
+      "name": "Invitations",
+      "description": "Messages that invite me to a meeting, party or event or ask me to RSVP.",
+      "paraphrase": "Someone wants me to come to something and asks whether I will attend."
+    },
+    "cs": {
+      "name": "Pozvánky",
+      "description": "Zprávy, které mě zvou na schůzku, oslavu nebo akci nebo chtějí potvrzení účasti.",
+      "paraphrase": "Někdo chce, abych na něco přišel, a ptá se, jestli dorazím."
+    }
+  },
+  {
+    "id": "webinars-online-events",
+    "theme": "events",
+    "overlaps_system": ["Invites", "Newsletters & Promotions"],
+    "overlaps": ["event-invitations", "conferences-speaking"],
+    "en": {
+      "name": "Webinars",
+      "description": "Registrations and promotions for webinars and other online events from companies.",
+      "paraphrase": "A company asks me to sign up for a live online session or virtual event."
+    },
+    "cs": {
+      "name": "Webináře",
+      "description": "Registrace a pozvánky firem na webináře a jiné online akce.",
+      "paraphrase": "Firma mě zve, ať se přihlásím na živé online vysílání nebo virtuální akci."
+    }
+  },
+  {
+    "id": "newsletters-reading",
+    "theme": "reading",
+    "overlaps_system": ["Newsletters & Promotions"],
+    "overlaps": ["tech-news", "investing-news"],
+    "en": {
+      "name": "Reading",
+      "description": "Newsletters, digests and editorial articles I subscribed to read later, not sales offers.",
+      "paraphrase": "Subscribed editorial content such as weekly issues, roundups and most-read stories."
+    },
+    "cs": {
+      "name": "Ke čtení",
+      "description": "Newslettery, přehledy a články, které jsem si předplatil ke čtení, ne prodejní nabídky.",
+      "paraphrase": "Odebíraný redakční obsah, například týdenní vydání, souhrny a nejčtenější články."
+    }
+  },
+  {
+    "id": "family-friends",
+    "theme": "personal",
+    "overlaps_system": ["People"],
+    "overlaps": ["photos-memories", "parties-social", "weddings"],
+    "en": {
+      "name": "Family and friends",
+      "description": "Personal messages from relatives and friends about our private lives, not work.",
+      "paraphrase": "Private conversation with people close to me: family news, plans and chat."
+    },
+    "cs": {
+      "name": "Rodina a přátelé",
+      "description": "Osobní zprávy od příbuzných a přátel o našem soukromém životě, ne o práci.",
+      "paraphrase": "Soukromá konverzace s blízkými lidmi: rodinné novinky, plány a povídání."
+    }
+  },
+  {
+    "id": "photos-memories",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": ["family-friends"],
+    "en": {
+      "name": "Photos",
+      "description": "Messages sharing or talking about personal photos from trips, holidays or family events.",
+      "paraphrase": "Someone sends me pictures or discusses the pictures we took together."
+    },
+    "cs": {
+      "name": "Fotky",
+      "description": "Zprávy, ve kterých někdo sdílí osobní fotky z výletů, dovolené nebo rodinných akcí nebo o nich mluví.",
+      "paraphrase": "Někdo mi posílá obrázky nebo mluví o fotkách, které jsme spolu pořídili."
+    }
+  },
+  {
+    "id": "weddings",
+    "theme": "events",
+    "overlaps_system": [],
+    "overlaps": ["event-invitations", "family-friends", "parties-social"],
+    "en": {
+      "name": "Weddings",
+      "description": "Wedding invitations, save-the-dates and wedding planning.",
+      "paraphrase": "Anything about someone getting married: the date, the venue, the RSVP or the preparations."
+    },
+    "cs": {
+      "name": "Svatby",
+      "description": "Svatební oznámení, pozvánky a příprava svatby.",
+      "paraphrase": "Cokoli o tom, že se někdo bere: datum, místo, potvrzení účasti nebo přípravy."
+    }
+  },
+  {
+    "id": "parties-social",
+    "theme": "events",
+    "overlaps_system": [],
+    "overlaps": ["event-invitations", "work-social", "weddings"],
+    "en": {
+      "name": "Parties",
+      "description": "Parties, dinners, drinks and other social get-togethers, private or with colleagues.",
+      "paraphrase": "Plans to celebrate or hang out: a barbecue, a birthday, happy hour or a night out."
+    },
+    "cs": {
+      "name": "Večírky",
+      "description": "Oslavy, večeře, drinky a jiná společenská setkání, soukromá i s kolegy.",
+      "paraphrase": "Plány něco oslavit nebo se sejít: grilovačka, narozeniny, posezení nebo večer venku."
+    }
+  },
+  {
+    "id": "book-recommendations",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": ["club-membership"],
+    "en": {
+      "name": "Book tips",
+      "description": "Recommendations and conversations about books to read.",
+      "paraphrase": "Someone suggests a novel or talks about something they have been reading."
+    },
+    "cs": {
+      "name": "Tipy na knihy",
+      "description": "Doporučení a rozhovory o knihách, které stojí za přečtení.",
+      "paraphrase": "Někdo doporučuje román nebo mluví o tom, co právě čte."
+    }
+  },
+  {
+    "id": "kids-school",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": [],
+    "en": {
+      "name": "School",
+      "description": "Messages from my children's school, teachers or kindergarten about classes, trips, grades and fees.",
+      "paraphrase": "Anything the school or nursery sends about my kids: homework, parent meetings, outings or report cards."
+    },
+    "cs": {
+      "name": "Škola",
+      "description": "Zprávy ze školy, od učitelů nebo ze školky mých dětí o výuce, výletech, známkách a poplatcích.",
+      "paraphrase": "Cokoli, co škola nebo školka posílá o mých dětech: úkoly, třídní schůzky, výlety nebo vysvědčení."
+    }
+  },
+  {
+    "id": "health-appointments",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": [],
+    "en": {
+      "name": "Health",
+      "description": "Doctor, dentist and clinic appointments, test results and prescriptions.",
+      "paraphrase": "Medical messages: a booked visit, a reminder from my GP, lab results or a pharmacy note."
+    },
+    "cs": {
+      "name": "Zdraví",
+      "description": "Objednání k lékaři, zubaři a na kliniku, výsledky vyšetření a recepty.",
+      "paraphrase": "Zdravotní zprávy: domluvená návštěva, připomínka od praktika, výsledky z laboratoře nebo lékárna."
+    }
+  },
+  {
+    "id": "bank-cards",
+    "theme": "money",
+    "overlaps_system": [],
+    "overlaps": ["payment-problems", "account-security", "statements"],
+    "en": {
+      "name": "Banking",
+      "description": "Messages from my bank about my accounts and cards, such as card transactions, transfers, limits and new card notices.",
+      "paraphrase": "My bank tells me what happened on my account or card."
+    },
+    "cs": {
+      "name": "Banka",
+      "description": "Zprávy z mé banky o účtech a kartách, například platby kartou, převody, limity a nové karty.",
+      "paraphrase": "Banka mi oznamuje, co se stalo na mém účtu nebo kartě."
+    }
+  },
+  {
+    "id": "statements",
+    "theme": "money",
+    "overlaps_system": [],
+    "overlaps": ["bank-cards", "bills-to-pay"],
+    "ambiguous_name": true,
+    "en": {
+      "name": "Statements",
+      "description": "Monthly bank, credit card or investment account statements, not press statements.",
+      "paraphrase": "A periodic summary of the transactions and balance on one of my financial accounts."
+    },
+    "cs": {
+      "name": "Výpisy",
+      "description": "Měsíční výpisy z bankovního, kreditního nebo investičního účtu, ne tiskové zprávy.",
+      "paraphrase": "Pravidelný přehled transakcí a zůstatku na některém z mých finančních účtů."
+    }
+  },
+  {
+    "id": "housing-rent",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": ["utilities"],
+    "en": {
+      "name": "Home",
+      "description": "My rent, landlord, mortgage, building management and repairs at home.",
+      "paraphrase": "Things about where I live: the lease, the flat or house, neighbours' meetings and maintenance visits."
+    },
+    "cs": {
+      "name": "Bydlení",
+      "description": "Nájem, pronajímatel, hypotéka, správa domu a opravy doma.",
+      "paraphrase": "Věci kolem toho, kde bydlím: nájemní smlouva, byt či dům, schůze vlastníků a údržba."
+    }
+  },
+  {
+    "id": "utilities",
+    "theme": "money",
+    "overlaps_system": [],
+    "overlaps": ["bills-to-pay", "housing-rent"],
+    "en": {
+      "name": "Utilities",
+      "description": "Electricity, gas, water, internet and phone services for my home, including their bills and outages.",
+      "paraphrase": "My energy, water, broadband or mobile provider writes about my service, usage or invoice."
+    },
+    "cs": {
+      "name": "Energie a služby",
+      "description": "Elektřina, plyn, voda, internet a telefon pro domácnost, včetně vyúčtování a výpadků.",
+      "paraphrase": "Můj dodavatel energií, vody, internetu nebo mobilu píše o službě, spotřebě nebo faktuře."
+    }
+  },
+  {
+    "id": "insurance",
+    "theme": "money",
+    "overlaps_system": [],
+    "overlaps": [],
+    "en": {
+      "name": "Insurance",
+      "description": "Insurance policies, renewals, premiums and claims.",
+      "paraphrase": "My insurer writes about cover, a renewal, a payment or a claim I made."
+    },
+    "cs": {
+      "name": "Pojištění",
+      "description": "Pojistné smlouvy, prodloužení, pojistné a pojistné události.",
+      "paraphrase": "Pojišťovna píše o krytí, prodloužení, platbě nebo události, kterou jsem nahlásil."
+    }
+  },
+  {
+    "id": "taxes",
+    "theme": "money",
+    "overlaps_system": [],
+    "overlaps": [],
+    "en": {
+      "name": "Taxes",
+      "description": "Tax returns, tax office letters, tax payments and documents for my accountant.",
+      "paraphrase": "Anything about filing or paying taxes."
+    },
+    "cs": {
+      "name": "Daně",
+      "description": "Daňová přiznání, dopisy z finančního úřadu, platby daní a podklady pro účetní.",
+      "paraphrase": "Cokoli o podávání přiznání nebo placení daní."
+    }
+  },
+  {
+    "id": "car-service",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": [],
+    "en": {
+      "name": "Car",
+      "description": "My car's service, repairs, inspection, tyres and parking or toll notices.",
+      "paraphrase": "Garage appointments, vehicle checks and anything about keeping my car on the road."
+    },
+    "cs": {
+      "name": "Auto",
+      "description": "Servis, opravy, technická kontrola a pneumatiky mého auta a oznámení o parkování nebo mýtu.",
+      "paraphrase": "Termíny v servisu, kontroly vozidla a cokoli, co se týká provozu mého auta."
+    }
+  },
+  {
+    "id": "job-search",
+    "theme": "career",
+    "overlaps_system": [],
+    "overlaps": ["hr-benefits"],
+    "en": {
+      "name": "Job search",
+      "description": "Job applications, recruiters, interviews and offers, for me or for candidates I am hiring.",
+      "paraphrase": "Messages about getting a job or filling a position: CVs, interview invitations and offers."
+    },
+    "cs": {
+      "name": "Hledání práce",
+      "description": "Žádosti o práci, personalisté, pohovory a nabídky, pro mě nebo pro kandidáty, které nabírám.",
+      "paraphrase": "Zprávy o získání práce nebo obsazení místa: životopisy, pozvánky na pohovor a nabídky."
+    }
+  },
+  {
+    "id": "club-membership",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": [
+      "sports-fitness",
+      "book-recommendations",
+      "volunteering-charity"
+    ],
+    "ambiguous_name": true,
+    "en": {
+      "name": "Club",
+      "description": "News, fees and schedules from a club I belong to, such as a sports, book or hobby club, not nightclubs.",
+      "paraphrase": "My membership in a hobby or sports group: practice times, member fees and club news."
+    },
+    "cs": {
+      "name": "Klub",
+      "description": "Novinky, příspěvky a rozpisy z klubu, jehož jsem členem, například sportovního, čtenářského nebo zájmového, ne nočních klubů.",
+      "paraphrase": "Moje členství v zájmové nebo sportovní skupině: časy tréninků, členské příspěvky a novinky klubu."
+    }
+  },
+  {
+    "id": "sports-fitness",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": ["club-membership"],
+    "en": {
+      "name": "Sports",
+      "description": "Sports I play or follow: training, matches, races, gym and fantasy leagues.",
+      "paraphrase": "Talk about games, teams, workouts or results."
+    },
+    "cs": {
+      "name": "Sport",
+      "description": "Sporty, které hraju nebo sleduju: tréninky, zápasy, závody, posilovna a fantasy ligy.",
+      "paraphrase": "Povídání o zápasech, týmech, cvičení nebo výsledcích."
+    }
+  },
+  {
+    "id": "volunteering-charity",
+    "theme": "personal",
+    "overlaps_system": [],
+    "overlaps": ["club-membership"],
+    "en": {
+      "name": "Charity",
+      "description": "Donations, fundraising and volunteering for good causes.",
+      "paraphrase": "Requests to give money or time to a charity or community cause, and thanks for doing so."
+    },
+    "cs": {
+      "name": "Dobročinnost",
+      "description": "Dary, sbírky a dobrovolnictví pro dobré účely.",
+      "paraphrase": "Žádosti o peníze nebo čas pro charitu či komunitní věc a poděkování za ně."
+    }
+  },
+  {
+    "id": "energy-trading",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["daily-reports", "regulation-policy"],
+    "en": {
+      "name": "Energy trading",
+      "description": "Power and gas trading: deals, positions, prices, schedules and counterparties.",
+      "paraphrase": "Work on buying and selling electricity or natural gas in wholesale markets."
+    },
+    "cs": {
+      "name": "Obchod s energiemi",
+      "description": "Obchodování s elektřinou a plynem: obchody, pozice, ceny, nominace a protistrany.",
+      "paraphrase": "Práce na nákupu a prodeji elektřiny nebo zemního plynu na velkoobchodních trzích."
+    }
+  },
+  {
+    "id": "contracts-legal",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["regulation-policy"],
+    "en": {
+      "name": "Contracts",
+      "description": "Drafting, negotiating, signing and reviewing contracts and other legal agreements.",
+      "paraphrase": "Legal paperwork: agreements, amendments, NDAs, signatures and comments from lawyers."
+    },
+    "cs": {
+      "name": "Smlouvy",
+      "description": "Příprava, vyjednávání, podpis a revize smluv a jiných právních dohod.",
+      "paraphrase": "Právní papírování: dohody, dodatky, NDA, podpisy a připomínky právníků."
+    }
+  },
+  {
+    "id": "regulation-policy",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["energy-trading", "contracts-legal"],
+    "en": {
+      "name": "Regulation",
+      "description": "Government regulators, rulings, filings, hearings and public policy that affect our business.",
+      "paraphrase": "What agencies, courts and lawmakers are deciding and what we file with them."
+    },
+    "cs": {
+      "name": "Regulace",
+      "description": "Regulační úřady, rozhodnutí, podání, slyšení a veřejná politika, které ovlivňují náš byznys.",
+      "paraphrase": "Co rozhodují úřady, soudy a zákonodárci a co jim podáváme."
+    }
+  },
+  {
+    "id": "hr-benefits",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["job-search", "office-announcements"],
+    "en": {
+      "name": "HR",
+      "description": "Human resources topics: benefits, enrollment, payroll, performance reviews, hiring and staff changes.",
+      "paraphrase": "Employment matters handled by human resources, from pay and benefits to new hires and reviews."
+    },
+    "cs": {
+      "name": "Personalistika",
+      "description": "Personální témata: benefity, přihlášky k nim, mzdy, hodnocení výkonu, nábor a personální změny.",
+      "paraphrase": "Pracovní záležitosti, které řeší personální oddělení, od mezd a benefitů po nové kolegy a hodnocení."
+    }
+  },
+  {
+    "id": "account-security",
+    "theme": "it",
+    "overlaps_system": [],
+    "overlaps": ["it-alerts", "bank-cards"],
+    "en": {
+      "name": "Passwords and access",
+      "description": "Password resets, sign-in alerts, login codes and requests for access to systems or accounts.",
+      "paraphrase": "Security of my accounts: verification codes, new sign-ins, credentials and access approvals."
+    },
+    "cs": {
+      "name": "Hesla a přístupy",
+      "description": "Obnovení hesla, upozornění na přihlášení, přihlašovací kódy a žádosti o přístup do systémů nebo účtů.",
+      "paraphrase": "Zabezpečení mých účtů: ověřovací kódy, nová přihlášení, přihlašovací údaje a schvalování přístupů."
+    }
+  },
+  {
+    "id": "it-alerts",
+    "theme": "it",
+    "overlaps_system": [],
+    "overlaps": ["account-security", "daily-reports"],
+    "en": {
+      "name": "System alerts",
+      "description": "Automated monitoring alerts and notices about servers, outages and IT systems.",
+      "paraphrase": "A machine tells us something is down, full or broken."
+    },
+    "cs": {
+      "name": "Systémová upozornění",
+      "description": "Automatická upozornění z monitoringu a oznámení o serverech, výpadcích a IT systémech.",
+      "paraphrase": "Stroj nám hlásí, že něco nefunguje, je plné nebo rozbité."
+    }
+  },
+  {
+    "id": "work-meetings",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["event-invitations", "work-social"],
+    "en": {
+      "name": "Meetings",
+      "description": "Scheduling, agendas, conference calls and notes for work meetings.",
+      "paraphrase": "Arranging or following up on a business meeting or call."
+    },
+    "cs": {
+      "name": "Porady",
+      "description": "Plánování, programy, telefonické konference a zápisy z pracovních schůzek.",
+      "paraphrase": "Domlouvání pracovní schůzky nebo hovoru nebo co z ní vyplynulo."
+    }
+  },
+  {
+    "id": "work-social",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["parties-social", "event-invitations", "work-meetings"],
+    "en": {
+      "name": "Office social",
+      "description": "Lunches, happy hours, receptions, team outings and holiday parties with colleagues.",
+      "paraphrase": "Non-work events with coworkers, like a team lunch or a farewell party."
+    },
+    "cs": {
+      "name": "Firemní akce",
+      "description": "Obědy, posezení, recepce, teambuildingy a vánoční večírky s kolegy.",
+      "paraphrase": "Nepracovní akce s kolegy, například týmový oběd nebo rozlučka."
+    }
+  },
+  {
+    "id": "document-reviews",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["contracts-legal"],
+    "en": {
+      "name": "Reviews",
+      "description": "Requests to review, comment on or approve a document, draft or proposal, and the comments that come back.",
+      "paraphrase": "Someone shares a draft and wants my feedback, or responds to mine."
+    },
+    "cs": {
+      "name": "Připomínky",
+      "description": "Žádosti o kontrolu, připomínkování nebo schválení dokumentu, konceptu či návrhu a odpovědi s komentáři.",
+      "paraphrase": "Někdo sdílí koncept a chce můj názor, nebo reaguje na můj."
+    }
+  },
+  {
+    "id": "office-announcements",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["hr-benefits"],
+    "en": {
+      "name": "Company announcements",
+      "description": "Notices sent to all staff about the company or office, such as closures, policies and organisational news.",
+      "paraphrase": "A broadcast to everyone at work from management or facilities."
+    },
+    "cs": {
+      "name": "Firemní oznámení",
+      "description": "Oznámení všem zaměstnancům o firmě nebo kanceláři, například uzavírky, pravidla a organizační novinky.",
+      "paraphrase": "Hromadná zpráva všem v práci od vedení nebo správy budovy."
+    }
+  },
+  {
+    "id": "daily-reports",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["energy-trading", "it-alerts"],
+    "en": {
+      "name": "Reports",
+      "description": "Recurring business reports and data summaries, often automated, such as daily positions, schedules and executive summaries.",
+      "paraphrase": "A regular report with figures that arrives every day, week or month."
+    },
+    "cs": {
+      "name": "Reporty",
+      "description": "Pravidelné obchodní reporty a souhrny dat, často automatické, například denní pozice, rozpisy a manažerské souhrny.",
+      "paraphrase": "Pravidelný report s čísly, který chodí každý den, týden nebo měsíc."
+    }
+  },
+  {
+    "id": "conferences-speaking",
+    "theme": "events",
+    "overlaps_system": [],
+    "overlaps": [
+      "event-invitations",
+      "webinars-online-events",
+      "training-courses"
+    ],
+    "en": {
+      "name": "Conferences",
+      "description": "Industry conferences, summits and meetups, including invitations to speak or attend.",
+      "paraphrase": "Professional gatherings with talks, and requests that I present at one."
+    },
+    "cs": {
+      "name": "Konference",
+      "description": "Oborové konference, summity a meetupy, včetně pozvání k vystoupení nebo účasti.",
+      "paraphrase": "Odborná setkání s přednáškami a žádosti, abych na nějakém vystoupil."
+    }
+  },
+  {
+    "id": "training-courses",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["conferences-speaking"],
+    "en": {
+      "name": "Training",
+      "description": "Courses, classes and training sessions for learning work skills.",
+      "paraphrase": "Opportunities to learn something new through a course or workshop."
+    },
+    "cs": {
+      "name": "Školení",
+      "description": "Kurzy, lekce a školení pro získání pracovních dovedností.",
+      "paraphrase": "Příležitosti naučit se něco nového v kurzu nebo workshopu."
+    }
+  },
+  {
+    "id": "budgets-expenses",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["bills-to-pay"],
+    "en": {
+      "name": "Budgets",
+      "description": "Budgets, forecasts, expense reports and cost estimates at work.",
+      "paraphrase": "Planning or tracking how much money a team or project spends."
+    },
+    "cs": {
+      "name": "Rozpočty",
+      "description": "Rozpočty, prognózy, vyúčtování výdajů a odhady nákladů v práci.",
+      "paraphrase": "Plánování nebo sledování, kolik peněz utratí tým nebo projekt."
+    }
+  },
+  {
+    "id": "investing-news",
+    "theme": "reading",
+    "overlaps_system": [],
+    "overlaps": ["newsletters-reading"],
+    "en": {
+      "name": "Investing",
+      "description": "Stock market news, investment newsletters and personal finance advice.",
+      "paraphrase": "Content about shares, markets, funds and how to manage my money."
+    },
+    "cs": {
+      "name": "Investice",
+      "description": "Zprávy z akciových trhů, investiční newslettery a rady k osobním financím.",
+      "paraphrase": "Obsah o akciích, trzích, fondech a o tom, jak spravovat peníze."
+    }
+  },
+  {
+    "id": "tech-news",
+    "theme": "reading",
+    "overlaps_system": [],
+    "overlaps": ["newsletters-reading"],
+    "en": {
+      "name": "Tech news",
+      "description": "News and newsletters about technology, gadgets, software and the tech industry.",
+      "paraphrase": "Editorial updates on computers, phones, the internet and tech companies."
+    },
+    "cs": {
+      "name": "Technologické novinky",
+      "description": "Zprávy a newslettery o technologiích, zařízeních, softwaru a technologickém průmyslu.",
+      "paraphrase": "Redakční novinky o počítačích, telefonech, internetu a technologických firmách."
+    }
+  },
+  {
+    "id": "linux-help",
+    "theme": "tech",
+    "overlaps_system": [],
+    "overlaps": ["software-development"],
+    "en": {
+      "name": "Linux",
+      "description": "Questions and answers about installing, configuring and troubleshooting Linux and its hardware.",
+      "paraphrase": "Technical help threads about Linux distributions, drivers, networking or the command line."
+    },
+    "cs": {
+      "name": "Linux",
+      "description": "Dotazy a odpovědi k instalaci, nastavení a řešení problémů s Linuxem a jeho hardwarem.",
+      "paraphrase": "Technická vlákna s pomocí k linuxovým distribucím, ovladačům, síti nebo příkazové řádce."
+    }
+  },
+  {
+    "id": "spam-filtering",
+    "theme": "tech",
+    "overlaps_system": [],
+    "overlaps": ["software-development"],
+    "en": {
+      "name": "Spam filters",
+      "description": "Discussion of spam filtering tools, rules and blocklists.",
+      "paraphrase": "Technical talk about stopping junk mail with filters and scoring."
+    },
+    "cs": {
+      "name": "Spamové filtry",
+      "description": "Diskuse o nástrojích, pravidlech a blokačních seznamech pro filtrování spamu.",
+      "paraphrase": "Technické povídání o tom, jak zastavit nevyžádanou poštu filtry a skórováním."
+    }
+  },
+  {
+    "id": "software-development",
+    "theme": "tech",
+    "overlaps_system": [],
+    "overlaps": ["linux-help", "spam-filtering"],
+    "en": {
+      "name": "Coding",
+      "description": "Writing and maintaining software: code, bugs, builds, releases and commits.",
+      "paraphrase": "Programming work and discussion among developers."
+    },
+    "cs": {
+      "name": "Programování",
+      "description": "Psaní a údržba softwaru: kód, chyby, sestavení, vydání a commity.",
+      "paraphrase": "Programátorská práce a diskuse mezi vývojáři."
+    }
+  },
+  {
+    "id": "mailing-list-admin",
+    "theme": "tech",
+    "overlaps_system": [],
+    "overlaps": ["account-security"],
+    "en": {
+      "name": "List admin",
+      "description": "Administrative messages about my mailing list memberships, such as subscription reminders, confirmations and posting policies.",
+      "paraphrase": "Housekeeping from a mailing list itself rather than a discussion post."
+    },
+    "cs": {
+      "name": "Správa konferencí",
+      "description": "Administrativní zprávy o mých členstvích v e-mailových konferencích, například připomínky odběru, potvrzení a pravidla pro příspěvky.",
+      "paraphrase": "Organizační zprávy samotné konference, ne diskusní příspěvek."
+    }
+  },
+  {
+    "id": "project-updates",
+    "theme": "work",
+    "overlaps_system": [],
+    "overlaps": ["daily-reports", "work-meetings"],
+    "ambiguous_name": true,
+    "en": {
+      "name": "Updates",
+      "description": "Status updates from colleagues on a shared project or deal, not newsletters or software updates.",
+      "paraphrase": "A coworker tells the team how a piece of work is progressing and what comes next."
+    },
+    "cs": {
+      "name": "Novinky",
+      "description": "Informace od kolegů o stavu společného projektu nebo obchodu, ne newslettery ani aktualizace softwaru.",
+      "paraphrase": "Kolega informuje tým, jak práce postupuje a co bude dál."
+    }
+  }
+]

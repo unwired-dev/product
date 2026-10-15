@@ -1,0 +1,150 @@
+{"id": "enron:<17302842.1075862044141.JavaMail.evans@thyme>", "categories": ["deals-coupons"]}
+{"id": "synthetic:custom-cs-insurance-0:1", "categories": ["insurance"]}
+{"id": "synthetic:cs-newsletters-5:20", "categories": ["deals-coupons", "loyalty-rewards"]}
+{"id": "synthetic:en-overlap-orders-flights-2:16", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<11914509.1075852296420.JavaMail.evans@thyme>", "categories": ["daily-reports"]}
+{"id": "synthetic:custom-cs-housing-rent-0:0", "categories": ["housing-rent"]}
+{"id": "synthetic:en-overlap-invites-newsletters-2:16", "categories": ["event-invitations", "conferences-speaking"]}
+{"id": "spamassassin:hard_ham/00064.a80b45bb0339ed948bbbd968c074c60e", "categories": ["mailing-list-admin"]}
+{"id": "spamassassin:hard_ham/00228.0eaef7857bbbf3ebf5edbbdae2b30493", "categories": ["mailing-list-admin"]}
+{"id": "enron:<28243750.1075852771930.JavaMail.evans@thyme>", "categories": ["family-friends"]}
+{"id": "enron:<11977000.1075842236946.JavaMail.evans@thyme>", "categories": ["trip-itineraries", "conferences-speaking"]}
+{"id": "enron:<3267952.1075845079268.JavaMail.evans@thyme>", "categories": ["daily-reports", "project-updates"]}
+{"id": "spamassassin:easy_ham/01157.4717355611939c9adc6f999948fcc975", "categories": ["linux-help", "software-development"]}
+{"id": "enron:<19124376.1075855408289.JavaMail.evans@thyme>", "categories": ["energy-trading", "daily-reports"]}
+{"id": "synthetic:en-invites-5:21", "categories": ["event-invitations", "conferences-speaking"]}
+{"id": "enron:<32649191.1075845004188.JavaMail.evans@thyme>", "categories": ["event-invitations", "parties-social", "work-social"]}
+{"id": "enron:<14569097.1075860825788.JavaMail.evans@thyme>", "categories": ["volunteering-charity"]}
+{"id": "synthetic:cs-hard-not-people-1:20", "categories": ["deals-coupons"]}
+{"id": "enron:<172236.1075860205952.JavaMail.evans@thyme>", "categories": ["flights-booked", "trip-itineraries", "family-friends"]}
+{"id": "enron:<11835569.1075844997030.JavaMail.evans@thyme>", "categories": []}
+{"id": "synthetic:en-hard-people-1:3", "categories": ["family-friends"]}
+{"id": "enron:<29129210.1075840498721.JavaMail.evans@thyme>", "categories": []}
+{"id": "enron:<32482853.1075854720064.JavaMail.evans@thyme>", "categories": ["sports-fitness"]}
+{"id": "synthetic:custom-en-kids-school-0:4", "categories": ["bills-to-pay", "kids-school"]}
+{"id": "spamassassin:hard_ham/00242.fc258e3fb7c6c86571243691e28c1921", "categories": ["deals-coupons", "tech-news"]}
+{"id": "synthetic:en-orders-5:21", "categories": ["payment-problems"]}
+{"id": "spamassassin:hard_ham/00188.ca158386faba622ccc6513fb41f10c5f", "categories": ["event-invitations", "newsletters-reading", "parties-social", "tech-news"]}
+{"id": "enron:<27438553.1075856550855.JavaMail.evans@thyme>", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<22610076.1075842238374.JavaMail.evans@thyme>", "categories": []}
+{"id": "spamassassin:hard_ham/00146.d0be2bddfe040fcd582b9cffe3116cb9", "categories": ["newsletters-reading", "investing-news", "tech-news"]}
+{"id": "spamassassin:hard_ham/00018.75bf8472753f24aa22df72c7301e07ec", "categories": ["newsletters-reading", "tech-news"]}
+{"id": "enron:<30969369.1075858930296.JavaMail.evans@thyme>", "categories": ["family-friends"]}
+{"id": "enron:<16501709.1075840507643.JavaMail.evans@thyme>", "categories": ["job-search", "hr-benefits"]}
+{"id": "enron:<23302537.1075862850812.JavaMail.evans@thyme>", "categories": ["energy-trading", "contracts-legal", "document-reviews"]}
+{"id": "synthetic:en-invites-4:15", "categories": ["event-invitations", "parties-social", "work-social"]}
+{"id": "enron:<29789606.1075858513250.JavaMail.evans@thyme>", "categories": ["energy-trading", "document-reviews"]}
+{"id": "synthetic:en-flights-4:23", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<18389470.1075853119659.JavaMail.evans@thyme>", "categories": []}
+{"id": "spamassassin:easy_ham_2/01009.49e0775eca368702b005aec33ae46943", "categories": ["spam-filtering"]}
+{"id": "enron:<11382548.1075856197405.JavaMail.evans@thyme>", "categories": ["event-invitations"]}
+{"id": "enron:<26941364.1075859456721.JavaMail.evans@thyme>", "categories": []}
+{"id": "enron:<32996061.1075846984888.JavaMail.evans@thyme>", "categories": []}
+{"id": "synthetic:cs-hard-not-people-1:23", "categories": ["deals-coupons"]}
+{"id": "synthetic:custom-en-taxes-0:3", "categories": ["taxes"]}
+{"id": "enron:<14129665.1075845161571.JavaMail.evans@thyme>", "categories": ["deals-coupons", "airfare-deals"]}
+{"id": "spamassassin:easy_ham/00569.d6da87140fd0ef187bcf217a57153cca", "categories": []}
+{"id": "synthetic:en-invites-4:21", "categories": ["event-invitations", "parties-social", "work-social"]}
+{"id": "synthetic:custom-en-utilities-1:3", "categories": ["utilities", "it-alerts"]}
+{"id": "synthetic:en-flights-4:18", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "spamassassin:easy_ham/01587.574845236697b5ca4b2133ec681b224a", "categories": ["spam-filtering", "software-development"]}
+{"id": "enron:<7608442.1075840324990.JavaMail.evans@thyme>", "categories": ["event-invitations", "family-friends", "weddings", "parties-social"]}
+{"id": "spamassassin:hard_ham/00041.aee0699a14f472a43d9a9d178aa21d70", "categories": ["newsletters-reading", "tech-news"]}
+{"id": "spamassassin:easy_ham_2/01338.cf2b7a6c2f872b9442d68609842d7d92", "categories": ["spam-filtering", "software-development"]}
+{"id": "spamassassin:hard_ham/00207.3220a87d3a67fa61c448256e39017ea5", "categories": ["sports-fitness"]}
+{"id": "synthetic:cs-hard-not-people-1:10", "categories": ["deals-coupons"]}
+{"id": "enron:<14918741.1075863615216.JavaMail.evans@thyme>", "categories": ["car-service", "hr-benefits"]}
+{"id": "enron:<9731850.1075841548251.JavaMail.evans@thyme>", "categories": ["account-security"]}
+{"id": "synthetic:custom-en-taxes-1:1", "categories": ["taxes"]}
+{"id": "synthetic:en-overlap-invites-newsletters-2:20", "categories": ["event-invitations", "conferences-speaking"]}
+{"id": "spamassassin:hard_ham/00059.ad3ed6777e73773ebd7ee5455e6a43e3", "categories": ["newsletters-reading", "tech-news", "spam-filtering"]}
+{"id": "synthetic:cs-invites-4:20", "categories": ["event-invitations", "family-friends", "parties-social"]}
+{"id": "synthetic:cs-newsletters-5:4", "categories": ["deals-coupons", "loyalty-rewards"]}
+{"id": "synthetic:en-hard-not-people-1:17", "categories": ["deals-coupons"]}
+{"id": "enron:<9906328.1075859956664.JavaMail.evans@thyme>", "categories": ["energy-trading", "contracts-legal", "document-reviews"]}
+{"id": "spamassassin:hard_ham/00123.d9456f172d3424987c46cb49b7b6b012", "categories": ["newsletters-reading", "tech-news"]}
+{"id": "enron:<31781369.1075845017404.JavaMail.evans@thyme>", "categories": []}
+{"id": "enron:<16007468.1075857756032.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "enron:<25378186.1075841346684.JavaMail.evans@thyme>", "categories": ["account-security"]}
+{"id": "enron:<12455761.1075840449425.JavaMail.evans@thyme>", "categories": ["software-development", "project-updates"]}
+{"id": "enron:<28434679.1075840740436.JavaMail.evans@thyme>", "categories": ["parties-social"]}
+{"id": "enron:<14150779.1075846959273.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "spamassassin:hard_ham/00245.ad6a6e01bee8f1d84541fb127a86e31f", "categories": ["deals-coupons"]}
+{"id": "synthetic:en-orders-4:4", "categories": ["refunds-returns"]}
+{"id": "enron:<26201691.1075853016316.JavaMail.evans@thyme>", "categories": ["budgets-expenses"]}
+{"id": "synthetic:en-newsletters-5:1", "categories": ["deals-coupons", "loyalty-rewards"]}
+{"id": "enron:<9101643.1075860205976.JavaMail.evans@thyme>", "categories": ["flights-booked", "trip-itineraries", "family-friends"]}
+{"id": "enron:<14666552.1075853121263.JavaMail.evans@thyme>", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "spamassassin:easy_ham/00570.d98ca90ac201b5d881f2397c95838eb2", "categories": ["newsletters-reading"]}
+{"id": "synthetic:en-flights-5:3", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "synthetic:en-orders-4:12", "categories": ["refunds-returns"]}
+{"id": "enron:<26705251.1075840350236.JavaMail.evans@thyme>", "categories": ["event-invitations"]}
+{"id": "enron:<5519577.1075858765880.JavaMail.evans@thyme>", "categories": ["trip-itineraries"]}
+{"id": "spamassassin:easy_ham/00696.767a9ee8575785978ea5174d3ad3ee26", "categories": []}
+{"id": "enron:<11006692.1075852542724.JavaMail.evans@thyme>", "categories": ["online-purchases"]}
+{"id": "spamassassin:hard_ham/00005.34bcaad58ad5f598f5d6af8cfa0c0465", "categories": ["newsletters-reading", "tech-news"]}
+{"id": "enron:<22555077.1075861327839.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "enron:<588283.1075841670689.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "enron:<18207993.1075841615812.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "enron:<28989192.1075861439666.JavaMail.evans@thyme>", "categories": ["deals-coupons"]}
+{"id": "synthetic:custom-en-insurance-0:1", "categories": ["insurance"]}
+{"id": "synthetic:en-flights-4:6", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<1821855.1075840581792.JavaMail.evans@thyme>", "categories": ["deals-coupons", "airfare-deals"]}
+{"id": "spamassassin:easy_ham/01791.e4725d74c9e65532740c0939f407c063", "categories": ["newsletters-reading"]}
+{"id": "spamassassin:easy_ham/00670.be029e37187b8615a231865e3663dcf9", "categories": []}
+{"id": "synthetic:custom-cs-utilities-1:4", "categories": ["utilities", "it-alerts"]}
+{"id": "enron:<18725391.1075853136975.JavaMail.evans@thyme>", "categories": []}
+{"id": "enron:<27454414.1075848308112.JavaMail.evans@thyme>", "categories": ["regulation-policy", "work-meetings"]}
+{"id": "spamassassin:easy_ham/00843.0c778329d09499853d99746d0f6f2dc1", "categories": []}
+{"id": "spamassassin:easy_ham/01684.94ca5ccaec9be05c252bf32961a86a3d", "categories": ["spam-filtering", "software-development"]}
+{"id": "spamassassin:easy_ham_2/00425.1af406dc2ac12d1d5140a6ee5fb75231", "categories": ["linux-help"]}
+{"id": "synthetic:custom-en-car-service-1:0", "categories": ["car-service"]}
+{"id": "synthetic:cs-hard-not-people-2:1", "categories": ["deals-coupons", "airfare-deals"]}
+{"id": "spamassassin:hard_ham/00185.b30a53aad9d675993a9cec62cf515f2a", "categories": []}
+{"id": "synthetic:cs-orders-4:19", "categories": ["refunds-returns"]}
+{"id": "spamassassin:hard_ham/00173.493449c83919771888e79bea2f0b4ac2", "categories": ["newsletters-reading"]}
+{"id": "synthetic:en-overlap-orders-flights-2:3", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<4209675.1075848318887.JavaMail.evans@thyme>", "categories": []}
+{"id": "synthetic:custom-cs-volunteering-charity-0:0", "categories": ["volunteering-charity"]}
+{"id": "enron:<7355163.1075842222528.JavaMail.evans@thyme>", "categories": ["contracts-legal", "project-updates"]}
+{"id": "spamassassin:hard_ham/00181.01c5d96083c6e7770b1704791cf4bb3e", "categories": ["newsletters-reading", "tech-news"]}
+{"id": "synthetic:cs-flights-4:5", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<24303923.1075845080485.JavaMail.evans@thyme>", "categories": ["event-invitations", "parties-social", "work-social"]}
+{"id": "synthetic:cs-overlap-invites-newsletters-1:18", "categories": ["deals-coupons", "event-invitations", "parties-social"]}
+{"id": "enron:<27130175.1075854987059.JavaMail.evans@thyme>", "categories": ["trip-itineraries", "family-friends", "sports-fitness"]}
+{"id": "enron:<13985987.1075859932809.JavaMail.evans@thyme>", "categories": ["online-purchases"]}
+{"id": "synthetic:en-flights-5:10", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<9546685.1075860810485.JavaMail.evans@thyme>", "categories": ["volunteering-charity"]}
+{"id": "spamassassin:easy_ham/00826.6ab31aba455701b24c69fd1f6dd59184", "categories": []}
+{"id": "enron:<9364209.1075855111444.JavaMail.evans@thyme>", "categories": ["online-purchases"]}
+{"id": "synthetic:custom-en-project-updates-2:1", "categories": ["project-updates"]}
+{"id": "enron:<25569198.1075846199530.JavaMail.evans@thyme>", "categories": ["event-invitations", "work-meetings", "training-courses"]}
+{"id": "enron:<26699741.1075856733840.JavaMail.evans@thyme>", "categories": ["trip-itineraries", "document-reviews"]}
+{"id": "spamassassin:hard_ham/00206.50203232b4a56887be213f8d9a5f6e4f", "categories": ["newsletters-reading"]}
+{"id": "enron:<2349341.1075853414320.JavaMail.evans@thyme>", "categories": ["budgets-expenses"]}
+{"id": "enron:<10973212.1075845635408.JavaMail.evans@thyme>", "categories": ["contracts-legal", "document-reviews"]}
+{"id": "enron:<7066086.1075852843363.JavaMail.evans@thyme>", "categories": ["family-friends"]}
+{"id": "enron:<32583153.1075852941971.JavaMail.evans@thyme>", "categories": ["deals-coupons", "sports-fitness"]}
+{"id": "synthetic:custom-en-statements-0:3", "categories": ["bank-cards", "statements"]}
+{"id": "synthetic:cs-orders-5:20", "categories": ["payment-problems"]}
+{"id": "enron:<3798972.1075841224604.JavaMail.evans@thyme>", "categories": ["energy-trading"]}
+{"id": "synthetic:en-flights-4:4", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<33223738.1075841346397.JavaMail.evans@thyme>", "categories": ["newsletters-reading", "investing-news"]}
+{"id": "synthetic:custom-en-club-membership-2:1", "categories": ["bills-to-pay", "club-membership", "sports-fitness"]}
+{"id": "spamassassin:hard_ham/00195.892bab5152116f1fb3f1f0660135f193", "categories": ["newsletters-reading"]}
+{"id": "synthetic:cs-newsletters-4:0", "categories": ["newsletters-reading"]}
+{"id": "synthetic:en-newsletters-5:7", "categories": ["deals-coupons", "loyalty-rewards"]}
+{"id": "enron:<26268210.1075859809797.JavaMail.evans@thyme>", "categories": ["newsletters-reading"]}
+{"id": "enron:<4194676.1075860371034.JavaMail.evans@thyme>", "categories": ["energy-trading", "regulation-policy"]}
+{"id": "synthetic:cs-invites-5:8", "categories": ["event-invitations", "conferences-speaking"]}
+{"id": "enron:<9579648.1075858471600.JavaMail.evans@thyme>", "categories": ["event-invitations", "work-meetings"]}
+{"id": "spamassassin:easy_ham_2/00746.f4c184425d9abb4a1c916e664ffc2199", "categories": ["newsletters-reading"]}
+{"id": "enron:<13173372.1075858513029.JavaMail.evans@thyme>", "categories": ["energy-trading", "regulation-policy", "document-reviews"]}
+{"id": "synthetic:en-orders-4:18", "categories": ["refunds-returns"]}
+{"id": "enron:<26151951.1075861036626.JavaMail.evans@thyme>", "categories": ["investing-news"]}
+{"id": "synthetic:custom-cs-project-updates-1:5", "categories": ["it-alerts"]}
+{"id": "enron:<9016005.1075846188102.JavaMail.evans@thyme>", "categories": ["newsletters-reading", "energy-trading", "regulation-policy"]}
+{"id": "synthetic:custom-en-volunteering-charity-1:0", "categories": ["event-invitations", "volunteering-charity"]}
+{"id": "spamassassin:hard_ham/00220.11f0abf371588687744d151b46903087", "categories": ["book-recommendations"]}
+{"id": "synthetic:cs-overlap-orders-flights-2:13", "categories": ["flights-booked", "trip-itineraries"]}
+{"id": "enron:<7836560.1075841955195.JavaMail.evans@thyme>", "categories": ["deals-coupons", "loyalty-rewards", "airfare-deals"]}

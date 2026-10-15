@@ -1,0 +1,37 @@
+{
+ "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+ "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+ "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+ "labels_sha256": "a0bf68ddc1995d11f4e8c70ef95fef9872ab1e80fcda7ae097b9f6a4d436720b",
+ "run": "overrides-xsmall-zs-adapted-body256-description",
+ "thresholds": {
+  "en": 0.71,
+  "cs": 0.85
+ },
+ "slices": {
+  "real": {
+   "messages": 332,
+   "signals": {
+    "positive": 199,
+    "negative": 170
+   },
+   "decisions_changed_by_signals": 133,
+   "changed_decisions_correct": 55,
+   "earlier_assignments_left_unchanged": 427,
+   "micro_f1_model_only": 0.37318840579710144,
+   "micro_f1_with_signals": 0.42967542503863987
+  },
+  "synthetic": {
+   "messages": 506,
+   "signals": {
+    "positive": 47,
+    "negative": 96
+   },
+   "decisions_changed_by_signals": 664,
+   "changed_decisions_correct": 628,
+   "earlier_assignments_left_unchanged": 483,
+   "micro_f1_model_only": 0.4962302947224126,
+   "micro_f1_with_signals": 0.8953913679590344
+  }
+ }
+}
