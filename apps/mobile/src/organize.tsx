@@ -524,7 +524,6 @@ function ImapMessageActions({
                             }))}
                           limited={undefined}
                           onMove={(destination) => {
-                            setPanel(undefined);
                             act({ kind: 'move', destination });
                           }}
                           onClose={() => {
@@ -704,7 +703,6 @@ function GmailMessageActions({
                         : undefined
                     }
                     onMove={(destination) => {
-                      setPanel(undefined);
                       act(gmailAction.move(destination));
                     }}
                     onClose={() => {

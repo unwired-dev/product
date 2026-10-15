@@ -1,5 +1,5 @@
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
   Keyboard,
@@ -90,7 +90,7 @@ type Destination = Readonly<{
 
 // iPhone's Move picker for a mailbox whose messages live in one folder. It grows out of the Move
 // button: the mailbox, the message, its folders with the current one unavailable, and a search
-// below them. Moving closes it.
+// below them. Moving closes it, then moves once it has shrunk away.
 export function MoveSheet({
   open,
   origin,
@@ -134,6 +134,17 @@ export function MoveSheet({
     };
   }, [height]);
   const motion = useMenuMotion(open, 'grow');
+  const pending = useRef<
+    Readonly<{ message: typeof message; id: string }> | undefined
+  >(undefined);
+  const owner = useRef<typeof message | undefined>(undefined);
+  useLayoutEffect(() => {
+    owner.current = message;
+    return () => {
+      owner.current = undefined;
+      pending.current = undefined;
+    };
+  }, [message]);
   const landscapeKeyboard = keyboardHeight > 0 && width > height;
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState<string>();
@@ -152,15 +163,24 @@ export function MoveSheet({
   const note = (text: string) => (
     <Text style={[styles.note, { color: colors.textSecondary }]}>{text}</Text>
   );
-  if (!motion.shown) {
-    return null;
-  }
   return (
     <Modal
-      visible
+      visible={motion.shown}
       transparent
       animationType="none"
       onRequestClose={onClose}
+      // Moving closes the reader, which would cut the picker's exit short.
+      onDismiss={() => {
+        const selected = pending.current;
+        pending.current = undefined;
+        if (
+          !open &&
+          owner.current === message &&
+          selected?.message === message
+        ) {
+          onMove(selected.id);
+        }
+      }}
       supportedOrientations={[
         'portrait',
         'portrait-upside-down',
@@ -308,7 +328,15 @@ export function MoveSheet({
                         setFocused(destination.id);
                       }}
                       onPress={() => {
-                        onMove(destination.id);
+                        if (
+                          !open ||
+                          owner.current !== message ||
+                          pending.current !== undefined
+                        ) {
+                          return;
+                        }
+                        pending.current = { message, id: destination.id };
+                        onClose();
                       }}
                       style={({ pressed }) => [
                         styles.row,
