@@ -86,6 +86,7 @@ const styles = StyleSheet.create({
   },
   pillMenu: {
     position: 'absolute',
+    zIndex: 4,
     right: spacing.l,
     bottom: 64,
     minWidth: 240,

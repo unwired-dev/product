@@ -520,6 +520,11 @@ final class InboxTests: XCTestCase {
     landscape.name = "Evaluation editor rotated"
     landscape.lifetime = .keepAlways
     add(landscape)
+    // A floating menu can cover the header in landscape; its actions must receive those taps.
+    menuControl("Rewrite the message body", from: "Writing tools", in: app).tap()
+    XCTAssertTrue(app.buttons["Replace your text with this rewrite"].waitForExistence(timeout: 20))
+    XCTAssertFalse(app.staticTexts["Add a recipient before sending."].exists)
+    app.buttons["Keep your text and close this suggestion"].tap()
     XCUIDevice.shared.orientation = .portrait
     let restored = NSPredicate { _, _ in app.webViews.firstMatch.frame.width == portrait.width }
     XCTAssertEqual(

@@ -13,3 +13,5 @@ The draft-editor message API replaces `decodeUpdate` with `decodeMessage`, which
 The Mac save question keeps background composer controls inactive and hidden from assistive technology, with keyboard focus retained in its choices until Save, Don’t Save or Cancel.
 
 Save and Send feedback, errors and assistance reviews scroll with the evaluation composer's content so they do not take space permanently from the body in a short window or above the keyboard.
+
+iPhone floating menus receive taps when they extend over the composer header in landscape.

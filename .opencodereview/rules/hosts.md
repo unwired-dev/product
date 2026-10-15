@@ -435,6 +435,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   iPhone above-keyboard format bar are deliberate exceptions. Do not apply the
   superseded header-only-fixed constraint to those controls.
 
+- Mobile `evaluation-composer.tsx` mounting `PhoneControls` inside a container
+  bounded to the body and fields, or stacking its menu below the header. Verify rows that overlap the
+  fixed header in landscape with the keyboard open receive native taps;
+  visible overflow alone does not prove hit testing. Otherwise selecting Rewrite
+  can activate Send underneath it.
+
 - `Editor.close` catching failure only through `createComposerNavigation.leave`.
   The Close button also calls it directly as `void close()`: catch unexpected
   rejection from both `save` and empty-only `discard`, keep the editor open,

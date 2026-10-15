@@ -538,65 +538,65 @@ function EvaluationEditor({
         enabled={layout.avoidKeyboard}
         keyboardVerticalOffset={layout.top}
         style={s.fill}>
-        <EditorHeader
-          subject={draft.subject}
-          busy={closing === 'saving'}
-          closeOpen={open === 'close'}
-          sender={
-            <SendingMailbox
-              draft={draft}
-              editable={closing !== 'saving' && !sending}
-              onChange={(mailbox) => {
-                change(withSender(authored.current, mailbox));
-              }}
-            />
-          }
-          expanded={expanded}
-          onExpand={onExpand}
-          onClose={() => {
-            if (open === 'close') {
-              setOpen(undefined);
-            } else {
-              void close();
-            }
-          }}
-          onSend={() => {
-            void send();
-          }}
-        />
-        {/* Delete Draft and Save Draft grow out of Close. */}
-        {open === 'close' ? (
-          <View
-            accessibilityRole="menu"
-            style={styles.closeMenu}>
-            <GlassPanel>
-              <MenuItem
-                destructive
-                label={t('drafts.deleteDraft')}
-                selected={false}
-                onPress={() => {
-                  void deleteDraft();
-                }}
-              />
-              <MenuItem
-                label={t('drafts.saveDraft')}
-                selected={false}
-                onPress={() => {
-                  void saveDraft();
-                }}
-              />
-            </GlassPanel>
-          </View>
-        ) : null}
-        {layout.size === 'regular' && shown !== undefined ? (
-          <PadFormatBar
-            page={shown}
-            {...controls}
-          />
-        ) : null}
-        {/* The body, files and fields scroll together when the keyboard leaves them too little
-            room, as in landscape; the iPhone controls float over them above the keyboard. */}
         <View style={s.fill}>
+          <EditorHeader
+            subject={draft.subject}
+            busy={closing === 'saving'}
+            closeOpen={open === 'close'}
+            sender={
+              <SendingMailbox
+                draft={draft}
+                editable={closing !== 'saving' && !sending}
+                onChange={(mailbox) => {
+                  change(withSender(authored.current, mailbox));
+                }}
+              />
+            }
+            expanded={expanded}
+            onExpand={onExpand}
+            onClose={() => {
+              if (open === 'close') {
+                setOpen(undefined);
+              } else {
+                void close();
+              }
+            }}
+            onSend={() => {
+              void send();
+            }}
+          />
+          {/* Delete Draft and Save Draft grow out of Close. */}
+          {open === 'close' ? (
+            <View
+              accessibilityRole="menu"
+              style={styles.closeMenu}>
+              <GlassPanel>
+                <MenuItem
+                  destructive
+                  label={t('drafts.deleteDraft')}
+                  selected={false}
+                  onPress={() => {
+                    void deleteDraft();
+                  }}
+                />
+                <MenuItem
+                  label={t('drafts.saveDraft')}
+                  selected={false}
+                  onPress={() => {
+                    void saveDraft();
+                  }}
+                />
+              </GlassPanel>
+            </View>
+          ) : null}
+          {layout.size === 'regular' && shown !== undefined ? (
+            <PadFormatBar
+              page={shown}
+              {...controls}
+            />
+          ) : null}
+          {/* The body, files and fields scroll together when the keyboard leaves them too little
+            room, as in landscape; the iPhone controls float over them above the keyboard. */}
           <ScrollView
             contentContainerStyle={[
               styles.scroll,
