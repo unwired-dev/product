@@ -804,6 +804,9 @@ describe('product registration', () => {
     const exits: Array<() => void> = [];
     jest.mocked(Animated.timing).mockImplementation((value, { toValue }) => ({
       start: (complete) => {
+        // Menu motion animates a single value to a number.
+        assert.ok(value instanceof Animated.Value);
+        assert.ok(typeof toValue === 'number');
         exits.push(() => {
           value.setValue(toValue);
           complete?.({ finished: true });
