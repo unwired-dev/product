@@ -26,7 +26,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { Keyboard, StyleSheet } from 'react-native';
+import { DeviceEventEmitter, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type ComposeRoute from '../app/compose/[draft].tsx';
@@ -307,8 +307,7 @@ describe('profile-scoped mobile routes', () => {
         </AccountContext>
       </SafeAreaProvider>
     );
-    // Delivers a native keyboard notification to every subscriber of that event.
-    const addKeyboardListener = jest.spyOn(Keyboard, 'addListener');
+    // Delivers a native keyboard notification to the current subscribers of that event.
     const keyboard = (
       type: 'keyboardWillChangeFrame' | 'keyboardWillHide',
       screenY: number,
@@ -326,11 +325,7 @@ describe('profile-scoped mobile routes', () => {
           height: keyboardHeight,
         },
       };
-      for (const [, listener] of addKeyboardListener.mock.calls.filter(
-        ([subscribed]) => subscribed === type,
-      )) {
-        listener(event);
-      }
+      DeviceEventEmitter.emit(type, event);
     };
     const app = await render(view());
     try {
@@ -373,6 +368,24 @@ describe('profile-scoped mobile routes', () => {
           .getAllByTestId('scroll-edge', { includeHiddenElements: true })
           .map((edge) => StyleSheet.flatten(edge.props.style)?.width),
       ).toContain(494);
+      // The window bar's search rises above a docked keyboard.
+      await fireEvent(
+        screen.getByTestId('mail-shell', { includeHiddenElements: true }),
+        'layout',
+        { nativeEvent: { layout: { x: 0, y: 0, width: 834, height: 1194 } } },
+      );
+      await act(() => {
+        keyboard('keyboardWillChangeFrame', 794, 400);
+      });
+      expect(screen.getByTestId('window-bar')).toHaveStyle({
+        bottom: insets.bottom + 400,
+      });
+      await act(() => {
+        keyboard('keyboardWillHide', 1194, 0);
+      });
+      expect(screen.getByTestId('window-bar')).toHaveStyle({
+        bottom: insets.bottom,
+      });
       await fireEvent.press(inboxNewMessage());
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       // The hidden window bar keeps New Message among the commands while composing.
@@ -426,11 +439,15 @@ describe('profile-scoped mobile routes', () => {
         bottom: 756,
         height: 450 - insets.top - 24,
       });
-      // A composer closed with its keyboard up hears no hide; reopening it starts unraised.
+      // A regular window keeps listening, so a composer closed with its keyboard up hears its hide
+      // and reopens unraised.
       const { draft: open } = route.params();
       ok(typeof open === 'string');
       await act(() => {
         route.router.setParams({ draft: undefined });
+      });
+      await act(() => {
+        keyboard('keyboardWillHide', 1194, 0);
       });
       await act(() => {
         route.router.setParams({ draft: open });
@@ -534,7 +551,6 @@ describe('profile-scoped mobile routes', () => {
       releaseSave();
       await app.unmount();
       dimensions.mockRestore();
-      addKeyboardListener.mockRestore();
       jest.replaceProperty(
         jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
         'drafts',
