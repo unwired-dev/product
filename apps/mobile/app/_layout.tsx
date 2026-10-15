@@ -64,17 +64,29 @@ function MailShell() {
       }) as const,
     [regular, expanded, insets.top],
   );
+  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
+    id?: string;
+    mailbox?: string;
+    draft?: string;
+    profileId?: string | string[];
+  }>();
   // A docked software keyboard leaves the overlay only the height above it; a floating one is ignored.
-  const [keyboardTop, setKeyboardTop] = useState<number>();
+  // Only an open composer listens: re-rendering the shell for every keyboard change remounts the
+  // reader beneath it, which would close a sheet whose field raised the keyboard.
+  const [keyboard, setKeyboard] =
+    useState<Readonly<{ draft: string; top: number | undefined }>>();
   useEffect(() => {
+    if (draft === undefined) {
+      return undefined;
+    }
+    const docked = (frame: { width: number; screenY: number }) =>
+      frame.width < width ? undefined : frame.screenY;
     const subscriptions = [
       Keyboard.addListener('keyboardWillChangeFrame', ({ endCoordinates }) => {
-        setKeyboardTop(
-          endCoordinates.width < width ? undefined : endCoordinates.screenY,
-        );
+        setKeyboard({ draft, top: docked(endCoordinates) });
       }),
       Keyboard.addListener('keyboardWillHide', () => {
-        setKeyboardTop(undefined);
+        setKeyboard({ draft, top: undefined });
       }),
     ];
     return () => {
@@ -82,15 +94,10 @@ function MailShell() {
         subscription.remove();
       }
     };
-  }, [width]);
+  }, [draft, width]);
+  const keyboardTop = keyboard?.draft === draft ? keyboard?.top : undefined;
   const available =
     keyboardTop === undefined ? height : Math.min(height, keyboardTop);
-  const { id, mailbox, draft, profileId } = useGlobalSearchParams<{
-    id?: string;
-    mailbox?: string;
-    draft?: string;
-    profileId?: string | string[];
-  }>();
   // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
   // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
   // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
