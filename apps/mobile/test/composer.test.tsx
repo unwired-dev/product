@@ -3510,6 +3510,18 @@ describe('replying to and forwarding from the reader', () => {
         .getAllByRole('button', { name: /^(?:Remove star|Mark as read)$/u })
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Remove star', 'Mark as read']);
+    await press('Close');
+    // With Labels already shown, the sheet's Labels still opens them rather than hiding them.
+    await press('Labels');
+    await press('Reply');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+    });
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hide labels' })).toBeVisible();
+    expect(
+      screen.getByText('This Gmail mailbox has no labels of its own yet.'),
+    ).toBeVisible();
   });
 
   it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {

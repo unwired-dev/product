@@ -244,6 +244,8 @@ function Toolbar({
           open: boolean;
           // Where the button was pressed, so a sheet can grow out of it.
           toggle: (origin: number) => void;
+          // The Reply sheet's entry, which opens the destinations even when they are shown.
+          show: Readonly<{ label: string; run: (origin: number) => void }>;
         } & ({ panel: ReactNode } | { sheet: ReactNode })
       >
     | undefined;
@@ -286,10 +288,10 @@ function Toolbar({
         : [
             {
               name: 'move',
-              label: folders.label,
+              label: folders.show.label,
               icon: 'folder',
               group: 'place' as const,
-              run: folders.toggle,
+              run: folders.show.run,
             },
           ]),
       ...['spam', 'trash']
@@ -506,6 +508,13 @@ function ImapMessageActions({
                   setOrigin(x);
                   toggle('folders');
                 },
+                show: {
+                  label: t('gmailActions.folders'),
+                  run: (x) => {
+                    setOrigin(x);
+                    setPanel('folders');
+                  },
+                },
                 ...(compact
                   ? {
                       sheet: (
@@ -674,6 +683,13 @@ function GmailMessageActions({
           toggle: (x) => {
             setOrigin(x);
             toggle('folders');
+          },
+          show: {
+            label: t(folders ? 'gmailActions.folders' : 'gmailActions.labels'),
+            run: (x) => {
+              setOrigin(x);
+              setPanel('folders');
+            },
           },
           ...(folders && compact
             ? {
