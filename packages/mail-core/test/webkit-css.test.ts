@@ -55,7 +55,7 @@ const disagreements = oracle.flatMap(({ style, declared }) =>
 // Properties WebKit sets that the parser leaves out, by style. Each is deliberate strictness:
 // escapes that do not decode to a plain identifier, unbounded functions such as calc() or var(),
 // strings the attribute end interrupts, or longhands WebKit derives from a declaration the
-// sanitizer does not retain. A new omission fails until it is reviewed and listed here.
+// sanitizer does not retain. A newly unaccounted property fails until reviewed and listed here.
 const reviewedOmissions = new Map<string, readonly string[]>([
   [
     String.raw`display:block;background-image:u\72l(/*);display:none`,
