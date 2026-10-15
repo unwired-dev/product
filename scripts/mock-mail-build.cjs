@@ -15,13 +15,22 @@ if (scenario && !Schema.is(Schema.Literals(build))(scenario)) {
 
 const testing = (source) =>
   path.resolve(__dirname, `../packages/mail-core/src/testing/${source}.ts`);
-// Registration scenarios substitute a native provider only; their JavaScript stays production
-// apart from the evaluation editor page.
+// Registration scenarios keep production JavaScript apart from the synthetic layers that answer
+// the native vault's provider and backend requests, and the evaluation editor page. Enrollment's
+// synthetic trusted device still answers natively.
 const seeded = scenario && !scenario.startsWith('registration-');
+const relayed =
+  scenario?.startsWith('registration-') &&
+  scenario !== 'registration-enrollment';
 const substitutes = {
   ...(seeded && {
     '@private-email/mail-core/registration-mode': testing('registration-mode'),
     '@private-email/mail-core/inbox-seed': testing(scenario),
+  }),
+  ...(relayed && {
+    '@private-email/mail-core/synthetic-registration': testing(
+      'synthetic-registration',
+    ),
   }),
   // Built before Metro crawls, so the substitute exists in its file map.
   ...(scenario === 'registration-draft-editor' && {

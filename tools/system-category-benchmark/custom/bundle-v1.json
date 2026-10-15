@@ -1,0 +1,122 @@
+{
+  "custom": [
+    {
+      "run": "xsmall-zs-adapted-body256-description",
+      "model": "MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33",
+      "revision": "262ae02f29173eec1c250f90804dc7edc677dcff",
+      "license": "MIT",
+      "adaptation": {
+        "base": "MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33",
+        "revision": "262ae02f29173eec1c250f90804dc7edc677dcff",
+        "seed": 829,
+        "epochs": 1,
+        "batch_size": 16,
+        "learning_rate": 2e-5,
+        "warmup": 0.1,
+        "weight_decay": 0.01,
+        "input": "body256",
+        "microbatch_tokens": 2048,
+        "pairs": 11400,
+        "train_seconds": 1126.5,
+        "peak_device_memory_mib": 4352,
+        "load_average": [30.10595703125, 36.03857421875, 60.7880859375],
+        "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+        "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+        "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+        "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4"
+      },
+      "weights_sha256": "d6780a011e8ec3d7be0af16e5b6dddbc51e327e41c85313d299c6d0e2b73cae4",
+      "input": "body256",
+      "max_length": 256,
+      "hypothesis": {
+        "en": "This email belongs to the category \"{name}\".",
+        "cs": "Tento e-mail patří do kategorie „{name}“."
+      },
+      "description": "description",
+      "entailment_label": "entailment",
+      "negative_label": "not_entailment",
+      "thresholds": {
+        "en": 0.71,
+        "cs": 0.85
+      }
+    },
+    {
+      "run": "mdeberta-nli-adapted-body256-description",
+      "model": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+      "revision": "b5113eb38ab63efdd7f280f8c144ea8b13f978ce",
+      "license": "MIT",
+      "adaptation": {
+        "base": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+        "revision": "b5113eb38ab63efdd7f280f8c144ea8b13f978ce",
+        "seed": 829,
+        "epochs": 1,
+        "batch_size": 16,
+        "learning_rate": 2e-5,
+        "warmup": 0.1,
+        "weight_decay": 0.01,
+        "input": "body256",
+        "microbatch_tokens": 2048,
+        "pairs": 11400,
+        "train_seconds": 3921.1,
+        "peak_device_memory_mib": 11573,
+        "load_average": [59.48779296875, 46.5283203125, 50.31689453125],
+        "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+        "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+        "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+        "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7"
+      },
+      "weights_sha256": "86178ac5688e502c8d9cf3ef8702624499a5151b4694e19f3b80479cf6838cd7",
+      "input": "body256",
+      "max_length": 256,
+      "hypothesis": {
+        "en": "This email belongs to the category \"{name}\".",
+        "cs": "Tento e-mail patří do kategorie „{name}“."
+      },
+      "description": "description",
+      "entailment_label": "entailment",
+      "negative_label": "contradiction",
+      "thresholds": {
+        "en": 0.92,
+        "cs": 0.98
+      }
+    }
+  ],
+  "system": [
+    {
+      "run": "deberta-xsmall-body256",
+      "model": "microsoft/deberta-v3-xsmall",
+      "revision": "4b419818330868dff6a60ad3e6b1c730f8b8c0c6",
+      "license": "MIT",
+      "adaptation": "spike #828 fine-tune; reproduce with run.py deberta xsmall body256",
+      "weights_sha256": "615ac04a05d4a9c35d1fb5f94b3cabee4a0d124170be6ef5e0d06f3205bc5896",
+      "input": "body256",
+      "max_length": 256,
+      "thresholds": {
+        "Orders": 0.4,
+        "Newsletters & Promotions": 0.5,
+        "Invites": 0.1,
+        "Flights": 0.15,
+        "People": 0.45
+      },
+      "people_fallback": true
+    },
+    {
+      "run": "deberta-mdeberta-body512",
+      "model": "microsoft/mdeberta-v3-base",
+      "revision": "a0484667b22365f84929a935b5e50a51f71f159d",
+      "license": "MIT",
+      "adaptation": "spike #828 fine-tune; reproduce with run.py deberta mdeberta body512",
+      "weights_sha256": "18b3be73e2a0814fd9df9c85c3307124304168c0bad3b81009cabb513d32a800",
+      "input": "body512",
+      "max_length": 512,
+      "thresholds": {
+        "Orders": 0.85,
+        "Newsletters & Promotions": 0.75,
+        "Invites": 0.05,
+        "Flights": 0.05,
+        "People": 0.25
+      },
+      "people_fallback": true
+    }
+  ]
+}

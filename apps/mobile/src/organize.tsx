@@ -51,6 +51,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MoveSheet } from './move-sheet.tsx';
+import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
@@ -96,11 +97,31 @@ const styles = StyleSheet.create({
   status: { paddingHorizontal: spacing.xl, paddingBottom: spacing.s },
 });
 
+// Folders the server declares a role for show its SF Symbol, as the Move picker lists them.
+const roleIcons: Readonly<Record<string, string>> = {
+  archive: 'archivebox',
+  drafts: 'doc',
+  sent: 'paperplane',
+  junk: 'xmark.bin',
+  trash: 'trash',
+};
+// The SF Symbols the iPhone Reply sheet shows beside each organizing action.
+const actionIcons: Readonly<Record<string, string>> = {
+  read: 'envelope.open',
+  unread: 'envelope.badge',
+  star: 'star',
+  unstar: 'star.slash',
+  spam: 'xmark.bin',
+  trash: 'trash',
+};
+type Named = Readonly<{ name: string; label: string; run: () => void }>;
+
 const folderIcon = (name: string, roles: readonly string[]) => {
   if (name === inboxFolder) {
     return 'tray';
   }
-  return roles.includes('archive') ? 'archivebox' : 'folder';
+  const role = roles.find((declared) => declared in roleIcons);
+  return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
 
 // A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
@@ -221,18 +242,78 @@ function Toolbar({
         {
           label: string;
           open: boolean;
-          toggle: () => void;
+          // Where the button was pressed, so a sheet can grow out of it.
+          toggle: (origin: number) => void;
+          // The Reply sheet's entry, which opens the destinations even when they are shown.
+          show: Readonly<{ label: string; run: (origin: number) => void }>;
         } & ({ panel: ReactNode } | { sheet: ReactNode })
       >
     | undefined;
   readonly more: Readonly<{
     open: boolean;
     toggle: () => void;
-    panel: ReactNode;
+    // The actions More lists, which the iPhone Reply sheet also offers.
+    actions: readonly Named[];
   }>;
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
+  const [shownPanel, setShownPanel] = useState<'folders' | 'more'>('more');
+  const thread = {
+    actions: [
+      ...(archive === undefined
+        ? []
+        : [
+            {
+              name: 'archive',
+              label: t('gmailActions.label.archive'),
+              icon: 'archivebox.fill',
+              group: 'tile' as const,
+              run: archive,
+            },
+          ]),
+      ...['star', 'unstar', 'read', 'unread']
+        .flatMap((name) =>
+          more.actions.filter((action) => action.name === name),
+        )
+        .map(({ name, label, run }) => ({
+          name,
+          label,
+          icon: actionIcons[name] ?? 'ellipsis',
+          group: 'state' as const,
+          run,
+        })),
+      ...(folders === undefined
+        ? []
+        : [
+            {
+              name: 'move',
+              label: folders.show.label,
+              icon: 'folder',
+              group: 'place' as const,
+              run: folders.show.run,
+            },
+          ]),
+      ...['spam', 'trash']
+        .flatMap((name) =>
+          more.actions.filter((action) => action.name === name),
+        )
+        .map(({ name, label, run }) => ({
+          name,
+          label,
+          icon: actionIcons[name] ?? 'ellipsis',
+          group: 'place' as const,
+          run,
+        })),
+    ],
+  };
+  const foldersOpen =
+    folders !== undefined && 'panel' in folders && folders.open;
+  if (foldersOpen && shownPanel !== 'folders') {
+    setShownPanel('folders');
+  } else if (more.open && shownPanel !== 'more') {
+    setShownPanel('more');
+  }
   return (
     <>
       <View style={styles.toolbar}>
@@ -249,12 +330,12 @@ function Toolbar({
               icon="folder"
               label={folders.label}
               expanded={folders.open}
-              onPress={() => {
-                folders.toggle();
+              onPress={(event) => {
+                folders.toggle(event.nativeEvent.pageX);
               }}
             />
           )}
-          {children}
+          <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
           <ToolbarButton
             icon="ellipsis"
             label={t('message.more')}
@@ -265,17 +346,31 @@ function Toolbar({
           />
         </GlassGroup>
       </View>
-      {folders?.open === true && 'sheet' in folders ? folders.sheet : null}
-      {(folders?.open === true && 'panel' in folders) || more.open ? (
-        <View
-          testID="reader-panels"
-          style={compact ? undefined : styles.floatingPanels}>
-          {folders?.open === true && 'panel' in folders ? (
-            <GlassPanel>{folders.panel}</GlassPanel>
-          ) : null}
-          {more.open ? <GlassPanel>{more.panel}</GlassPanel> : null}
-        </View>
-      ) : null}
+      {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
+      <View
+        pointerEvents="box-none"
+        testID="reader-panels"
+        style={compact ? undefined : styles.floatingPanels}>
+        <GlassPanel open={foldersOpen || more.open}>
+          {shownPanel === 'folders' &&
+          folders !== undefined &&
+          'panel' in folders ? (
+            folders.panel
+          ) : (
+            <ScrollView style={styles.panels}>
+              <View style={styles.panel}>
+                {more.actions.map(({ name, label, run }) => (
+                  <ActionButton
+                    key={name}
+                    label={label}
+                    onPress={run}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          )}
+        </GlassPanel>
+      </View>
     </>
   );
 }
@@ -353,6 +448,7 @@ function ImapMessageActions({
   const mailbox = useMailbox();
   // At most one panel is open: the folders to move to, or the remaining actions.
   const [panel, setPanel] = useState<'folders' | 'more'>();
+  const [origin, setOrigin] = useState(0);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -408,13 +504,24 @@ function ImapMessageActions({
                     : 'gmailActions.folders',
                 ),
                 open: panel === 'folders',
-                toggle: () => {
+                toggle: (x) => {
+                  setOrigin(x);
                   toggle('folders');
+                },
+                show: {
+                  label: t('gmailActions.folders'),
+                  run: (x) => {
+                    setOrigin(x);
+                    setPanel('folders');
+                  },
                 },
                 ...(compact
                   ? {
                       sheet: (
                         <MoveSheet
+                          open={panel === 'folders'}
+                          origin={origin}
+                          message={message}
                           destinations={state.folders
                             .filter(({ selectable }) => selectable)
                             .map(({ name, roles }) => ({
@@ -426,7 +533,6 @@ function ImapMessageActions({
                             }))}
                           limited={undefined}
                           onMove={(destination) => {
-                            setPanel(undefined);
                             act({ kind: 'move', destination });
                           }}
                           onClose={() => {
@@ -464,23 +570,15 @@ function ImapMessageActions({
           toggle: () => {
             toggle('more');
           },
-          panel: (
-            <ScrollView style={styles.panels}>
-              <View style={styles.panel}>
-                {actions
-                  .filter(({ name }) => name !== 'archive')
-                  .map(({ name, label, action }) => (
-                    <ActionButton
-                      key={name}
-                      label={label}
-                      onPress={() => {
-                        act(action);
-                      }}
-                    />
-                  ))}
-              </View>
-            </ScrollView>
-          ),
+          actions: actions
+            .filter(({ name }) => name !== 'archive')
+            .map(({ name, label, action }) => ({
+              name,
+              label,
+              run: () => {
+                act(action);
+              },
+            })),
         }}>
         {children}
       </Toolbar>
@@ -504,6 +602,7 @@ function GmailMessageActions({
   const { t } = useLocalization();
   // At most one panel is open: the labels or folders, or the remaining actions.
   const [panel, setPanel] = useState<'folders' | 'more'>();
+  const [origin, setOrigin] = useState(0);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
   if (
@@ -581,13 +680,24 @@ function GmailMessageActions({
                   : 'gmailActions.labels',
               ),
           open: panel === 'folders',
-          toggle: () => {
+          toggle: (x) => {
+            setOrigin(x);
             toggle('folders');
+          },
+          show: {
+            label: t(folders ? 'gmailActions.folders' : 'gmailActions.labels'),
+            run: (x) => {
+              setOrigin(x);
+              setPanel('folders');
+            },
           },
           ...(folders && compact
             ? {
                 sheet: (
                   <MoveSheet
+                    open={panel === 'folders'}
+                    origin={origin}
+                    message={message}
                     destinations={[
                       // Graph lists only custom move destinations; Inbox is display-only here.
                       {
@@ -609,7 +719,6 @@ function GmailMessageActions({
                         : undefined
                     }
                     onMove={(destination) => {
-                      setPanel(undefined);
                       act(gmailAction.move(destination));
                     }}
                     onClose={() => {
@@ -685,23 +794,15 @@ function GmailMessageActions({
           toggle: () => {
             toggle('more');
           },
-          panel: (
-            <ScrollView style={styles.panels}>
-              <View style={styles.panel}>
-                {actions
-                  .filter(({ name }) => name !== 'archive')
-                  .map(({ name, label, action }) => (
-                    <ActionButton
-                      key={name}
-                      label={label}
-                      onPress={() => {
-                        act(action);
-                      }}
-                    />
-                  ))}
-              </View>
-            </ScrollView>
-          ),
+          actions: actions
+            .filter(({ name }) => name !== 'archive')
+            .map(({ name, label, action }) => ({
+              name,
+              label,
+              run: () => {
+                act(action);
+              },
+            })),
         }}>
         {children}
       </Toolbar>

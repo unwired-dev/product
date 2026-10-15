@@ -263,12 +263,20 @@ then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
 **Reply** and **More**, beside a separate circular New Message button. Reply
-opens a glass-backed modal sheet offering Reply, Reply All and Forward. For IMAP and
-Microsoft mail, iPhone's **Folders** opens a glass **Move to…** sheet: the
-connection's provider and address, a search field that narrows the folders by name,
-and one row per folder, with the message's current folder checked and unavailable.
-Choosing a folder moves the message and closes the sheet. More lists the remaining
-actions as text buttons. The action buttons and label checkboxes are keyboard-focusable
+grows a floating glass sheet out of the button: the sender's initials, name and
+message preview beside a Close button, then Reply, Reply All, Forward and Archive
+tiles and the Thread's other actions in grouped rows — star and read state, then
+Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
+beside them.
+Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
+Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
+like Reply: a caption, the mailbox's address with a Close button, the message's sender
+and subject, one row per folder with its role's symbol (the message's current folder
+dimmed and unavailable), and a search field at the bottom that narrows the folders by
+name. Choosing a folder moves the message and closes the picker. More lists the remaining
+actions as text buttons. Menu panels ease in from their toolbar and fade out on
+iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
+button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. Restoring from Trash or Spam is the
@@ -1405,7 +1413,7 @@ the then 40 tests; that run is logic evidence, not Keychain qualification.
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
 preflight, from a synthetic mailbox of three Inbox messages over two pages and one
 label. Each message has an HTML or plain-text body; label changes apply for the
-rest of that launch. The session is compiled only into the selected test build.
+rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
 render the opened HTML body in WebKit, confirm and cancel a link destination,
 star and archive a message and undo the archive, relaunch from the encrypted
@@ -1413,13 +1421,12 @@ cache and return to the account page. The reading steps and the organizing steps
 each passed on iOS 27 simulators before they were combined; the combined journey
 runs in the Expo native CI jobs.
 
-The standalone synthetic-provider check calls the actual Swift provider with
-attachment, inline and absent-disposition fixtures. It verifies repeated MIME
-header selectors, body-free preflight responses, full body responses and the
-unchanged packaged mailbox pagination. Run it with
-`zsh native/private-inbox/integration/metadata.zsh`; the native storage runner also
-executes it. This checks synthetic Gmail response fidelity and does not establish
-live-provider attachment exclusion or a packaged native journey.
+`packages/mail-core/test/synthetic-registration.test.ts` calls the synthetic Gmail
+layer with attachment, inline and absent-disposition fixtures. It verifies repeated
+MIME header selectors, body-free preflight responses, full body responses and the
+unchanged packaged mailbox pagination. This checks synthetic Gmail response fidelity
+and does not establish live-provider attachment exclusion or a packaged native
+journey.
 
 The Mac `Testing` build compiles the patched WebView. The packaged Mac journey
 remains deferred while the desktop is locked, and hosted Mac storage tests remain

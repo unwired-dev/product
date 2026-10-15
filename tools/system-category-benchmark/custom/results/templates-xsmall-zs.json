@@ -1,0 +1,42 @@
+{
+ "run": "templates-xsmall-zs",
+ "messages": 300,
+ "variants": {
+  "category-name": {
+   "en": 0.42558651394148883,
+   "cs": 0.14955118482847354,
+   "thresholds": {
+    "en": 0.89,
+    "cs": 0.62
+   }
+  },
+  "category-description": {
+   "en": 0.4581622807461557,
+   "cs": 0.15424510833993593,
+   "thresholds": {
+    "en": 0.56,
+    "cs": 0.23
+   }
+  },
+  "about-name": {
+   "en": 0.5109492473157726,
+   "cs": 0.11030611268814534,
+   "thresholds": {
+    "en": 0.8,
+    "cs": 0.45
+   }
+  },
+  "about-description": {
+   "en": 0.3948207488968359,
+   "cs": 0.10645773979107313,
+   "thresholds": {
+    "en": 0.19,
+    "cs": 0.13
+   }
+  }
+ },
+ "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+ "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+ "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+ "labels_sha256": "a0bf68ddc1995d11f4e8c70ef95fef9872ab1e80fcda7ae097b9f6a4d436720b"
+}

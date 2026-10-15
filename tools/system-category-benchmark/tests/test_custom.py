@@ -1,0 +1,233 @@
+import json
+
+import numpy as np
+import pytest
+
+import custom_benchmark as custom
+import custom_report
+import custom_synthetic
+
+
+class Tokenizer:
+    cls_token_id, sep_token_id = 1, 2
+
+
+def test_only_the_message_is_truncated_to_fit_the_hypothesis():
+    assert custom.pair_ids(Tokenizer(), [10, 11, 12, 13], [20, 21], 8) == [
+        1,
+        10,
+        11,
+        12,
+        2,
+        20,
+        21,
+        2,
+    ]
+    with pytest.raises(ValueError):
+        custom.pair_ids(Tokenizer(), [10], [20] * 6, 8)
+
+
+def test_custom_synthetic_has_no_training_split_and_no_shared_senders():
+    records = custom_synthetic.generate()
+    assert {r["split"] for r in records} == {"validation", "test"}
+    for language in ("en", "cs"):
+        domains = {
+            split: {
+                r["from"].rsplit("@", 1)[1]
+                for r in records
+                if r["split"] == split and r["language"] == language
+            }
+            for split in ("validation", "test")
+        }
+        assert not (domains["validation"] & domains["test"]) - {"mail.example>"}
+        senders = {
+            split: {r["from"] for r in records if r["split"] == split and r["language"] == language}
+            for split in ("validation", "test")
+        }
+        assert not senders["validation"] & senders["test"]
+
+
+def test_ambiguous_categories_keep_positive_and_negative_evaluation_coverage():
+    records = custom_synthetic.generate()
+    labels = custom.load_labels(records)
+    for theme in ("statements", "club-membership", "project-updates"):
+        for language in ("en", "cs"):
+            for split in ("validation", "test"):
+                members = [
+                    row[custom.CONCEPTS.index(theme)]
+                    for record, row in zip(records, labels)
+                    if record["template"].startswith(f"custom-{language}-{theme}-")
+                    and record["split"] == split
+                ]
+                assert any(members) and not all(members), (theme, language, split)
+
+
+def test_every_message_has_valid_labels():
+    lines = custom.LABELS.read_text().splitlines()
+    labels = {e["id"]: e["categories"] for e in map(json.loads, lines)}
+    assert labels.keys() == {r["id"] for r in custom.messages()}
+    assert {c for cs in labels.values() for c in cs} <= set(custom.CONCEPTS)
+
+
+def test_category_definitions_respect_product_limits():
+    names = set()
+    for category in custom.CATEGORIES:
+        for language in ("en", "cs"):
+            definition = category[language]
+            assert 1 <= len(definition["name"].strip()) <= 40
+            assert len(definition["description"]) <= 500
+            assert len(definition["paraphrase"]) <= 500
+        names.add(category["en"]["name"].lower())
+    assert len(names) == len(custom.CATEGORIES)
+    assert not names & {"orders", "newsletters & promotions", "people", "invites", "flights"}
+
+
+def test_one_threshold_prefers_abstaining_on_ties():
+    scores = np.array([[0.9, 0.2], [0.4, 0.95]])
+    truth = np.array([[True, False], [False, True]])
+    assert custom.calibrate(scores, truth) == 0.9  # the highest threshold keeping both
+
+
+def test_signals_change_only_later_messages_from_the_same_sender():
+    records = [
+        {"id": "1", "date": "1", "from": "Shop <a@shop.example>", "language": "en"},
+        {"id": "2", "date": "2", "from": "Shop <a@shop.example>", "language": "en"},
+        {"id": "3", "date": "3", "from": "Other <b@other.example>", "language": "en"},
+    ]
+    scores = np.array([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9]])
+    truth = np.array([[True, False], [True, False], [False, True]])
+    result = custom.replay(records, scores, truth, {"en": 0.5})
+    # Message 1 is wrong on both categories and is corrected by the user; message 2 inherits
+    # both signals; message 3 is from another sender and keeps the model decision.
+    assert result["signals"] == {"positive": 1, "negative": 1}
+    assert result["decisions_changed_by_signals"] == 2
+    assert result["changed_decisions_correct"] == 2
+    assert result["micro_f1_model_only"] < result["micro_f1_with_signals"]
+
+
+def test_keyword_stems_fold_czech_diacritics_and_drop_stopwords():
+    assert custom.stems("Účty k zaplacení", "cs") == {"ucty", "zapla"}
+    assert custom.stems("Bills to pay", "en") == {"bills", "pay"}
+
+
+@pytest.mark.parametrize(
+    "field", ["corpus_sha256", "categories_sha256", "benchmark_sha256", "weights_sha256"]
+)
+def test_evaluate_refuses_stale_cached_scores(tmp_path, monkeypatch, field):
+    records = custom.messages()
+    metadata = {**custom.provenance(), field: "stale"}
+    if field == "weights_sha256":
+        metadata.update(adapted=True, candidate="xsmall-zs-adapted")
+        weights = tmp_path / "custom-adapted" / "xsmall-zs" / "model.safetensors"
+        weights.parent.mkdir(parents=True)
+        weights.write_bytes(b"replacement-weights")
+    monkeypatch.setattr(custom, "WORK", tmp_path)
+    (tmp_path / "custom-scores").mkdir()
+    np.savez_compressed(
+        tmp_path / "custom-scores" / "stale.npz",
+        ids=np.array([r["id"] for r in records]),
+        scores=np.zeros((len(records), len(custom.CATEGORIES))),
+        meta=json.dumps(metadata),
+    )
+    with pytest.raises(ValueError, match=field):
+        custom.evaluate_run("stale")
+
+
+@pytest.mark.parametrize("field", ["categories_sha256", "benchmark_sha256", "labels_sha256"])
+def test_tables_refuses_stale_reports(tmp_path, monkeypatch, field):
+    metadata = custom.provenance() | {"labels_sha256": custom.sha256_file(custom.LABELS)}
+    result = {
+        **metadata,
+        "run": "stale",
+        "groups": {},
+        "slices": {},
+        "thresholds": {},
+        field: "stale",
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "stale.json").write_text(json.dumps(result))
+    monkeypatch.setattr(custom_report, "CUSTOM", tmp_path)
+    with pytest.raises(ValueError, match=field):
+        custom_report.tables()
+
+
+@pytest.mark.parametrize("field", ["corpus_sha256", "benchmark_sha256"])
+def test_golden_refuses_stale_system_results_before_loading_models(tmp_path, monkeypatch, field):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    metadata = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        field: "stale",
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(metadata))
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("stale System results must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="#828 .*stale corpus or benchmark"):
+        custom_report.golden()
+
+
+def test_golden_refuses_system_thresholds_that_differ_from_the_committed_result(
+    tmp_path, monkeypatch
+):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    result = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        "thresholds": {"Orders": 0.4},
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(result))
+    (tmp_path / "work" / "runs" / name).mkdir(parents=True)
+    (tmp_path / "work" / "runs" / name / "thresholds.json").write_text('{"Orders": 0.5}')
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "WORK", tmp_path / "work")
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("mismatched thresholds must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="thresholds differ"):
+        custom_report.golden()
+
+
+def test_golden_refuses_system_weights_that_differ_from_the_frozen_bundle(tmp_path, monkeypatch):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    result = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        "thresholds": {"Orders": 0.4},
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(result))
+    artifacts = tmp_path / "work" / "runs" / name
+    artifacts.mkdir(parents=True)
+    (artifacts / "thresholds.json").write_text(json.dumps(result["thresholds"]))
+    (artifacts / "model.safetensors").write_bytes(b"replacement-weights")
+    (tmp_path / "custom").mkdir()
+    (tmp_path / "custom" / "bundle-v1.json").write_text(
+        json.dumps({"system": [{"run": name, "weights_sha256": "frozen-weights"}]})
+    )
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "WORK", tmp_path / "work")
+    monkeypatch.setattr(custom_report, "CUSTOM", tmp_path / "custom")
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("mismatched weights must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="weights differ"):
+        custom_report.golden()

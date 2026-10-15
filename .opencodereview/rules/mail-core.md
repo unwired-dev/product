@@ -11,6 +11,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
+- Shared modules, including `testing/synthetic-convex.ts`, using Node-supported
+  collection methods absent from a host's Hermes runtime, such as `toSorted`.
+  Check the packaged runtime for changed built-ins and use supported Effect
+  equivalents where needed; otherwise Node tests pass while a native request
+  throws and is reduced to an unavailable service.
+
+- `testing/synthetic-convex.ts` or another persisted mutable service constructing
+  a reusable encoding Effect from the initial state, or publishing a mutation
+  before its save succeeds. Encode the current candidate when the operation runs
+  and adopt it only after storage succeeds. Exercise relaunch and rejected-save
+  readback; otherwise later saves retain the initial snapshot or failed writes
+  appear committed until relaunch.
+
 - `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
   views for folders a complete listing no longer offers as selectable, or deleting
   views before that listing commits. Retire both only after successful cache

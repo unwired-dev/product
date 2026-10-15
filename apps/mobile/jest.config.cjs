@@ -12,6 +12,7 @@ module.exports = {
   resolver: '<rootDir>/test/animation-resolver.cjs',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
   clearMocks: true,
+  setupFilesAfterEnv: ['<rootDir>/test/animations.cjs'],
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
     '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',

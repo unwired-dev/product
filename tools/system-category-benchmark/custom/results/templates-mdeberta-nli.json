@@ -1,0 +1,42 @@
+{
+ "run": "templates-mdeberta-nli",
+ "messages": 150,
+ "variants": {
+  "category-name": {
+   "en": 0.4073632764541855,
+   "cs": 0.48677409546974765,
+   "thresholds": {
+    "en": 0.92,
+    "cs": 0.95
+   }
+  },
+  "category-description": {
+   "en": 0.24164928189273613,
+   "cs": 0.20651629072681704,
+   "thresholds": {
+    "en": 0.88,
+    "cs": 0.96
+   }
+  },
+  "about-name": {
+   "en": 0.4056542783815511,
+   "cs": 0.24574314574314576,
+   "thresholds": {
+    "en": 0.93,
+    "cs": 0.97
+   }
+  },
+  "about-description": {
+   "en": 0.27627137172591715,
+   "cs": 0.3545313382269904,
+   "thresholds": {
+    "en": 0.77,
+    "cs": 0.7
+   }
+  }
+ },
+ "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+ "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+ "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+ "labels_sha256": "a0bf68ddc1995d11f4e8c70ef95fef9872ab1e80fcda7ae097b9f6a4d436720b"
+}

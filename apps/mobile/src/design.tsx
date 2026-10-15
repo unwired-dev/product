@@ -5,6 +5,7 @@ import type {
 import type { ReactNode, Ref } from 'react';
 import type {
   ColorValue,
+  GestureResponderEvent,
   NativeSyntheticEvent,
   StyleProp,
   TextProps,
@@ -14,8 +15,11 @@ import type {
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Pressable,
   Platform,
   requireNativeComponent,
@@ -52,6 +56,81 @@ export function Glass({
   );
 }
 
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
+const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
+
+// Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
+export function useMenuMotion(open: boolean, kind: 'menu' | 'grow') {
+  const [shown, setShown] = useState(open);
+  const progress = useMemo(() => new Animated.Value(0), []);
+  const [reduced, setReduced] = useState(true);
+  const enteringDuration = kind === 'menu' || reduced ? 200 : 300;
+  if (open && !shown) {
+    setShown(true);
+  }
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? enteringDuration : 150,
+      easing: open && kind !== 'menu' ? easeSheet : easeOut,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !open) {
+        setShown(false);
+      }
+    });
+    return () => {
+      animation.stop();
+    };
+  }, [open, kind, enteringDuration, progress]);
+  const backdropStyle = { opacity: progress };
+  // A grown sheet starts small at its control; a menu barely scales.
+  const transform = [
+    {
+      scale: progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [kind === 'grow' ? 0.3 : 0.95, 1],
+      }),
+    },
+  ];
+  const style = {
+    opacity:
+      kind === 'grow'
+        ? progress.interpolate({
+            inputRange: [0, 0.3, 1],
+            outputRange: [0, 1, 1],
+          })
+        : progress,
+    transform: reduced ? [] : transform,
+  };
+  return { shown: open || shown, style, backdropStyle };
+}
+
+// The iPhone's menus open above its bottom toolbar; elsewhere they hang from the top one.
+const iphone = Platform.OS === 'ios' && !Platform.isPad;
+
 // Toolbar buttons are 44pt for touch; the group adds a 4pt inset and takes half its height.
 const groupRadius = (44 + 2 * spacing.xs) / 2;
 
@@ -83,9 +162,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   monogram: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
@@ -224,21 +300,34 @@ export function GlassGroup({
 
 // Menus float independently of their toolbar, with the deeper menu shadow.
 export function GlassPanel({
+  open,
   children,
   cornerRadius = radius.menu,
+  origin = iphone ? 'bottom' : 'top right',
 }: {
+  readonly open: boolean;
   readonly children: ReactNode;
   readonly cornerRadius?: number;
+  // Where the panel grows from: the control that opened it.
+  readonly origin?: string;
 }) {
   const colors = usePalette();
+  const motion = useMenuMotion(open, 'menu');
+  if (!motion.shown) {
+    return null;
+  }
   return (
-    <View
+    <Animated.View
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
       style={[
         styles.panel,
+        motion.style,
         {
           borderRadius: cornerRadius,
           boxShadow: colors.menuGlassShadow,
           backgroundColor: colors.surfaceContent,
+          transformOrigin: origin,
         },
       ]}>
       <Glass
@@ -246,7 +335,7 @@ export function GlassPanel({
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -263,7 +352,7 @@ export function ToolbarButton({
 }: {
   readonly label: string;
   readonly icon: string;
-  readonly onPress: () => void;
+  readonly onPress: (event: GestureResponderEvent) => void;
   readonly disabled?: boolean;
   // A control that reveals a panel reports whether the panel is open.
   readonly expanded?: boolean;
@@ -316,7 +405,13 @@ export function ToolbarButton({
 }
 
 // Neutral initials for a sender without a contact photo; never a generated color.
-export function Monogram({ name }: { readonly name: string }) {
+export function Monogram({
+  name,
+  size = 36,
+}: {
+  readonly name: string;
+  readonly size?: 36 | 48;
+}) {
   const colors = usePalette();
   const initials = name
     .split(/\s+/u)
@@ -331,11 +426,18 @@ export function Monogram({ name }: { readonly name: string }) {
       style={[
         styles.monogram,
         {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
           backgroundColor: colors.surfaceBubble,
           borderColor: colors.separator,
         },
       ]}>
-      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
+      <Text
+        style={[
+          size === 48 ? textStyles.headline : styles.monogramText,
+          { color: colors.textSecondary },
+        ]}>
         {initials}
       </Text>
     </View>

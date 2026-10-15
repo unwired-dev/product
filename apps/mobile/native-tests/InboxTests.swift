@@ -41,8 +41,7 @@ final class InboxTests: XCTestCase {
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    entry.typeText(String(presented.suffix(4)) + "\n")
+    enter(String(presented.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
@@ -55,7 +54,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
-      app.staticTexts["Images in this message are not loaded."].waitForExistence(timeout: 15))
+      text("Images in this message are not loaded.", in: app).waitForExistence(timeout: 15))
     // The sanitized HTML renders inside the isolated WebKit view.
     XCTAssertTrue(
       app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
@@ -137,19 +136,7 @@ final class InboxTests: XCTestCase {
     // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
     // beside Gmail's.
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    // Confirm each character reached the controlled field before sending the next one.
-    var confirmation = ""
-    for character in app.staticTexts["recovery-key"].label.suffix(4) {
-      entry.typeText(String(character))
-      confirmation += String(character)
-      let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
-        .completed)
-    }
-    entry.typeText("\n")
+    enter(String(app.staticTexts["recovery-key"].label.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
@@ -169,9 +156,22 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     if UIDevice.current.userInterfaceIdiom == .phone {
-      // A no-match search shrinks the Move sheet; its field and explanation must stay above the keyboard.
-      app.buttons["Folders"].tap()
-      XCTAssertTrue(app.staticTexts["Move to…"].waitForExistence(timeout: 10))
+      // Landscape leaves little room above the keyboard; Search and its explanation stay reachable.
+      XCUIDevice.shared.orientation = .landscapeLeft
+      let landscape = NSPredicate { _, _ in
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+      }
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 5),
+        .completed)
+      app.buttons["Reply"].tap()
+      let actions = app.scrollViews.containing(.button, identifier: "Reply All").firstMatch
+      let move = actions.buttons["Folders"]
+      XCTAssertTrue(move.waitForExistence(timeout: 10))
+      move.tap()
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForExistence(timeout: 10))
       let search = app.textFields["Search"]
       search.tap()
       let keyboard = app.keyboards.firstMatch
@@ -179,14 +179,27 @@ final class InboxTests: XCTestCase {
       for character in "missing folder" { search.typeText(String(character)) }
       let noMatch = text("No folders match your search.", in: app)
       XCTAssertTrue(noMatch.waitForExistence(timeout: 5))
+      let folders = app.scrollViews.containing(
+        .staticText, identifier: "No folders match your search."
+      ).firstMatch
+      XCTAssertGreaterThanOrEqual(folders.frame.height, 44)
+      // A default swipe across a short viewport can become a tap-length gesture.
+      for _ in 0..<5 where !folders.frame.contains(noMatch.frame) {
+        folders.swipeUp(velocity: .slow)
+        XCTAssertTrue(keyboard.exists)
+      }
+      XCTAssertTrue(folders.frame.contains(noMatch.frame))
+      XCTAssertTrue(noMatch.isHittable)
       XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
       let sheet = XCTAttachment(screenshot: app.screenshot())
       sheet.name = "Move sheet no-match search above the keyboard"
       sheet.lifetime = .keepAlways
       add(sheet)
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
-      XCTAssertFalse(app.staticTexts["Move to…"].exists)
+      app.buttons["Close"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Move this message to another folder."].waitForNonExistence(timeout: 5))
+      XCUIDevice.shared.orientation = .portrait
     }
     app.terminate()
     app.launch()
@@ -275,8 +288,7 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(mailboxes.exists)
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
-    entry.tap()
-    entry.typeText("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG\n")
+    enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
     app.buttons["Unlock with Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.exists)
@@ -296,6 +308,24 @@ final class InboxTests: XCTestCase {
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+  }
+
+  // Types into a controlled field one character at a time, confirming each reached it before the
+  // next: the software keyboard drops characters typed while the field re-renders.
+  private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
+    field.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    var confirmation = ""
+    for character in value {
+      field.typeText(String(character))
+      confirmation += String(character)
+      let entered = NSPredicate(format: "value == %@", confirmation)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5),
+        .completed)
+    }
+    field.typeText("\n")
   }
 
   // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
@@ -318,8 +348,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let first = app.staticTexts["recovery-key"].label
     let initialEntry = app.textFields["Last four characters"]
-    initialEntry.tap()
-    initialEntry.typeText(String(first.suffix(4)) + "\n")
+    enter(String(first.suffix(4)), into: initialEntry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     let proposed = app.staticTexts["revocation-recovery-key"]
     func prepare() {
@@ -340,8 +369,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(replaced.count, 64)
     XCTAssertNotEqual(replaced, first)
     let entry = app.textFields["Last four characters of the new Recovery Key"]
-    entry.tap()
-    entry.typeText(String(replaced.suffix(4)) + "\n")
+    enter(String(replaced.suffix(4)), into: entry, in: app)
     app.buttons["Remove iPad"].tap()
     XCTAssertTrue(text("The device was removed.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
@@ -398,19 +426,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
     let key = app.staticTexts["recovery-key"].label
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
-    var confirmation = ""
-    for character in key.suffix(4) {
-      entry.typeText(String(character))
-      confirmation += String(character)
-      let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)],
-          timeout: 5), .completed)
-    }
-    entry.typeText("\n")
+    enter(String(key.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
     app.buttons["Sign out of this device"].tap()
@@ -454,19 +470,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Choose another Google mailbox"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
-    entry.tap()
-    // Confirm each character reached the controlled field before sending the next one.
-    var confirmation = ""
-    for character in presented.suffix(4) {
-      entry.typeText(String(character))
-      confirmation += String(character)
-      let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: entry)], timeout: 5),
-        .completed)
-    }
-    entry.typeText("\n")
+    enter(String(presented.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
@@ -763,11 +767,14 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(message.waitForExistence(timeout: 15))
     message.tap()
     app.buttons["Reply"].tap()
-    // Reply opens a menu of responses; its Reply item is the one that is not the expanded button.
     if app.buttons["Reply All"].waitForExistence(timeout: 2) {
-      app.buttons.matching(
-        NSPredicate(format: "label == %@ AND NOT (value == %@)", "Reply", "expanded")
-      ).firstMatch.tap()
+      // iPhone's Reply sheet names the sender beside its Close button.
+      XCTAssertTrue(app.buttons["Close"].exists)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Reply sheet"
+      sheet.lifetime = .keepAlways
+      add(sheet)
+      app.scrollViews.containing(.button, identifier: "Reply All").firstMatch.buttons["Reply"].tap()
     }
     // The controls appear once the page has loaded and can take the accepted reply.
     waitUntil({ self.pageReady(app) }, timeout: 30)

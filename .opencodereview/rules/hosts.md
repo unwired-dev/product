@@ -592,6 +592,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   replaced or removed. The Jest router mock commits synchronously and cannot
   show this ordering; a passing routing test is not evidence.
 
+- Mobile `app/_layout.tsx.MailShell` updating composer keyboard geometry while
+  no composer is open. Trace the installed split view's screen lifetime and
+  focus Search in the reader's Move picker: a shell render can remount the reader
+  and dismiss its sheet as the keyboard appears. Scope avoidance subscriptions
+  and retained geometry to the open Draft, and verify the picker stays open,
+  filters folders and keeps Search reachable through the native keyboard journey.
+  Component-only callbacks do not qualify this screen-lifetime boundary.
+
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.
   Text and Undo events can still arrive while storage is pending; trace rendered
@@ -828,6 +836,25 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   as To. Explicit role words must retain meaning when punctuation is omitted;
   component label assertions do not qualify native VoiceOver pronunciation.
 
+- `organize.tsx.Toolbar` projecting provider actions into the iPhone Reply sheet
+  in their More-menu order instead of the approved sheet order. Check tiles and
+  grouped rows against the approved frames after provider eligibility filtering;
+  otherwise Trash and Spam can swap places despite every action being present.
+  Preserve the existing More ordering when correcting the sheet projection.
+- Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet`,
+  `composer-controls.tsx.PopUp` or another foreground presentation relying only on
+  native glass to obscure the content underneath. Check settled native captures in
+  both appearances: reader and composer text must not remain legible through sheet
+  or menu controls. Preserve the shared panel's palette-backed surface beneath the
+  material, or the presentations overlap two sets of text and icons even though
+  rendered component tests pass.
+- Mobile `reply-sheet.tsx.ReplySheet` invoking a selected action before its retained
+  exit and native Modal dismissal finish. Trace Move's sibling Modal through the
+  installed iOS presenter and keep the closing Modal mounted to receive `onDismiss`;
+  otherwise UIKit refuses the second sheet while Reply still occupies its presenter.
+  Retire deferred choices on reader replacement/unmount and recheck current action
+  availability before dispatch. Exercise Reply-to-Move in the native journey;
+  mocked animation completion alone does not prove native presentation ordering.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - `inbox-bar.tsx.FilterControl` retaining a sheet-specific `accessibilityHint`
   after a regular-width layout opens a popover. Trace the destination in compact

@@ -570,7 +570,9 @@ function EvaluationEditor({
             <View
               accessibilityRole="menu"
               style={styles.closeMenu}>
-              <GlassPanel>
+              <GlassPanel
+                open
+                origin="top left">
                 <MenuItem
                   destructive
                   label={t('drafts.deleteDraft')}

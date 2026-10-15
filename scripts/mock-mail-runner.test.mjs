@@ -255,6 +255,24 @@ test('build selection resolves only explicit test scenarios and production keeps
     assert.equal(result.status, 0, result.stderr);
     assert.equal(parseJson(result.stdout).type, expected);
   }
+  // Registration scenarios answer the native vault from the synthetic layers, except enrollment,
+  // whose synthetic trusted device still answers natively.
+  const relay = `const { resolveSeed } = require('./scripts/mock-mail-build.cjs'); console.log(JSON.stringify(resolveSeed({ resolveRequest: () => ({ type: 'normal' }) }, '@private-email/mail-core/synthetic-registration', 'ios')));`;
+  for (const [scenario, expected] of [
+    ['', 'normal'],
+    ['open-read-relaunch', 'normal'],
+    ['registration-apple', 'sourceFile'],
+    ['registration-draft-editor', 'sourceFile'],
+    ['registration-enrollment', 'normal'],
+  ]) {
+    const result = spawnSync(process.execPath, ['-e', relay], {
+      cwd: root,
+      env: { ...process.env, UNWIRED_MOCK_SCENARIO: scenario },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseJson(result.stdout).type, expected);
+  }
   const invalid = spawnSync(process.execPath, ['-e', script], {
     cwd: root,
     env: { ...process.env, UNWIRED_MOCK_SCENARIO: '../../production' },

@@ -13,8 +13,11 @@ import type {
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Pressable,
   requireNativeComponent,
   StyleSheet,
@@ -205,11 +208,109 @@ export function GlassGroup({
   );
 }
 
+const AnimatedPanel = Animated.createAnimatedComponent(ModalBackground);
+
+const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
+
+// A menu that eases out of its control and fades away once closed. Closing hides it from
+// VoiceOver and the pointer at once; Reduce Motion keeps only the fade.
+export function MenuPresence({
+  open,
+  origin,
+  style,
+  children,
+  ...props
+}: ViewProps & {
+  readonly open: boolean;
+  // The corner of its control the menu grows from, as a CSS transform origin.
+  readonly origin: string;
+}) {
+  const [shown, setShown] = useState(open);
+  const progress = useMemo(() => new Animated.Value(0), []);
+  const [reduced, setReduced] = useState(true);
+  if (open && !shown) {
+    setShown(true);
+  }
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 200 : 150,
+      easing: easeOut,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !open) {
+        setShown(false);
+      }
+    });
+    return () => {
+      animation.stop();
+    };
+  }, [open, progress]);
+  if (!shown) {
+    return null;
+  }
+  return (
+    <AnimatedPanel
+      {...props}
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
+      style={[
+        style,
+        {
+          opacity: progress,
+          transformOrigin: origin,
+          transform: reduced
+            ? []
+            : [
+                {
+                  scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.95, 1],
+                  }),
+                },
+              ],
+        },
+      ]}>
+      {children}
+    </AnimatedPanel>
+  );
+}
+
 // Menus float independently of their toolbar, with the deeper menu shadow.
-export function GlassPanel({ children }: { readonly children: ReactNode }) {
+export function GlassPanel({
+  open,
+  children,
+}: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
   const colors = usePalette();
   return (
-    <View
+    <MenuPresence
+      open={open}
+      origin="top right"
       style={[
         styles.panel,
         {
@@ -222,7 +323,7 @@ export function GlassPanel({ children }: { readonly children: ReactNode }) {
         style={StyleSheet.absoluteFill}
       />
       {children}
-    </View>
+    </MenuPresence>
   );
 }
 

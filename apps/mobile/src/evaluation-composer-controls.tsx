@@ -269,7 +269,9 @@ export function FormatPanel({
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <View style={styles.format}>
-      <GlassPanel cornerRadius={radius.formatPanel}>
+      <GlassPanel
+        open
+        cornerRadius={radius.formatPanel}>
         <View
           accessibilityLabel={t('drafts.formatting')}
           accessibilityRole="toolbar"
@@ -444,7 +446,9 @@ export function PhoneControls({
         <View
           accessibilityRole="menu"
           style={styles.pillMenu}>
-          <GlassPanel>
+          <GlassPanel
+            open
+            origin="bottom right">
             {open === 'attach' ? (
               pickers.map(([label, from, inline]) => (
                 <MenuItem
@@ -583,7 +587,7 @@ export function PadFormatBar({
         <View
           accessibilityRole="menu"
           style={styles.padMenu}>
-          <GlassPanel>
+          <GlassPanel open>
             <WritingTools
               draft={draft}
               page={page}

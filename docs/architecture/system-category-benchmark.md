@@ -2,8 +2,9 @@
 
 Reviewer-only companion to [the benchmark guide](../../tools/system-category-benchmark/README.md).
 Read under the [implementation and review workflow](../agents/implementation-review.md).
-Issue [#828](https://github.com/unwired-dev/product/issues/828) governs this isolated
-comparison; [#827](https://github.com/unwired-dev/product/issues/827) governs the
+Issues [#828](https://github.com/unwired-dev/product/issues/828) and
+[#829](https://github.com/unwired-dev/product/issues/829) govern these isolated
+System and Custom comparisons; [#827](https://github.com/unwired-dev/product/issues/827) governs the
 later synthesis. Neither authorizes production integration or model adoption.
 
 ## Scope and authority
@@ -25,8 +26,10 @@ allocations are not deployment sizes or native inference evidence.
 [ADR 0024](../adr/0024-allow-multiple-categories-per-message.md) retain the local,
 minimized-first boundary, purpose-category overlap, People fallback, Uncategorized
 State and future-only User Override semantics. This tool measures batch input
-variants; it implements neither conditional production body access nor learning
-from User Overrides. No provider fetch, cloud fallback or historical assignment
+variants; it implements no conditional production body access. The Custom slice
+replays simulated per-sender positive and negative User Override signals only for
+later sample decisions, without retraining weights or revisiting earlier assignments.
+No provider fetch, cloud fallback or historical assignment
 path is added to the product. [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
 does not turn this spike into launch qualification.
 
@@ -112,6 +115,72 @@ The new experiment digest identifies the compatible instrumented code after
 that audit, rather than claiming it was emitted by the original training runs.
 The migration changes no predictions, thresholds or metrics. Future experiments
 must rerun instead of restamping existing artifacts after a substantive change.
+
+## Custom result provenance audit
+
+The #829 review found that cached scores checked only message IDs and table
+aggregation checked only labels. A changed message or hypothesis could therefore
+reuse old scores while receiving current category metadata. The corrected path
+checks full-record inputs including train records and the Custom synthetic stratum,
+category definitions, the whole Custom runner/generator and the shared experiment
+digest. Reports also check labels; agreement checks its independent annotation file.
+Adapted-weight consumers check the actual weight digest. The #828 comparators keep
+their existing corpus and benchmark guards. Declared candidate, input-budget and
+wording variants remain comparable.
+
+Existing artifacts received metadata only after auditing local execution evidence.
+Twenty-five T3 snapshots from `81a59f14` on 2026-10-14 19:24 +02:00 through
+`b2a52a9a` on 2026-10-15 05:01 include the original Custom runner. Across them,
+the ASTs of scoring/adaptation helpers and their constants are identical to
+`f058b09e`; category definitions are semantically identical and Custom labels,
+generator, shared runner/preprocessing, corpus manifest and locked dependencies
+are byte-identical. The whole runner is unchanged from `6a20f6de` at 00:29 onward;
+earlier edits concern evaluation and reporting. The first scoring log begins
+15 minutes before the earliest containing snapshot, so this is corroborated
+historical compatibility evidence, not an original execution-time digest.
+
+All eleven cached runs have the current ordered 1,637 IDs and finite 1,637 by 57
+scores. Their metadata exactly matches the corresponding score logs, including
+pinned revisions, token/hypothesis lengths, budgets, pair counts and timings.
+Adaptation logs and artifacts agree on settings and 11,400 training pairs. All
+four frozen bundle weight hashes match local artifacts, and all 144 Custom golden
+probabilities agree with cached scores within 5.1e-7. Template code and sampling
+are unchanged since `f5b33482`; both probe results exactly match their execution
+log and use unchanged labels. All evaluations, keyword baselines, agreement and
+override replays were rerun after adding guards. Metadata migration changes no
+scores or weights and is not an automatic compatibility bypass. Future input or
+experiment changes require regeneration rather than restamping.
+
+The thermo-nuclear review split the Custom command entry point, benchmark operations
+and artifact rendering into `custom.py`, `custom_benchmark.py` and
+`custom_report.py`. Initially all three files participated in the conservative
+experiment digest. Against reviewed commit `39e8c70cb`, every moved function body and constant
+is AST-identical except the expanded provenance file list; CLI command targets and
+arguments are unchanged. After verifying the old digests, corpus, labels, scores
+and weight identities, this mechanical refactor received updated digest metadata.
+All cached evaluations, baselines, agreement, override replays and golden outputs
+were regenerated and compared with that commit. Measured results and reference
+outputs are unchanged; the source split is not a general cache-migration bypass.
+
+The next OCR pass found that golden-bundle assembly checked Custom provenance
+but omitted the corpus and shared experiment guards for its System results.
+The existing table guard now also runs before loading each System golden model.
+Regression tests reject either stale digest before any model load. Before updating
+the conservative Custom digest, review verified all eleven finite score arrays,
+twenty result records, two adaptation manifests and four frozen weight identities
+against `a1fb52eae`. Only System-result admission and reuse of the existing table
+guard changed; scoring, adaptation, calibration and table formatting are
+unchanged. Reevaluation and golden regeneration retain all measured values and
+reference outputs. This audited guard-only migration adds no general bypass.
+
+A later decision panel unanimously approved excluding `custom_report.py` from the
+digest, matching #828's exclusion of `report.py`. GPT-6.1-Sol, Claude Fable 5.1 and
+GPT-6-Astra all chose that option. The one-time migration at `92806bf5f` verified
+unchanged scoring/evaluation code, score arrays and weight identities against
+`5d96e0a9d`; only benchmark digests changed in caches and results. Evaluations and
+golden outputs were regenerated without changing measured values. Golden generation
+also now requires local System thresholds to match the committed results and local
+System weights to match the existing bundle before loading each System model.
 
 ## Extraction inventory
 

@@ -49,8 +49,14 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
 [sign-out and deletion](account-removal.md#deterministic-evidence) and the
 [Tiptap Draft editor evaluation](draft-editor-evaluation.md).
-The registration journeys use real Keychain with a fixed synthetic provider compiled only in the selected test build.
-That provider also answers the [Gmail Inbox](gmail-inbox.md#deterministic-evidence)'s
+The registration journeys use the real native vault, Keychain and encrypted Inbox store.
+At each provider and backend seam, the vault asks a relay compiled only into the
+selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
+layers in `packages/mail-core/src/testing/synthetic-*.ts`, bundled only for that
+build, answer as Google, Apple, Microsoft and Convex would. `registration-enrollment`
+still uses a native synthetic provider, because its trusted device seals a live
+approval with CryptoKit ([#960](https://github.com/unwired-dev/product/issues/960)).
+The synthetic Google layer also answers the [Gmail Inbox](gmail-inbox.md#deterministic-evidence)'s
 requests from a synthetic mailbox of three messages over two list pages and one
 label, each with a synthetic HTML or plain-text body for the reader, applying label
 changes for the rest of the launch. Journeys that confirm setup with a connected
@@ -69,7 +75,8 @@ keys and an encrypted mailbox. It approves the app's request with the code read
 from that Keychain, standing in for a person typing it on another device.
 In `registration-recovery`, the same synthetic device is lost and never approves.
 The journey types the account's fixed synthetic Recovery Key instead, which the
-backend checks against the account's Recovery Key verifier.
+backend checks against the account's Recovery Key verifier. Its recovery envelope,
+verifier and encrypted mailbox are fixed values that native code sealed for that key.
 In `registration-revocation`, the new account also has a synthetic iPad with its
 own encryption key. The journey prepares removing it, cancels, prepares again,
 confirms the replacement Recovery Key's last four characters, and relaunches

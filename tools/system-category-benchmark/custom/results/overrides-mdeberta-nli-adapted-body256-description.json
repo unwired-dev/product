@@ -1,0 +1,37 @@
+{
+ "corpus_sha256": "afeac65b3cd0402ed5482acd28a23448edd917ce2089fb58b4834775b1281e1a",
+ "categories_sha256": "ebb3d90026d08c9d9b805ff27a544d5e4dcb87764574fcb4b85a1b121db35d6a",
+ "benchmark_sha256": "c94f2586dc45abfef9415d378bdc33a0d61fd75651604e0ca41e849bd88ed588",
+ "labels_sha256": "a0bf68ddc1995d11f4e8c70ef95fef9872ab1e80fcda7ae097b9f6a4d436720b",
+ "run": "overrides-mdeberta-nli-adapted-body256-description",
+ "thresholds": {
+  "en": 0.92,
+  "cs": 0.98
+ },
+ "slices": {
+  "real": {
+   "messages": 332,
+   "signals": {
+    "positive": 229,
+    "negative": 171
+   },
+   "decisions_changed_by_signals": 148,
+   "changed_decisions_correct": 63,
+   "earlier_assignments_left_unchanged": 450,
+   "micro_f1_model_only": 0.25296442687747034,
+   "micro_f1_with_signals": 0.35275080906148865
+  },
+  "synthetic": {
+   "messages": 506,
+   "signals": {
+    "positive": 47,
+    "negative": 74
+   },
+   "decisions_changed_by_signals": 677,
+   "changed_decisions_correct": 649,
+   "earlier_assignments_left_unchanged": 418,
+   "micro_f1_model_only": 0.4847222222222222,
+   "micro_f1_with_signals": 0.9100371747211896
+  }
+ }
+}
