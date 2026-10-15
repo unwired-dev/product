@@ -3,12 +3,9 @@ import type { MailboxProblem } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
 import {
-  gmailViewSymbol,
-  gmailViewTitle,
-} from '@private-email/mail-core/gmail-actions';
-import {
   failedFolders,
   gmailMailbox,
+  gmailViewRow,
   mailboxSidebar,
 } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -210,32 +207,21 @@ function FolderRows({
         : '',
   ).split('\n');
   const gmail = gmailMailbox(mailbox);
-  const title = (folder: string, isInbox: boolean) => {
+  // A folder or Gmail view's name, SF Symbol and failed-read notice.
+  const row = (folder: string, isInbox: boolean) => {
     if (gmail !== undefined) {
-      return gmailViewTitle(t, folder, gmail.state.labels);
+      return gmailViewRow(t, gmail.state, folder);
     }
-    return isInbox ? t('inbox.title') : folder;
-  };
-  const folderTrouble = (folder: string) => {
-    if (gmail !== undefined) {
-      return gmail.state.views?.find(({ label }) => label === folder)
-        ?.status === 'failed'
-        ? t('mailboxes.viewUnavailable', {
-            view: title(folder, false),
-            provider: t('mailProviders.gmail'),
-          })
-        : undefined;
-    }
-    return failed.includes(JSON.stringify(folder))
-      ? t('imap.foldersUnavailable')
-      : undefined;
+    return {
+      title: isInbox ? t('inbox.title') : folder,
+      icon: isInbox ? 'tray' : 'folder',
+      failure: failed.includes(JSON.stringify(folder))
+        ? t('imap.foldersUnavailable')
+        : undefined,
+    };
   };
   return folders.map(({ name: folder, inbox: isInbox, unread, selected }) => {
-    const label = title(folder, isInbox);
-    let icon = isInbox ? 'tray' : 'folder';
-    if (gmail !== undefined) {
-      icon = gmailViewSymbol(folder);
-    }
+    const { title: label, icon, failure } = row(folder, isInbox);
     return (
       <Item
         key={folder}
@@ -246,7 +232,7 @@ function FolderRows({
           mailbox: name,
         })}
         count={unread}
-        status={isInbox ? trouble : folderTrouble(folder)}
+        status={isInbox ? trouble : failure}
         selected={selected}
         onPress={() => {
           onView({

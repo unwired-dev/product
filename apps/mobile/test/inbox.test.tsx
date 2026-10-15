@@ -1267,6 +1267,41 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
+  it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const [first] = Array.from({ length: 10 }, (_, index) =>
+      gmail.createLabel(`Label ${index}`),
+    );
+    const kept = gmail.deliver({ subject: 'Only in its label' });
+    gmail.setLabel(kept, String(first), true);
+    gmail.archive(kept);
+    await renderConnected(gmail.native).rendered;
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Label 0. In alex@example.invalid',
+        }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Only in its label/u }),
+    );
+    // Nine other views are more than the eight the mailbox keeps beside its Inbox.
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: `Label ${index}. In alex@example.invalid`,
+          }),
+        );
+      });
+    }
+    expect(
+      screen.getByRole('header', { name: 'Only in its label' }),
+    ).toBeVisible();
+  });
+
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({

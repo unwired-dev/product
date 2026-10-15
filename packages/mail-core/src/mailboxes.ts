@@ -42,6 +42,7 @@ export type { MailboxProblem } from './mailbox-views.ts';
 export {
   failedFolders,
   gmailMailbox,
+  gmailViewRow,
   gmailViewName,
   mailboxFolder,
   inboxChoice,

@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import type { GmailInbox, GmailInboxState } from './gmail-inbox.ts';
 import type {
   ImapFolderView,
@@ -7,7 +9,11 @@ import type {
 import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
 import type { MailboxConnection, MailProvider } from './registration.ts';
 
-import { systemViews } from './gmail-actions.ts';
+import {
+  gmailViewSymbol,
+  gmailViewTitle,
+  systemViews,
+} from './gmail-actions.ts';
 import { imapFolderFailed, imapFolderName, inboxFolder } from './imap-inbox.ts';
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
@@ -75,6 +81,29 @@ export const gmailMailbox = (mailbox: BrowsableMailbox | undefined) => {
   return 'openView' in inbox && state.kind === 'ready' && 'labels' in state
     ? { inbox, state }
     : undefined;
+};
+
+// A Gmail view as both hosts show it, in the sidebar and the list: its name, SF Symbol, the
+// notice for a failed read, and whether it keeps only its newest messages.
+export const gmailViewRow = (
+  t: Translate,
+  state: Extract<GmailInboxState, { kind: 'ready' }>,
+  label: string,
+) => {
+  const view = state.views?.find((entry) => entry.label === label);
+  const title = gmailViewTitle(t, label, state.labels);
+  return {
+    title,
+    icon: gmailViewSymbol(label),
+    failure:
+      view?.status === 'failed'
+        ? t('mailboxes.viewUnavailable', {
+            view: title,
+            provider: t('mailProviders.gmail'),
+          })
+        : undefined,
+    limited: view?.limited === true,
+  };
 };
 
 // A window keeps its chosen folder while the provider still offers it.

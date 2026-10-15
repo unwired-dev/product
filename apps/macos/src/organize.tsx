@@ -29,7 +29,12 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   AccessibilityInfo,
   Pressable,
@@ -450,6 +455,13 @@ function GmailMessageActions({
   const [labeling, setLabeling] = useState(false);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
+  // The reader holds the view it was opened in, so browsing other views cannot evict its message.
+  useLayoutEffect(() => {
+    if (view === inboxFolder || !('retainView' in store)) {
+      return undefined;
+    }
+    return store.retainView(view);
+  }, [store, view]);
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||

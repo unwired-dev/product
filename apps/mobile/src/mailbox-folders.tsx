@@ -1,12 +1,12 @@
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
-import { gmailViewTitle } from '@private-email/mail-core/gmail-actions';
 import {
   imapFolderFailed,
   inboxFolder,
 } from '@private-email/mail-core/imap-inbox';
 import {
   gmailMailbox,
+  gmailViewRow,
   mailboxFolder,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -57,19 +57,7 @@ export function useMailboxFolder<E>(
   // A message chosen outside the Inbox names its view, which its actions can take it out of.
   const selection = folder === inboxFolder ? {} : { folder };
   if (gmail !== undefined) {
-    return {
-      folder,
-      selection,
-      title: gmail.title,
-      listed: gmail.listed,
-      failure: gmail.failed
-        ? t('mailboxes.viewUnavailable', {
-            view: gmail.title,
-            provider: t('mailProviders.gmail'),
-          })
-        : undefined,
-      limited: gmail.limited,
-    };
+    return { folder, selection, ...gmail };
   }
   return {
     folder,
@@ -123,15 +111,11 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
     mailbox === undefined || shown === undefined
       ? noEntries
       : viewEntries(mailbox, shown.messages);
-  return gmail === undefined
-    ? undefined
-    : {
-        title: gmailViewTitle(t, folder, gmail.state.labels),
-        listed,
-        failed: shown?.status === 'failed',
-        // The view keeps only its newest messages; older ones stay in Gmail.
-        limited: shown?.limited === true,
-      };
+  if (gmail === undefined) {
+    return undefined;
+  }
+  const { title, failure, limited } = gmailViewRow(t, gmail.state, folder);
+  return { title, listed, failure, limited };
 }
 
 // The chosen IMAP folder's messages as list entries, or undefined for the Inbox.
