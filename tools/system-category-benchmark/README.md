@@ -8,7 +8,9 @@ the apps: no production assignments, historical classification or cloud
 fallback. Delivery stays in #649 and #650.
 
 Findings, the recommended candidates and limitations are in [REPORT.md](REPORT.md).
-The generated tables are in [results/tables.md](results/tables.md).
+The generated tables are in [results/tables.md](results/tables.md). The Custom
+Category comparison (spike #829) reuses this corpus and runner and is described in
+[CUSTOM.md](CUSTOM.md).
 
 Corpus v2 replaces v1, which review withdrew because duplicate bodies, one Thread
 and synthetic sender addresses crossed splits. Every result was rerun on v2.

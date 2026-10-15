@@ -1,0 +1,340 @@
+{
+ "run": "agreement",
+ "messages": 150,
+ "real_messages": 100,
+ "exact_match": 0.6133333333333333,
+ "exact_match_real": 0.57,
+ "micro_f1": 0.8274111675126904,
+ "micro_f1_real": 0.7800829875518672,
+ "per_category": {
+  "online-purchases": {
+   "positives": [
+    3,
+    3
+   ],
+   "kappa": 1.0
+  },
+  "refunds-returns": {
+   "positives": [
+    4,
+    4
+   ],
+   "kappa": 1.0
+  },
+  "bills-to-pay": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 0.49324324324324115
+  },
+  "payment-problems": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "deals-coupons": {
+   "positives": [
+    12,
+    18
+   ],
+   "kappa": 0.7787610619469024
+  },
+  "loyalty-rewards": {
+   "positives": [
+    0,
+    5
+   ],
+   "kappa": 0.0
+  },
+  "airfare-deals": {
+   "positives": [
+    4,
+    4
+   ],
+   "kappa": 1.0
+  },
+  "flights-booked": {
+   "positives": [
+    12,
+    14
+   ],
+   "kappa": 0.915824915824916
+  },
+  "trip-itineraries": {
+   "positives": [
+    15,
+    18
+   ],
+   "kappa": 0.8979591836734693
+  },
+  "event-invitations": {
+   "positives": [
+    13,
+    17
+   ],
+   "kappa": 0.8521439132577627
+  },
+  "newsletters-reading": {
+   "positives": [
+    11,
+    18
+   ],
+   "kappa": 0.7344461305007589
+  },
+  "family-friends": {
+   "positives": [
+    7,
+    9
+   ],
+   "kappa": 0.8680738786279686
+  },
+  "weddings": {
+   "positives": [
+    0,
+    1
+   ],
+   "kappa": 0.0
+  },
+  "parties-social": {
+   "positives": [
+    5,
+    9
+   ],
+   "kappa": 0.7014925373134335
+  },
+  "book-recommendations": {
+   "positives": [
+    0,
+    1
+   ],
+   "kappa": 0.0
+  },
+  "kids-school": {
+   "positives": [
+    1,
+    1
+   ],
+   "kappa": 1.0
+  },
+  "bank-cards": {
+   "positives": [
+    0,
+    1
+   ],
+   "kappa": 0.0
+  },
+  "statements": {
+   "positives": [
+    1,
+    1
+   ],
+   "kappa": 1.0
+  },
+  "housing-rent": {
+   "positives": [
+    1,
+    1
+   ],
+   "kappa": 1.0
+  },
+  "utilities": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "insurance": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "taxes": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "car-service": {
+   "positives": [
+    1,
+    2
+   ],
+   "kappa": 0.6636771300448403
+  },
+  "job-search": {
+   "positives": [
+    1,
+    1
+   ],
+   "kappa": 1.0
+  },
+  "club-membership": {
+   "positives": [
+    1,
+    1
+   ],
+   "kappa": 1.0
+  },
+  "sports-fitness": {
+   "positives": [
+    3,
+    5
+   ],
+   "kappa": 0.7435897435897437
+  },
+  "volunteering-charity": {
+   "positives": [
+    2,
+    4
+   ],
+   "kappa": 0.6606334841628959
+  },
+  "energy-trading": {
+   "positives": [
+    8,
+    13
+   ],
+   "kappa": 0.7450713800135964
+  },
+  "contracts-legal": {
+   "positives": [
+    4,
+    4
+   ],
+   "kappa": 1.0
+  },
+  "regulation-policy": {
+   "positives": [
+    4,
+    4
+   ],
+   "kappa": 1.0
+  },
+  "hr-benefits": {
+   "positives": [
+    1,
+    2
+   ],
+   "kappa": 0.6636771300448403
+  },
+  "account-security": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "it-alerts": {
+   "positives": [
+    0,
+    3
+   ],
+   "kappa": 0.0
+  },
+  "work-meetings": {
+   "positives": [
+    2,
+    3
+   ],
+   "kappa": 0.7967479674796738
+  },
+  "work-social": {
+   "positives": [
+    4,
+    4
+   ],
+   "kappa": 1.0
+  },
+  "document-reviews": {
+   "positives": [
+    2,
+    6
+   ],
+   "kappa": 0.489795918367347
+  },
+  "daily-reports": {
+   "positives": [
+    3,
+    3
+   ],
+   "kappa": 1.0
+  },
+  "conferences-speaking": {
+   "positives": [
+    5,
+    5
+   ],
+   "kappa": 1.0
+  },
+  "training-courses": {
+   "positives": [
+    0,
+    1
+   ],
+   "kappa": 0.0
+  },
+  "budgets-expenses": {
+   "positives": [
+    1,
+    2
+   ],
+   "kappa": 0.6636771300448403
+  },
+  "investing-news": {
+   "positives": [
+    2,
+    3
+   ],
+   "kappa": 0.7967479674796738
+  },
+  "tech-news": {
+   "positives": [
+    8,
+    9
+   ],
+   "kappa": 0.9376558603491268
+  },
+  "linux-help": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "spam-filtering": {
+   "positives": [
+    3,
+    5
+   ],
+   "kappa": 0.7435897435897437
+  },
+  "software-development": {
+   "positives": [
+    3,
+    5
+   ],
+   "kappa": 0.7435897435897437
+  },
+  "mailing-list-admin": {
+   "positives": [
+    2,
+    2
+   ],
+   "kappa": 1.0
+  },
+  "project-updates": {
+   "positives": [
+    1,
+    4
+   ],
+   "kappa": 0.3935309973045795
+  }
+ }
+}

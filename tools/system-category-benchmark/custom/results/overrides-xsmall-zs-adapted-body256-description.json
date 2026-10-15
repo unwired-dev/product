@@ -1,0 +1,33 @@
+{
+ "run": "overrides-xsmall-zs-adapted-body256-description",
+ "thresholds": {
+  "en": 0.71,
+  "cs": 0.85
+ },
+ "slices": {
+  "real": {
+   "messages": 332,
+   "signals": {
+    "positive": 199,
+    "negative": 170
+   },
+   "decisions_changed_by_signals": 133,
+   "changed_decisions_correct": 55,
+   "earlier_assignments_left_unchanged": 427,
+   "micro_f1_model_only": 0.37318840579710144,
+   "micro_f1_with_signals": 0.42967542503863987
+  },
+  "synthetic": {
+   "messages": 506,
+   "signals": {
+    "positive": 47,
+    "negative": 96
+   },
+   "decisions_changed_by_signals": 664,
+   "changed_decisions_correct": 628,
+   "earlier_assignments_left_unchanged": 483,
+   "micro_f1_model_only": 0.4962302947224126,
+   "micro_f1_with_signals": 0.8953913679590344
+  }
+ }
+}

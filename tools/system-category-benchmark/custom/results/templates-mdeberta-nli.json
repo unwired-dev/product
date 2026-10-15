@@ -1,0 +1,38 @@
+{
+ "run": "templates-mdeberta-nli",
+ "messages": 150,
+ "variants": {
+  "category-name": {
+   "en": 0.4073632764541855,
+   "cs": 0.48677409546974765,
+   "thresholds": {
+    "en": 0.92,
+    "cs": 0.95
+   }
+  },
+  "category-description": {
+   "en": 0.24164928189273613,
+   "cs": 0.20651629072681704,
+   "thresholds": {
+    "en": 0.88,
+    "cs": 0.96
+   }
+  },
+  "about-name": {
+   "en": 0.4056542783815511,
+   "cs": 0.24574314574314576,
+   "thresholds": {
+    "en": 0.93,
+    "cs": 0.97
+   }
+  },
+  "about-description": {
+   "en": 0.27627137172591715,
+   "cs": 0.3545313382269904,
+   "thresholds": {
+    "en": 0.77,
+    "cs": 0.7
+   }
+  }
+ }
+}
