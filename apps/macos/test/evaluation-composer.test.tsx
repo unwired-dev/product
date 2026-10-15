@@ -2,32 +2,21 @@ import { ok } from 'node:assert/strict';
 
 import type { Command } from '@private-email/draft-editor/messages';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type {
-  Asset,
-  SemanticDocument,
-} from '@private-email/mail-core/semantic-document';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
 import {
   AssetSchema,
   imagesOf,
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
-  createSyntheticGmail,
-  syntheticConnections,
-} from '@private-email/mail-core/testing/gmail-mailbox';
-import {
   createMockMailSession,
   syntheticReply,
   syntheticRewrite,
   syntheticTranslation,
 } from '@private-email/mail-core/testing/mock-session';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,
   fireEvent,
@@ -36,15 +25,14 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
-import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 
-import { DraftComposer } from '../src/evaluation-composer.tsx';
-import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider, useComposerNavigation } from '../src/mailbox.tsx';
+import type { useComposerNavigation } from '../src/mailbox.tsx';
+
 import { AssistanceContext } from '../src/message-summary.tsx';
-import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { App, alex, registration } from './evaluation-app.tsx';
+import { lastCommand, press, simulatedPage } from './evaluation-page.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -53,159 +41,6 @@ jest.mock('@private-email/draft-editor/page', () => ({
   editorPage: '<!doctype html><title>Tiptap evaluation page</title>',
 }));
 
-const alex = syntheticMailboxes['alex@example.invalid'];
-const registration = {
-  getSnapshot: () => ({
-    snapshot: {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state: 'connected' },
-      ]),
-    } satisfies RegistrationSnapshot,
-    busy: false,
-    failed: false,
-  }),
-  subscribe: () => () => undefined,
-};
-
-function NavigationProbe({
-  onNavigation,
-}: {
-  readonly onNavigation:
-    | ((navigation: ReturnType<typeof useComposerNavigation>) => void)
-    | undefined;
-}) {
-  const navigation = useComposerNavigation();
-  onNavigation?.(navigation);
-  return null;
-}
-
-function App({
-  drafts,
-  onNavigation,
-}: {
-  readonly drafts: ReturnType<typeof createDrafts>;
-  readonly onNavigation?: (
-    navigation: ReturnType<typeof useComposerNavigation>,
-  ) => void;
-}) {
-  const mailboxes = useMemo(
-    () =>
-      createMailboxes(
-        syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
-        registration,
-      ),
-    [],
-  );
-  const [composing, setComposing] = useState<string>();
-  return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
-        openAccount: () => undefined,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <NavigationProbe onNavigation={onNavigation} />
-        <Inbox
-          composing={composing}
-          onCompose={setComposing}
-          onSelect={() => undefined}
-          selected={undefined}
-        />
-        {composing === undefined ? null : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
-          />
-        )}
-      </InboxProvider>
-    </AccountContext>
-  );
-}
-
-// The command the host last sent its page.
-const lastCommand = () => injectedScripts.at(-1);
-
-const press = async (name: string | RegExp, flush = true) => {
-  const button = await screen.findByRole('button', { name });
-  await act(async () => {
-    await fireEvent.press(button);
-    // The native WebView boundary acknowledges a finishing command after queued edits.
-    if (
-      flush &&
-      lastCommand() === commandScript({ type: 'editable', editable: false })
-    ) {
-      const page = screen.queryByTestId('message-webview', {
-        includeHiddenElements: true,
-      });
-      if (page !== null) {
-        fireEvent(page, 'message', {
-          nativeEvent: {
-            data: JSON.stringify({
-              type: 'update',
-              frozen: true,
-              revision: 0,
-              selection: { start: 0, end: 0 },
-              marks: [],
-              kind: 'paragraph',
-              undo: false,
-              redo: false,
-            }),
-          },
-        });
-      }
-    }
-  });
-};
-
-// The packaged page, as the host sees it: after each edit or selection change it reports its
-// state, with the whole body after an edit. `revision` counts its body edits.
-function simulatedPage() {
-  let revision = 0;
-  const report = async (
-    state: Readonly<{
-      frozen?: boolean;
-      document?: SemanticDocument;
-      attachments?: readonly Asset[];
-      selection?: Readonly<{ start: number; end: number }>;
-      marks?: readonly string[];
-      kind?: string;
-    }>,
-  ) => {
-    revision += state.document === undefined ? 0 : 1;
-    await act(async () => {
-      await fireEvent(screen.getByTestId('message-webview'), 'message', {
-        nativeEvent: {
-          data: JSON.stringify({
-            type: 'update',
-            revision,
-            selection: { start: 0, end: 0 },
-            marks: [],
-            kind: 'paragraph',
-            undo: revision > 0,
-            redo: false,
-            ...state,
-          }),
-        },
-      });
-    });
-  };
-  return {
-    report,
-    typed: async (text: string) =>
-      report({ document: [{ kind: 'paragraph', spans: [{ text }] }] }),
-    revision: () => revision,
-  };
-}
 // That command as the page receives it.
 const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
 const Previews = Schema.optionalKey(

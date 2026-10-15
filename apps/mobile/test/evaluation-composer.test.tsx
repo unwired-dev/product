@@ -2,30 +2,22 @@ import { ok } from 'node:assert/strict';
 
 import type { Command } from '@private-email/draft-editor/messages';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { KeyboardEvent } from 'react-native';
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
 import {
   AssetSchema,
   imagesOf,
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
-  createSyntheticGmail,
-  syntheticConnections,
-} from '@private-email/mail-core/testing/gmail-mailbox';
-import {
   createMockMailSession,
   syntheticReply,
   syntheticRewrite,
   syntheticTranslation,
 } from '@private-email/mail-core/testing/mock-session';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,
   fireEvent,
@@ -34,16 +26,14 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
-import { useMemo, useState } from 'react';
 import { Keyboard } from 'react-native';
 
+import type { useComposerNavigation } from '../src/mailbox.tsx';
+
 import { ComposerLayoutContext } from '../src/composer.tsx';
-import { DraftComposer } from '../src/evaluation-composer.tsx';
-import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider, useComposerNavigation } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
-import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { App, alex, registration } from './evaluation-app.tsx';
 import { lastCommand, press, simulatedPage } from './evaluation-page.ts';
 import { injectedScripts } from './webview.tsx';
 
@@ -60,85 +50,6 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('@private-email/draft-editor/page', () => ({
   editorPage: '<!doctype html><title>Tiptap evaluation page</title>',
 }));
-
-const alex = syntheticMailboxes['alex@example.invalid'];
-const registration = {
-  getSnapshot: () => ({
-    snapshot: {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state: 'connected' },
-      ]),
-    } satisfies RegistrationSnapshot,
-    busy: false,
-    failed: false,
-  }),
-  subscribe: () => () => undefined,
-};
-
-function NavigationProbe({
-  onNavigation,
-}: {
-  readonly onNavigation:
-    | ((navigation: ReturnType<typeof useComposerNavigation>) => void)
-    | undefined;
-}) {
-  const navigation = useComposerNavigation();
-  onNavigation?.(navigation);
-  return null;
-}
-
-function App({
-  drafts,
-  onNavigation,
-}: {
-  readonly drafts: ReturnType<typeof createDrafts>;
-  readonly onNavigation?: (
-    navigation: ReturnType<typeof useComposerNavigation>,
-  ) => void;
-}) {
-  const mailboxes = useMemo(
-    () =>
-      createMailboxes(
-        syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
-        registration,
-      ),
-    [],
-  );
-  const [composing, setComposing] = useState<string>();
-  return (
-    <AccountContext
-      value={{
-        mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
-        openAccount: () => undefined,
-        authorizeMailbox: () => Promise.resolve(),
-        refreshInbox: (load) => load(),
-      }}>
-      <InboxProvider
-        drafts={drafts}
-        mailboxes={mailboxes}>
-        <NavigationProbe onNavigation={onNavigation} />
-        <Inbox
-          composing={composing}
-          onCompose={setComposing}
-          onSelect={() => undefined}
-          selected={undefined}
-        />
-        {composing === undefined ? null : (
-          <DraftComposer
-            id={composing}
-            onClose={() => {
-              setComposing(undefined);
-            }}
-            onRebind={setComposing}
-          />
-        )}
-      </InboxProvider>
-    </AccountContext>
-  );
-}
 
 // That command as the page receives it.
 const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
