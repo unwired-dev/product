@@ -12,7 +12,7 @@
     "@private-email/contracts": "workspace:*",
     "convex": "catalog:",
     "effect": "catalog:",
-    "jose": "^6.2.12"
+    "jose": "catalog:"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

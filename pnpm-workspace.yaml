@@ -36,6 +36,7 @@ catalog:
   dependency-cruiser: ^18.5.0
   effect: 4.0.0
   i18next: 26.4.2
+  jose: ^6.2.12
   react-i18next: 17.0.15
   fallow: ^3.31.0
   oxfmt: ^0.71.0
