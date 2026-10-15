@@ -180,6 +180,9 @@ export function InboxBar({
         />
       ) : (
         <View
+          // Always a native view: gaining the swipe handlers must not re-parent the focused field,
+          // which would dismiss its keyboard.
+          collapsable={false}
           style={styles.searchField}
           {...(!ipad && searching ? header.swipe : {})}>
           <SearchField
