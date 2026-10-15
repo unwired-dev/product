@@ -40,6 +40,9 @@ regular composer adopts the same design in
 On iPad, **From** sits beside **Send**. They wrap together below the title,
 command input and expand control when the reading pane is narrow.
 
+Save and Send feedback, errors and assistance reviews scroll with the body, files
+and fields, so they can scroll away in a short window or above the keyboard.
+
 - **Saving.** Nothing is saved while editing, and no save status is shown. The
   Draft is stored only when the person chooses **Save Draft** (**Save** on Mac) or
   **Send**, as in Mail.

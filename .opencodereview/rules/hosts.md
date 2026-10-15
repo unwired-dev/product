@@ -425,9 +425,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   overflow's queued Discard, queued Close and later typing, then durable Close
   completion; otherwise Discard or an edit re-enables controls and starts a second
   close, deletion or delivery operation against the same Draft.
-- `composer.tsx.Editor` putting variable-height save status, errors or
-  confirmations outside its single outer content scroll. Verify failed saving,
-  refusal and Discard feedback with the body/fields in that scroll; otherwise
+- `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` putting
+  variable-height save status, errors, confirmations or assistance reviews outside
+  its single outer content scroll. Verify failed saving, refusal, Discard and
+  assistance feedback with the body/fields in that scroll; otherwise
   stacked banners consume a short overlay or keyboard-reduced viewport and
   cannot scroll away. Preserve ADR 0057's platform-placement amendment: the
   fixed mobile From row, Mac From/Send footer, Mac/iPad top format bar and compact

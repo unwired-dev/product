@@ -594,39 +594,6 @@ function EvaluationEditor({
             {...controls}
           />
         ) : null}
-        <ComposerNotices
-          closing={closing}
-          draft={draft}
-          refused={refused}
-          onClose={() => {
-            void saveDraft();
-          }}
-          onDiscard={() => {
-            void deleteDraft();
-          }}
-          onKeepEditing={() => {
-            setClosing(undefined);
-          }}
-        />
-        {stopped ? (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.textPrimary }]}>
-            {t('drafts.evaluation.stopped')}
-          </Text>
-        ) : null}
-        {captured === undefined ? null : (
-          <View style={s.review}>
-            <CapturedAssistance
-              key={captured.id}
-              captured={captured}
-              assistance={assistance}
-              translation={translation}
-              onApply={applyCaptured}
-              onClose={forget}
-            />
-          </View>
-        )}
         {/* The body, files and fields scroll together when the keyboard leaves them too little
             room, as in landscape; the iPhone controls float over them above the keyboard. */}
         <View style={s.fill}>
@@ -636,6 +603,39 @@ function EvaluationEditor({
               { paddingBottom: phoneControlsInset(phone, open) },
             ]}
             keyboardShouldPersistTaps="handled">
+            <ComposerNotices
+              closing={closing}
+              draft={draft}
+              refused={refused}
+              onClose={() => {
+                void saveDraft();
+              }}
+              onDiscard={() => {
+                void deleteDraft();
+              }}
+              onKeepEditing={() => {
+                setClosing(undefined);
+              }}
+            />
+            {stopped ? (
+              <Text
+                accessibilityRole="alert"
+                style={[styles.notice, { color: colors.textPrimary }]}>
+                {t('drafts.evaluation.stopped')}
+              </Text>
+            ) : null}
+            {captured === undefined ? null : (
+              <View style={s.review}>
+                <CapturedAssistance
+                  key={captured.id}
+                  captured={captured}
+                  assistance={assistance}
+                  translation={translation}
+                  onApply={applyCaptured}
+                  onClose={forget}
+                />
+              </View>
+            )}
             {stopped ? (
               <View style={s.fill} />
             ) : (
