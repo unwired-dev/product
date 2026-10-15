@@ -90,7 +90,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   querying only names returned by the candidate parser. Enumerate the reference
   implementation's outputs independently and compare complete property sets,
   accounting explicitly for reviewed admission differences and derived longhands.
-  Verify that dropping an accepted declaration still fails after rerecording;
+  Verify that dropping an accepted declaration with no covering shorthand, such
+  as `display:none`, still fails after rerecording;
   otherwise candidate omissions disappear from both fixture and assertion and
   a broken sanitizer can satisfy its adoption gate.
 - The collaboration under test replaced by a mock. Substitute only the external boundary (provider response, native module, clock); stores, Effect services and layers, and Convex functions run for real.
