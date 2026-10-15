@@ -28,7 +28,7 @@ import {
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -38,7 +38,6 @@ import {
 import {
   AccessibilityInfo,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -46,13 +45,7 @@ import {
 } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
-import {
-  GlassGroup,
-  GlassPanel,
-  Notice,
-  SFSymbol,
-  ToolbarButton,
-} from './design.tsx';
+import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -61,6 +54,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MoveSheet } from './move-sheet.tsx';
+import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -82,19 +76,6 @@ const styles = StyleSheet.create({
     right: spacing.l,
     gap: spacing.s,
   },
-  button: {
-    minHeight: 44,
-    minWidth: 44,
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.m,
-    borderWidth: 2,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  label: { ...textStyles.subheadline, flexShrink: 1 },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
     flexDirection: 'row',
@@ -134,51 +115,6 @@ const folderIcon = (name: string, roles: readonly string[]) => {
   const role = roles.find((declared) => declared in roleIcons);
   return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
-
-// A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
-function ActionButton({
-  label,
-  onPress,
-  checked,
-}: {
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly checked?: boolean;
-}) {
-  const colors = usePalette();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
-      accessibilityState={checked === undefined ? undefined : { checked }}
-      focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
-          borderColor: focused ? colors.accentInk : 'transparent',
-        },
-      ]}>
-      {checked === true ? (
-        <SFSymbol
-          name="checkmark"
-          color={colors.textPrimary}
-        />
-      ) : null}
-      <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
 // response actions passed as children, and More, whose panel lists the remaining actions.
