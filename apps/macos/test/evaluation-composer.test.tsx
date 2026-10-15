@@ -6,10 +6,7 @@ import type { SemanticDocument } from '@private-email/mail-core/semantic-documen
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import {
-  AssetSchema,
-  imagesOf,
-} from '@private-email/mail-core/semantic-document';
+import { imagesOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createMockMailSession,
@@ -24,13 +21,18 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import * as Schema from 'effect/Schema';
 import { View } from 'react-native';
 
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
-import { lastCommand, press, simulatedPage } from './evaluation-page.ts';
+import {
+  lastAdded,
+  lastCommand,
+  lastSent,
+  press,
+  simulatedPage,
+} from './evaluation-page.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -39,27 +41,6 @@ jest.mock('@private-email/draft-editor/page', () => ({
   editorPage: '<!doctype html><title>Tiptap evaluation page</title>',
 }));
 
-// That command as the page receives it.
-const Assets = Schema.optionalKey(Schema.Array(AssetSchema));
-const Previews = Schema.optionalKey(
-  Schema.Record(Schema.String, Schema.NullOr(Schema.String)),
-);
-const SentSchema = Schema.fromJsonString(
-  Schema.Struct({
-    type: Schema.String,
-    id: Schema.optionalKey(Schema.String),
-    images: Assets,
-    attachments: Assets,
-    previews: Previews,
-  }),
-);
-const lastSent = () => {
-  const [, json] =
-    /^globalThis\.draftCommand\?\.\((?<json>.*)\); true;$/su.exec(
-      lastCommand() ?? '',
-    ) ?? [];
-  return json === undefined ? undefined : Schema.decodeSync(SentSchema)(json);
-};
 // Chooses `title` in the system context menu around `element`.
 const choose = async (
   element: ReturnType<typeof screen.getByText>,
@@ -85,13 +66,6 @@ const choose = async (
 };
 const saveBlocked =
   'This Draft could not be saved, so it stays open. Try again, or discard it.';
-// The assets the host last asked the page to add.
-const lastAdded = () => {
-  const sent = lastSent();
-  ok(sent?.type === 'add', 'Expected the page to add assets');
-  return { images: sent.images ?? [], attachments: sent.attachments ?? [] };
-};
-
 // Reopens a saved Draft while its native import is pending, then completes it before an exit.
 async function settledImport(action: 'save' | 'delete' | 'unchanged') {
   const storage = createSyntheticDrafts(() => 'synthetic-product-account');

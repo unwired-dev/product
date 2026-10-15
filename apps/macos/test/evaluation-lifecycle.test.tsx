@@ -11,11 +11,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import {
   Animated,
   DeviceEventEmitter,
   TurboModuleRegistry,
+  View,
 } from 'react-native';
 
 import type { useComposerNavigation } from '../src/mailbox.tsx';
@@ -25,7 +27,7 @@ import {
   useCloseGuard,
 } from '../src/command-palette.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
-import { App, registration } from './evaluation-app.tsx';
+import { App, alex, registration } from './evaluation-app.tsx';
 import { press, simulatedPage } from './evaluation-page.ts';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -282,6 +284,151 @@ describe('evaluation composer lifetime', () => {
       { id: before.id, subject: 'Other writer' },
     ]);
   });
+
+  it('stores nothing from an open editor once another Product Account opens', async () => {
+    expect.hasAssertions();
+    let productAccount = 'synthetic-product-account';
+    const listeners = new Set<() => void>();
+    let snapshot = registration.getSnapshot();
+    const session = {
+      getSnapshot: () => snapshot,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+    const storage = createSyntheticDrafts(() => productAccount);
+    const drafts = createDrafts(storage.native, session);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const [created] = draftsOf(drafts.getSnapshot());
+    ok(created, 'Expected the created Draft');
+    await simulatedPage().typed('Written before the account changed');
+    // Another Product Account signs in on this device while the editor is open.
+    productAccount = 'next-product-account';
+    snapshot = {
+      ...snapshot,
+      snapshot: { ...snapshot.snapshot, productAccountId: productAccount },
+    };
+    await act(async () => {
+      for (const listener of listeners) {
+        listener();
+      }
+      await drafts.load();
+    });
+    await press('Close');
+    await press('Save');
+    // The editor's version belongs to neither account's storage now.
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    const next = createDrafts(storage.native, session);
+    await next.load();
+    expect(draftsOf(next.getSnapshot())).toStrictEqual([]);
+    productAccount = 'synthetic-product-account';
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    expect(draftsOf(previous.getSnapshot())).toStrictEqual([created]);
+  });
+
+  const later = [
+    { kind: 'paragraph', spans: [{ text: 'Window B, later' }] },
+  ] as const;
+  const windowA = [
+    { kind: 'paragraph', spans: [{ text: 'Window A' }] },
+  ] as const;
+
+  it.each([
+    {
+      choice: 'Save',
+      kept: (original: string, copy: string) => ({
+        [original]: windowA,
+        [copy]: later,
+      }),
+    },
+    {
+      choice: 'Don’t Save',
+      kept: (original: string) => ({ [original]: windowA }),
+    },
+  ] as const)(
+    'moves a stale window and its mounted page to a conflicting copy, then chooses $choice there',
+    async ({ choice, kept }) => {
+      expect.hasAssertions();
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const id = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
+      });
+      ok(id, 'Expected a Draft');
+      // Two windows of the app share its Draft store and open the same Draft.
+      await render(
+        <>
+          <View testID="window-a">
+            <App drafts={drafts} />
+          </View>
+          <View testID="window-b">
+            <App drafts={drafts} />
+          </View>
+        </>,
+      );
+      const inWindow = (name: string) => within(screen.getByTestId(name));
+      const pageOf = (name: string) =>
+        simulatedPage(() => inWindow(name).getByTestId('message-webview'));
+      // Each finishing choice waits for that window's page to acknowledge its last edit.
+      const finish = async (name: string, ...buttons: readonly string[]) => {
+        for (const button of buttons) {
+          const control = await inWindow(name).findByRole('button', {
+            name: button,
+          });
+          await act(async () => {
+            await fireEvent.press(control);
+          });
+          await pageOf(name).report({ frozen: true });
+        }
+      };
+      for (const name of ['window-a', 'window-b']) {
+        const row = await inWindow(name).findByRole('button', {
+          name: /^Draft\./u,
+        });
+        await act(async () => {
+          await fireEvent.press(row);
+        });
+      }
+      await pageOf('window-a').typed('Window A');
+      await finish('window-a', 'Close', 'Save');
+      expect(inWindow('window-a').queryByTestId('message-webview')).toBeNull();
+      // Window B still edits the version it opened; its save keeps it as a conflicting copy.
+      const stale = pageOf('window-b');
+      await stale.typed('Window B');
+      const page = inWindow('window-b').getByTestId('message-webview');
+      storage.setLocked(true);
+      await finish('window-b', 'Close', 'Save');
+      await inWindow('window-b').findByText(/This Draft could not be saved/u);
+      const copy = draftsOf(drafts.getSnapshot()).find(
+        (draft) => draft.id !== id,
+      );
+      ok(copy, 'Expected the conflicting copy');
+      expect(copy).toMatchObject({
+        conflict: true,
+        body: [{ kind: 'paragraph', spans: [{ text: 'Window B' }] }],
+      });
+      // The same page now edits the copy; the page/store integration checks Undo and Redo.
+      expect(inWindow('window-b').getByTestId('message-webview')).toBe(page);
+      await stale.report({ document: later });
+      storage.setLocked(false);
+      await finish('window-b', 'Close', choice);
+      expect(inWindow('window-b').queryByTestId('message-webview')).toBeNull();
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      const stored = draftsOf(reopened.getSnapshot()).map((draft) => [
+        draft.id,
+        draft.body,
+      ]);
+      expect(Object.fromEntries(stored)).toStrictEqual(kept(id, copy.id));
+    },
+  );
 
   it('keeps a cancelled save sheet hidden and untouchable until its exit ends', async () => {
     expect.hasAssertions();

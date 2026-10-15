@@ -111,6 +111,8 @@ function EvaluationEditor({
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
   const pageNow = useRef<PageState>(undefined);
+  // Selection reports may arrive before the body at their revision.
+  const bodyRevision = useRef(0);
   const view = useRef<WebView>(null);
   const pageStopped = useRef(false);
   const [open, setOpen] = useState<'save' | 'tools'>();
@@ -303,7 +305,9 @@ function EvaluationEditor({
       !mounted.current ||
       busy.current ||
       !assistanceEnabled() ||
-      reported === undefined
+      reported === undefined ||
+      // The selection must describe the body this editor holds.
+      reported.revision !== bodyRevision.current
     ) {
       return;
     }
@@ -324,6 +328,7 @@ function EvaluationEditor({
       !mounted.current ||
       busy.current ||
       reported === undefined ||
+      reported.revision !== bodyRevision.current ||
       captured === undefined ||
       captureNow.current !== captured ||
       !sameDraftAssistanceSource(captured.draft, latest, captured.purpose)
@@ -641,6 +646,10 @@ function EvaluationEditor({
                 if (message === undefined || message.type === 'paste') {
                   return;
                 }
+                // A delayed report of an earlier body revision never replaces a newer one.
+                if (message.revision < (pageNow.current?.revision ?? 0)) {
+                  return;
+                }
                 const {
                   document: reported,
                   attachments: attached = [],
@@ -649,7 +658,7 @@ function EvaluationEditor({
                   ...next
                 } = message;
                 const flushed =
-                  frozen && next.revision === pageNow.current?.revision;
+                  frozen && next.revision === bodyRevision.current;
                 pageNow.current = next;
                 setPageState(next);
                 if (reported === undefined || flushed) {
@@ -658,6 +667,7 @@ function EvaluationEditor({
                   }
                   return;
                 }
+                bodyRevision.current = next.revision;
                 // Editing again retires captured text, as in the current composer.
                 forget();
                 const previous = authored.current;

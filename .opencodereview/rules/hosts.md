@@ -75,6 +75,19 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `evaluation-composer.tsx` treating the latest page-state revision as proof that
+  its body has arrived. Selection-only reports carry the current body revision
+  without the document. Track the accepted body's revision separately before
+  skipping an equal-revision frozen acknowledgement, and reject older reports.
+  Require matching selection and accepted-body revisions in both `capture` and
+  `applyCaptured` before deriving a page replacement from host text. Exercise a
+  newer selection report arriving before its document and frozen acknowledgement
+  through durable reopen, and an earlier assistance capture applied during that
+  gap and retired when the body arrives. Otherwise Save can retain an older body,
+  or assistance can overwrite newer page text with an older body's replacement
+  tagged with the newer revision. Page-local insertion and thumbnail updates do
+  not derive a replacement from host text and need no matching-body fence.
+
 - `categorization-spike-page.tsx` reusing request identities across window roots
   or remounts, retaining results after selector changes, or continuing unattended
   actions after dismissal. Trace its process-wide native cancellation/progress

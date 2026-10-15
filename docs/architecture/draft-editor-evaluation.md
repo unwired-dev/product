@@ -35,7 +35,9 @@ and waits for an ordered acknowledgement of its final document. Native fields an
 asset controls are disabled during that operation. A refused finish restores editing;
 page termination or editor teardown cancels an outstanding acknowledgement. This
 keeps queued WebKit edits inside the version that is saved or admitted to the Outbox.
-An acknowledgement at the already-reported revision is not another authored edit.
+The host tracks page-state and accepted-body revisions separately: a selection-only
+report cannot stand in for its document. An acknowledgement at the already-accepted
+body revision is not another authored edit. Older page reports are ignored.
 Asset settlement patches both the editor and its stored baseline, preserving their
 shared identity when the person has made no edit. Navigation waits for the close
 choice and resumes only after a successful save or deletion.

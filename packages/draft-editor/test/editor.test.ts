@@ -1,5 +1,6 @@
 import { ok } from 'node:assert/strict';
 
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 // @vitest-environment happy-dom
 import type {
   Asset,
@@ -11,10 +12,16 @@ import type {
 import type { Editor } from '@tiptap/core';
 
 import {
+  createDrafts,
+  draftOf,
+  draftsOf,
+} from '@private-email/mail-core/drafts';
+import {
   displayOf,
   replaceSelection,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
+import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { Slice } from '@tiptap/pm/model';
 
 import type { Command, Update } from '../src/messages.ts';
@@ -262,6 +269,91 @@ describe('the Tiptap evaluation page', () => {
     expect(page.editor.isEditable).toBe(true);
     page.command({ type: 'undo' });
     expect(bodyOf(page)).toStrictEqual(paragraphs('Before '));
+  });
+
+  it('keeps real page history bound to its conflict copy through Save and Discard', async () => {
+    expect.hasAssertions();
+    const mailbox = {
+      id: 'connection-alex',
+      address: 'alex@example.invalid',
+    };
+    const registration = {
+      getSnapshot: () => ({
+        snapshot: {
+          kind: 'connected',
+          productAccountId: 'synthetic-product-account',
+          signInProvider: 'google',
+          mailboxes: JSON.stringify([{ ...mailbox, state: 'connected' }]),
+        } satisfies RegistrationSnapshot,
+        busy: false,
+        failed: false,
+      }),
+      subscribe: () => () => undefined,
+    };
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const id = await drafts.create(mailbox);
+    const opened = draftOf(drafts.getSnapshot(), id);
+    ok(opened, 'Expected the opened Draft');
+    const page = await open(opened.body);
+    page.type('Window B');
+    page.command({ type: 'editable', editable: false });
+    const frozen = page.posted.at(-1);
+    ok(frozen?.frozen, 'Expected the frozen page');
+    ok(frozen.document, 'Expected the final page body');
+    // Another window saves first while this page keeps its document and history.
+    await drafts.update({ ...opened, body: paragraphs('Window A') }, opened);
+    let target = opened.id;
+    const rebind = (copy: string) => {
+      target = copy;
+    };
+    onTestFinished(() => drafts.release(rebind));
+    storage.setLocked(true);
+    await expect(
+      drafts.update({ ...opened, body: frozen.document }, opened, rebind),
+    ).resolves.toBe(false);
+    ok(target !== opened.id, 'Expected a separate conflict copy');
+    const copy = draftOf(drafts.getSnapshot(), target);
+    ok(copy, 'Expected the rebound conflict copy');
+    page.command({ type: 'editable', editable: true });
+    // Undo reaches the typing history made before the conflict, then Redo restores it.
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual(paragraphs('Window '));
+    page.command({ type: 'redo' });
+    expect(bodyOf(page)).toStrictEqual(paragraphs('Window B'));
+    const revision = page.posted.at(-1)?.revision;
+    ok(revision, 'Expected the revision after Redo');
+    page.command({
+      type: 'replace',
+      revision,
+      document: paragraphs('Window B, later'),
+      selection: { start: 15, end: 15 },
+    });
+    page.command({ type: 'editable', editable: false });
+    const body = page.posted.at(-1)?.document;
+    ok(body, 'Expected the final body after Redo');
+    storage.setLocked(false);
+    await drafts.update({ ...copy, body }, copy, rebind);
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(
+      Object.fromEntries(
+        draftsOf(reopened.getSnapshot()).map((draft) => [draft.id, draft.body]),
+      ),
+    ).toStrictEqual({
+      [opened.id]: paragraphs('Window A'),
+      [target]: paragraphs('Window B, later'),
+    });
+    await drafts.discard(() => target);
+    const afterDiscard = createDrafts(storage.native, registration);
+    await afterDiscard.load();
+    expect(
+      draftsOf(afterDiscard.getSnapshot()).map((draft) => [
+        draft.id,
+        draft.body,
+      ]),
+    ).toStrictEqual([[opened.id, paragraphs('Window A')]]);
   });
 
   it('formats the selection and the next typed text', async () => {
