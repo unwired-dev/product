@@ -31,6 +31,7 @@ export function ReaderPane({ children, ...props }: ViewProps) {
   const onWidth = use(ReaderPaneWidthContext);
   return (
     <View
+      testID="reader-pane"
       {...props}
       onLayout={({ nativeEvent }) => {
         onWidth?.(nativeEvent.layout.width);

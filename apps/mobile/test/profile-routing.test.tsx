@@ -26,7 +26,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { Keyboard } from 'react-native';
+import { Keyboard, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type ComposeRoute from '../app/compose/[draft].tsx';
@@ -358,6 +358,19 @@ describe('profile-scoped mobile routes', () => {
       await fireEvent.press(
         screen.getByRole('button', { name: /Garden plan/u }),
       );
+      // Every reading-column route sizes the window bar's scroll edge to its own column.
+      await fireEvent(
+        await screen.findByTestId('reader-pane', {
+          includeHiddenElements: true,
+        }),
+        'layout',
+        { nativeEvent: { layout: { x: 0, y: 0, width: 494, height: 1194 } } },
+      );
+      expect(
+        screen
+          .getAllByTestId('scroll-edge', { includeHiddenElements: true })
+          .map((edge) => StyleSheet.flatten(edge.props.style)?.width),
+      ).toContain(494);
       await fireEvent.press(inboxNewMessage());
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       await fireEvent(
