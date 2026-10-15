@@ -65,9 +65,11 @@ open ../../artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.
 
 ## Verify
 
+Run these commands from the repository root:
+
 ```sh
-cd native/categorization-spike && swift test
-cd apps/macos && mise exec -- pnpm exec jest test/categorization-spike.test.tsx
+swift test --package-path native/categorization-spike
+mise exec -- pnpm --filter @private-email/macos exec jest test/categorization-spike.test.tsx
 UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/macos build
 UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/macos verify:bundle
 ```
