@@ -81,8 +81,13 @@ function MailShell() {
   // A docked software keyboard leaves the overlay only the height above it; a floating one is ignored.
   // Only an open composer listens: re-rendering the shell for every keyboard change remounts the
   // reader beneath it, which would close a sheet whose field raised the keyboard.
-  const [keyboard, setKeyboard] =
-    useState<Readonly<{ draft: string; top: number | undefined }>>();
+  // Each composer session starts without a keyboard: one closed with its keyboard up hears no hide.
+  const [keyboardTop, setKeyboardTop] = useState<number>();
+  const [session, setSession] = useState(draft);
+  if (session !== draft) {
+    setSession(draft);
+    setKeyboardTop(undefined);
+  }
   useEffect(() => {
     if (draft === undefined) {
       return undefined;
@@ -91,10 +96,10 @@ function MailShell() {
       frame.width < width ? undefined : frame.screenY;
     const subscriptions = [
       Keyboard.addListener('keyboardWillChangeFrame', ({ endCoordinates }) => {
-        setKeyboard({ draft, top: docked(endCoordinates) });
+        setKeyboardTop(docked(endCoordinates));
       }),
       Keyboard.addListener('keyboardWillHide', () => {
-        setKeyboard({ draft, top: undefined });
+        setKeyboardTop(undefined);
       }),
     ];
     return () => {
@@ -103,7 +108,6 @@ function MailShell() {
       }
     };
   }, [draft, width]);
-  const keyboardTop = keyboard?.draft === draft ? keyboard?.top : undefined;
   const available =
     keyboardTop === undefined ? height : Math.min(height, keyboardTop);
   // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
