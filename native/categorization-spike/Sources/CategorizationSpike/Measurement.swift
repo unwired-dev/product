@@ -63,11 +63,12 @@ public enum Measurement {
         guard !pending else { return }
         pending = true
         let sent = ContinuousClock.now
-        DispatchQueue.main.async {
+        // A probe can still be queued on a delayed main thread after stop(); it must not outlive us.
+        DispatchQueue.main.async { [weak self] in
           let lag = Candidate.milliseconds(ContinuousClock.now - sent)
-          self.queue.async {
-            self.lags.append(lag)
-            self.pending = false
+          self?.queue.async {
+            self?.lags.append(lag)
+            self?.pending = false
           }
         }
       }

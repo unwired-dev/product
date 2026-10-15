@@ -113,14 +113,11 @@ const categoryName = (catalog: CatalogValue, language: string, id: string) => {
   return (language === 'cs' ? found.cs : found.en).name;
 };
 
-// The request body for one bridge call: golden categories for a custom classification, otherwise
+// The request body for one bridge call: the golden categories when they are selected, otherwise
 // the first `count` Custom Categories.
-const requestBody = (
-  selection: Selection & Readonly<{ custom: boolean }>,
-  kind: Kind,
-) => {
+const requestBody = (selection: Selection & Readonly<{ custom: boolean }>) => {
   const categories =
-    selection.custom && selection.count === 6 && kind === 'classify'
+    selection.custom && selection.count === 6
       ? { categories: goldenCategories }
       : { categoryCount: selection.custom ? selection.count : 0 };
   return JSON.stringify({
@@ -342,15 +339,12 @@ function Spike({
       setBusy({ request, kind });
       setFailure(undefined);
       setResult(undefined);
-      const body = requestBody(
-        {
-          ...picked,
-          custom:
-            catalog.candidates.find((each) => each.run === picked.run)?.mode ===
-            'custom',
-        },
-        kind,
-      );
+      const body = requestBody({
+        ...picked,
+        custom:
+          catalog.candidates.find((each) => each.run === picked.run)?.mode ===
+          'custom',
+      });
       let text: string | undefined = undefined;
       try {
         text = await call(module, kind)(request, body);

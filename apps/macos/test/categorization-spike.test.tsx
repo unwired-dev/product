@@ -30,6 +30,12 @@ const catalogWith = (
     autorun,
   });
 const catalog = catalogWith(candidates);
+const customCandidate = {
+  run: 'xsmall-zs-adapted-body256-description',
+  mode: 'custom',
+  maxLength: 256,
+  precisions: ['fp16', 'int8'],
+};
 
 const process = {
   peakFootprintMB: 412,
@@ -75,7 +81,9 @@ function scriptedSpike(catalogText = catalog) {
           pending.set(request, { resolve, reject });
         }),
     ),
-    benchmark: jest.fn(() => Promise.resolve('')),
+    benchmark: jest.fn((_request: string, _body: string) =>
+      Promise.resolve(''),
+    ),
     golden: jest.fn(
       (request: string, _body: string) =>
         // oxlint-disable-next-line promise/avoid-new -- Hold the unattended native action across dismissal.
@@ -143,15 +151,7 @@ describe('categorization spike page', () => {
   it('sends the selected candidate and shows decoded scores and memberships', async () => {
     expect.hasAssertions();
     const { module, pending } = scriptedSpike(
-      catalogWith([
-        ...candidates,
-        {
-          run: 'xsmall-zs-adapted-body256-description',
-          mode: 'custom',
-          maxLength: 256,
-          precisions: ['fp16', 'int8'],
-        },
-      ]),
+      catalogWith([...candidates, customCandidate]),
     );
     await renderWith(module);
     await fireEvent.press(screen.getByText('Classify'));
@@ -184,6 +184,22 @@ describe('categorization spike page', () => {
       '{"run":"xsmall-zs-adapted-body256-description","precision":"int8","units":"cpuOnly","message":"synthetic:en-overlap-orders-flights-2:4","rounds":3,"categoryCount":20}',
     );
     await settle(pending, requestAt(pending, 1), classified);
+  });
+
+  it('benchmarks the golden Custom Categories it shows as selected', async () => {
+    expect.hasAssertions();
+    const { module } = scriptedSpike(
+      catalogWith([...candidates, customCandidate]),
+    );
+    await renderWith(module);
+    await fireEvent.press(screen.getByRole('button', { name: 'Candidate' }));
+    await fireEvent.press(
+      screen.getByText('Custom · adapted DeBERTa v3 XSmall · 256 tokens'),
+    );
+    await fireEvent.press(screen.getByText('Benchmark'));
+    expect(module.benchmark.mock.calls[0]?.[1]).toContain(
+      '"categories":["online-purchases","flights-booked","statements","kids-school","event-invitations","family-friends"]',
+    );
   });
 
   it('fails closed on a malformed native result', async () => {
