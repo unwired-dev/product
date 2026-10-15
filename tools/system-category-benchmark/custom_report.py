@@ -58,7 +58,7 @@ def load_system_result(name: str) -> dict:
 
 
 def golden(*custom_runs: str) -> None:
-    """Freeze the candidate bundle and reference outputs on synthetic test messages."""
+    """Regenerate the frozen candidate bundle and synthetic reference outputs."""
     import torch
     from huggingface_hub import hf_hub_download
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -139,12 +139,19 @@ def golden(*custom_runs: str) -> None:
                 "thresholds": result["thresholds"],
             }
         )
+    frozen_system = {
+        entry["run"]: entry
+        for entry in json.loads((CUSTOM / "bundle-v1.json").read_text())["system"]
+    }
     for name in SYSTEM_RUNS:
         result = load_system_result(name)
         path = WORK / "runs" / name
         thresholds = json.loads((path / "thresholds.json").read_text())
         if thresholds != result["thresholds"]:  # work/runs is ignored and may hold another run
             raise ValueError(f"{name}: work/runs thresholds differ from the committed result")
+        weights_sha256 = sha256_file(path / "model.safetensors")
+        if weights_sha256 != frozen_system.get(name, {}).get("weights_sha256"):
+            raise ValueError(f"{name}: work/runs weights differ from the frozen bundle")
         tokenizer = AutoTokenizer.from_pretrained(path)
         model = AutoModelForSequenceClassification.from_pretrained(path, dtype=torch.float32)
         model.eval()
@@ -178,7 +185,7 @@ def golden(*custom_runs: str) -> None:
                 "license": "MIT",
                 "adaptation": "spike #828 fine-tune; reproduce with run.py deberta "
                 + " ".join(name.split("-")[1:]),
-                "weights_sha256": sha256_file(path / "model.safetensors"),
+                "weights_sha256": weights_sha256,
                 "input": result["input"],
                 "max_length": max_length,
                 "thresholds": thresholds,

@@ -180,7 +180,10 @@ evaluations were rerun.
 `golden` needs the #828 System candidate artifacts in `work/runs/` (from
 `run.py deberta xsmall body256` and `run.py deberta mdeberta body512`) and rejects
 System results with an incompatible corpus or shared experiment digest before
-loading those models.
+loading those models. It regenerates the existing `custom/bundle-v1.json` freeze:
+local System thresholds must match the committed result, and local System weights
+must match the bundle's recorded hash. Missing frozen System entries or weight
+hashes are rejected; this command does not establish a new System candidate identity.
 
 ## Data
 

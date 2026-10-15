@@ -190,3 +190,35 @@ def test_golden_refuses_system_thresholds_that_differ_from_the_committed_result(
     monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
     with pytest.raises(ValueError, match="thresholds differ"):
         custom_report.golden()
+
+
+def test_golden_refuses_system_weights_that_differ_from_the_frozen_bundle(tmp_path, monkeypatch):
+    import transformers
+
+    name = custom_report.SYSTEM_RUNS[0]
+    result = {
+        "corpus_sha256": json.loads(custom.corpus.MANIFEST.read_text())["corpus_sha256"],
+        "benchmark_sha256": custom.run.benchmark_sha256(),
+        "thresholds": {"Orders": 0.4},
+    }
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / f"{name}.json").write_text(json.dumps(result))
+    artifacts = tmp_path / "work" / "runs" / name
+    artifacts.mkdir(parents=True)
+    (artifacts / "thresholds.json").write_text(json.dumps(result["thresholds"]))
+    (artifacts / "model.safetensors").write_bytes(b"replacement-weights")
+    (tmp_path / "custom").mkdir()
+    (tmp_path / "custom" / "bundle-v1.json").write_text(
+        json.dumps({"system": [{"run": name, "weights_sha256": "frozen-weights"}]})
+    )
+    monkeypatch.setattr(custom_report, "ROOT", tmp_path)
+    monkeypatch.setattr(custom_report, "WORK", tmp_path / "work")
+    monkeypatch.setattr(custom_report, "CUSTOM", tmp_path / "custom")
+    monkeypatch.setattr(custom_report, "messages", list)
+
+    def unexpected_model_load(*args, **kwargs):
+        pytest.fail("mismatched weights must be rejected before loading models")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", unexpected_model_load)
+    with pytest.raises(ValueError, match="weights differ"):
+        custom_report.golden()
