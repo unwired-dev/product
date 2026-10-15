@@ -20,6 +20,10 @@ import {
 
 import type { useComposerNavigation } from '../src/mailbox.tsx';
 
+import {
+  CommandPaletteProvider,
+  useCloseGuard,
+} from '../src/command-palette.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { App, registration } from './evaluation-app.tsx';
 import { press, simulatedPage } from './evaluation-page.ts';
@@ -95,7 +99,68 @@ const commandModule = (menu: TurboModule) => {
     );
 };
 
+function CloseGuardProbe({
+  leave,
+}: {
+  readonly leave: () => Promise<boolean>;
+}) {
+  useCloseGuard(leave);
+  return null;
+}
+
 describe('evaluation composer lifetime', () => {
+  it('refuses a rejected native close and permits a later close attempt', async () => {
+    expect.hasAssertions();
+    const menu: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        guardClose: ReturnType<typeof jest.fn>;
+        finishClose: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      guardClose: jest.fn(),
+      finishClose: jest.fn(),
+    };
+    const registry = commandModule(menu);
+    try {
+      const leave = jest
+        .fn<Promise<boolean>, []>()
+        .mockRejectedValueOnce(new Error('Synthetic close failure'))
+        .mockResolvedValue(true);
+      await render(
+        <CommandPaletteProvider windowId="rejected-close">
+          <CloseGuardProbe leave={leave} />
+        </CommandPaletteProvider>,
+      );
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'inbox-window-rejected-close',
+        });
+      });
+      await waitFor(() => {
+        expect(menu.finishClose).toHaveBeenLastCalledWith(
+          'inbox-window-rejected-close',
+          false,
+        );
+      });
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'inbox-window-rejected-close',
+        });
+      });
+      await waitFor(() => {
+        expect(menu.finishClose.mock.calls).toStrictEqual([
+          ['inbox-window-rejected-close', false],
+          ['inbox-window-rejected-close', true],
+        ]);
+      });
+    } finally {
+      registry.mockRestore();
+    }
+  });
+
   it('answers navigation at once when Close fails without asking', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
