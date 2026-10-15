@@ -61,7 +61,8 @@ their controls stop accepting input and leave VoiceOver immediately.
   no recipients, keeps the editor open with its reason; the Draft stays stored.
 - **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
   asks the same question first; it leaves once the Draft is saved, deleted or
-  unchanged.
+  unchanged. On Mac, Command-W, the window's close button and Quit ask too, and the
+  window closes after **Save** or **Don’t Save**; Quit then needs choosing again.
 - **Removal elsewhere.** A Draft deleted on another device while open keeps this
   editor's version; **Save Draft** stores it as a conflicting copy.
 - **Finishing.** Close, Save Draft and Send finish queued body edits before inspecting

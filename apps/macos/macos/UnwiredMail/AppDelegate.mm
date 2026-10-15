@@ -5,6 +5,10 @@
 #import <os/log.h>
 #import <GoogleSignIn/GoogleSignIn.h>
 
+// UnwiredCommands.m: a window whose composer holds unsaved edits asks it before closing.
+extern "C" BOOL UnwiredCloseGuarded(NSString *identifier);
+extern "C" NSString *UnwiredGuardedWindow(void);
+
 // Shared Swift in native/private-inbox receives APNs registration and Gmail wake hints.
 @protocol UnwiredPushWakes
 + (void)registerDeviceToken:(NSData *)token;
@@ -147,6 +151,27 @@
   NSWindow *window = self.inboxWindows[next].window;
   [window deminiaturize:self];
   [window makeKeyAndOrderFront:self];
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)window
+{
+  if (!UnwiredCloseGuarded(window.identifier)) return YES;
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredWindowShouldClose" object:window.identifier];
+  return NO;
+}
+
+// Quitting first asks a window with unsaved edits, as closing it does; quit again once it closes.
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
+{
+  NSString *guarded = UnwiredGuardedWindow();
+  if (guarded == nil) return NSTerminateNow;
+  for (NSWindow *window in NSApp.windows) {
+    if ([window.identifier isEqualToString:guarded]) {
+      [window makeKeyAndOrderFront:self];
+      [window performClose:self];
+    }
+  }
+  return NSTerminateCancel;
 }
 
 - (void)windowWillClose:(NSNotification *)notification

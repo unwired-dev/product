@@ -1,5 +1,7 @@
 import { ok } from 'node:assert/strict';
 
+import type { TurboModule } from 'react-native';
+
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
@@ -10,7 +12,11 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import {
+  Animated,
+  DeviceEventEmitter,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import type { useComposerNavigation } from '../src/mailbox.tsx';
 
@@ -78,6 +84,16 @@ function expectRetiringControl(name: string) {
   }
   expect(boundary?.props.pointerEvents).toBe('none');
 }
+
+// Substitute only the native menu boundary; other native lookups keep their host behavior.
+const commandModule = (menu: TurboModule) => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  return jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? menu : get(name),
+    );
+};
 
 describe('evaluation composer lifetime', () => {
   it('answers navigation at once when Close fails without asking', async () => {
@@ -244,6 +260,58 @@ describe('evaluation composer lifetime', () => {
       expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
     } finally {
       motion.restore();
+    }
+  });
+
+  it('asks before Command-W closes a window with unsaved edits', async () => {
+    expect.hasAssertions();
+    // Substitute only the native menu boundary that Command-W and Quit reach.
+    const menu: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        saveFocus: () => void;
+        restoreFocus: () => void;
+        guardClose: ReturnType<typeof jest.fn>;
+        closeWindow: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      saveFocus: () => undefined,
+      restoreFocus: () => undefined,
+      guardClose: jest.fn(),
+      closeWindow: jest.fn(),
+    };
+    const registry = commandModule(menu);
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await render(<App drafts={drafts} />);
+      await press('New Message');
+      await simulatedPage().typed('Keep this Draft');
+      expect(menu.guardClose).toHaveBeenLastCalledWith('inbox-window-', true);
+      const closeWindow = async () => {
+        await act(async () => {
+          DeviceEventEmitter.emit('windowShouldClose', {
+            window: 'inbox-window-',
+          });
+        });
+      };
+      // The window stays open while the save question is answered.
+      await closeWindow();
+      await simulatedPage().report({ frozen: true });
+      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
+      expect(menu.closeWindow).not.toHaveBeenCalled();
+      await press('Save');
+      await waitFor(() => {
+        expect(menu.closeWindow).toHaveBeenCalledWith('inbox-window-');
+      });
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'paragraph', spans: [{ text: 'Keep this Draft' }] },
+      ]);
+      expect(menu.guardClose).toHaveBeenLastCalledWith('inbox-window-', false);
+    } finally {
+      registry.mockRestore();
     }
   });
 });

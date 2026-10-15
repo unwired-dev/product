@@ -41,6 +41,7 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { PageState } from './evaluation-composer-controls.tsx';
 
+import { useCloseGuard } from './command-palette.tsx';
 import {
   CapturedAssistance,
   Composer,
@@ -482,6 +483,8 @@ function EvaluationEditor({
   };
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
+  // Command-W, the window's close button and Quit ask the same question before closing.
+  useCloseGuard(navigation.leave);
   useLayoutEffect(() =>
     navigation.register(async () => {
       asked.current = false;

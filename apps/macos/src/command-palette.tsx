@@ -97,6 +97,9 @@ interface CommandMenu extends TurboModule {
   // The window's first responder, which can be an Inbox row or a button as well as a text field.
   readonly saveFocus: (window: string) => void;
   readonly restoreFocus: (window: string) => void;
+  // A guarded window asks its JavaScript before Command-W, its close button or Quit closes it.
+  readonly guardClose: (window: string, guarded: boolean) => void;
+  readonly closeWindow: (window: string) => void;
 }
 
 // The Commands… menu item, Command-P, names the key window it was chosen in.
@@ -240,6 +243,39 @@ const styles = StyleSheet.create({
 
 // Collects the commands the window's screens offer; every window has one, above every screen that
 // shows the CommandBar.
+// While mounted, closing this window or quitting first runs `leave`, the composer's own Close,
+// and closes the window only once it allows leaving.
+export function useCloseGuard(leave: () => Promise<boolean>) {
+  const { windowId } = use(PaletteContext);
+  const identifier = `inbox-window-${windowId}`;
+  const leaveNow = useRef(leave);
+  useLayoutEffect(() => {
+    leaveNow.current = leave;
+  }, [leave]);
+  useEffect(() => {
+    const menu = commandMenu();
+    if (menu === null) {
+      return undefined;
+    }
+    menu.guardClose(identifier, true);
+    const subscription = new NativeEventEmitter(menu).addListener(
+      'windowShouldClose',
+      ({ window }: { readonly window: string }) => {
+        const answer = async () => {
+          if (window === identifier && (await leaveNow.current())) {
+            menu.closeWindow(identifier);
+          }
+        };
+        void answer();
+      },
+    );
+    return () => {
+      subscription.remove();
+      menu.guardClose(identifier, false);
+    };
+  }, [identifier]);
+}
+
 export function CommandPaletteProvider({
   windowId,
   children,
