@@ -304,7 +304,7 @@ function Toolbar({
               run: folders.show.run,
             },
           ]),
-      ...['spam', 'trash']
+      ...['restore', 'spam', 'trash']
         .flatMap((name) =>
           more.actions.filter((action) => action.name === name),
         )

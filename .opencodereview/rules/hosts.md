@@ -898,6 +898,9 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   grouped rows against the approved frames after provider eligibility filtering;
   otherwise Trash and Spam can swap places despite every action being present.
   Preserve the existing More ordering when correcting the sheet projection.
+  Keep every eligible organizing action in the projection, including Move to
+  Inbox in Trash and Spam; otherwise More offers restoration while the Reply
+  sheet silently drops it despite already having its icon and action.
 - Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet`,
   `composer-controls.tsx.PopUp` or another foreground presentation relying only on
   native glass to obscure the content underneath. Check settled native captures in
