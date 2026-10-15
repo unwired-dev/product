@@ -574,6 +574,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   replaced or removed. The Jest router mock commits synchronously and cannot
   show this ordering; a passing routing test is not evidence.
 
+- Mobile `app/_layout.tsx.MailShell` updating composer keyboard geometry while
+  no composer is open. Trace the installed split view's screen lifetime and
+  focus Search in the reader's Move picker: a shell render can remount the reader
+  and dismiss its sheet as the keyboard appears. Scope avoidance subscriptions
+  and retained geometry to the open Draft, and verify the picker stays open,
+  filters folders and keeps Search reachable through the native keyboard journey.
+  Component-only callbacks do not qualify this screen-lifetime boundary.
+
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.
   Text and Undo events can still arrive while storage is pending; trace rendered
