@@ -957,6 +957,7 @@ function AssetRow({
   onRemove,
   onCancel,
   onConvert,
+  onPreview,
 }: {
   readonly asset: Asset;
   readonly inline: boolean;
@@ -965,6 +966,8 @@ function AssetRow({
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
+  // An editor that shows Inline Images itself receives each verified thumbnail.
+  readonly onPreview?: ((id: string, uri: string) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -973,6 +976,12 @@ function AssetRow({
     [settings.locale],
   );
   const { preview, retry } = usePreview(asset, inline);
+  const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
+  useEffect(() => {
+    if (uri !== undefined) {
+      onPreview?.(asset.id, uri);
+    }
+  }, [asset.id, onPreview, uri]);
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
@@ -1104,12 +1113,15 @@ export function DraftAssets({
   onRemove,
   onCancel,
   onConvert,
+  onPreview,
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
+  // An editor that shows Inline Images itself receives each verified thumbnail.
+  readonly onPreview?: ((id: string, uri: string) => void) | undefined;
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
@@ -1135,6 +1147,7 @@ export function DraftAssets({
         inline={inline}
         onCancel={onCancel}
         onConvert={onConvert}
+        onPreview={onPreview}
         onRemove={onRemove}
         running={running.has(asset.id)}
       />

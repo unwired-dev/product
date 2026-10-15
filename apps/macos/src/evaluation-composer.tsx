@@ -260,33 +260,27 @@ function EvaluationEditor({
     void store.cancelImport(id);
     run({ type: 'remove', id });
   };
-  // Thumbnails of the body's complete images, read once each from verified bytes once the page
-  // can show them. A check refused while storage was locked is tried again after the next edit.
-  const requested = useRef(new Map<string, string>());
+  // Verified thumbnails of the body's images, which the image rows read and read again on
+  // Try again or when storage becomes available. A page that loads later receives all of them.
+  const previews = useRef(new Map<string, string>());
+  const showPreview = useCallback(
+    (id: string, uri: string) => {
+      previews.current.set(id, uri);
+      if (pageNow.current !== undefined) {
+        run({ type: 'previews', previews: { [id]: uri } });
+      }
+    },
+    [run],
+  );
   const ready = pageState !== undefined;
   useEffect(() => {
-    if (!ready) {
-      return;
+    if (ready && previews.current.size > 0) {
+      run({
+        type: 'previews',
+        previews: Object.fromEntries(previews.current),
+      });
     }
-    const unread = imagesOf(draft.body).flatMap((image) =>
-      image.state === 'complete' &&
-      requested.current.get(image.id) !== image.digest
-        ? [image]
-        : [],
-    );
-    for (const image of unread) {
-      requested.current.set(image.id, image.digest);
-      const read = async () => {
-        const preview = await store.readAsset(image);
-        if (preview.kind === 'ready') {
-          run({ type: 'previews', previews: { [image.id]: preview.uri } });
-        } else if (preview.kind === 'locked' || preview.kind === 'incomplete') {
-          requested.current.delete(image.id);
-        }
-      };
-      void read();
-    }
-  }, [draft.body, ready, run, store]);
+  }, [ready, run]);
   const capture = (purpose: CapturedDraftText['purpose']) => {
     setOpen(undefined);
     const reported = pageNow.current;
@@ -667,6 +661,7 @@ function EvaluationEditor({
           onConvert={(id) => {
             run({ type: 'convert', id });
           }}
+          onPreview={showPreview}
           onRemove={removeAsset}
         />
         <DraftFields

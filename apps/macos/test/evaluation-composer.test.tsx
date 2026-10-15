@@ -974,4 +974,52 @@ describe('the Tiptap evaluation composer', () => {
       injectedScripts.filter((script) => script.includes('"previews"')),
     ).toStrictEqual([]);
   });
+
+  it('sends the page a thumbnail once a locked image can be read again', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    await report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
+    });
+    await press('Close');
+    await press('Save');
+    // Reopened while private storage is locked, the image cannot be checked yet.
+    storage.setLocked(true);
+    injectedScripts.length = 0;
+    await press(/^Draft\./u);
+    await simulatedPage().report({});
+    const retry = await screen.findByRole('button', {
+      name: 'Check chart.png again',
+    });
+    expect(
+      injectedScripts.filter((script) => script.includes('"previews"')),
+    ).toStrictEqual([]);
+    // The row's Try again reads it again, and the page shows the same thumbnail.
+    storage.setLocked(false);
+    await act(async () => {
+      await fireEvent.press(retry);
+    });
+    await waitFor(() => {
+      expect(lastSent()).toStrictEqual({
+        type: 'previews',
+        previews: { [chart.id]: 'data:image/png;base64,Y2hhcnQ=' },
+      });
+    });
+  });
 });
