@@ -1,5 +1,5 @@
 import type { Infer } from 'convex/values';
-import type * as Option from 'effect/Option';
+import type { JWK } from 'jose';
 
 import {
   devicePushRegistrationResponseValidator,
@@ -8,8 +8,15 @@ import {
 import { v } from 'convex/values';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
+import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
+import {
+  createLocalJWKSet,
+  decodeProtectedHeader,
+  errors,
+  jwtVerify,
+} from 'jose';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server.js';
@@ -87,14 +94,14 @@ const microsoftGraphWakeupClaimLeaseMs = 5 * 60 * 1000;
 const microsoftGraphWakeupMaximumAttempts = 5;
 const microsoftGraphWakeupMaximumRetryDelayMs = 15 * 60 * 1000;
 const microsoftGraphWakeupRetryBaseDelayMs = 60 * 1000;
-const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
+const googleJWKSetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
 const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
 const googleSigningKeyFetchTimeoutMs = 10 * 1000;
 
 type CachedGoogleSigningKeys = Readonly<{
   expiresAt: number;
-  keys: ReadonlyMap<string, JsonWebKey>;
+  keys: ReadonlyMap<string, JWK>;
 }>;
 
 let cachedGoogleSigningKeys: CachedGoogleSigningKeys | null = null;
@@ -104,37 +111,13 @@ type VerifiedGoogleIdentity = Readonly<{
   providerAccountIdentifier: string;
 }>;
 
-const decodeGoogleIdentityTokenHeader = Schema.decodeUnknownOption(
-  Schema.StringFromBase64Url.pipe(
-    Schema.decodeTo(
-      Schema.fromJsonString(
-        Schema.Struct({
-          alg: Schema.Literal('RS256'),
-          kid: Schema.NonEmptyString,
-        }),
-      ),
-    ),
-  ),
-);
-
+// aud, exp and iss are checked during signature verification.
 const decodeGoogleIdentityTokenClaims = Schema.decodeUnknownOption(
-  Schema.StringFromBase64Url.pipe(
-    Schema.decodeTo(
-      Schema.fromJsonString(
-        Schema.Struct({
-          aud: Schema.NonEmptyString,
-          email: Schema.NonEmptyString,
-          email_verified: Schema.Literals([true, 'true']),
-          exp: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
-          iss: Schema.Literals([
-            'accounts.google.com',
-            'https://accounts.google.com',
-          ]),
-          sub: Schema.NonEmptyString,
-        }),
-      ),
-    ),
-  ),
+  Schema.Struct({
+    email: Schema.NonEmptyString,
+    email_verified: Schema.Literals([true, 'true']),
+    sub: Schema.NonEmptyString,
+  }),
 );
 
 const decodeGoogleSigningKeySet = Schema.decodeUnknownOption(
@@ -187,20 +170,6 @@ function thrownGmailError(
     : error.cause;
 }
 
-const decodeJwtSignature = Schema.decodeUnknownOption(
-  Schema.Uint8ArrayFromBase64Url,
-);
-
-// Every malformed segment gets the common rejection, which does not disclose token contents.
-function decodeJwtSegment<A>(
-  decode: (segment: string) => Option.Option<A>,
-  segment: string,
-): Effect.Effect<A, GmailRequestRejected> {
-  return Effect.fromOption(decode(segment)).pipe(
-    Effect.mapError(proofRejected),
-  );
-}
-
 function googleCacheMaxAge(cacheControl: string): string | undefined {
   return /(?:^|,)\s*max-age=(?<seconds>\d+)/u.exec(cacheControl)?.groups
     ?.seconds;
@@ -223,14 +192,14 @@ function googleSigningKeyLifetimeMs(response: Response): number {
 
 function googleSigningKeys(
   value: unknown,
-): Effect.Effect<ReadonlyMap<string, JsonWebKey>, GmailRequestRejected> {
+): Effect.Effect<ReadonlyMap<string, JWK>, GmailRequestRejected> {
   return Effect.fromOption(decodeGoogleSigningKeySet(value)).pipe(
     Effect.mapError(proofRejected),
     Effect.flatMap(({ keys: candidates }) => {
       const keys = new Map(
         candidates
           .filter(isGoogleSigningKey)
-          .map((key): readonly [string, JsonWebKey] => [key.kid, key]),
+          .map((key): readonly [string, JWK] => [key.kid, key]),
       );
       return keys.size === 0
         ? Effect.fail(proofRejected())
@@ -243,7 +212,7 @@ function googleSigningKeys(
 async function fetchGoogleKeySet(
   signal: AbortSignal,
 ): Promise<Readonly<{ body?: unknown; response: Response }>> {
-  const response = await fetch(googleJsonWebKeySetUrl, { signal });
+  const response = await fetch(googleJWKSetUrl, { signal });
   if (!response.ok) {
     return { response };
   }
@@ -282,10 +251,7 @@ const fetchGoogleSigningKeys = Effect.gen(function* () {
   return refreshed;
 });
 
-function cachedGoogleSigningKey(
-  keyId: string,
-  now: number,
-): JsonWebKey | undefined {
+function cachedGoogleSigningKey(keyId: string, now: number): JWK | undefined {
   const cached = cachedGoogleSigningKeys;
   return cached === null || cached.expiresAt <= now
     ? undefined
@@ -310,33 +276,6 @@ const googleSigningKey = Effect.fnUntraced(function* (keyId: string) {
   return key;
 });
 
-const hasValidGoogleSignature = Effect.fnUntraced(function* (
-  signingInput: string,
-  signature: Uint8Array,
-  keyId: string,
-) {
-  const signingKey = yield* googleSigningKey(keyId);
-  return yield* Effect.tryPromise({
-    try: async () => {
-      const key = await crypto.subtle.importKey(
-        'jwk',
-        signingKey,
-        { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' },
-        false,
-        ['verify'],
-      );
-      return crypto.subtle.verify(
-        'RSASSA-PKCS1-v1_5',
-        key,
-        new Uint8Array(signature),
-        new TextEncoder().encode(signingInput),
-      );
-    },
-    catch: (cause) => new GoogleVerificationFailed({ cause }),
-  });
-});
-
-// fallow-ignore-next-line complexity -- Every proof condition is required before a mailbox is bound.
 const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
   identityToken: string,
 ): Effect.fn.Return<VerifiedGoogleIdentity, GmailProofFailure> {
@@ -353,41 +292,32 @@ const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
       message: 'Gmail mailbox ownership proof required',
     });
   }
-  const segments = identityToken.split('.');
-  const [headerSegment, claimsSegment, signatureSegment] = segments;
-  if (
-    segments.length !== 3 ||
-    headerSegment === undefined ||
-    claimsSegment === undefined ||
-    signatureSegment === undefined
-  ) {
+  const { kid: keyId } = yield* Effect.try({
+    try: () => decodeProtectedHeader(identityToken),
+    catch: proofRejected,
+  });
+  if (keyId === undefined) {
     return yield* proofRejected();
   }
-  const signature = yield* decodeJwtSegment(
-    decodeJwtSignature,
-    signatureSegment,
-  );
-  const { kid: keyId } = yield* decodeJwtSegment(
-    decodeGoogleIdentityTokenHeader,
-    headerSegment,
-  );
-  if (
-    !(yield* hasValidGoogleSignature(
-      `${headerSegment}.${claimsSegment}`,
-      signature,
-      keyId,
-    ))
-  ) {
-    return yield* proofRejected();
-  }
-  const claims = yield* decodeJwtSegment(
-    decodeGoogleIdentityTokenClaims,
-    claimsSegment,
-  );
-  const now = yield* Clock.currentTimeMillis;
-  if (claims.aud !== clientId || claims.exp <= Math.floor(now / 1000)) {
-    return yield* proofRejected();
-  }
+  const signingKey = yield* googleSigningKey(keyId);
+  const now = yield* DateTime.now;
+  const { payload } = yield* Effect.tryPromise({
+    try: async () =>
+      jwtVerify(identityToken, createLocalJWKSet({ keys: [signingKey] }), {
+        algorithms: ['RS256'],
+        audience: clientId,
+        currentDate: DateTime.toDate(now),
+        issuer: ['accounts.google.com', 'https://accounts.google.com'],
+        requiredClaims: ['exp'],
+      }),
+    catch: (cause) =>
+      cause instanceof errors.JOSEError
+        ? proofRejected()
+        : new GoogleVerificationFailed({ cause }),
+  });
+  const claims = yield* Effect.fromOption(
+    decodeGoogleIdentityTokenClaims(payload),
+  ).pipe(Effect.mapError(proofRejected));
   return {
     emailAddress: claims.email,
     providerAccountIdentifier: claims.sub,

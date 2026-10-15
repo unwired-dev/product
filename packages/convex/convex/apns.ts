@@ -2,7 +2,6 @@
 
 import type { ClientHttp2Session, ClientHttp2Stream } from 'node:http2';
 
-import { createPrivateKey, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { connect } from 'node:http2';
 
@@ -16,6 +15,7 @@ import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
+import { importPKCS8, SignJWT } from 'jose';
 
 import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
@@ -175,26 +175,15 @@ const apnsConfiguration = Effect.gen(function* () {
   } satisfies ApnsConfiguration;
 });
 
-function providerToken(
+async function providerToken(
   configuration: ApnsConfiguration,
   issuedAtSeconds: number,
-): string {
-  const header = Buffer.from(
-    JSON.stringify({ alg: 'ES256', kid: configuration.keyId }),
-  ).toString('base64url');
-  const claims = Buffer.from(
-    JSON.stringify({
-      iss: configuration.teamId,
-      iat: issuedAtSeconds,
-    }),
-  ).toString('base64url');
-  const unsignedToken = `${header}.${claims}`;
-  const signature = sign('sha256', Buffer.from(unsignedToken), {
-    dsaEncoding: 'ieee-p1363',
-    key: createPrivateKey(configuration.privateKey),
-  }).toString('base64url');
-
-  return `${unsignedToken}.${signature}`;
+): Promise<string> {
+  return new SignJWT()
+    .setProtectedHeader({ alg: 'ES256', kid: configuration.keyId })
+    .setIssuer(configuration.teamId)
+    .setIssuedAt(issuedAtSeconds)
+    .sign(await importPKCS8(configuration.privateKey, 'ES256'));
 }
 
 function apnsRequest(
@@ -414,8 +403,8 @@ const deliverWakeupBatch = Effect.fnUntraced(function* <
 ) {
   const configuration = yield* apnsConfiguration;
   const issuedAt = yield* Clock.currentTimeMillis;
-  const authorization = yield* Effect.try({
-    try: () => providerToken(configuration, Math.floor(issuedAt / 1000)),
+  const authorization = yield* Effect.tryPromise({
+    try: async () => providerToken(configuration, Math.floor(issuedAt / 1000)),
     catch: (cause) => new ApnsConfigurationFailed({ cause }),
   });
   const results = yield* sendBatch(recipients, (recipient) => ({

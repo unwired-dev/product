@@ -1,23 +1,25 @@
 'use node';
 
-import {
-  createPrivateKey,
-  createPublicKey,
-  randomUUID,
-  sign,
-  verify,
-} from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
+import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
-import * as Predicate from 'effect/Predicate';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
+import {
+  createLocalJWKSet,
+  decodeJwt,
+  errors,
+  importPKCS8,
+  jwtVerify,
+  SignJWT,
+} from 'jose';
 
 import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
@@ -45,29 +47,6 @@ type RevocationToken = Exclude<
   RevocationMaterial,
   { kind: 'authorization-code' }
 >;
-
-const decodeJwtPart = Schema.decodeUnknownOption(
-  Schema.StringFromBase64Url.pipe(
-    Schema.decodeTo(Schema.fromJsonString(Schema.Unknown)),
-  ),
-);
-
-const decodeJwtSignature = Schema.decodeUnknownOption(
-  Schema.Uint8ArrayFromBase64Url,
-);
-
-const isAppleIdentityTokenHeader = Schema.is(
-  Schema.Struct({ alg: Schema.Literal('RS256'), kid: Schema.String }),
-);
-
-const isAppleIdentityTokenClaims = Schema.is(
-  Schema.Struct({
-    aud: Schema.String,
-    exp: Schema.Finite,
-    iss: Schema.Literal(appleAudience),
-    sub: Schema.String,
-  }),
-);
 
 const decodeApplePublicKeySet = Schema.decodeUnknownOption(
   Schema.Struct({ keys: Schema.Array(Schema.Unknown) }),
@@ -197,33 +176,28 @@ const appleClientId = Effect.fnUntraced(function* (
   return clientId;
 });
 
-function encodeJson(value: Readonly<Record<string, string | number>>): string {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
-}
-
 const appleClientSecret = Effect.fnUntraced(function* (clientId: string) {
   const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
   const keyId = yield* appleSetting('APPLE_SIGN_IN_KEY_ID');
   const teamId = yield* appleSetting('APPLE_TEAM_ID');
   const privateKey = yield* appleSetting('APPLE_SIGN_IN_PRIVATE_KEY');
-  const header = encodeJson({ alg: 'ES256', kid: keyId });
-  const payload = encodeJson({
-    aud: appleAudience,
-    exp: now + 300,
-    iat: now,
-    iss: teamId,
-    sub: clientId,
-  });
-  const unsignedToken = `${header}.${payload}`;
-  const signature = yield* Effect.try({
-    try: () =>
-      sign('sha256', Buffer.from(unsignedToken), {
-        dsaEncoding: 'ieee-p1363',
-        key: createPrivateKey(privateKey.replaceAll(String.raw`\n`, '\n')),
-      }).toString('base64url'),
+  return yield* Effect.tryPromise({
+    try: async () =>
+      new SignJWT()
+        .setProtectedHeader({ alg: 'ES256', kid: keyId })
+        .setAudience(appleAudience)
+        .setExpirationTime(now + 300)
+        .setIssuedAt(now)
+        .setIssuer(teamId)
+        .setSubject(clientId)
+        .sign(
+          await importPKCS8(
+            privateKey.replaceAll(String.raw`\n`, '\n'),
+            'ES256',
+          ),
+        ),
     catch: (cause) => new AppleFailed({ cause }),
   });
-  return `${unsignedToken}.${signature}`;
 });
 
 function isRetryableAppleStatus(status: number): boolean {
@@ -267,42 +241,18 @@ function readAppleJson(
   });
 }
 
-// A token part that is not a JSON object is malformed; a JSON object with the wrong claims does not match.
-function decodedJwtPart(encoded: string): Effect.Effect<object, AppleRejected> {
-  return decodeJwtPart(encoded).pipe(
-    Option.filter(Predicate.isObjectOrArray),
-    Effect.fromOption,
-    Effect.mapError(exchangeFailed),
-  );
-}
-
+// A token for another identity or client does not match; a token that fails verification ends the exchange.
 // fallow-ignore-next-line complexity -- Apple identity tokens must fail closed across signature and claim validation.
 const verifyAppleIdentityToken = Effect.fnUntraced(function* (
   identityToken: string,
   expectedSubject: string,
   clientId: string,
 ) {
-  const parts = identityToken.split('.');
-  const [encodedHeader, encodedClaims, encodedSignature] = parts;
-  if (
-    parts.length !== 3 ||
-    parts.some((part) => part.length === 0) ||
-    encodedHeader === undefined ||
-    encodedClaims === undefined ||
-    encodedSignature === undefined
-  ) {
-    return yield* exchangeFailed();
-  }
-  const header = yield* decodedJwtPart(encodedHeader);
-  const claims = yield* decodedJwtPart(encodedClaims);
-  const now = yield* Clock.currentTimeMillis;
-  if (
-    !isAppleIdentityTokenHeader(header) ||
-    !isAppleIdentityTokenClaims(claims) ||
-    claims.aud !== clientId ||
-    claims.exp <= now / 1000 ||
-    claims.sub !== expectedSubject
-  ) {
+  const claims = yield* Effect.try({
+    try: () => decodeJwt(identityToken),
+    catch: exchangeFailed,
+  });
+  if (claims.aud !== clientId || claims.sub !== expectedSubject) {
     return yield* new AppleRejected({
       message: 'Recent authentication must match the Product Account',
     });
@@ -314,34 +264,27 @@ const verifyAppleIdentityToken = Effect.fnUntraced(function* (
   const body = response.ok ? yield* readAppleJson(response) : undefined;
   const keys = Option.match(decodeApplePublicKeySet(body), {
     onNone: () => [],
-    onSome: (keySet) => keySet.keys,
-  });
-  const key = keys
-    .flatMap((candidate) => Option.toArray(decodeApplePublicKey(candidate)))
-    .find((candidate) => candidate.kid === header.kid);
-  if (key === undefined) {
-    return yield* exchangeFailed();
-  }
-  const signature = yield* decodeJwtSignature(encodedSignature).pipe(
-    Effect.fromOption,
-    Effect.mapError(exchangeFailed),
-  );
-  const verified = yield* Effect.try({
-    try: () =>
-      verify(
-        'RSA-SHA256',
-        Buffer.from(`${encodedHeader}.${encodedClaims}`),
-        createPublicKey({
-          format: 'jwk',
-          key: { e: key.e, kty: 'RSA', n: key.n },
-        }),
-        signature,
+    onSome: (keySet) =>
+      keySet.keys.flatMap((candidate) =>
+        Option.toArray(decodeApplePublicKey(candidate)),
       ),
-    catch: (cause) => new AppleFailed({ cause }),
   });
-  if (!verified) {
-    return yield* exchangeFailed();
-  }
+  const now = yield* DateTime.now;
+  yield* Effect.tryPromise({
+    try: async () =>
+      jwtVerify(identityToken, createLocalJWKSet({ keys }), {
+        algorithms: ['RS256'],
+        audience: clientId,
+        currentDate: DateTime.toDate(now),
+        issuer: appleAudience,
+        requiredClaims: ['exp'],
+        subject: expectedSubject,
+      }),
+    catch: (cause) =>
+      cause instanceof errors.JOSEError
+        ? exchangeFailed()
+        : new AppleFailed({ cause }),
+  });
 });
 
 // fallow-ignore-next-line complexity -- Apple response validation keeps each failure distinct and fail closed.
