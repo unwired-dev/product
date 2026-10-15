@@ -18,7 +18,10 @@ import {
   quickActions,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
-import { listedMessage } from '@private-email/mail-core/gmail-inbox';
+import {
+  listedMessage,
+  viewMessage,
+} from '@private-email/mail-core/gmail-inbox';
 import {
   imapActionCopy,
   imapMoveTargets,
@@ -622,7 +625,7 @@ function GmailMessageActions({
   ) {
     return null;
   }
-  const message = listedMessage(state, id);
+  const message = viewMessage(state, id, view);
   // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {
     return <GlassGroup>{children}</GlassGroup>;

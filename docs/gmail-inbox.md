@@ -189,9 +189,11 @@ mailbox, or every mailbox under **All inboxes**. The API search excludes spam an
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
-  access. A result outside the cached Inbox keeps its metadata and body in memory
+  access. A result outside every cached view keeps its metadata and body in memory
   while that mailbox's Inbox is open, without writing them to the encrypted cache.
-  A result also listed in the Inbox opens and caches as the Inbox message. A result
+  A result also listed in a cached view opens and caches as that listed message.
+  Mail-server results offer organizing actions only when also listed in the Inbox,
+  using Inbox actions even when the search started from another view. A result
   outside the Inbox shows no organizing actions.
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved

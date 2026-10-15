@@ -731,6 +731,63 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
+  it('uses Inbox actions for online results while another window caches a Gmail label', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Archived flight' });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await fireEvent.press(
+        await first.findByRole('button', { name: /^Travel\. In/u }),
+      );
+      await first.findByRole('button', { name: /Archived flight/u });
+      await fireEvent.press(
+        await second.findByRole('button', { name: /^Trash\. In/u }),
+      );
+      // Online results come from the mailbox, independently of this window's Trash view.
+      const field = second.getByLabelText('Search senders and subjects');
+      await fireEvent.changeText(field, 'Lunch');
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Lunch on Friday/u }),
+      );
+      expect(second.getByRole('button', { name: 'Archive' })).toBeVisible();
+      expect(
+        second.queryByRole('button', { name: 'Move to Inbox' }),
+      ).toBeNull();
+
+      // The other window's cached label does not grant this online result Inbox actions.
+      await fireEvent.changeText(field, 'Archived');
+      await fireEvent.press(
+        second.getByRole('button', {
+          name: 'Search mail servers for “Archived”',
+        }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Archived flight/u }),
+      );
+      expect(second.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(second.queryByRole('button', { name: 'Show labels' })).toBeNull();
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
   it('keeps Command-P from opening behind a link confirmation in its window', async () => {
     expect.hasAssertions();
     const menu: TurboModule &

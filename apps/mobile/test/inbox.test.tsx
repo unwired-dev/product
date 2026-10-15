@@ -1232,10 +1232,19 @@ describe('connected Gmail Inbox', () => {
     expect(gmail.labelsOf(receipt)).toContain('INBOX');
     expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
 
-    // Search widened from Trash to every Inbox opens Inbox mail with Inbox actions.
+    // Online search from Trash still returns ordinary Inbox mail with Inbox actions.
     const field = screen.getByLabelText('Search senders and subjects');
     await fireEvent(field, 'focus');
     await fireEvent.changeText(field, 'Lunch');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Lunch on Friday/u }),
+    );
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+
+    // Search widened from Trash to every Inbox opens Inbox mail with Inbox actions.
     await act(async () => {
       await fireEvent.press(screen.getByRole('tab', { name: 'All Mailboxes' }));
     });
@@ -1245,6 +1254,17 @@ describe('connected Gmail Inbox', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     expect(screen.queryByRole('button', { name: 'Move to Inbox' })).toBeNull();
+
+    // A cached label-only message found online still has no Inbox organizing actions.
+    await fireEvent.changeText(field, 'Flight');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Search mail servers for “Flight”' }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {

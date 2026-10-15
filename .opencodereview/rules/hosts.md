@@ -239,6 +239,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Spam or Trash; otherwise ordinary mail offers Move to Inbox and Move removes
   the wrong source label.
 
+- `inbox.tsx` attaching a selected Gmail label to a mail-server result, or
+  `organize.tsx` looking up the reader's target across all cached views. Online
+  Gmail search is mailbox-wide and uses Inbox organizing context. Require the
+  message to be listed in that exact view before offering its actions; another
+  window's cached label must not grant an off-Inbox online result Inbox actions.
+  Exercise both an Inbox result found from Trash and a cached label-only result.
+
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
   Use the saved host and port to choose the heading and app-specific-password

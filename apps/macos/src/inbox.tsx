@@ -1055,7 +1055,7 @@ export function Inbox({
                   void select({
                     mailbox: item.mailbox.id,
                     id: item.message.id,
-                    ...selection,
+                    ...(section.key === 'gmail' ? {} : selection),
                   });
                 }}
                 selected={

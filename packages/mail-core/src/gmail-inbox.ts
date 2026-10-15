@@ -528,6 +528,17 @@ const sender = (from: string) => {
   return { sender: name === '' ? address : name, address };
 };
 
+// A message listed in the exact view its reader belongs to.
+export const viewMessage = (
+  state: Extract<GmailInboxState, { kind: 'ready' }>,
+  id: string,
+  view: string,
+) =>
+  (view === 'INBOX'
+    ? state.messages
+    : state.views?.find(({ label }) => label === view)?.messages
+  )?.find((message) => message.id === id);
+
 // A message the Inbox or another opened view lists.
 export const listedMessage = (
   state: Extract<GmailInboxState, { kind: 'ready' }>,
