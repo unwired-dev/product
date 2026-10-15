@@ -18,7 +18,8 @@ const parsed = styles.map(({ style }) => [
   [...parseDeclarations(style).declared],
 ]);
 // For each parsed declaration: WebKit's serialization of the parsed value on its own, and of the
-// property after reading the whole style.
+// property after reading the whole style. Also every property WebKit sets from the whole style, so
+// declarations the parser omits stay visible.
 const judged = execFileSync(
   'swift',
   [fileURLToPath(new URL('webkit-css-oracle.swift', import.meta.url))],
@@ -35,6 +36,7 @@ return JSON.stringify(${JSON.stringify(parsed)}.map(([style, declared]) => {
   const webkit = styleOf(style);
   return {
     style,
+    webkit: Array.from({ length: webkit.length }, (_, index) => webkit[index]),
     declared: declared.map(([name, value]) => {
       const alone = document.createElement('div').style;
       alone.setProperty(name, value);
