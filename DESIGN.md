@@ -122,6 +122,7 @@ rounded:
   window: '16px'
   mailbox-group: '22px'
   settings-detail: '16.923076629638672px'
+  format-panel: '34px'
 spacing:
   xs: '4px'
   s: '8px'
@@ -438,6 +439,8 @@ content.
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
+- The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
+  control groups use 22pt corners and 18pt inset selections.
 - Monograms and avatars are circles. Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo

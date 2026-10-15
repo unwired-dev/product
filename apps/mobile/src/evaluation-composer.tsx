@@ -63,6 +63,7 @@ import { GlassPanel } from './design.tsx';
 import {
   FormatPanel,
   PhoneControls,
+  phoneControlsInset,
   PadFormatBar,
   DraftFields,
   EditorHeader,
@@ -547,6 +548,15 @@ function EvaluationEditor({
           subject={draft.subject}
           busy={closing === 'saving'}
           closeOpen={open === 'close'}
+          sender={
+            <SendingMailbox
+              draft={draft}
+              editable={closing !== 'saving' && !sending}
+              onChange={(mailbox) => {
+                change(withSender(authored.current, mailbox));
+              }}
+            />
+          }
           expanded={expanded}
           onExpand={onExpand}
           onClose={() => {
@@ -584,17 +594,6 @@ function EvaluationEditor({
             </GlassPanel>
           </View>
         ) : null}
-        <View style={s.fromRow}>
-          <View style={s.bar}>
-            <SendingMailbox
-              draft={draft}
-              editable={closing !== 'saving' && !sending}
-              onChange={(mailbox) => {
-                change(withSender(authored.current, mailbox));
-              }}
-            />
-          </View>
-        </View>
         {layout.size === 'regular' && shown !== undefined ? (
           <PadFormatBar
             page={shown}
@@ -638,7 +637,10 @@ function EvaluationEditor({
             room, as in landscape; the iPhone controls float over them above the keyboard. */}
         <View style={s.fill}>
           <ScrollView
-            contentContainerStyle={styles.scroll}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: phoneControlsInset(phone, open) },
+            ]}
             keyboardShouldPersistTaps="handled">
             {stopped ? (
               <View style={s.fill} />

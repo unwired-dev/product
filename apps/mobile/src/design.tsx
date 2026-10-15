@@ -219,19 +219,26 @@ export function GlassGroup({
 }
 
 // Menus float independently of their toolbar, with the deeper menu shadow.
-export function GlassPanel({ children }: { readonly children: ReactNode }) {
+export function GlassPanel({
+  children,
+  cornerRadius = radius.menu,
+}: {
+  readonly children: ReactNode;
+  readonly cornerRadius?: number;
+}) {
   const colors = usePalette();
   return (
     <View
       style={[
         styles.panel,
         {
+          borderRadius: cornerRadius,
           boxShadow: colors.menuGlassShadow,
           backgroundColor: colors.surfaceContent,
         },
       ]}>
       <Glass
-        cornerRadius={radius.menu}
+        cornerRadius={cornerRadius}
         style={StyleSheet.absoluteFill}
       />
       {children}

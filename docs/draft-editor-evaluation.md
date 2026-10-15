@@ -37,6 +37,9 @@ correspondence stays as the Draft has it; no edit in the page changes it. The
 regular composer adopts the same design in
 [#991](https://github.com/unwired-dev/product/issues/991).
 
+On iPad, **From** sits beside **Send**. They wrap together below the title,
+command input and expand control when the reading pane is narrow.
+
 - **Saving.** Nothing is saved while editing, and no save status is shown. The
   Draft is stored only when the person chooses **Save Draft** (**Save** on Mac) or
   **Send**, as in Mail.

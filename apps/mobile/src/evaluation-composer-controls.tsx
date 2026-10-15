@@ -32,6 +32,7 @@ import {
 } from './composer-controls.tsx';
 import {
   Action,
+  ComposerLayoutContext,
   composerStyles,
   Recipients,
   rewriteLabel,
@@ -50,6 +51,22 @@ import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
 const styles = StyleSheet.create({
+  header: { flexWrap: 'wrap' },
+  headerLeading: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  regularHeaderLeading: { flexBasis: '50%' },
+  headerTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    maxWidth: '100%',
+    marginLeft: 'auto',
+  },
+  sender: { flexShrink: 1 },
   // The iPhone controls float at the trailing edge above the keyboard, with their menus above.
   pill: {
     position: 'absolute',
@@ -74,26 +91,35 @@ const styles = StyleSheet.create({
     minWidth: 240,
   },
   format: { padding: spacing.s, paddingTop: 0 },
-  formatContent: { padding: spacing.s },
+  formatContent: { padding: spacing.l, gap: spacing.m },
   formatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: spacing.m,
+    gap: spacing.xs,
   },
-  formatTitle: { ...textStyles.headline, flex: 1 },
+  formatTitle: { ...textStyles.title3Emphasized, flex: 1 },
+  formatClose: { borderRadius: radius.insetGroup },
   formatRow: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: spacing.s,
+  },
+  formatStyles: {
+    flexDirection: 'row',
     padding: spacing.xs,
-    marginTop: spacing.s,
-    borderRadius: radius.card,
+    borderRadius: radius.insetGroup,
+  },
+  formatGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    borderRadius: radius.insetGroup,
+    overflow: 'hidden',
   },
   formatChoice: {
     flex: 1,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.control,
+    borderRadius: radius.insetGroup - spacing.xs,
   },
 });
 
@@ -112,6 +138,14 @@ const pickers = [
   ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
 const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
+const markGroups = {
+  marks: markControls.slice(0, 4),
+  code: markControls.slice(4),
+};
+const blockGroups = {
+  lists: blockControls.slice(3, 5),
+  text: blockControls.slice(5),
+};
 
 // The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
 function WritingTools({
@@ -234,7 +268,7 @@ export function FormatPanel({
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <View style={styles.format}>
-      <GlassPanel>
+      <GlassPanel cornerRadius={radius.formatPanel}>
         <View
           accessibilityLabel={t('drafts.formatting')}
           accessibilityRole="toolbar"
@@ -261,13 +295,15 @@ export function FormatPanel({
                 run({ type: 'redo' });
               }}
             />
-            <ToolbarButton
-              icon="xmark"
-              label={t('drafts.closeFormat')}
-              onPress={onClose}
-            />
+            <View style={[styles.formatClose, rowFill]}>
+              <ToolbarButton
+                icon="xmark"
+                label={t('drafts.closeFormat')}
+                onPress={onClose}
+              />
+            </View>
           </View>
-          <View style={[styles.formatRow, rowFill]}>
+          <View style={[styles.formatStyles, rowFill]}>
             {headings.map((kind) => {
               const name = t(
                 `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
@@ -288,41 +324,89 @@ export function FormatPanel({
               );
             })}
           </View>
-          <View style={[styles.formatRow, rowFill]}>
-            {markControls.map(([mark, label, name, style]) => (
-              <FormatChoice
-                key={mark}
-                command={{ type: 'mark', mark }}
-                name={t(name)}
-                run={run}
-                selected={page.marks.includes(mark)}>
-                {(color) => (
-                  <Text style={[textStyles.body, { color }, style]}>
-                    {label}
-                  </Text>
-                )}
-              </FormatChoice>
+          <View style={styles.formatRow}>
+            {Object.entries(markGroups).map(([key, group]) => (
+              <View
+                key={key}
+                style={[
+                  styles.formatGroup,
+                  rowFill,
+                  { minWidth: group.length * 44 },
+                ]}>
+                {group.map(([mark, , name]) => (
+                  <FormatChoice
+                    key={mark}
+                    command={{ type: 'mark', mark }}
+                    name={t(name)}
+                    run={run}
+                    selected={page.marks.includes(mark)}>
+                    {(color) => (
+                      <SFSymbol
+                        name={
+                          mark === 'code'
+                            ? 'chevron.left.forwardslash.chevron.right'
+                            : mark
+                        }
+                        size={20}
+                        color={color}
+                      />
+                    )}
+                  </FormatChoice>
+                ))}
+              </View>
             ))}
           </View>
-          <View style={[styles.formatRow, rowFill]}>
+          <View style={styles.formatRow}>
             {/* Lists, quotes and code blocks follow the three headings. */}
-            {blockControls.slice(3).map(([kind, label, name]) => (
-              <FormatChoice
-                key={kind}
-                command={{ type: 'block', kind }}
-                name={t(name)}
-                run={run}
-                selected={page.kind === kind}>
-                {(color) => (
-                  <Text style={[textStyles.body, { color }]}>{label}</Text>
-                )}
-              </FormatChoice>
+            {Object.entries(blockGroups).map(([key, group]) => (
+              <View
+                key={key}
+                style={[styles.formatGroup, rowFill]}>
+                {group.map(([kind, , name]) => (
+                  <FormatChoice
+                    key={kind}
+                    command={{ type: 'block', kind }}
+                    name={t(name)}
+                    run={run}
+                    selected={page.kind === kind}>
+                    {(color) =>
+                      kind === 'bulleted' || kind === 'numbered' ? (
+                        <SFSymbol
+                          name={
+                            kind === 'bulleted' ? 'list.bullet' : 'list.number'
+                          }
+                          size={20}
+                          color={color}
+                        />
+                      ) : (
+                        <SFSymbol
+                          name={
+                            kind === 'quote' ? 'quote.opening' : 'curlybraces'
+                          }
+                          size={20}
+                          color={color}
+                        />
+                      )
+                    }
+                  </FormatChoice>
+                ))}
+              </View>
             ))}
           </View>
         </View>
       </GlassPanel>
     </View>
   );
+}
+
+// Leave room to scroll the final field above the 52pt controls and their 8pt insets.
+export function phoneControlsInset(
+  page: PageState | undefined,
+  open: Open | undefined,
+) {
+  return page === undefined || open === 'format'
+    ? 0
+    : 44 + 2 * spacing.xs + 2 * spacing.s;
 }
 
 // iPhone adds files and offers writing tools from a floating Liquid Glass pill and button, whose
@@ -584,11 +668,13 @@ export function DraftFields({
 }
 
 // The current composer's header: the glass Close, the title, which opens the Command Palette by a
-// downward swipe as other screens' do, the window's expand control and Send.
+// downward swipe as other screens' do, the window's expand control and Send. On iPad,
+// From stays beside Send; that pair wraps together when the reading pane is narrow.
 export function EditorHeader({
   subject,
   busy,
   closeOpen,
+  sender,
   expanded = false,
   onExpand,
   onClose,
@@ -598,6 +684,7 @@ export function EditorHeader({
   // Save Draft, Delete Draft or Send is running.
   readonly busy: boolean;
   readonly closeOpen: boolean;
+  readonly sender: ReactNode;
   readonly expanded?: boolean | undefined;
   readonly onExpand?: (() => void) | undefined;
   readonly onClose: () => void;
@@ -606,63 +693,80 @@ export function EditorHeader({
   const colors = usePalette();
   const { t } = useLocalization();
   const paletteHeader = usePaletteHeader();
+  const regular = use(ComposerLayoutContext).size === 'regular';
   const title = clip(subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < subject.length
       ? t('drafts.titleShortened', { title })
       : title;
   return (
-    <View
-      style={s.header}
-      {...paletteHeader.swipe}>
-      <Pressable
-        accessibilityLabel={t('drafts.close')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy, expanded: closeOpen }}
-        disabled={busy}
-        onPress={onClose}
-        style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
-        <NativeGlass
-          cornerRadius={22}
-          style={StyleSheet.absoluteFill}
-        />
-        <SFSymbol
-          name="xmark"
-          color={colors.textPrimary}
-        />
-      </Pressable>
-      <Text
-        accessibilityLabel={titleLabel}
-        accessibilityRole="header"
-        numberOfLines={1}
-        style={[s.grow, s.title, { color: colors.textPrimary }]}
-        {...paletteHeader.action}>
-        {title}
-      </Text>
-      <CommandInput />
-      {onExpand === undefined ? null : (
-        <ToolbarButton
-          icon={
-            expanded
-              ? 'arrow.down.right.and.arrow.up.left'
-              : 'arrow.up.left.and.arrow.down.right'
-          }
-          label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-          onPress={onExpand}
-        />
+    <>
+      <View
+        style={[s.header, regular ? styles.header : null]}
+        {...paletteHeader.swipe}>
+        <View
+          style={[
+            styles.headerLeading,
+            regular ? styles.regularHeaderLeading : null,
+          ]}>
+          <Pressable
+            accessibilityLabel={t('drafts.close')}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy, expanded: closeOpen }}
+            disabled={busy}
+            onPress={onClose}
+            style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
+            <NativeGlass
+              cornerRadius={22}
+              style={StyleSheet.absoluteFill}
+            />
+            <SFSymbol
+              name="xmark"
+              color={colors.textPrimary}
+            />
+          </Pressable>
+          <Text
+            accessibilityLabel={titleLabel}
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={[s.grow, s.title, { color: colors.textPrimary }]}
+            {...paletteHeader.action}>
+            {title}
+          </Text>
+          <CommandInput />
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              icon={
+                expanded
+                  ? 'arrow.down.right.and.arrow.up.left'
+                  : 'arrow.up.left.and.arrow.down.right'
+              }
+              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+              onPress={onExpand}
+            />
+          )}
+        </View>
+        <View style={styles.headerTrailing}>
+          {regular ? <View style={styles.sender}>{sender}</View> : null}
+          <Pressable
+            accessibilityLabel={t('drafts.send')}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
+            onPress={onSend}
+            style={[s.circle, { backgroundColor: colors.accentFill }]}>
+            <SFSymbol
+              name="arrow.up"
+              color={colors.accentOnFill}
+            />
+          </Pressable>
+        </View>
+      </View>
+      {regular ? null : (
+        <View style={s.fromRow}>
+          <View style={s.bar}>{sender}</View>
+        </View>
       )}
-      <Pressable
-        accessibilityLabel={t('drafts.send')}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy }}
-        disabled={busy}
-        onPress={onSend}
-        style={[s.circle, { backgroundColor: colors.accentFill }]}>
-        <SFSymbol
-          name="arrow.up"
-          color={colors.accentOnFill}
-        />
-      </Pressable>
-    </View>
+    </>
   );
 }
