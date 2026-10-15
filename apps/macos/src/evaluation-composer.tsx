@@ -263,7 +263,11 @@ function EvaluationEditor({
       void store.importAsset(asset, file.source);
     }
   };
+  // Remove and Cancel already queued when Save Draft or Send starts leave the frozen version alone.
   const removeAsset = (id: string) => {
+    if (busy.current) {
+      return;
+    }
     void store.cancelImport(id);
     run({ type: 'remove', id });
   };
@@ -688,7 +692,9 @@ function EvaluationEditor({
             draft={owned}
             editable={shown !== undefined}
             onCancel={(id) => {
-              void store.cancelImport(id);
+              if (!busy.current) {
+                void store.cancelImport(id);
+              }
             }}
             onConvert={(id) => {
               run({ type: 'convert', id });

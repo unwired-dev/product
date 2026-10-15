@@ -264,7 +264,13 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
         }
         pending = true;
         const answer = async () => {
-          const allowed = await leaveNow.current();
+          // A failed leave keeps the window open and cancels a pending Quit.
+          let allowed = false;
+          try {
+            allowed = await leaveNow.current();
+          } catch {
+            // The window stays open, as when the person cancels.
+          }
           menu.finishClose(identifier, allowed);
           pending = false;
         };

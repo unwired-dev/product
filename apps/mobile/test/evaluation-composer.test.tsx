@@ -910,4 +910,52 @@ describe('the Tiptap evaluation composer', () => {
       });
     });
   });
+
+  it('keeps an import that a queued Cancel reaches after Save starts', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const { report } = simulatedPage();
+    await report({});
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Add files');
+    await press('Insert Image');
+    const [chart] = lastAdded().images;
+    ok(chart, 'Expected the inline photo');
+    await report({
+      document: [
+        { kind: 'paragraph', spans: [{ text: '\uFFFC', image: chart }] },
+      ],
+      attachments: [],
+    });
+    const cancel = await screen.findByRole('button', {
+      name: 'Cancel adding chart.png',
+    });
+    await press('Close');
+    // A Cancel queued before React disables the row arrives after Save has started.
+    const queued: (event: object) => void = cancel.props.onClick;
+    const save = await screen.findByRole('button', { name: 'Save Draft' });
+    await act(async () => {
+      fireEvent.press(save);
+      queued({ nativeEvent: {} });
+    });
+    await report({ frozen: true });
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      const [stored] = draftsOf(drafts.getSnapshot());
+      ok(stored, 'Expected the stored Draft');
+      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
+        'complete',
+      ]);
+    });
+  });
 });
