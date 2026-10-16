@@ -17,12 +17,7 @@ import type { InboxMailbox } from './private-storage.ts';
 import { SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import {
-  useLeaveComposer,
-  useMailboxes,
-  useProfile,
-  useReloadMailboxes,
-} from './mailbox.tsx';
+import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -261,7 +256,6 @@ export function Mailboxes({
   const account = use(AccountContext);
   const profile = useProfile();
   const reload = useReloadMailboxes();
-  const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
   const sidebar = mailboxSidebar({
@@ -270,12 +264,6 @@ export function Mailboxes({
     profile,
     view,
   });
-  // The account page replaces the Inbox, so an open composer is left first.
-  const openAccount = async (open: () => void) => {
-    if (await leave()) {
-      open();
-    }
-  };
   const authorize = async (connection: string) => {
     await account?.authorizeMailbox(connection);
     await reload();
@@ -348,11 +336,7 @@ export function Mailboxes({
                   onPress={() => {
                     // IMAP needs its password entered again in Settings' Email Accounts.
                     if (imap) {
-                      if (account !== undefined) {
-                        void openAccount(() => {
-                          account.openAccount('mailboxes');
-                        });
-                      }
+                      account?.openAccount('mailboxes');
                     } else {
                       void authorize(connection.id);
                     }
@@ -368,7 +352,7 @@ export function Mailboxes({
               icon="gearshape"
               label={t('inbox.account')}
               onPress={() => {
-                void openAccount(account.openAccount);
+                account.openAccount();
               }}
             />
           </View>

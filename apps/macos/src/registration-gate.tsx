@@ -22,6 +22,7 @@ import {
 } from 'react';
 import { ActivityIndicator, AppState, ScrollView, View } from 'react-native';
 
+import type { SettingsRequest } from './settings-window.ts';
 import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
@@ -45,6 +46,7 @@ import {
   remoteContent as deviceRemoteContent,
 } from './registration.ts';
 import { RemoteContentContext } from './remote-content.tsx';
+import { openSettings } from './settings-window.ts';
 import {
   AccountCard,
   SettingsBlock,
@@ -55,8 +57,8 @@ import {
 import { usePalette } from './theme.ts';
 import { TranslationContext, nativeTranslation } from './translation.tsx';
 
-// The connected Inbox opens the account page and asks a mailbox's provider for permission again
-// through this.
+// The connected Inbox opens Settings and asks a mailbox's provider for permission again through
+// this.
 export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
@@ -100,14 +102,11 @@ export function RegistrationGate({
   const { t } = useLocalization();
   // This window's choice between the account page and a connected Inbox outlasts status updates.
   const [choice, setChoice] = useState<InboxChoice>();
-  // Where Settings opens when the Inbox asks for a destination.
-  const [start, setStart] = useState<SettingsDestination>();
   const screen = registrationScreen(t, registrationState, choice);
   const { choices } = screen;
   // A choice the shared rule no longer applies is forgotten, so an earlier snapshot cannot revive it.
   if (screen.choice !== choice) {
     setChoice(screen.choice);
-    setStart(undefined);
   }
   // Enablement belongs to an admitted Product Account that is not being removed; it is read again
   // whenever that changes, or when locked storage may have become readable.
@@ -130,8 +129,7 @@ export function RegistrationGate({
       mailboxes: screen.mailboxes,
       openAccount: (destination?: SettingsDestination) => {
         if (choices !== undefined) {
-          setStart(destination);
-          setChoice(choices.account);
+          openSettings(destination);
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -184,7 +182,6 @@ export function RegistrationGate({
             assistance={assistance}
             microsoft={microsoft}
             screen={screen}
-            start={start}
             store={store}
             onInbox={
               choices === undefined
@@ -218,19 +215,80 @@ export function RegistrationGate({
   );
 }
 
-// A connected Inbox's account page: Settings, one destination at a time.
+// The Settings window's gate: the connected Inbox's Settings, which it closes once no Inbox can
+// open, as when the Product Account signs out or storage locks.
+export function SettingsGate({
+  store = registration,
+  microsoft = microsoftMail(),
+  remoteContent = deviceRemoteContent,
+  mailAssistance = deviceMailAssistance,
+  assistance = nativeAssistance,
+  request,
+  onInbox,
+  onClose,
+}: {
+  readonly store?: Registration;
+  readonly microsoft?: boolean;
+  readonly remoteContent?: RemoteContentSettingsStore;
+  readonly mailAssistance?: MailAssistanceEnablementStore;
+  readonly assistance?: NativeAssistance;
+  readonly request: SettingsRequest;
+  readonly onInbox: () => void;
+  readonly onClose: () => void;
+}) {
+  const registrationState = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+  );
+  const { t } = useLocalization();
+  const screen = registrationScreen(t, registrationState, undefined);
+  const { snapshot } = registrationState;
+  const open =
+    screen.destination !== 'locked' &&
+    screen.choices !== undefined &&
+    snapshot.kind !== 'signed-out';
+  useEffect(() => {
+    if (!open) {
+      onClose();
+    }
+  }, [open, onClose]);
+  if (!open) {
+    return null;
+  }
+  return (
+    <RemoteContentContext value={remoteContent}>
+      <MailAssistanceContext value={mailAssistance}>
+        <SettingsPage
+          // Another Product Account starts Settings afresh.
+          key={snapshot.productAccountId}
+          assistance={assistance}
+          microsoft={microsoft}
+          request={request}
+          screen={screen}
+          store={store}
+          onInbox={onInbox}
+        />
+      </MailAssistanceContext>
+    </RemoteContentContext>
+  );
+}
+
+// Settings, one destination at a time: in the Settings window, or as a connected Inbox's account
+// page while account setup waits.
 function SettingsPage({
   assistance,
   microsoft,
+  request,
   screen,
-  start,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
+  // The Settings window follows each request to open it. The account page, which has none,
+  // offers Open Inbox instead.
+  readonly request?: SettingsRequest;
   readonly screen: RegistrationScreen;
-  readonly start: SettingsDestination | undefined;
   readonly store: Registration;
   readonly onInbox: () => void;
 }) {
@@ -240,10 +298,18 @@ function SettingsPage({
   );
   const colors = usePalette();
   const { t } = useLocalization();
-  // An explicit Inbox request wins; otherwise Settings opens Account & Devices.
+  // A request's destination wins; otherwise Settings opens Account & Devices.
   const [destination, setDestination] = useState<SettingsDestination>(
-    () => start ?? 'account',
+    () => request?.destination ?? 'account',
   );
+  // A later request names its destination; one without keeps the person's place.
+  const [followed, setFollowed] = useState(request);
+  if (followed !== request) {
+    setFollowed(request);
+    if (request?.destination !== undefined) {
+      setDestination(request.destination);
+    }
+  }
   const { copy, actions, identity } = screen;
   if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
@@ -270,10 +336,12 @@ function SettingsPage({
               />
             ) : null}
             <View style={styles.grow} />
-            {button(t('registration.openInbox'), () => {
-              onInbox();
-              return Promise.resolve();
-            })}
+            {request === undefined
+              ? button(t('registration.openInbox'), () => {
+                  onInbox();
+                  return Promise.resolve();
+                })
+              : null}
           </>
         }>
         {failed || signIn.length > 0 ? (
@@ -328,14 +396,12 @@ function RegistrationPage({
   assistance,
   microsoft,
   screen,
-  start,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
   readonly screen: RegistrationScreen;
-  readonly start: SettingsDestination | undefined;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
@@ -356,7 +422,6 @@ function RegistrationPage({
         assistance={assistance}
         microsoft={microsoft}
         screen={screen}
-        start={start}
         store={store}
         onInbox={onInbox}
       />

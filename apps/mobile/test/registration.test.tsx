@@ -32,7 +32,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
-import { Animated, AppState, Pressable, Text } from 'react-native';
+import { Animated, AppState, Pressable, Text, TextInput } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -2431,7 +2431,7 @@ describe('product registration', () => {
     );
   });
 
-  it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
+  it("closes open Settings for the replacement Product Account's pending setup", async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
@@ -2464,6 +2464,69 @@ describe('product registration', () => {
       shown(replacement, 'recoveryKey'),
     );
     expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+  });
+
+  it('opens Settings over the Inbox, which keeps its state for the way back, and closes it on sign-out', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    // Stands in for the Inbox's own state, such as an unfinished Draft.
+    function Draft() {
+      const [text, setText] = useState('');
+      return (
+        <TextInput
+          accessibilityLabel="Draft"
+          value={text}
+          onChangeText={setText}
+        />
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <ConnectedInbox />
+        <Draft />
+      </RegistrationGate>,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Draft'),
+      'Unfinished',
+    );
+    await openAccount();
+    await openSettings('Email Accounts');
+    // The covered Inbox stays mounted but leaves the accessibility tree to Settings.
+    expect({
+      settings: screen.getByRole('header', { name: 'Email Accounts' }),
+      covered: screen.queryByLabelText('Draft'),
+      kept: screen.getByLabelText('Draft', { includeHiddenElements: true })
+        .props.value,
+    }).toStrictEqual({
+      settings: expect.anything(),
+      covered: null,
+      kept: 'Unfinished',
+    });
+    await backToSettings();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+    });
+    expect(screen.getByLabelText('Draft')).toHaveProp('value', 'Unfinished');
+    expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
+    // Signing out closes Settings, and signing in again opens the Inbox without it.
+    const recoveryKey = String(synthetic.device.productSync.vault?.recoveryKey);
+    await openAccount();
+    await act(async () => {
+      await store.signOut();
+    });
+    await act(async () => {
+      await store.register('google');
+      await store.recoverWithRecoveryKey(recoveryKey);
+      await store.addMailbox();
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open Inbox' })).toBeNull();
   });
 
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {

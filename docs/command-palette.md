@@ -25,9 +25,10 @@ results never appear in the palette. The vocabulary lives in the
   also bring the message list forward where Mailboxes covers it. On the Mac they
   first collapse an expanded composer, keeping its Draft open.
 - **Go To:** Inbox, which leaves the reader or composer through the same
-  checks as closing them, and Account, while a Product Account is signed in.
-  The palette stays available on the Account page, the app's settings, where
-  Inbox returns to the connected Inbox.
+  checks as closing them, and Account, which opens Settings while a Product
+  Account is signed in. The palette stays available in Settings and on the
+  account page, where Inbox returns to the connected Inbox; in the Mac's
+  Settings window it brings an Inbox window forward.
 - Reply, Forward, Archive and Move to… stay listed and disabled with a reason
   (Select a conversation, or Not available for this message) when nothing can
   run them. While the reader is already starting a reply or forward, Reply,
@@ -65,7 +66,7 @@ results never appear in the palette. The vocabulary lives in the
 ## Entry points
 
 - **Mac:** a command input stays visible in a bar at the top of each window,
-  the Account page included.
+  the Settings window and account page included.
   Clicking it, or choosing View › Commands… (Command-P), opens the palette
   beneath it without shifting the window's layout, with the query focused. Up and
   Down select a command and scroll it into view, Return runs it, Escape closes the palette or leaves the
@@ -114,7 +115,7 @@ Component tests cover opening from each entry, including the Thread reader,
 the fixed order, fuzzy narrowing, running Archive and Move to… on the open
 message with Undo, the disabled reasons, Search Mail leaving the reader and
 bringing the list forward from Mailboxes, New Message following the floating
-bar's button, the Account page's entry and its way back to the Inbox, Command-P
+bar's button, the Account entry and the way back to the Inbox from Settings, Command-P
 opening the Mac palette only while its window shows the bar, an open palette leaving with its
 screen when registration replaces it, Back, Escape and the Mac's outside click,
 and a target that disappears after opening.

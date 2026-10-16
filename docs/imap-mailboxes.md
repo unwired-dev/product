@@ -26,7 +26,7 @@ each opening its own setup:
 
 Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
-after sign-in; an IMAP password is only ever entered again on the account page. Once
+after sign-in; an IMAP password is only ever entered again in Settings' **Email Accounts**. Once
 any mailbox is connected, Settings' **Email Accounts** also offers **Add an
 IMAP mailbox**.
 

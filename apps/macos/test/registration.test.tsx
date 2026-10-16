@@ -61,6 +61,14 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
+import {
+  MacWindows,
+  closeSettings,
+  commandComma,
+  inboxFocused,
+  settingsOpen,
+  settingsWindow,
+} from './settings-window.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -241,8 +249,9 @@ const commandMenu = () => {
   };
   const module = jest
     .spyOn(TurboModuleRegistry, 'get')
+    // The Settings window's methods of the same module stay as the test host provides them.
     .mockImplementation((name) =>
-      name === 'UnwiredCommands' ? menu : get(name),
+      name === 'UnwiredCommands' ? { ...get(name), ...menu } : get(name),
     );
   return {
     choose: async (windowId: string) => {
@@ -343,11 +352,13 @@ describe('product registration', () => {
       },
     });
     const view = await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     const press = async (name: string) => {
       await act(async () => {
@@ -437,16 +448,18 @@ describe('product registration', () => {
         getSnapshot: connections.getConnections,
       };
       await render(
-        <RegistrationGate
-          store={started(store)}
-          preview={false}>
-          <InboxProvider mailboxes={mailboxes}>
-            <Shell
-              onSelect={() => undefined}
-              selected={undefined}
-            />
-          </InboxProvider>
-        </RegistrationGate>,
+        <MacWindows store={store}>
+          <RegistrationGate
+            store={started(store)}
+            preview={false}>
+            <InboxProvider mailboxes={mailboxes}>
+              <Shell
+                onSelect={() => undefined}
+                selected={undefined}
+              />
+            </InboxProvider>
+          </RegistrationGate>
+        </MacWindows>,
       );
       // The Inbox remains usable with setup deferred; repair must still open Email Accounts.
       for (const name of inboxActions) {
@@ -490,7 +503,9 @@ describe('product registration', () => {
       // The Inbox's repair opens Settings on Email Accounts, where its form is.
       await screen.findByRole('header', { name: 'Email Accounts' });
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: repair }));
+        await fireEvent.press(
+          settingsWindow().getByRole('button', { name: repair }),
+        );
       });
       await fireEvent.changeText(
         screen.getByLabelText('Password'),
@@ -569,16 +584,18 @@ describe('product registration', () => {
       getSnapshot: connections.getConnections,
     };
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <Shell
-            onSelect={() => undefined}
-            selected={undefined}
-          />
-        </InboxProvider>
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
     );
     // A folder with the inbox role keeps its own name beside the reserved INBOX.
     await expect(
@@ -924,16 +941,18 @@ describe('product registration', () => {
       [syntheticMailboxes['other@example.invalid']]: other,
     });
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <Shell
-            onSelect={() => undefined}
-            selected={undefined}
-          />
-        </InboxProvider>
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
     );
     await expect(
       screen.findByText('Synthetic message 1'),
@@ -960,13 +979,11 @@ describe('product registration', () => {
     });
     await openAccount();
     expect(
-      screen.getByText(
+      settingsWindow().getByText(
         /could not be verified\. Mail saved on this device is available/u,
       ),
     ).toBeVisible();
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
-    });
+    await closeSettings();
     gmail.deliver({ subject: 'After verification' });
     synthetic.google.refreshFailure = undefined;
     ({ openMailbox } = gmail.native);
@@ -985,7 +1002,7 @@ describe('product registration', () => {
   });
 
   /* oxlint-disable vitest/max-expects -- One journey proves the palette bar, Settings navigation and the way back. */
-  it('keeps the Command Palette bar on the account page and returns to the Inbox from it', async () => {
+  it('opens one Settings window from the Inbox and its palette, and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     const { synthetic, setup } = await signedIn();
@@ -996,39 +1013,41 @@ describe('product registration', () => {
     });
     const menu = commandMenu();
     try {
-      // As the window composes them: the palette stays above the gate, so the account page keeps
-      // it.
       await render(
-        <CommandPaletteProvider windowId="account">
-          <RegistrationGate
-            store={started(store)}
-            preview={false}>
-            <InboxProvider mailboxes={mailboxes}>
-              <Shell
-                onSelect={() => undefined}
-                selected={undefined}
-              />
-            </InboxProvider>
-          </RegistrationGate>
-        </CommandPaletteProvider>,
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>,
       );
       await expect(
         screen.findByText('Synthetic message 1'),
       ).resolves.toBeVisible();
       await openAccount();
       const selected = () =>
-        screen
+        settingsWindow()
           .getAllByRole('button', { selected: true })
           .map(({ props }) => props.accessibilityLabel);
       // Settings opens on Account & Devices; another sidebar destination selects itself and shows
-      // only its title and groups, beneath the same Command Palette bar.
+      // only its title and groups, beneath the window's own Command Palette bar.
       expect(selected()).toStrictEqual(['Account & Devices']);
       await settings('Email Accounts');
       expect({
         selected: selected(),
-        headers: screen
+        headers: settingsWindow()
           .getAllByRole('header')
           .map(({ props }) => props.accessibilityLabel),
+        // The Inbox window keeps its mail beside Settings.
+        inbox: screen.getByText('Synthetic message 1'),
       }).toStrictEqual({
         selected: ['Email Accounts'],
         headers: [
@@ -1037,23 +1056,102 @@ describe('product registration', () => {
           'Email Accounts',
           'Mailbox Connections',
         ],
+        inbox: expect.anything(),
       });
       expect(
-        screen.getByRole('button', { name: 'Open Command Palette' }),
-      ).toBeVisible();
+        settingsWindow().queryByRole('button', { name: 'Open Inbox' }),
+      ).toBeNull();
+      // The Inbox palette's Account command reaches the same window, which keeps its place.
       await menu.choose('account');
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Inbox' }));
+        await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
       });
-      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-      await expect(
-        screen.findByText('Synthetic message 1'),
-      ).resolves.toBeVisible();
+      expect({
+        windows: screen.getAllByTestId('settings-window'),
+        selected: selected(),
+      }).toStrictEqual({
+        windows: [expect.anything()],
+        selected: ['Email Accounts'],
+      });
+      // Command-P in the Settings window opens its own palette, whose Inbox command brings an
+      // Inbox window forward.
+      await act(async () => {
+        DeviceEventEmitter.emit('openCommandPalette', {
+          window: 'settings-window',
+        });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await fireEvent.press(
+          settingsWindow().getByRole('button', { name: 'Inbox' }),
+        );
+      });
+      expect({
+        palette: screen.queryByPlaceholderText('Type a command'),
+        focused: inboxFocused(),
+        settings: settingsOpen(),
+      }).toStrictEqual({ palette: null, focused: 1, settings: true });
+      await closeSettings();
+      expect(screen.getByText('Synthetic message 1')).toBeVisible();
     } finally {
       menu.restore();
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('brings the open Settings window to a requested destination and opens afresh after closing', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    // A repair, such as an IMAP password, names its destination.
+    function Repair() {
+      const account = useContext(AccountContext);
+      return (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            account?.openAccount('mailboxes');
+          }}>
+          <Text>Repair</Text>
+        </Pressable>
+      );
+    }
+    await render(
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+          <Repair />
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    const title = () =>
+      settingsWindow()
+        .getAllByRole('header')
+        .map(({ props }) => props.accessibilityLabel)
+        .find((header) =>
+          ['Account & Devices', 'Email Accounts', 'Language'].includes(
+            String(header),
+          ),
+        );
+    await openAccount();
+    await settings('Language');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Repair' }));
+    });
+    const repaired = title();
+    await openAccount();
+    const kept = title();
+    await closeSettings();
+    await commandComma();
+    expect({ repaired, kept, reopened: title() }).toStrictEqual({
+      repaired: 'Email Accounts',
+      kept: 'Email Accounts',
+      reopened: 'Account & Devices',
+    });
+  });
 
   it("asks AppKit to keep the window's focused control on opening and restore it on closing", async () => {
     expect.hasAssertions();
@@ -1506,16 +1604,18 @@ describe('product registration', () => {
       [syntheticMailboxes['other@example.invalid']]: gmail.other,
     });
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <InboxProvider mailboxes={mailboxes}>
-          <Shell
-            onSelect={() => undefined}
-            selected={undefined}
-          />
-        </InboxProvider>
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
     );
     const press = async (name: string) => {
       await act(async () => {
@@ -1549,8 +1649,10 @@ describe('product registration', () => {
     synthetic.choose('alex@example.invalid');
     await settings('Email Accounts');
     await press('Add another Gmail mailbox');
-    expect(screen.getAllByText('alex@example.invalid')).toHaveLength(1);
-    await press('Open Inbox');
+    expect(settingsWindow().getAllByText('alex@example.invalid')).toHaveLength(
+      1,
+    );
+    await closeSettings();
     // Both mailboxes together, newest first, each row naming its own mailbox.
     const unified = await screen.findAllByRole('button', { name: /^Unread/u });
     expect(unified.map((row) => row.props.accessibilityLabel)).toStrictEqual([
@@ -1621,7 +1723,7 @@ describe('product registration', () => {
     ).toBeVisible();
     await press('Remove other@example.invalid');
     expect(screen.queryByText('other@example.invalid')).toBeNull();
-    await press('Open Inbox');
+    await closeSettings();
     await expect(
       screen.findByRole('button', { name: 'Unread. Maya Chen. Only for Alex' }),
     ).resolves.toBeVisible();
@@ -1720,11 +1822,13 @@ describe('product registration', () => {
       );
     }
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <Searching list={mailboxes} />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <Searching list={mailboxes} />
+        </RegistrationGate>
+      </MacWindows>,
     );
     const press = async (name: string) => {
       await act(async () => {
@@ -1756,7 +1860,7 @@ describe('product registration', () => {
     await openAccount();
     await settings('Email Accounts');
     await press('Add another Gmail mailbox');
-    await press('Open Inbox');
+    await closeSettings();
     // A result searched while prefetch is still downloading its body becomes saved once the body
     // is, without a new query or selection.
     await search('studio');
@@ -1871,7 +1975,7 @@ describe('product registration', () => {
     await settings('Email Accounts');
     await press('Remove other@example.invalid');
     await press('Remove other@example.invalid');
-    await press('Open Inbox');
+    await closeSettings();
     await search('maya');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
@@ -1945,11 +2049,13 @@ describe('product registration', () => {
       );
     }
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <Searching />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <Searching />
+        </RegistrationGate>
+      </MacWindows>,
     );
     const press = async (name: string) => {
       await act(async () => {
@@ -1981,7 +2087,7 @@ describe('product registration', () => {
     await openAccount();
     await settings('Email Accounts');
     await press('Add another Gmail mailbox');
-    await press('Open Inbox');
+    await closeSettings();
 
     // Saved results come first; Gmail is searched only when asked, across both mailboxes.
     await search('studio');
@@ -2231,11 +2337,13 @@ describe('product registration', () => {
         Promise.reject(new Error('Gmail consent must not restart')),
     });
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     await act(async () => {
       await fireEvent.press(
@@ -2259,12 +2367,15 @@ describe('product registration', () => {
   it('presents the Recovery Key until its final group is confirmed, then shows the encrypted mailbox list', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await render(
-      <RegistrationGate
-        store={started(createRegistration(synthetic.vault))}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     await continueToSignIn();
     await act(async () => {
@@ -2305,7 +2416,7 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Confirm Recovery Key' }),
       );
     });
-    // Confirmed setup opens the synchronized Gmail Inbox; the account page stays reachable.
+    // Confirmed setup opens the synchronized Gmail Inbox; Settings stays reachable.
     await expect(
       screen.findByRole('button', {
         name: 'Unread. Maya Chen. Synthetic message 0',
@@ -2318,9 +2429,7 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText(recoveryKeyOf(synthetic))).toBeNull();
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
-    });
+    await closeSettings();
     await expect(
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
@@ -2531,49 +2640,56 @@ describe('product registration', () => {
     };
     await store.restoreOnce();
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     await openAccount();
     const press = async (name: string) => {
       await act(async () => {
-        await fireEvent.press(await screen.findByRole('button', { name }));
+        await fireEvent.press(
+          await settingsWindow().findByRole('button', { name }),
+        );
       });
     };
     const requesting = await requestFrom();
     await press('Check for a new device');
     await act(async () => {
       await fireEvent.changeText(
-        screen.getByLabelText('Code from the new device'),
+        settingsWindow().getByLabelText('Code from the new device'),
         enrollmentCodeOf(requesting),
       );
     });
     // Meanwhile that device was unlocked with the Recovery Key, which handled its request.
     await requesting.recoverWithRecoveryKey(recoveryKeyOf(synthetic));
     await press('Approve device');
-    expect(screen.getByRole('alert')).toHaveTextContent(/no longer available/u);
+    expect(settingsWindow().getByRole('alert')).toHaveTextContent(
+      /no longer available/u,
+    );
     await requestFrom();
     await press('Check for a new device');
-    expect(screen.getByLabelText('Code from the new device')).toHaveProp(
-      'value',
-      '',
-    );
+    expect(
+      settingsWindow().getByLabelText('Code from the new device'),
+    ).toHaveProp('value', '');
   });
 
-  it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
+  it("starts the open Settings window afresh on the replacement Product Account's pending setup", async () => {
     expect.hasAssertions();
     const { synthetic, setup } = await signedIn();
     await setup.addMailbox();
     const store = createRegistration(synthetic.vault);
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     await openAccount();
     await settings('Email Accounts');
@@ -2588,10 +2704,19 @@ describe('product registration', () => {
     await act(async () => {
       await store.resume();
     });
-    expect(
-      screen.getByRole('header', { name: 'Account & Devices' }),
-    ).toBeVisible();
-    expect(screen.getByTestId('recovery-key')).toHaveTextContent(
+    // The Inbox window opens the pending setup too.
+    expect({
+      settings: settingsWindow().getByRole('header', {
+        name: 'Account & Devices',
+      }),
+      keys: screen
+        .getAllByTestId('recovery-key')
+        .map((key) => key.props.children),
+    }).toStrictEqual({
+      settings: expect.anything(),
+      keys: [expect.anything(), expect.anything()],
+    });
+    expect(settingsWindow().getByTestId('recovery-key')).toHaveTextContent(
       recoveryKeyOf(synthetic),
     );
     expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
@@ -3165,12 +3290,15 @@ describe('product registration', () => {
   it('signs this device out only after confirmation and keeps nothing of the account', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await render(
-      <RegistrationGate
-        store={started(createRegistration(synthetic.vault))}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
     );
     await continueToSignIn();
     await act(async () => {
@@ -3225,9 +3353,11 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', signOut));
     });
+    // Settings closes with the account it showed.
     await expect(
       screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
+    expect(screen.queryByTestId('settings-window')).toBeNull();
     expect(screen.queryByText('Signed in with Google.')).toBeNull();
     expect(screen.queryByText(recoveryKey)).toBeNull();
   });

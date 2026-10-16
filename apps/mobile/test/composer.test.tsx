@@ -320,6 +320,17 @@ const deletionKey = async (
   }
 };
 
+// Choosing a message leaves the open composer for the reader.
+const chooseMessage = async () => {
+  const [row] = await screen.findAllByRole('button', {
+    name: /Synthetic message 0/u,
+  });
+  ok(row !== undefined);
+  await act(async () => {
+    await fireEvent.press(row);
+  });
+};
+
 describe('composing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one composer path end to end. */
   it('does not substitute a sender for the selected receive-only mailbox', async () => {
@@ -821,9 +832,9 @@ describe('composing Drafts', () => {
     storage.failNextCommit('locked');
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
-    storage.failNextCommit('locked');
+    // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
-    expect(openAccount).not.toHaveBeenCalled();
+    expect(openAccount).toHaveBeenCalledWith();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
@@ -848,7 +859,7 @@ describe('composing Drafts', () => {
     ['Account', []],
     ['Enter the password for imap@example.invalid again', ['mailboxes']],
   ] as const)(
-    'opens %s only after leaving an open composer',
+    'opens %s in Settings over an open composer',
     async (destination, settings) => {
       expect.hasAssertions();
       const initial = connected(['alex@example.invalid']);
@@ -897,23 +908,17 @@ describe('composing Drafts', () => {
         await screen.findByLabelText('To'),
         'not valid',
       );
-      await press(destination);
-      expect(openAccount).not.toHaveBeenCalled();
-      expect(
-        screen.getByText(
-          'Correct or remove the invalid address to close this Draft.',
-        ),
-      ).toBeOnTheScreen();
-      await fireEvent.changeText(
-        screen.getByLabelText('To'),
-        'maya@example.com',
-      );
+      // Even a Draft that cannot close yet stays open and unchanged beneath Settings.
       await press(destination);
       expect(openAccount).toHaveBeenCalledWith(...settings);
       // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
       expect(openAccount).toHaveBeenCalledTimes(1);
-      expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
-      expect(storage.stored()?.document).toContain('maya@example.com');
+      expect(screen.getByLabelText('To')).toHaveProp('value', 'not valid');
+      expect(
+        screen.queryByText(
+          'Correct or remove the invalid address to close this Draft.',
+        ),
+      ).not.toBeOnTheScreen();
     },
   );
 
@@ -2185,8 +2190,8 @@ describe('composing Drafts', () => {
     });
     storage.hold();
     await fireEvent.press(newMessage);
-    // The Account page is chosen while the Draft is still being created.
-    await press('Account');
+    // A message is chosen while the Draft is still being created.
+    await chooseMessage();
     await act(async () => {
       storage.release();
       await drafts.save();
@@ -2218,7 +2223,7 @@ describe('composing Drafts', () => {
     });
     storage.hold();
     await fireEvent.press(newMessage);
-    await press('Account');
+    await chooseMessage();
     // Refuse both the held creation and every cleanup save until the person retries.
     storage.failNextCommit('locked');
     commit = async () => {

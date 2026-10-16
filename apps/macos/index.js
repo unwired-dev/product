@@ -4,9 +4,10 @@ import { AppRegistry } from 'react-native';
 
 import { keepGmailFresh } from './src/freshness.ts';
 import { start } from './src/registration.ts';
-import { InboxWindow } from './src/window.tsx';
+import { InboxWindow, SettingsWindowRoot } from './src/window.tsx';
 
 AppRegistry.registerComponent('UnwiredMail', () => InboxWindow);
+AppRegistry.registerComponent('UnwiredSettings', () => SettingsWindowRoot);
 // Every window's gate shows the Registration and remote content settings the host restores once
 // here.
 if (!previewInbox) {

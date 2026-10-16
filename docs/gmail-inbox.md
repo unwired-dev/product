@@ -8,25 +8,34 @@ Gmail mailbox's Inbox on iPhone, iPad and Mac, and
 [#606](https://github.com/unwired-dev/product/issues/606) adds more
 [Gmail mailboxes](#gmail-mailboxes) with a unified Inbox. After
 [registration](google-registration.md) connects a mailbox and account setup needs
-nothing more from the person, launch opens the Inbox. The **Account** button opens the account page, and **Open Inbox**
-returns. The account page opens instead while a Recovery Key needs confirming or
-entering, a device approval is waiting on either side, the mailbox is not yet
-saved to private sync, or a sign-out or deletion is unfinished.
+nothing more from the person, launch opens the Inbox. The **Account** button opens Settings
+beside the Inbox, which keeps its Draft, mailbox and selected message. The account page
+opens instead while a Recovery Key needs confirming or entering, a device approval is
+waiting on either side, the mailbox is not yet saved to private sync, or a sign-out or
+deletion is unfinished; there **Open Inbox** can leave that setup for later.
 
-With a connected Inbox the account page is Settings, grouped as in the design:
+Settings, and a connected Inbox's account page, are grouped as in the design:
 **Account & Devices** (the account, Private Sync, the Recovery Key, device approval,
 Trusted Devices, sign-in methods, sign-out and deletion), **Email Accounts**
 (Mailbox Connections), **Language** and **Privacy & Data** (Remote Content and Mail
 Assistance). The Mac and iPad show a sidebar of these destinations beside the
 selected one, opening on Account & Devices; iPhone lists them and pushes one at a
 time, opening directly on Account & Devices while setup waits there. Destinations the design shows for features these clients do not implement
-yet, such as Inbox, Rules or Appearance, follow their owning issues. Until [#911](https://github.com/unwired-dev/product/issues/911)
-adds independent presentation, Settings replaces the Inbox in its window.
+yet, such as Inbox, Rules or Appearance, follow their owning issues.
 
-An explicit choice of **Account** stays through status updates. Choosing **Open
-Inbox** can leave already-pending setup for later, but different pending setup
-that appears afterward, including a renewed device approval code, opens the
-account page again. Sign-out, pending removal,
+The Inbox's **Account** button, the Command Palette's Account command and an IMAP
+password repair, which opens Email Accounts, all open the same Settings without
+leaving an open composer. On the Mac, Settings is one independent window, which
+the app menu's **Settings…** (Command-,) also opens; opening it again brings that
+window forward on the destination asked for, or where the person left it. Closing
+it leaves every Inbox window as it was, and its Command Palette's Inbox brings an
+Inbox window forward. On iPhone and iPad, Settings covers the Inbox, which stays
+mounted beneath it, and **Open Inbox** returns to it. Sign-out, locked storage,
+pending setup or a different Product Account closes Settings.
+
+Choosing **Open Inbox** on the account page can leave already-pending setup for
+later, but different pending setup that appears afterward, including a renewed
+device approval code, opens the account page again. Sign-out, pending removal,
 loss of mailbox access or a different Product Account forgets the earlier choice.
 
 ## Gmail mailboxes

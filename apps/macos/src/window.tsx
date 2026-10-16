@@ -15,7 +15,8 @@ import { useLocalization } from './localization.ts';
 import { InboxProvider, ProfileScope, useMailboxes } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
-import { RegistrationGate } from './registration-gate.tsx';
+import { RegistrationGate, SettingsGate } from './registration-gate.tsx';
+import { settingsHost, useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
 
@@ -318,6 +319,36 @@ export function InboxWindow({
           profile={profile}
         />
       </RegistrationGate>
+    </CommandPaletteProvider>
+  );
+}
+
+const focusInbox = () => {
+  settingsHost()?.focusInbox();
+};
+const closeSettings = () => {
+  settingsHost()?.closeSettings();
+};
+
+// The Settings window, which AppKit opens with Command-, and every Inbox window's Settings entry
+// points open; its Command Palette offers the way back to an Inbox window.
+export function SettingsWindowRoot(
+  props: Omit<
+    Parameters<typeof SettingsGate>[0],
+    'request' | 'onInbox' | 'onClose'
+  >,
+) {
+  const request = useSettingsRequest();
+  return (
+    <CommandPaletteProvider
+      windowId="settings"
+      identifier="settings-window">
+      <SettingsGate
+        {...props}
+        request={request}
+        onInbox={focusInbox}
+        onClose={closeSettings}
+      />
     </CommandPaletteProvider>
   );
 }

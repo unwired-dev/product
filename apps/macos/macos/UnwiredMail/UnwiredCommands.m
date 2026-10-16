@@ -119,6 +119,24 @@ RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
   [windowNamed(identifier) performClose:nil];
 }
 
+// Every Inbox window's Settings entry points open the one Settings window, as Command-, does.
+RCT_EXPORT_METHOD(openSettings)
+{
+  [NSApp sendAction:NSSelectorFromString(@"showSettings:") to:NSApp.delegate from:nil];
+}
+
+// The Settings window closes itself once no Inbox can open, as after signing out.
+RCT_EXPORT_METHOD(closeSettings)
+{
+  [NSApp sendAction:NSSelectorFromString(@"closeSettings:") to:NSApp.delegate from:nil];
+}
+
+// The Settings window's palette returns to an Inbox window, as Window > Show Inbox does.
+RCT_EXPORT_METHOD(focusInbox)
+{
+  [NSApp sendAction:NSSelectorFromString(@"focusInbox:") to:NSApp.delegate from:nil];
+}
+
 RCT_EXPORT_METHOD(restoreFocus:(NSString *)identifier)
 {
   NSWindow *window = windowNamed(identifier);

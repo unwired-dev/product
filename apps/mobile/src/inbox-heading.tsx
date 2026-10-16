@@ -98,7 +98,6 @@ export function InboxHeading({
   children,
   detail,
   account,
-  onAccount,
   onClose,
   onLeave,
   onSearch,
@@ -109,7 +108,6 @@ export function InboxHeading({
   // compact iPad layouts it covers the Inbox.
   readonly detail: boolean;
   readonly account: Readonly<{ openAccount: () => void }> | undefined;
-  readonly onAccount: (open: () => void) => Promise<void>;
   readonly onClose: (() => void) | undefined;
   readonly onLeave: () => Promise<boolean>;
   // Opens search; absent until the Inbox can search.
@@ -147,7 +145,7 @@ export function InboxHeading({
               account === undefined
                 ? undefined
                 : () => {
-                    void onAccount(account.openAccount);
+                    account.openAccount();
                   },
           })
         }

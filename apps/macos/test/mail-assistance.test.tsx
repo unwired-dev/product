@@ -25,6 +25,7 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageSummary } from '../src/message-summary.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { DraftTranslation, MessageTranslation } from '../src/translation.tsx';
+import { MacWindows, closeSettings } from './settings-window.tsx';
 import { started } from './started.ts';
 
 // A native model whose summaries the test releases, recording every call that reached it.
@@ -503,14 +504,19 @@ describe('mail Assistance Enablement on Mac', () => {
       },
     };
     await render(
-      <RegistrationGate
-        store={started(store)}
-        preview={false}
+      <MacWindows
+        store={store}
         mailAssistance={enablement}
-        assistance={assistance.native}
-        translation={translation}>
-        <Reader />
-      </RegistrationGate>,
+        assistance={assistance.native}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}
+          mailAssistance={enablement}
+          assistance={assistance.native}
+          translation={translation}>
+          <Reader />
+        </RegistrationGate>
+      </MacWindows>,
     );
     let recoveryKey = '';
     await act(async () => {
@@ -529,7 +535,7 @@ describe('mail Assistance Enablement on Mac', () => {
       screen.queryByRole('button', { name: 'Translate this message' }),
     ).not.toBeOnTheScreen();
 
-    // Turning it on from the account page's Privacy & Data starts nothing.
+    // Turning it on from Settings' Privacy & Data starts nothing.
     await press('Account');
     await press('Privacy & Data');
     expect(screen.getByText('On-device assistance is off.')).toBeVisible();
@@ -549,7 +555,7 @@ describe('mail Assistance Enablement on Mac', () => {
     ).toBeVisible();
     expect(assistance.calls).toStrictEqual(['availability']);
     assistance.calls.length = 0;
-    await press('Open Inbox');
+    await closeSettings();
     expect(
       screen.getByRole('button', { name: 'Translate this message' }),
     ).toBeVisible();
@@ -610,11 +616,13 @@ describe('mail Assistance Enablement on Mac', () => {
     ).toBeVisible();
     expect(assistance.calls).toStrictEqual(['availability', 'summarize']);
 
-    // Signing out removes it; the same account signing in again starts with assistance off.
+    // Signing out removes it and closes Settings; the same account signing in again starts with
+    // assistance off.
     await press('Account');
     await act(async () => {
       await store.signOut();
     });
+    expect(screen.queryByTestId('settings-window')).toBeNull();
     // This installation signs in again as a new device, which the Recovery Key admits.
     await act(async () => {
       await store.register('google');
