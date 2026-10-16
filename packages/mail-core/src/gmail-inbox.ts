@@ -654,20 +654,26 @@ const cachedMessages = (document: MailboxDocument) => [
   ).values(),
 ];
 
-// History cannot name the older message that now fits after a settlement removes one, so a
+// History and delta cannot name the older message that now fits after a settlement removes one, so a
 // full Inbox or view it shortened is listed again from the history already applied.
 const withRefills = (
   before: MailboxDocument,
   after: MailboxDocument,
 ): MailboxDocument => {
   const { checkpoint } = before;
+  const shortened =
+    before.messages.length === cacheLimit && after.messages.length < cacheLimit;
+  if (checkpoint.kind === 'graph-current' && shortened) {
+    return {
+      ...after,
+      checkpoint: { kind: 'graph-listing', link: checkpoint.link },
+    };
+  }
   if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
     return after;
   }
   const inbox =
-    checkpoint.kind === 'current' &&
-    before.messages.length === cacheLimit &&
-    after.messages.length < cacheLimit
+    checkpoint.kind === 'current' && shortened
       ? {
           checkpoint: {
             kind: 'backfill' as const,

@@ -58,6 +58,27 @@ const opened = async (graph: Graph) => {
 };
 
 describe('organizing Microsoft mail through Graph', () => {
+  it('refills a full Inbox after a confirmed archive and still allows Undo', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 201, pageSize: 50 });
+    const inbox = await opened(graph);
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'a message',
+    );
+    await inbox.organize(target, gmailAction.archive);
+    expect(ids(inbox)).toHaveLength(200);
+    expect(ids(inbox)).not.toContain(target.id);
+    const relaunched = await opened(graph);
+    expect(ids(relaunched)).toHaveLength(200);
+    await inbox.organize(
+      target,
+      required(restoreAfter(gmailAction.archive, target.labels), 'Undo'),
+    );
+    expect(ids(inbox)).toHaveLength(200);
+    expect(ids(inbox)).toContain(target.id);
+  });
+
   it('moves mail between Graph folders and changes read state, through an outage and relaunch', async () => {
     /* oxlint-disable vitest/max-expects -- One journey follows each change through an outage, relaunch and Undo. */
     expect.hasAssertions();
