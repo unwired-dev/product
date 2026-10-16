@@ -10,7 +10,6 @@ import type {
 
 import { applyFolderRead, createImapInbox } from '../src/imap-inbox.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
-import { createRegistrationFlow } from '../src/registration-flow.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
@@ -72,10 +71,7 @@ describe('connecting IMAP mailboxes', () => {
   it('offers IMAP as the first mailbox without Gmail, keeps the account on failure and resumes after relaunch', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const launch = () =>
-      createRegistration(
-        createRegistrationFlow(createSyntheticVault(device).vault),
-      );
+    const launch = () => createRegistration(createSyntheticVault(device).vault);
     const store = launch();
     await store.register('apple');
     // Signing in asks for no Gmail consent; the person chooses the first mailbox's provider.
@@ -141,9 +137,7 @@ describe('connecting IMAP mailboxes', () => {
   it('reopens a current IMAP Inbox at the generation a proactive password repair renews', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     await store.connectImap(setup(device.imap.password));
     const [connection] = mailboxesOf(store.getSnapshot().snapshot);
@@ -176,9 +170,7 @@ describe('connecting IMAP mailboxes', () => {
   it('reads a refused IMAP Inbox again once its password is repaired, without a relaunch', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     await store.connectImap(setup(device.imap.password));
     const [connection] = mailboxesOf(store.getSnapshot().snapshot);
@@ -269,9 +261,7 @@ describe('connecting IMAP mailboxes', () => {
   it('keeps connected mailboxes open when adding an IMAP mailbox cannot confirm sign-in offline', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     await store.addMailbox();
     const connected = store.getSnapshot().snapshot;
@@ -290,9 +280,7 @@ describe('connecting IMAP mailboxes', () => {
   it('keeps Microsoft and IMAP connections for the same address independently removable', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('apple');
     await store.addMailbox('microsoft-graph');
     await store.connectImap({

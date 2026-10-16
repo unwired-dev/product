@@ -15,7 +15,7 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
   fireEvent,

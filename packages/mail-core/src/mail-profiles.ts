@@ -12,11 +12,11 @@ import type {
 
 import { failWith, nativeSteps } from './registration-native.ts';
 import { EncryptedPayload } from './registration-replies.ts';
+import { defaultProfile, unavailableProfile } from './registration-snapshot.ts';
 import {
   ProfileRecordSchema,
   ProfileStateSchema,
 } from './registration-vault.ts';
-import { defaultProfile, unavailableProfile } from './registration.ts';
 
 type Profile = ProfileState['profiles'][number];
 type Owner = ProfileState['owners'][number];

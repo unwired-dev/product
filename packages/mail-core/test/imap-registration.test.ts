@@ -5,7 +5,6 @@ import * as Predicate from 'effect/Predicate';
 
 import { imapFields, imapSetup } from '../src/imap-setup.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
-import { createRegistrationFlow } from '../src/registration-flow.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
@@ -44,17 +43,15 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     async ({ mailbox }) => {
       expect.hasAssertions();
       const { vault } = createSyntheticVault();
-      const store = createRegistration(createRegistrationFlow(vault));
+      const store = createRegistration(vault);
       await store.register('google');
       const projected = await vault.registration();
       assert.ok(Predicate.isObject(projected));
       const malformed = { ...projected, mailboxes: [mailbox] };
-      const refused = createRegistration(
-        createRegistrationFlow({
-          ...vault,
-          registration: () => Promise.resolve(malformed),
-        }),
-      );
+      const refused = createRegistration({
+        ...vault,
+        registration: () => Promise.resolve(malformed),
+      });
       await refused.restore();
       expect(refused.getSnapshot()).toMatchObject({ failed: true });
       expect(mailboxesOf(refused.getSnapshot().snapshot)).toStrictEqual([]);
@@ -64,9 +61,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
   it('retries iCloud Mail once with the full address when it refuses the name part', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     device.imap.refusedUsernames = ['alex'];
     await store.connectImap({
@@ -116,9 +111,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     async ({ username, code, logins }) => {
       expect.hasAssertions();
       const device = createSyntheticDevice();
-      const store = createRegistration(
-        createRegistrationFlow(createSyntheticVault(device).vault),
-      );
+      const store = createRegistration(createSyntheticVault(device).vault);
       await store.register('google');
       device.imap.outcome = code;
       await store.connectImap({
@@ -142,9 +135,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
   it('reloads the existing full-address iCloud Inbox after a successful fallback repair', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     const icloud = {
       address: 'alex@icloud.example.invalid',
@@ -211,9 +202,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
   it('verifies SMTP on its own and adds nothing until it accepts', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();
-    const store = createRegistration(
-      createRegistrationFlow(createSyntheticVault(device).vault),
-    );
+    const store = createRegistration(createSyntheticVault(device).vault);
     await store.register('google');
     const setup = {
       address: 'alex@example.invalid',

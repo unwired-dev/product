@@ -4,23 +4,26 @@ import {
   createMailAssistanceEnablement,
   mailAssistanceEnabled,
 } from '../src/assistance-enablement.ts';
-import { defaultProfile } from '../src/registration.ts';
+import { createRegistration, defaultProfile } from '../src/registration.ts';
 import { createMockMailSession } from '../src/testing/mock-session.ts';
-import {
-  createMockRegistrationSession,
-  syntheticRecoveryKey,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
 
-const account = 'synthetic-product-account';
+const account = 'account-synthetic-product-subject';
 
 // A connected synthetic Product Account whose Recovery Key is confirmed, so it can sign out.
 async function signedIn(
-  session = createMockRegistrationSession('registration-success'),
+  scenario?: Awaited<ReturnType<typeof createRegistrationScenario>>,
 ) {
-  await session.native.signIn('google');
-  await session.native.addMailbox('gmail', false);
-  await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-  return session;
+  const synthetic =
+    scenario ?? (await createRegistrationScenario('registration-success'));
+  const registration = createRegistration(synthetic.vault);
+  await registration.register('google');
+  await registration.addMailbox();
+  const { snapshot } = registration.getSnapshot();
+  const recoveryKey =
+    'recoveryKey' in snapshot ? (snapshot.recoveryKey ?? '') : '';
+  await registration.confirmRecoveryKey(recoveryKey.slice(-4));
+  return { ...synthetic, registration, recoveryKey };
 }
 
 describe('mail Assistance Enablement', () => {
@@ -55,23 +58,24 @@ describe('mail Assistance Enablement', () => {
     await relaunched.setEnabled(account, defaultProfile, true);
 
     // Sign-out purges it; the same account signing in again starts with assistance off.
-    await session.native.signOut();
+    await session.registration.signOut();
     await store.load('signed-out');
     expect(store.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
     await store.setEnabled(account, defaultProfile, true);
     expect(store.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
-    await signedIn(session);
+    // This installation signs in again as a new device, which the Recovery Key admits.
+    await session.registration.register('google');
+    await session.registration.recoverWithRecoveryKey(session.recoveryKey);
     const loading = store.load('again');
     expect(store.getSnapshot()).toBeUndefined();
     await loading;
+    expect(store.getSnapshot()).toStrictEqual({ owner: account, profiles: [] });
     expect(enabled()).toBe(false);
   });
 
   it('keeps assistance off for a stale or unreadable read and a removed account', async () => {
     expect.hasAssertions();
-    const session = await signedIn(
-      createMockRegistrationSession('registration-success'),
-    );
+    const session = await signedIn();
     const enable = createMailAssistanceEnablement(session.mailAssistance);
     await enable.load('first');
     await enable.setEnabled(account, defaultProfile, true);
@@ -115,7 +119,7 @@ describe('mail Assistance Enablement', () => {
     }
 
     // Deleting the account removes its enablement from this device too.
-    await session.native.deleteProductAccount();
+    await session.registration.deleteProductAccount();
     await enable.load('deleted');
     expect(enable.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
   });

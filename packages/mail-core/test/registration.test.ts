@@ -1,10 +1,12 @@
 import { english } from '@private-email/localization';
 
+import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 import type {
-  NativeRegistration,
+  Registration,
   RegistrationSnapshot,
   SignInOffer,
 } from '../src/registration.ts';
+import type { SyntheticRegistrationScenario } from '../src/testing/registration-scenarios.ts';
 
 import scenarios from '../../../scripts/mock-mail-scenarios.json' with { type: 'json' };
 import {
@@ -18,35 +20,83 @@ import {
   trustedDevicesOf,
 } from '../src/registration.ts';
 import {
-  createMockRegistrationSession,
-  createSyntheticAccount,
+  createRegistrationScenario,
   registrationScenarios,
-  syntheticEnrollmentCode,
-  syntheticEnrollmentRequest,
-  syntheticMailboxes,
-  syntheticRecoveryKey,
-  syntheticRenewedRecoveryKey,
-  syntheticReplacementRecoveryKey,
   syntheticTrustedDevice,
-} from '../src/testing/registration-session.ts';
+} from '../src/testing/registration-scenarios.ts';
+import {
+  removeTrustedDevice,
+  syntheticMailboxes,
+} from '../src/testing/registration-vault.ts';
 
 // The connection list native code reports for one connected synthetic mailbox.
-const connectedTo = (address: keyof typeof syntheticMailboxes) =>
+const connectedTo = (
+  address: keyof typeof syntheticMailboxes,
+  epoch = 'synthetic-epoch-1',
+) =>
   JSON.stringify([
     {
-      id: syntheticMailboxes[address],
       provider: 'gmail',
       address,
+      epoch,
+      id: syntheticMailboxes[address],
       state: 'connected',
     },
   ]);
 
 // A Product Account signed in with Google whose suggested Gmail mailbox was then connected.
-const connectedAccount = async (native: NativeRegistration) => {
-  const store = createRegistration(native);
+const connectedAccount = async (vault: NativeRegistrationVault) => {
+  const store = createRegistration(vault);
   await store.register('google');
   await store.addMailbox();
 };
+
+// The scenario's vault, whose next registration read first runs a one-shot hook.
+const holdingReads = (synthetic: SyntheticRegistrationScenario) => {
+  let beforeRead: (() => Promise<void>) | undefined = undefined;
+  const vault: NativeRegistrationVault = {
+    ...synthetic.vault,
+    registration: async () => {
+      const hook = beforeRead;
+      beforeRead = undefined;
+      await hook?.();
+      return synthetic.vault.registration();
+    },
+  };
+  return {
+    vault,
+    beforeRead: (hook: () => Promise<void>) => {
+      beforeRead = hook;
+    },
+  };
+};
+
+// The value of a snapshot field the scenario generated, such as a Recovery Key or Enrollment Code.
+const shown = (
+  store: Registration,
+  field:
+    | 'recoveryKey'
+    | 'enrollmentCode'
+    | 'enrollmentRequest'
+    | 'revocationRecoveryKey',
+) => {
+  const value: unknown = Object.entries(store.getSnapshot().snapshot).find(
+    ([key]) => key === field,
+  )?.[1];
+  if (typeof value !== 'string') {
+    throw new TypeError(`No ${field} shown`);
+  }
+  return value;
+};
+
+// The scenario's vault, whose backend calls to a path in `answers` get its answer instead.
+const answering = (
+  synthetic: SyntheticRegistrationScenario,
+  answers: ReadonlyMap<string, () => Promise<unknown>>,
+): NativeRegistrationVault => ({
+  ...synthetic.vault,
+  call: (call) => answers.get(call.path)?.() ?? synthetic.vault.call(call),
+});
 
 // The store state after an operation that finished without a failure.
 const settled = (snapshot: RegistrationSnapshot) => ({
@@ -55,15 +105,19 @@ const settled = (snapshot: RegistrationSnapshot) => ({
   failed: false,
 });
 
+const locked = () =>
+  Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
+
 // A new Product Account presents its Recovery Key until setup is confirmed.
-const unconfirmed = {
-  privateSync: 'recovery-key',
-  recoveryKey: syntheticRecoveryKey,
-} as const;
+const recoveryKey = 'SYNTHETIC-RECOVERY-ring-1';
+const unconfirmed = { privateSync: 'recovery-key', recoveryKey } as const;
 const accounts = {
-  google: { productAccountId: 'synthetic-product-account', ...unconfirmed },
+  google: {
+    productAccountId: 'account-synthetic-product-subject',
+    ...unconfirmed,
+  },
   apple: {
-    productAccountId: 'synthetic-apple-product-account',
+    productAccountId: 'account-synthetic-apple-subject',
     contactEmail: 'relay@privaterelay.example.invalid',
     ...unconfirmed,
   },
@@ -72,33 +126,27 @@ const accounts = {
 describe('product registration', () => {
   it('automatically reauthorizes a saved Gmail connection after an IMAP connection', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    await session.native.signIn('google');
-    await session.native.addMailbox('gmail', false);
-    const mailboxNeeded = {
-      kind: 'mailbox-needed',
-      signInProvider: 'google',
-      reason: 'declined',
-      productAccountId: 'synthetic-product-account',
-      mailboxes: JSON.stringify([
-        {
-          id: 'imap',
-          address: 'imap@example.invalid',
-          provider: 'imap',
-          state: 'authorization',
-          imap: { host: 'imap.example.invalid', port: 993, username: 'imap' },
-        },
-        {
-          id: syntheticMailboxes['alex@example.invalid'],
-          address: 'alex@example.invalid',
-          state: 'authorization',
-        },
-      ]),
-    };
-    const store = createRegistration({
-      ...session.native,
-      signIn: async () => mailboxNeeded,
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    await store.register('google');
+    await store.connectImap({
+      address: 'imap@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'imap',
+      password: synthetic.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 587,
+        security: 'starttls',
+        username: 'imap',
+      },
     });
+    // A Gmail mailbox after the IMAP one comes from the account chooser.
+    await store.addMailbox();
+    // Both saved mailboxes then need authorization again: the IMAP password and the Gmail grant.
+    synthetic.imap.password = 'changed-app-password';
+    synthetic.expire('other@example.invalid');
     await store.register('google');
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
     expect(store.getSnapshot().failed).toBe(false);
@@ -115,48 +163,47 @@ describe('product registration', () => {
     );
   });
 
-  it('keeps a mailbox removal explanation after refused sign-out and across foreground restore until explicit sign-out', async () => {
+  it('keeps a mailbox removal explanation after refused sign-out and across foreground restore until the next sign-in', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const held = Promise.withResolvers<unknown>();
-    const entered = Promise.withResolvers<undefined>();
-    const restore = vi
-      .fn<() => Promise<unknown>>()
-      .mockImplementationOnce(() => {
-        entered.resolve(undefined);
-        return held.promise;
-      })
-      .mockResolvedValue({ kind: 'signed-out' });
     vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const signOut = vi
-      .fn<() => Promise<unknown>>()
-      .mockRejectedValueOnce(
-        Object.assign(new Error('Synthetic refusal'), {
-          code: 'removal-refused',
-        }),
-      )
-      .mockImplementation(session.native.signOut);
-    const store = createRegistration({ ...session.native, restore, signOut });
+    const synthetic = await createRegistrationScenario('registration-success');
+    const { vault, beforeRead } = holdingReads(synthetic);
+    const store = createRegistration(vault);
     await store.register('google');
     await store.addMailbox();
+    // Convex cannot be reached to unregister this device.
+    synthetic.backend.unregisterFailure = 'offline';
     await store.signOut();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'connected' },
       removalFailure: 'sign-out',
     });
+    synthetic.backend.unregisterFailure = undefined;
+    const held = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<undefined>();
+    beforeRead(async () => {
+      entered.resolve(undefined);
+      await held.promise;
+    });
     const removed = store.deviceRemoved();
     await entered.promise;
     const resumed = store.resume();
-    held.resolve({ kind: 'signed-out' });
+    // Mailbox work found this device removed, and native code purged it.
+    await synthetic.vault.purge('revoked');
+    held.resolve(undefined);
     await Promise.all([removed, resumed]);
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out', notice: 'revoked' },
       busy: false,
       failed: false,
     });
-    await store.signOut();
+    // Signing in again replaces it; this new installation waits for approval.
+    await store.register('google');
     await store.resume();
-    expect(store.getSnapshot().snapshot).toStrictEqual({ kind: 'signed-out' });
+    expect(store.getSnapshot().snapshot).toMatchObject({
+      kind: 'device-pending',
+    });
+    expect(store.getSnapshot().snapshot).not.toHaveProperty('notice');
   });
 
   it.each([
@@ -166,22 +213,22 @@ describe('product registration', () => {
     'does not relabel %s when a mailbox removal restore queues behind it',
     async (operation, snapshot) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-success');
-      const held = Promise.withResolvers<unknown>();
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const { vault, beforeRead } = holdingReads(synthetic);
+      const held = Promise.withResolvers<undefined>();
       const entered = Promise.withResolvers<undefined>();
-      const store = createRegistration({
-        ...session.native,
-        restore: () => Promise.resolve(snapshot),
-        [operation]: () => {
-          entered.resolve(undefined);
-          return held.promise;
-        },
-      });
+      const store = createRegistration(vault);
       await store.register('google');
+      beforeRead(async () => {
+        entered.resolve(undefined);
+        await held.promise;
+      });
       const changing = store[operation]();
       await entered.promise;
       const removed = store.deviceRemoved();
-      held.resolve(snapshot);
+      held.resolve(undefined);
       await Promise.all([changing, removed]);
       expect(store.getSnapshot()).toStrictEqual({
         snapshot,
@@ -193,9 +240,14 @@ describe('product registration', () => {
 
   it('keeps the mailbox connected when native Product Sync state is unavailable', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
+    // The Keychain's Product Sync items cannot be read.
+    synthetic.device.productSync.unreadable = true;
+    // Adding a mailbox again picks the same Gmail account, which repairs its connection.
+    synthetic.choose('alex@example.invalid');
     const account = {
-      productAccountId: 'synthetic-product-account',
+      productAccountId: 'account-synthetic-product-subject',
       signInProvider: 'google',
       privateSync: 'unavailable',
     } as const;
@@ -204,12 +256,7 @@ describe('product registration', () => {
       kind: 'connected',
       mailboxes: connectedTo('alex@example.invalid'),
     } as const;
-    const store = createRegistration({
-      ...session.native,
-      signIn: () => Promise.resolve({ ...account, kind: 'mailbox-needed' }),
-      addMailbox: () => Promise.resolve(connected),
-      restore: () => Promise.resolve(connected),
-    });
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
     expect(store.getSnapshot().snapshot.kind).toBe('mailbox-needed');
     for (const operation of [
@@ -236,14 +283,15 @@ describe('product registration', () => {
   it('keeps enrollment and mailbox descriptors isolated between synthetic Product Accounts', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const accounts = createSyntheticAccount();
-    const trusted = createRegistration(
-      createMockRegistrationSession('registration-success', accounts).native,
-    );
-    const outsider = createRegistration(
-      createMockRegistrationSession('registration-enrollment', accounts).native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const trusted = createRegistration(synthetic.vault);
     await trusted.register('google');
+    await trusted.addMailbox();
+    // Another installation already holds the Apple Product Account's keys.
+    const keyholder = synthetic.otherDevice();
+    await createRegistration(keyholder.vault).register('apple');
+    const pending = synthetic.otherDevice();
+    const outsider = createRegistration(pending.vault);
     await outsider.register('apple');
     // A Pending Device never starts Gmail authorization, by sign-in or on its own.
     expect(outsider.getSnapshot()).toMatchObject({
@@ -268,20 +316,29 @@ describe('product registration', () => {
     });
   });
 
+  // Apple cannot renew its sign-in silently, so after a relaunch the mailbox waits for one to
+  // reach Product Sync.
+  const savedAfterRelaunch = {
+    google: { privateSyncMailboxes: 'other@example.invalid' },
+    apple: { privateSyncPending: 'mailbox' },
+  } as const;
+
   it.each(
     (['google', 'apple'] as const).flatMap((provider) =>
-      [
-        'registration-cancelled',
-        'registration-declined',
-        'registration-no-gmail',
-      ].map((scenario) => [provider, scenario] as const),
+      (
+        [
+          'registration-cancelled',
+          'registration-declined',
+          'registration-no-gmail',
+        ] as const
+      ).map((scenario) => [provider, scenario] as const),
     ),
   )(
     'retains %s Product Sign-In after %s and resumes with a different Gmail identity',
     async (provider, scenario) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession(scenario);
-      const first = createRegistration(session.native);
+      const synthetic = await createRegistrationScenario(scenario);
+      const first = createRegistration(synthetic.vault);
       await first.restore();
       await first.register(provider);
       expect(first.getSnapshot()).toMatchObject({
@@ -292,7 +349,7 @@ describe('product registration', () => {
         },
         busy: false,
       });
-      const relaunched = createRegistration(session.native);
+      const relaunched = createRegistration(synthetic.relaunch());
       await relaunched.restore();
       expect(relaunched.getSnapshot().snapshot).toStrictEqual(
         first.getSnapshot().snapshot,
@@ -303,15 +360,17 @@ describe('product registration', () => {
         signInProvider: provider,
         ...accounts[provider],
         mailboxes: connectedTo('other@example.invalid'),
-        privateSyncMailboxes: 'other@example.invalid',
+        ...savedAfterRelaunch[provider],
       });
     },
   );
 
   it('publishes the committed Product Account before an interrupted mailbox session and permits retry', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-interrupted');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario(
+      'registration-interrupted',
+    );
+    const store = createRegistration(synthetic.vault);
     await store.register('apple');
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'mailbox-needed', signInProvider: 'apple' },
@@ -319,8 +378,12 @@ describe('product registration', () => {
     });
     await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
-      snapshot: { kind: 'mailbox-needed', signInProvider: 'apple' },
-      failed: true,
+      snapshot: {
+        kind: 'mailbox-needed',
+        signInProvider: 'apple',
+        reason: 'interrupted',
+      },
+      failed: false,
     });
     await store.restore();
     await store.addMailbox();
@@ -334,14 +397,11 @@ describe('product registration', () => {
     'returns quietly to the previous status when %s Product Sign-In is cancelled',
     async (provider) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-success');
-      const store = createRegistration({
-        ...session.native,
-        signIn: () =>
-          Promise.reject(
-            Object.assign(new Error('Cancelled'), { code: 'cancelled' }),
-          ),
-      });
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      synthetic[provider].outcome = 'cancelled';
+      const store = createRegistration(synthetic.vault);
       await store.restore();
       await store.register(provider);
       expect(store.getSnapshot()).toStrictEqual({
@@ -354,11 +414,12 @@ describe('product registration', () => {
 
   it('verifies a connected account once per store and drops the connected status when verification fails', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    let nativeRestore = session.native.restore;
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
+    let read = synthetic.vault.registration;
     const store = createRegistration({
-      ...session.native,
-      restore: () => nativeRestore(),
+      ...synthetic.vault,
+      registration: () => read(),
     });
     await store.register('google');
     await store.addMailbox();
@@ -366,7 +427,7 @@ describe('product registration', () => {
     await store.restoreOnce();
     const verified = store.getSnapshot();
     // A later launch request in the same store does not verify again, so it cannot fail.
-    nativeRestore = () => Promise.reject(new Error('Synthetic host offline'));
+    read = () => Promise.reject(new Error('Synthetic host offline'));
     await store.restoreOnce();
     expect(store.getSnapshot()).toStrictEqual(verified);
     await store.restore();
@@ -385,30 +446,30 @@ describe('product registration', () => {
   it('keeps a locked state instead of onboarding when launched while locked, and restores the account after unlock', async () => {
     expect.hasAssertions();
     const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const session = createMockRegistrationSession('registration-success');
-    await connectedAccount(session.native);
-    let nativeRestore = (): Promise<unknown> =>
-      Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
+    const synthetic = await createRegistrationScenario('registration-success');
+    await connectedAccount(synthetic.vault);
+    let read: () => Promise<unknown> = locked;
     let restores = 0;
     const store = createRegistration({
-      ...session.native,
-      restore: () => {
+      ...synthetic.vault,
+      registration: () => read(),
+      forgetMailboxAccess: () => {
         restores += 1;
-        return nativeRestore();
+        return synthetic.vault.forgetMailboxAccess();
       },
     });
     await store.restoreOnce();
-    const locked = {
+    const lockedState = {
       snapshot: { kind: 'signed-out' },
       busy: false,
       failed: false,
       locked: true,
     };
-    expect(store.getSnapshot()).toStrictEqual(locked);
+    expect(store.getSnapshot()).toStrictEqual(lockedState);
     // Becoming active while still locked keeps the locked state.
     await store.resume();
-    expect(store.getSnapshot()).toStrictEqual(locked);
-    nativeRestore = session.native.restore;
+    expect(store.getSnapshot()).toStrictEqual(lockedState);
+    read = synthetic.vault.registration;
     await store.resume();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: {
@@ -429,13 +490,13 @@ describe('product registration', () => {
 
   it('verifies once per activation however many Mac windows report it', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
+    const synthetic = await createRegistrationScenario('registration-success');
     let restores = 0;
     const store = createRegistration({
-      ...session.native,
-      restore: () => {
+      ...synthetic.vault,
+      forgetMailboxAccess: () => {
         restores += 1;
-        return session.native.restore();
+        return synthetic.vault.forgetMailboxAccess();
       },
     });
     await store.register('google');
@@ -447,23 +508,14 @@ describe('product registration', () => {
 
   it('replaces a connected status when an unlocked foreground restore can no longer verify it', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    let { restore } = session.native;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => restore(),
-    });
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
     await store.addMailbox();
     await store.restoreOnce();
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
-    restore = () =>
-      Promise.resolve({
-        ...accounts.google,
-        signInProvider: 'google',
-        kind: 'mailbox-needed',
-        reason: 'unavailable',
-      });
+    // The backend no longer confirms the Product Sign-In.
+    synthetic.backend.connectFailure = 'unavailable';
     await store.resume();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'mailbox-needed', reason: 'unavailable' },
@@ -475,27 +527,31 @@ describe('product registration', () => {
   it('retains failed setup feedback when an activation queued during consent restores unchanged state', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const session = createMockRegistrationSession('registration-success');
-    const blocked = Promise.withResolvers<unknown>();
+    const synthetic = await createRegistrationScenario('registration-success');
+    const blocked = Promise.withResolvers<undefined>();
     const started = Promise.withResolvers<boolean>();
+    let { signInMailbox } = synthetic.vault;
     const store = createRegistration({
-      ...session.native,
-      addMailbox: () => {
-        started.resolve(true);
-        return blocked.promise;
-      },
+      ...synthetic.vault,
+      signInMailbox: (connection, suggest, provider) =>
+        signInMailbox(connection, suggest, provider),
     });
     await store.register('google');
-    const registering = store.addMailbox();
+    await store.addMailbox();
+    // Another Gmail mailbox's consent is interrupted.
+    signInMailbox = async () => {
+      started.resolve(true);
+      await blocked.promise;
+      throw Object.assign(new Error('Interrupted'), { code: 'unavailable' });
+    };
+    const registering = store.addMailbox('gmail', true);
     await started.promise;
     const activating = store.resume();
-    blocked.reject(
-      Object.assign(new Error('Interrupted'), { code: 'unavailable' }),
-    );
+    blocked.resolve(undefined);
     await registering;
     await activating;
     expect(store.getSnapshot()).toMatchObject({
-      snapshot: { kind: 'mailbox-needed', signInProvider: 'google' },
+      snapshot: { kind: 'connected', signInProvider: 'google' },
       busy: false,
       failed: true,
     });
@@ -508,29 +564,31 @@ describe('product registration', () => {
     'retains an unlock activation while the %s restore is still pending',
     async (_phase, action, previousAttempts) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-success');
-      await connectedAccount(session.native);
-      const blocked = Promise.withResolvers<unknown>();
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      await connectedAccount(synthetic.vault);
+      const blocked = Promise.withResolvers<undefined>();
       const started = Promise.withResolvers<boolean>();
-      const locked = Object.assign(new Error('locked'), { code: 'locked' });
-      let nativeRestore = (): Promise<unknown> => Promise.reject(locked);
+      let nativeRead: () => Promise<unknown> = locked;
       const store = createRegistration({
-        ...session.native,
-        restore: () => nativeRestore(),
+        ...synthetic.vault,
+        registration: () => nativeRead(),
       });
       for (let attempt = 0; attempt < previousAttempts; attempt += 1) {
         await store.restoreOnce();
       }
-      nativeRestore = () => {
+      nativeRead = async () => {
         started.resolve(true);
-        return blocked.promise;
+        await blocked.promise;
+        return locked();
       };
       const restoring = store[action]();
       await started.promise;
       // Unlock arrives before the pending native rejection crosses the bridge.
-      nativeRestore = session.native.restore;
+      nativeRead = synthetic.vault.registration;
       const activating = store.resume();
-      blocked.reject(locked);
+      blocked.resolve(undefined);
       await Promise.all([restoring, activating]);
       expect(store.getSnapshot()).toMatchObject({
         snapshot: { kind: 'connected', signInProvider: 'google' },
@@ -543,15 +601,17 @@ describe('product registration', () => {
 
   it('rejects malformed native connection data and prevents overlapping consent operations', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
     const gate = Promise.withResolvers<undefined>();
+    let read = synthetic.vault.registration;
     const store = createRegistration({
-      ...session.native,
-      signIn: async (provider) => {
+      ...synthetic.vault,
+      signInIdentity: async (provider, hint) => {
         await gate.promise;
-        return session.native.signIn(provider);
+        return synthetic.vault.signInIdentity(provider, hint);
       },
-      addMailbox: () => Promise.resolve({ kind: 'connected' }),
+      registration: () => read(),
     });
     const registration = store.register('google');
     await store.addMailbox('gmail', true);
@@ -567,6 +627,14 @@ describe('product registration', () => {
       busy: false,
       failed: false,
     });
+    // Native code reports a connection without its provider, address or state.
+    read = () =>
+      Promise.resolve({
+        signInProvider: 'google',
+        mailboxes: [{ kind: 'connected' }],
+        mailboxRemovalPending: false,
+        session: true,
+      });
     await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'mailbox-needed' },
@@ -577,9 +645,11 @@ describe('product registration', () => {
 
   it('links the other Sign-In Provider explicitly, keeps it across relaunch and opens the same Product Account with it', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-link');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-link');
+    const store = createRegistration(synthetic.vault);
     await store.register('apple');
+    // The Gmail mailbox is the Google account that is then linked.
+    synthetic.choose('alex@example.invalid');
     await store.addMailbox();
     // A Gmail grant never links the mailbox's Google identity as a sign-in.
     expect(store.getSnapshot().snapshot).not.toHaveProperty('alternateSignIn');
@@ -597,7 +667,7 @@ describe('product registration', () => {
       busy: false,
       failed: false,
     });
-    const relaunched = createRegistration(session.native);
+    const relaunched = createRegistration(synthetic.relaunch());
     await relaunched.restore();
     expect(relaunched.getSnapshot().snapshot).toStrictEqual(linked);
     await relaunched.register('google');
@@ -610,8 +680,8 @@ describe('product registration', () => {
 
   it('keeps presenting the Recovery Key until the person confirms its final group', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
     await store.addMailbox();
     const presented = store.getSnapshot().snapshot;
@@ -625,16 +695,14 @@ describe('product registration', () => {
     const feedback = store.getSnapshot();
     await store.resume();
     expect(store.getSnapshot()).toStrictEqual(feedback);
-    const relaunched = createRegistration(session.native);
+    const relaunched = createRegistration(synthetic.relaunch());
     await relaunched.restore();
     expect(relaunched.getSnapshot().snapshot).toStrictEqual(presented);
-    await relaunched.confirmRecoveryKey(
-      syntheticRecoveryKey.slice(-4).toLowerCase(),
-    );
+    await relaunched.confirmRecoveryKey(recoveryKey.slice(-4).toLowerCase());
     expect(relaunched.getSnapshot()).toStrictEqual({
       snapshot: {
         kind: 'connected',
-        productAccountId: 'synthetic-product-account',
+        productAccountId: 'account-synthetic-product-subject',
         signInProvider: 'google',
         privateSync: 'ready',
         mailboxes: connectedTo('alex@example.invalid'),
@@ -647,27 +715,53 @@ describe('product registration', () => {
 
   // A refused link is an expected outcome and stays quiet; any other rejection logs only its code.
   it.each([
-    ['identity-owned', 'identity-owned', false],
-    ['stale-authentication', 'stale-authentication', false],
-    ['unavailable', 'failed', true],
+    {
+      code: 'identity-owned',
+      linkFailure: 'identity-owned',
+      logsFailure: false,
+      // Each sign-in identity already owns its own Product Account.
+      arrange: () => undefined,
+    },
+    {
+      code: 'stale-authentication',
+      linkFailure: 'stale-authentication',
+      logsFailure: false,
+      arrange: (synthetic: SyntheticRegistrationScenario) => {
+        synthetic.backend.stale = true;
+      },
+    },
+    {
+      code: 'unavailable',
+      linkFailure: 'failed',
+      logsFailure: true,
+      // The link request fails with a message that names an address.
+      arrange: (
+        _synthetic: SyntheticRegistrationScenario,
+        answers: Map<string, () => Promise<unknown>>,
+      ) => {
+        answers.set('/sign-in-links/request', () =>
+          Promise.reject(
+            Object.assign(new Error('Link rejected for sealed@example.com'), {
+              code: 'unavailable',
+            }),
+          ),
+        );
+      },
+    },
   ] as const)(
-    'reports a %s link rejection without changing the Product Account or logging its message',
-    async (code, linkFailure, logsFailure) => {
+    'reports a $code link rejection without changing the Product Account or logging its message',
+    async ({ code, linkFailure, logsFailure, arrange }) => {
       expect.hasAssertions();
       const logged: unknown[] = [];
       vi.spyOn(console, 'error').mockImplementation((...values) => {
         logged.push(...values);
       });
-      const session = createMockRegistrationSession('registration-success');
-      const store = createRegistration({
-        ...session.native,
-        link: () =>
-          Promise.reject(
-            Object.assign(new Error('Link rejected for sealed@example.com'), {
-              code,
-            }),
-          ),
-      });
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const answers = new Map<string, () => Promise<unknown>>();
+      arrange(synthetic, answers);
+      const store = createRegistration(answering(synthetic, answers));
       await store.register('google');
       const before = store.getSnapshot().snapshot;
       await store.link('apple');
@@ -694,24 +788,21 @@ describe('product registration', () => {
   it('keeps both devices unchanged when a trusted device declines a request and reports a later approval as unavailable', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const account = createSyntheticAccount();
-    const trusted = createRegistration(
-      createMockRegistrationSession('registration-success', account).native,
-    );
-    const added = createRegistration(
-      createMockRegistrationSession('registration-enrollment', account).native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const trusted = createRegistration(synthetic.vault);
+    const addedDevice = synthetic.otherDevice();
+    const added = createRegistration(addedDevice.vault);
     await trusted.register('google');
     await added.register('google');
+    const enrollmentCode = shown(added, 'enrollmentCode');
     await trusted.refreshPrivateSync();
-    expect(trusted.getSnapshot().snapshot).toMatchObject({
-      enrollmentRequest: syntheticEnrollmentRequest,
+    const request = shown(trusted, 'enrollmentRequest');
+    expect({ enrollmentCode, request }).toStrictEqual({
+      enrollmentCode: 'CODE-3',
+      request: 'pending-1',
     });
-    await trusted.declineEnrollment(syntheticEnrollmentRequest);
-    await trusted.approveEnrollment(
-      syntheticEnrollmentRequest,
-      syntheticEnrollmentCode,
-    );
+    await trusted.declineEnrollment(request);
+    await trusted.approveEnrollment(request, enrollmentCode);
     expect(trusted.getSnapshot()).toMatchObject({
       enrollmentFailure: 'unavailable',
       snapshot: { privateSync: 'recovery-key' },
@@ -720,9 +811,11 @@ describe('product registration', () => {
     await trusted.resume();
     expect(trusted.getSnapshot()).toStrictEqual(feedback);
     await added.refreshPrivateSync();
+    // The declined request ended, so the added device asks again with a new code.
     expect(added.getSnapshot().snapshot).toMatchObject({
       privateSync: 'enrollment-pending',
-      enrollmentCode: syntheticEnrollmentCode,
+      enrollmentCode: 'CODE-4',
+      enrollmentNotice: 'renewed',
     });
     expect(added.getSnapshot().snapshot).not.toHaveProperty(
       'privateSyncMailboxes',
@@ -732,37 +825,28 @@ describe('product registration', () => {
   it('unlocks a new device with the Recovery Key only after a wrong key and an interruption leave it unchanged', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
-    const account = createSyntheticAccount();
-    const lost = createRegistration(
-      createMockRegistrationSession('registration-success', account).native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const lost = createRegistration(synthetic.vault);
     await lost.register('google');
     await lost.addMailbox();
-    const session = createMockRegistrationSession(
-      'registration-enrollment',
-      account,
-    );
-    // The connection drops while the first attempt checks the key.
-    const interrupted = createRegistration({
-      ...session.native,
-      recoverWithRecoveryKey: () =>
-        Promise.reject(
-          Object.assign(new Error('Synthetic connection lost'), {
-            code: 'unavailable',
-          }),
-        ),
-    });
+    const added = synthetic.otherDevice();
+    const interrupted = createRegistration(added.vault);
     await interrupted.register('google');
-    await interrupted.recoverWithRecoveryKey(syntheticRecoveryKey);
+    // The connection drops while the first attempt checks the key.
+    added.sync.offline = true;
+    await interrupted.recoverWithRecoveryKey(recoveryKey);
+    added.sync.offline = false;
     const waiting = interrupted.getSnapshot().snapshot;
     expect(interrupted.getSnapshot()).toMatchObject({
       snapshot: { privateSync: 'enrollment-pending' },
       recoveryFailure: 'failed',
     });
-    const relaunched = createRegistration(session.native);
+    const relaunched = createRegistration(added.relaunch());
     await relaunched.restore();
     expect(relaunched.getSnapshot().snapshot).toStrictEqual(waiting);
-    await relaunched.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    await relaunched.recoverWithRecoveryKey(
+      shown(relaunched, 'enrollmentCode'),
+    );
     await relaunched.resume();
     expect(relaunched.getSnapshot()).toStrictEqual({
       snapshot: waiting,
@@ -771,15 +855,23 @@ describe('product registration', () => {
       recoveryFailure: 'rejected',
     });
     await relaunched.recoverWithRecoveryKey(
-      syntheticRecoveryKey.toLowerCase().replaceAll('-', ' '),
+      recoveryKey.toLowerCase().replaceAll('-', ' '),
     );
     expect(relaunched.getSnapshot()).toStrictEqual({
       snapshot: {
         kind: 'mailbox-needed',
-        productAccountId: 'synthetic-product-account',
+        productAccountId: 'account-synthetic-product-subject',
         signInProvider: 'google',
         privateSync: 'ready',
         privateSyncMailboxes: 'alex@example.invalid',
+        // The lost device remains a Trusted Device of the account.
+        trustedDevices: JSON.stringify([
+          {
+            id: 'device-synthetic-installation-1',
+            name: 'Device device-synthetic-installation-1',
+            registeredAt: 1001,
+          },
+        ]),
       },
       busy: false,
       failed: false,
@@ -791,74 +883,82 @@ describe('product registration', () => {
 
   it('shows the Enrollment Code that replaced an expired request when a Recovery Key is rejected', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-enrollment');
-    const renewedCode =
-      'Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KT8';
-    let shown: RegistrationSnapshot = { kind: 'signed-out' };
-    const store = createRegistration({
-      ...session.native,
-      // The sign-in renewed for the attempt replaced the expired request before the key failed.
-      recoverWithRecoveryKey: () =>
-        Promise.resolve({
-          ...shown,
-          enrollmentCode: renewedCode,
-          recoveryNotice: 'rejected',
-        }),
-    });
+    const synthetic = await createRegistrationScenario(
+      'registration-enrollment',
+    );
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
-    shown = store.getSnapshot().snapshot;
-    await store.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    const expired = shown(store, 'enrollmentCode');
+    // The request ends while the form is open; the sign-in renewed for the attempt replaces it.
+    synthetic.sync.clock += 900_001;
+    await store.recoverWithRecoveryKey(expired);
     const { snapshot, recoveryFailure } = store.getSnapshot();
     expect({ snapshot, recoveryFailure }).toStrictEqual({
       snapshot: {
         kind: 'device-pending',
-        productAccountId: 'synthetic-product-account',
+        productAccountId: 'account-synthetic-product-subject',
         signInProvider: 'google',
         privateSync: 'enrollment-pending',
-        enrollmentCode: renewedCode,
+        enrollmentCode: 'CODE-5',
       },
       recoveryFailure: 'rejected',
     });
+    expect(shown(store, 'enrollmentCode')).not.toBe(expired);
   });
 
   it.each([
-    '[{"id":"synthetic-ipad"',
-    '[{"id":"","name":"iPad","registeredAt":1}]',
-    '{"id":"synthetic-ipad","name":"iPad","registeredAt":1}',
-    '[{"id":"synthetic-ipad","name":"iPad","registeredAt":8640000000000001}]',
-    '[{"id":"synthetic-ipad","name":"iPad","registeredAt":-8640000000000001}]',
+    { id: '', name: 'iPad', registeredAt: 1 },
+    { id: 'synthetic-ipad', name: 'iPad', registeredAt: 8_640_000_000_000_001 },
+    {
+      id: 'synthetic-ipad',
+      name: 'iPad',
+      registeredAt: -8_640_000_000_000_001,
+    },
   ])(
-    'fails registration for a malformed trusted-device list and recovers on retry: %s',
-    async (malformed) => {
+    'fails registration for a malformed trusted-device list and recovers on retry: %o',
+    async ({ id, name, registeredAt }) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-revocation');
-      let trustedDevices = malformed;
-      const store = createRegistration({
-        ...session.native,
-        signIn: async (provider) => {
-          await session.native.signIn(provider);
-          return {
-            kind: 'mailbox-needed',
-            signInProvider: 'google',
-            ...accounts.google,
-            trustedDevices,
-          };
-        },
-      });
+      vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const synthetic = await createRegistrationScenario(
+        'registration-revocation',
+      );
+      // The backend lists another Trusted Device with a value no date or row can show.
+      const answers = new Map([
+        [
+          'productAccount:listTrustedDevices',
+          () =>
+            Promise.resolve({
+              status: 200,
+              body: JSON.stringify({
+                status: 'success',
+                value: [
+                  {
+                    id,
+                    displayName: name,
+                    registeredAt,
+                    lastSeenAt: 1,
+                    platform: 'ios',
+                  },
+                ],
+              }),
+            }),
+        ],
+      ]);
+      const store = createRegistration(answering(synthetic, answers));
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual({
         snapshot: { kind: 'signed-out' },
         busy: false,
         failed: true,
       });
-      trustedDevices = JSON.stringify([syntheticTrustedDevice]);
+      answers.clear();
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual({
         snapshot: {
           kind: 'mailbox-needed',
           signInProvider: 'google',
           ...accounts.google,
-          trustedDevices,
+          trustedDevices: JSON.stringify([syntheticTrustedDevice]),
         },
         busy: false,
         failed: false,
@@ -866,19 +966,70 @@ describe('product registration', () => {
     },
   );
 
+  it.each([
+    [
+      'a truncated reply',
+      '{"status":"success","value":[{"id":"synthetic-ipad"',
+    ],
+    [
+      'a device instead of a list',
+      JSON.stringify({
+        status: 'success',
+        value: {
+          id: 'synthetic-ipad',
+          displayName: 'iPad',
+          registeredAt: 1,
+          lastSeenAt: 1,
+          platform: 'ios',
+        },
+      }),
+    ],
+  ])(
+    'lists no trusted devices from %s and lists them on retry',
+    async (_reply, body) => {
+      expect.hasAssertions();
+      vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const synthetic = await createRegistrationScenario(
+        'registration-revocation',
+      );
+      const answers = new Map([
+        [
+          'productAccount:listTrustedDevices',
+          () => Promise.resolve({ status: 200, body }),
+        ],
+      ]);
+      const store = createRegistration(answering(synthetic, answers));
+      await store.register('google');
+      expect(store.getSnapshot()).toStrictEqual(
+        settled({
+          kind: 'mailbox-needed',
+          signInProvider: 'google',
+          ...accounts.google,
+        }),
+      );
+      answers.clear();
+      await store.register('google');
+      expect(store.getSnapshot()).toStrictEqual(
+        settled({
+          kind: 'mailbox-needed',
+          signInProvider: 'google',
+          ...accounts.google,
+          trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+        }),
+      );
+    },
+  );
+
   it('deletes the Product Account everywhere: other installations purge on their next verification', async () => {
     expect.hasAssertions();
-    const installations = createSyntheticAccount();
-    const current = createRegistration(
-      createMockRegistrationSession('registration-success', installations)
-        .native,
-    );
-    const other = createRegistration(
-      createMockRegistrationSession('registration-success', installations)
-        .native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const current = createRegistration(synthetic.vault);
+    const otherDevice = synthetic.otherDevice();
+    const other = createRegistration(otherDevice.vault);
     await current.register('google');
     await other.register('google');
+    // The other installation unlocks the account's keys with its Recovery Key.
+    await other.recoverWithRecoveryKey(recoveryKey);
     await other.addMailbox();
     const deleted = {
       snapshot: { kind: 'signed-out', notice: 'deleted' },
@@ -901,24 +1052,19 @@ describe('product registration', () => {
     vi.spyOn(console, 'error').mockImplementation((...values) => {
       logged.push(...values);
     });
-    const session = createMockRegistrationSession('registration-success');
-    let outcome: () => Promise<unknown> = () =>
-      Promise.reject(new Error('Synthetic request interrupted'));
-    const store = createRegistration({
-      ...session.native,
-      signOut: () => outcome(),
-      deleteProductAccount: () => outcome(),
-    });
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
+    // The Recovery Key is not backed up yet, so sign-out keeps it.
+    synthetic.device.recoveryKeyConfirmed = false;
     const { snapshot } = store.getSnapshot();
-    // Native reports a definite refusal only when there is no earlier unanswered deletion.
-    for (const code of ['removal-refused', 'stale-authentication']) {
-      outcome = () =>
-        Promise.reject(
-          Object.assign(new Error('Synthetic refusal sealed@example.invalid'), {
-            code,
-          }),
-        );
+    // Convex refuses the deletion before fencing anything; a refusal never logs its body.
+    for (const [status, code] of [
+      [403, 'removal-refused'],
+      [401, 'stale-authentication'],
+    ] as const) {
+      synthetic.backend.deletionStatus = status;
+      synthetic.backend.deletionCode = 'REFUSED sealed@example.invalid';
       await store.deleteProductAccount();
       expect(store.getSnapshot()).toStrictEqual({
         snapshot,
@@ -929,7 +1075,9 @@ describe('product registration', () => {
       expect(logged).toContain(`code ${code}`);
       expect(String(logged)).not.toMatch(/sealed@/u);
     }
-    outcome = () => Promise.reject(new Error('Synthetic request interrupted'));
+    synthetic.backend.deletionStatus = 200;
+    // The silent Google renewal sign-out needs is interrupted.
+    synthetic.google.refreshFailure = 'offline';
     await store.signOut();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot,
@@ -937,35 +1085,18 @@ describe('product registration', () => {
       failed: false,
       removalFailure: 'sign-out',
     });
-    await store.deleteProductAccount();
-    const uncertain = store.getSnapshot();
-    // A refused retry of an unanswered deletion remains unavailable at the native boundary.
-    outcome = () =>
-      Promise.reject(
-        Object.assign(new Error('Synthetic unresolved deletion'), {
-          code: 'unavailable',
-        }),
-      );
-    await store.deleteProductAccount();
-    expect([uncertain, store.getSnapshot().removalFailure]).toStrictEqual([
-      { snapshot, busy: false, failed: false, removalFailure: 'deletion' },
-      'deletion',
-    ]);
-    outcome = () =>
-      Promise.reject(
-        Object.assign(new Error('Synthetic cancel'), { code: 'cancelled' }),
-      );
+    synthetic.google.refreshFailure = undefined;
+    synthetic.google.outcome = 'cancelled';
     await store.deleteProductAccount();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot,
       busy: false,
       failed: false,
     });
-    outcome = session.native.signOut;
+    synthetic.google.outcome = undefined;
     await store.signOut();
     expect(store.getSnapshot().snapshot).toStrictEqual(snapshot);
-    await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-    outcome = session.native.signOut;
+    await store.confirmRecoveryKey(recoveryKey.slice(-4));
     await store.signOut();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out' },
@@ -974,17 +1105,45 @@ describe('product registration', () => {
     });
   });
 
-  it('keeps the account when preparing a removal fails', async () => {
+  it('keeps an unanswered deletion uncertain when a retry is refused, until a later retry completes it', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-revocation');
-    const store = createRegistration({
-      ...session.native,
-      revokeTrustedDevice: () =>
-        Promise.reject(new Error('Synthetic removal interrupted')),
-    });
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
     const { snapshot } = store.getSnapshot();
+    // The backend applies the deletion, and its reply is lost.
+    synthetic.backend.loseReply = true;
+    await store.deleteProductAccount();
+    const uncertain = store.getSnapshot();
+    synthetic.backend.loseReply = false;
+    // A refused retry of an unanswered deletion remains unavailable at the native boundary.
+    synthetic.backend.deletionStatus = 403;
+    await store.deleteProductAccount();
+    expect([uncertain, store.getSnapshot().removalFailure]).toStrictEqual([
+      { snapshot, busy: false, failed: false, removalFailure: 'deletion' },
+      'deletion',
+    ]);
+    synthetic.backend.deletionStatus = 200;
+    await store.deleteProductAccount();
+    expect(store.getSnapshot()).toStrictEqual(
+      settled({ kind: 'signed-out', notice: 'deleted' }),
+    );
+  });
+
+  it('keeps the account when preparing a removal fails', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario(
+      'registration-revocation',
+    );
+    const store = createRegistration(synthetic.vault);
+    await store.register('google');
+    await store.confirmRecoveryKey(recoveryKey.slice(-4));
+    const { snapshot } = store.getSnapshot();
     expect(trustedDevicesOf(snapshot)).toStrictEqual([syntheticTrustedDevice]);
+    // Product Sync cannot reach Convex while the removal is prepared.
+    synthetic.sync.offline = true;
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
     expect(store.getSnapshot()).toStrictEqual({
       snapshot,
@@ -995,18 +1154,20 @@ describe('product registration', () => {
   });
 
   /* oxlint-disable vitest/max-expects -- Each journey proves one sequence of removal states. */
-  // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and
-  // activation, so this proves the store's states, not the protocol.
+  // Synthetic journey: the synthetic vault stands in for native preparation and activation, so this
+  // proves the flow's and store's states, not native code.
   it('removes a device only after its replacement Recovery Key is confirmed, renewing a stale proposal', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-revocation');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario(
+      'registration-revocation',
+    );
+    const store = createRegistration(synthetic.vault);
     await store.register('google');
-    await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    await store.confirmRecoveryKey(recoveryKey.slice(-4));
     const remaining = {
       kind: 'mailbox-needed',
       signInProvider: 'google',
-      productAccountId: 'synthetic-product-account',
+      productAccountId: 'account-synthetic-product-subject',
       privateSync: 'ready',
     } as const;
     const ready = {
@@ -1014,43 +1175,44 @@ describe('product registration', () => {
       trustedDevices: JSON.stringify([syntheticTrustedDevice]),
     };
     expect(store.getSnapshot()).toStrictEqual(settled(ready));
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const replacement = shown(store, 'revocationRecoveryKey');
     const proposed = {
       ...ready,
       revocationDevice: syntheticTrustedDevice.id,
-      revocationRecoveryKey: syntheticReplacementRecoveryKey,
+      revocationRecoveryKey: replacement,
     };
-    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
     expect(store.getSnapshot()).toStrictEqual(settled(proposed));
     expect(revocationProposal(english, proposed)).toStrictEqual({
       name: syntheticTrustedDevice.name,
-      recoveryKey: syntheticReplacementRecoveryKey,
+      recoveryKey: replacement,
     });
     // Cancellation discards the proposal and leaves the device listed.
     await store.cancelRevocation();
     expect(store.getSnapshot()).toStrictEqual(settled(ready));
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const prepared = shown(store, 'revocationRecoveryKey');
     // A wrong entry sends nothing and keeps the proposal.
-    await store.confirmRevocation(syntheticRecoveryKey.slice(-4));
+    await store.confirmRevocation(recoveryKey.slice(-4));
     expect(store.getSnapshot()).toStrictEqual({
-      ...settled(proposed),
+      ...settled({ ...proposed, revocationRecoveryKey: prepared }),
       revocationFailure: 'mismatch',
     });
     // The account changed meanwhile: a fresh key replaces the confirmed one and nothing is removed.
-    session.changeAccount();
-    await store.confirmRevocation(syntheticReplacementRecoveryKey.slice(-4));
+    synthetic.changeAccount();
+    await store.confirmRevocation(prepared.slice(-4));
+    const renewedKey = shown(store, 'revocationRecoveryKey');
     const renewed = {
       ...proposed,
-      revocationRecoveryKey: syntheticRenewedRecoveryKey,
+      revocationRecoveryKey: renewedKey,
       revocationNotice: 'renewed',
     } as const;
     expect(store.getSnapshot()).toStrictEqual(settled(renewed));
     expect(trustedDevicesOf(renewed)).toStrictEqual([syntheticTrustedDevice]);
     // Confirming the discarded key does not count.
-    await store.confirmRevocation(syntheticReplacementRecoveryKey.slice(-4));
+    await store.confirmRevocation(prepared.slice(-4));
     expect(store.getSnapshot().revocationFailure).toBe('mismatch');
-    await store.confirmRevocation(
-      ` ${syntheticRenewedRecoveryKey.slice(-4).toLowerCase()}`,
-    );
+    await store.confirmRevocation(` ${renewedKey.slice(-4).toLowerCase()}`);
     expect(store.getSnapshot()).toStrictEqual(
       settled({ ...remaining, revocationNotice: 'removed' }),
     );
@@ -1058,18 +1220,27 @@ describe('product registration', () => {
 
   it('keeps an unconfirmed proposal, drops a superseded one, and shows a later failure instead of an earlier notice', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-revocation');
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario(
+      'registration-revocation',
+    );
+    const store = createRegistration(synthetic.vault);
+    await store.register('google');
+    await store.confirmRecoveryKey(recoveryKey.slice(-4));
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const replacement = shown(store, 'revocationRecoveryKey');
+    const entry = replacement.slice(-4);
     const proposed = {
       kind: 'mailbox-needed',
       signInProvider: 'google',
-      productAccountId: 'synthetic-product-account',
+      productAccountId: 'account-synthetic-product-subject',
       privateSync: 'ready',
       trustedDevices: JSON.stringify([syntheticTrustedDevice]),
       revocationDevice: syntheticTrustedDevice.id,
-      revocationRecoveryKey: syntheticReplacementRecoveryKey,
+      revocationRecoveryKey: replacement,
     } as const;
     // The reply was lost: the proposal stays, and confirming again retries it.
-    const unconfirmed = {
+    const unconfirmedProposal = {
       ...proposed,
       revocationNotice: 'unconfirmed',
     } as const;
@@ -1084,57 +1255,51 @@ describe('product registration', () => {
       ...discarded,
       revocationNotice: 'superseded',
     } as const;
-    let confirmation: () => Promise<unknown> = () =>
-      Promise.resolve(unconfirmed);
-    const store = createRegistration({
-      ...session.native,
-      signIn: () => Promise.resolve(proposed),
-      confirmRevocation: () => confirmation(),
-    });
-    await store.register('google');
-    await store.confirmRevocation('5J0V');
-    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmed));
-    expect(revocationProposal(english, unconfirmed)?.recoveryKey).toBe(
-      syntheticReplacementRecoveryKey,
+    synthetic.sync.failActivationBeforeCommit = true;
+    await store.confirmRevocation(entry);
+    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmedProposal));
+    expect(revocationProposal(english, unconfirmedProposal)?.recoveryKey).toBe(
+      replacement,
     );
-    expect(revocationNotice(english, unconfirmed, false)).toBe(
+    expect(revocationNotice(english, unconfirmedProposal, false)).toBe(
       english('revocation.unconfirmed'),
     );
     // A wrong retry entry cannot settle an earlier activation whose reply was lost.
-    confirmation = () =>
-      Promise.reject(
-        Object.assign(new Error('Synthetic Recovery Key mismatch'), {
-          code: 'recovery-key-mismatch',
-        }),
-      );
     await store.confirmRevocation('WRNG');
     expect(store.getSnapshot()).toStrictEqual({
-      ...settled(unconfirmed),
+      ...settled(unconfirmedProposal),
       revocationFailure: 'mismatch',
     });
-    confirmation = () =>
-      Promise.reject(new Error('Synthetic activation interrupted'));
-    await store.confirmRevocation('5J0V');
+    // Convex refuses this attempt, which cannot settle the earlier one either.
+    synthetic.sync.activationReply = {
+      status: 400,
+      body: JSON.stringify({ code: 'KEY_ROTATION_INVALID' }),
+    };
+    await store.confirmRevocation(entry);
     const failed = store.getSnapshot();
     expect(failed).toStrictEqual({
-      ...settled(unconfirmed),
+      ...settled(unconfirmedProposal),
       revocationFailure: 'failed',
     });
     expect(
       revocationNotice(
         english,
-        unconfirmed,
+        unconfirmedProposal,
         failed.revocationFailure === 'failed',
       ),
     ).toBe('The device could not be removed. Try again.');
-    confirmation = () =>
-      Promise.reject(
-        Object.assign(new Error('Synthetic cancelled'), { code: 'cancelled' }),
-      );
-    await store.confirmRevocation('5J0V');
-    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmed));
-    confirmation = () => Promise.resolve(superseded);
-    await store.confirmRevocation('5J0V');
+    // The sign-in is no longer recent, and its renewal is cancelled.
+    synthetic.sync.staleOnce = true;
+    synthetic.google.outcome = 'cancelled';
+    await store.confirmRevocation(entry);
+    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmedProposal));
+    synthetic.google.outcome = undefined;
+    removeTrustedDevice(
+      synthetic.sync,
+      accounts.google.productAccountId,
+      syntheticTrustedDevice.id,
+    );
+    await store.confirmRevocation(entry);
     expect(store.getSnapshot()).toStrictEqual(settled(superseded));
   });
 

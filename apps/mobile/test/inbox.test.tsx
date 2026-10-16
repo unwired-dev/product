@@ -18,7 +18,8 @@ import {
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { palette } from '@private-email/mail-core/theme';
 import {
   act,
@@ -707,52 +708,36 @@ function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
   return state.messages[0];
 }
 
-function renderConnected(
+async function renderConnected(
   native: NativeGmailMailbox,
-  // Set once another device has removed this one; restore then reports the purged device.
-  removed?: Readonly<{ current: boolean }>,
   provider: 'gmail' | 'microsoft-graph' = 'gmail',
 ) {
-  const connected = {
-    kind: 'connected',
-    productAccountId: 'synthetic-product-account',
-    signInProvider: 'google',
-    privateSync: 'ready',
-    mailboxes: JSON.stringify([
-      {
-        id: alex,
-        address: 'alex@example.invalid',
-        state: 'connected',
-        provider,
-      },
-    ]),
-  } as const;
-  const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
+  const synthetic = await createRegistrationScenario('registration-success');
+  // The mailbox connections the person authorizes, by connection.
+  const authorized: Array<string | null> = [];
   const registration = createRegistration({
-    restore: () =>
-      Promise.resolve(
-        removed?.current === true ? { kind: 'signed-out' } : connected,
-      ),
-    addMailbox: () => Promise.reject(new Error('Not adding')),
-    authorizeMailbox,
-    connectImap: () => Promise.reject(new Error('Not connecting')),
-    removeMailbox: () => Promise.reject(new Error('Not removing')),
-    signIn: () => Promise.reject(new Error('Not signing in')),
-    link: () => Promise.reject(new Error('Not linking')),
-    confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-    recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
-    approveEnrollment: () => Promise.reject(new Error('No device')),
-    declineEnrollment: () => Promise.reject(new Error('No device')),
-    revokeTrustedDevice: () => Promise.reject(new Error('No device')),
-    confirmRevocation: () => Promise.reject(new Error('No device')),
-    cancelRevocation: () => Promise.reject(new Error('No device')),
-    refreshPrivateSync: () => Promise.reject(new Error('No sync')),
-    signOut: () => Promise.reject(new Error('Not signing out')),
-    deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+    ...synthetic.vault,
+    signInMailbox: (connection, suggest, grant) => {
+      authorized.push(connection);
+      return synthetic.vault.signInMailbox(connection, suggest, grant);
+    },
   });
+  if (provider === 'gmail') {
+    await registration.register('google');
+    await registration.addMailbox();
+  } else {
+    await registration.register('apple');
+    await registration.addMailbox('microsoft-graph');
+  }
+  // A confirmed Recovery Key lets the gate open the Inbox.
+  await registration.confirmRecoveryKey(
+    synthetic.device.productSync.vault?.recoveryKey?.slice(-4) ?? '',
+  );
+  const id =
+    provider === 'gmail' ? alex : syntheticMailboxes['casey@example.invalid'];
   // As the app composes them: the Inbox hands a removal to the registration store.
   const mailboxes = createMailboxes(
-    syntheticConnections({ [alex]: { native } }),
+    syntheticConnections({ [id]: { native } }),
     registration,
     {
       removed: () => {
@@ -794,10 +779,10 @@ function renderConnected(
       </RegistrationGate>
     );
   }
-  const rendered = render(<Connected />);
+  await render(<Connected />);
   return {
-    authorizeMailbox,
-    rendered,
+    synthetic,
+    authorized,
     // The connected mailbox's Gmail Inbox, once registration has opened it.
     store: () => {
       const inbox = mailboxes.getSnapshot()[0]?.inbox;
@@ -898,7 +883,7 @@ describe('connected Gmail Inbox', () => {
         gmail.deliver({ subject: 'Saved Inbox message' });
         const archived = gmail.deliver({ subject: 'Studio archive' });
         gmail.archive(archived);
-        await renderConnected(gmail.native).rendered;
+        await renderConnected(gmail.native);
         await screen.findByRole('button', { name: /Saved Inbox message/u });
         const field = screen.getByLabelText('Search senders and subjects');
         await fireEvent(field, 'focus');
@@ -933,9 +918,7 @@ describe('connected Gmail Inbox', () => {
       subject: 'Saturday, by the river?',
       snippet: 'Coffee first, then the long way home?',
     });
-    const connected = renderConnected(gmail.native);
-    const { authorizeMailbox } = connected;
-    await connected.rendered;
+    const connected = await renderConnected(gmail.native);
     const store = connected.store();
     await fireEvent.press(
       await screen.findByRole('button', {
@@ -966,7 +949,7 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Allow Gmail access' }),
       );
     });
-    expect(authorizeMailbox).toHaveBeenCalledWith(alex);
+    expect(connected.authorized).toContain(alex);
     await expect(
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();
@@ -1004,8 +987,7 @@ describe('connected Gmail Inbox', () => {
       String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
     );
     const held = holdingListing(gmail.native);
-    const connected = renderConnected(held.native);
-    await connected.rendered;
+    const connected = await renderConnected(held.native);
     const store = connected.store();
     await fireEvent.press(
       await screen.findByRole('button', {
@@ -1177,16 +1159,11 @@ describe('connected Gmail Inbox', () => {
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({
-      address: 'alex@example.invalid',
+      address: 'casey@example.invalid',
       messages: 1,
     });
     graph.withoutFolder('archive');
-    const connected = renderConnected(
-      graph.native,
-      undefined,
-      'microsoft-graph',
-    );
-    await connected.rendered;
+    await renderConnected(graph.native, 'microsoft-graph');
     const row = await screen.findByRole('button', {
       name: /Synthetic message 0/u,
     });
@@ -1205,7 +1182,7 @@ describe('connected Gmail Inbox', () => {
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
     expect.hasAssertions();
-    const graph = createSyntheticGraph({ address: 'alex@example.invalid' });
+    const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
     const gone = graph.deliver({ subject: 'Old notes' });
@@ -1213,12 +1190,7 @@ describe('connected Gmail Inbox', () => {
       from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
       subject: 'Garden plans',
     });
-    const connected = renderConnected(
-      graph.native,
-      undefined,
-      'microsoft-graph',
-    );
-    await connected.rendered;
+    await renderConnected(graph.native, 'microsoft-graph');
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Rowan Hale. Garden plans',
@@ -1242,7 +1214,7 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(
       within(screen.getByTestId('move-sheet')).getByRole('header', {
-        name: 'alex@example.invalid',
+        name: 'casey@example.invalid',
       }),
     ).toBeVisible();
     expect(
@@ -1296,8 +1268,7 @@ describe('connected Gmail Inbox', () => {
   it('names the exhausted action and resolves it through Retry and Discard controls', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    const connected = await renderConnected(gmail.native);
     const store = connected.store();
     const target = connectedMessage(store);
     gmail.failModify(
@@ -1355,13 +1326,12 @@ describe('connected Gmail Inbox', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const removed = { current: false };
-    await renderConnected(gmail.native, removed).rendered;
+    const { synthetic } = await renderConnected(gmail.native);
     const row = await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
     // Native code purges this device when the write's Trusted Device check finds it removed.
-    removed.current = true;
+    await synthetic.vault.purge('revoked');
     gmail.failModify({ code: 'mailbox-revoked' });
     await act(async () => {
       await fireEvent(row, 'accessibilityAction', {
@@ -1603,7 +1573,7 @@ const openPalette = (header: ReturnType<typeof screen.getByRole>) =>
 const openedPalette = () => within(screen.getByTestId('command-palette'));
 // A message the connected Inbox lists, as the reader's actions receive it.
 const listedMessage = (
-  store: ReturnType<ReturnType<typeof renderConnected>['store']>,
+  store: ReturnType<Awaited<ReturnType<typeof renderConnected>>['store']>,
   id: string,
 ) => {
   const state = store.getSnapshot();
@@ -1625,8 +1595,7 @@ describe('command palette', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    await renderConnected(gmail.native);
     const field = await screen.findByLabelText('Search senders and subjects');
     await act(async () => {
       await fireEvent(field, 'focus');
@@ -1656,8 +1625,7 @@ describe('command palette', () => {
   it('keeps the search field palette action when private storage locks', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    const connected = await renderConnected(gmail.native);
     const field = await screen.findByLabelText('Search senders and subjects');
     await act(async () => {
       await fireEvent(field, 'focus');
@@ -1681,8 +1649,7 @@ describe('command palette', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    await renderConnected(gmail.native);
     const row = await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
@@ -1768,8 +1735,7 @@ describe('command palette', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    const connected = await renderConnected(gmail.native);
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -1808,8 +1774,7 @@ describe('command palette', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    await renderConnected(gmail.native);
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -1835,8 +1800,7 @@ describe('command palette', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    await renderConnected(gmail.native);
     await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
@@ -1904,12 +1868,11 @@ describe('command palette', () => {
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
       .calls.length;
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    const removed = { current: false };
-    await renderConnected(gmail.native, removed).rendered;
+    const { synthetic } = await renderConnected(gmail.native);
     await openPalette(await screen.findByRole('header', { name: 'Inbox' }));
     expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
     // Another device removed this one while the app was away with the palette open.
-    removed.current = true;
+    await synthetic.vault.purge('revoked');
     await act(async () => {
       for (const [, activate] of jest
         .mocked(AppState.addEventListener)
@@ -2062,8 +2025,7 @@ describe('context menus', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    await renderConnected(gmail.native);
     const row = () =>
       screen.getByRole('button', { name: /Oliver Park\. Saturday/u });
     await screen.findByRole('button', { name: /Oliver Park\. Saturday/u });

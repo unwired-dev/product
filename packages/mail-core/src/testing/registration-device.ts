@@ -9,6 +9,15 @@ import type {
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 
+// The synthetic Google mailboxes and the Microsoft one, with the opaque connection IDs native code
+// would give them.
+export const syntheticMailboxes = {
+  'alex@example.invalid': 'synthetic-connection-alex',
+  'other@example.invalid': 'synthetic-connection-other',
+  'casey@example.invalid': 'synthetic-connection-casey',
+} as const;
+export type SyntheticAddress = keyof typeof syntheticMailboxes;
+
 // What outlives a relaunch: the device's Keychain, the providers and the backend.
 export function createSyntheticDevice() {
   // The device's Keychain record; `clientID` selects which client's record this host reads.
@@ -48,6 +57,12 @@ export function createSyntheticDevice() {
     refreshFailure: undefined as string | undefined,
     hints: [] as Array<string | undefined>,
     refreshes: 0,
+    // The account the person picks when Google suggests none; unset, every sign-in is `subject`.
+    chosen: undefined as string | undefined,
+    // Accounts whose mailbox sign-in ends with this code, such as 'cancelled'.
+    mailRefusals: new Map<string, string>(),
+    // Accounts whose saved grant Google refuses at its next refresh, until they sign in again.
+    revokedGrants: new Set<string>(),
   };
   // Microsoft's sign-in and Graph mailbox, for Microsoft mail only.
   const microsoft = {
@@ -59,6 +74,8 @@ export function createSyntheticDevice() {
     address: 'casey@example.invalid',
     refreshFailure: undefined as string | undefined,
     hints: [] as Array<string | undefined>,
+    // Accounts whose saved grant Microsoft refuses at its next refresh, until they sign in again.
+    revokedGrants: new Set<string>(),
   };
   // A controlled IMAP server: the password it accepts, the user names it refuses, or the failure
   // every login meets; and its SMTP server's, which accepts the same password unless `smtp`

@@ -9,10 +9,8 @@ import {
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 
 type Graph = ReturnType<typeof createSyntheticGraph>;
 type Inbox = ReturnType<typeof createGmailInbox>;
@@ -387,8 +385,8 @@ describe('organizing Microsoft mail through Graph', () => {
     const graph = createSyntheticGraph();
     gmail.deliver({ subject: 'From Gmail' });
     graph.deliver({ subject: 'From Outlook' });
-    const session = createMockRegistrationSession('registration-success');
-    const registration = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const registration = createRegistration(synthetic.vault);
     await registration.register('apple');
     await registration.addMailbox('microsoft-graph');
     await registration.addMailbox('gmail', true);

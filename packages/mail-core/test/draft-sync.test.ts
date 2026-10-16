@@ -1,5 +1,4 @@
 import type { Draft } from '../src/drafts.ts';
-import type { RegistrationSnapshot } from '../src/registration.ts';
 
 import {
   assetsOf,
@@ -13,7 +12,8 @@ import {
   createSyntheticDrafts,
   createSyntheticProductSync,
 } from '../src/testing/drafts.ts';
-import { createMockRegistrationSession } from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { createSyntheticDevice } from '../src/testing/registration-vault.ts';
 import {
   alex,
   complete,
@@ -162,13 +162,21 @@ describe('synchronizing Drafts through Product Sync', () => {
       });
       await phone.drafts.sync();
 
-      const session = createMockRegistrationSession('registration-success');
-      let snapshot: RegistrationSnapshot = connected('account-a');
+      // The synchronized Draft belongs to this Product Account.
+      const shared = createSyntheticDevice();
+      shared.backend.owners.set(shared.google.subject, 'account-a');
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+        shared,
+      );
+      let read = synthetic.vault.registration;
       const registration = createRegistration({
-        ...session.native,
-        restore: () => Promise.resolve(snapshot),
+        ...synthetic.vault,
+        // Native code reports a purge it made outside this store at the next registration read.
+        registration: () => read(),
       });
-      await registration.restore();
+      await registration.register('google');
+      await registration.addMailbox();
       const storage = createSyntheticDrafts(() => 'account-a', { server });
       const native = present(storage.sync, 'Draft sync');
       let removal: Promise<void> | undefined = undefined;
@@ -186,12 +194,18 @@ describe('synchronizing Drafts through Product Sync', () => {
         'the synchronized Draft',
       );
       // Native preflight purges the registration before rejecting the download.
-      vi.spyOn(native, 'downloadDraftAsset').mockImplementationOnce(() => {
-        snapshot = { kind: 'signed-out', notice };
-        return Promise.reject(
-          Object.assign(new Error('Revoked'), { code: 'mailbox-revoked' }),
-        );
-      });
+      vi.spyOn(native, 'downloadDraftAsset').mockImplementationOnce(
+        async () => {
+          await synthetic.vault.purge(notice);
+          read = () =>
+            Promise.reject(
+              Object.assign(new Error('Synthetic purge'), { code: notice }),
+            );
+          throw Object.assign(new Error('Revoked'), {
+            code: 'mailbox-revoked',
+          });
+        },
+      );
       await drafts.readAsset(complete(continued, asset.id));
       await removal;
       expect(registration.getSnapshot().snapshot).toStrictEqual({

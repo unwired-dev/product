@@ -1,18 +1,16 @@
 import * as Vitest from '@effect/vitest';
 
 import type { NativeRegistrationVault } from '../src/registration-flow.ts';
-import type { NativeRegistration } from '../src/registration.ts';
+import type { RegistrationFlow } from './registration-flow-fixture.ts';
 
-import { createRegistrationFlow as registrationPrograms } from '../src/registration-flow.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
-import { syntheticRecoveryKey } from '../src/testing/registration-session.ts';
 import {
   createSyntheticProductSyncBackend,
   createSyntheticVault,
 } from '../src/testing/registration-vault.ts';
 import { createRegistrationFlow, launch } from './registration-flow-fixture.ts';
 
-type Registration = NativeRegistration;
+type Registration = RegistrationFlow;
 
 describe('registration removal flow', () => {
   // Replaces AccountRemovalTests.interruptedRemovalNeverReopensAccessAndResumesAcknowledgedCleanup.
@@ -171,15 +169,16 @@ describe('registration removal flow', () => {
     });
     backend.productSync = sync;
     device.productSync.deviceKey = true;
+    const recoveryKey = 'SYNTHETIC-RECOVERY-ring-1';
     device.productSync.vault = {
       ring: { id: 'ring', epochs: [1], current: 1 },
       published: true,
-      recoveryKey: syntheticRecoveryKey,
+      recoveryKey,
       recoveryKeyConfirmed: false,
     };
     await expect(relaunch().signOut()).resolves.toMatchObject({
       privateSync: 'recovery-key',
-      recoveryKey: syntheticRecoveryKey,
+      recoveryKey,
     });
     expect(backend.unregistered).toHaveLength(0);
     device.recoveryKeyConfirmed = true;
@@ -427,17 +426,15 @@ describe('registration removal flow', () => {
       const registration = vi.fn<NativeRegistrationVault['registration']>(
         vault.registration,
       );
-      const store = createRegistration(
-        registrationPrograms({
-          ...vault,
-          registration,
-          purge: async (notice) => {
-            await vault.purge(notice);
-            registration.mockImplementation(vault.registration);
-            return null;
-          },
-        }),
-      );
+      const store = createRegistration({
+        ...vault,
+        registration,
+        purge: async (notice) => {
+          await vault.purge(notice);
+          registration.mockImplementation(vault.registration);
+          return null;
+        },
+      });
       await store.register('google');
       await store.addMailbox();
       expect(store.getSnapshot().snapshot.kind).toBe('connected');

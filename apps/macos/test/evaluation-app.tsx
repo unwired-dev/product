@@ -7,7 +7,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { useMemo, useState } from 'react';
 
 import { DraftComposer } from '../src/evaluation-composer.tsx';

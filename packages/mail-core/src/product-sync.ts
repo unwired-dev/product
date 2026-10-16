@@ -11,13 +11,16 @@ import type {
   TrustedDeviceSummary,
 } from './registration-replies.ts';
 import type {
+  MailProvider,
+  PrivateSyncStateSchema,
+} from './registration-snapshot.ts';
+import type {
   MailboxChange,
   MailboxDescriptor,
   NativeRegistrationVault,
   ProductSyncState,
   RegistrationRecord,
 } from './registration-vault.ts';
-import type { MailProvider, PrivateSyncStateSchema } from './registration.ts';
 
 import { createMailProfileProgram } from './mail-profiles.ts';
 import { createDeviceTrustProgram } from './product-sync-devices.ts';

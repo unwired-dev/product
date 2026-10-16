@@ -1,11 +1,14 @@
 import * as Effect from 'effect/Effect';
 
 import type {
+  MailGrantProvider,
+  MailProvider,
+} from './registration-snapshot.ts';
+import type {
   NativeRegistrationVault,
   RegistrationRecord,
   SetupReason,
 } from './registration-vault.ts';
-import type { MailGrantProvider, MailProvider } from './registration.ts';
 
 import { endsAccess, failWith, nativeSteps } from './registration-native.ts';
 import { MailboxIdentity, MailboxReceipt } from './registration-vault.ts';

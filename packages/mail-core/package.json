@@ -26,7 +26,7 @@
     "./registration-mode": "./src/registration-mode.ts",
     "./synthetic-registration": "./src/synthetic-registration.ts",
     "./testing/synthetic-registration": "./src/testing/synthetic-registration.ts",
-    "./testing/registration-session": "./src/testing/registration-session.ts",
+    "./testing/registration-scenarios": "./src/testing/registration-scenarios.ts",
     "./testing/registration-vault": "./src/testing/registration-vault.ts",
     "./message-body": "./src/message-body.ts",
     "./remote-content": "./src/remote-content.ts",

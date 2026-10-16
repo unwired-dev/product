@@ -128,7 +128,7 @@ allow-listed native code or decode path, never mail or summary text.
   outcomes, including same-account re-entry and queued-save races.
   `apps/mobile/test/mail-assistance.test.tsx` and
   `apps/macos/test/mail-assistance.test.tsx` drive the real registration gate and
-  reader over the synthetic registration session: actions stay hidden and nothing
+  reader over a registration scenario of the synthetic native vault: actions stay hidden and nothing
   reaches either framework until Settings' Privacy & Data turns assistance on, turning it
   off cancels an in-flight summary and drops its late result. Explicit Privacy & Data
   availability checks report every model outcome without generation, fail closed

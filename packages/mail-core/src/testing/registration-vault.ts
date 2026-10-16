@@ -10,13 +10,16 @@ import type {
   SavedRecord,
 } from './registration-vault-state.ts';
 
-import { createSyntheticDevice } from './registration-device.ts';
+import {
+  createSyntheticDevice,
+  syntheticMailboxes,
+} from './registration-device.ts';
 import { admitSyntheticInstallation } from './registration-product-sync-backend.ts';
+import { canonical } from './registration-product-sync-state.ts';
 import {
   createSyntheticSyncVault,
   mailboxRecord,
 } from './registration-product-sync.ts';
-import { syntheticMailboxes } from './registration-session.ts';
 import {
   attempt,
   refusal,
@@ -24,7 +27,11 @@ import {
   unavailable,
 } from './registration-vault-state.ts';
 
-export { createSyntheticDevice } from './registration-device.ts';
+export {
+  createSyntheticDevice,
+  syntheticMailboxes,
+} from './registration-device.ts';
+export type { SyntheticAddress } from './registration-device.ts';
 export { RegistrationRecordSchema } from '../registration-vault.ts';
 export type { MailboxDescriptor } from '../registration-vault.ts';
 
@@ -52,6 +59,16 @@ const opens = (
   record !== undefined &&
   record.provider === signedIn.provider &&
   record.subject === signedIn.subject;
+
+// The Google account native code suggests to a mailbox sign-in: the connection's own, or the
+// Google Product Sign-In's for a suggested first mailbox.
+const googleHint = (
+  record: Readonly<SavedRecord>,
+  existing: Readonly<Connection> | undefined,
+  suggest: boolean,
+) =>
+  existing?.subject ??
+  (suggest && record.provider === 'google' ? record.subject : undefined);
 
 // One process of the host over a synthetic device; a relaunch is another vault over the same one.
 type SyntheticDevice = ReturnType<typeof createSyntheticDevice>;
@@ -398,6 +415,11 @@ export function createSyntheticVault(
     }
   };
 
+  // The Google account a mailbox sign-in reaches: with an account chooser, the hinted account or
+  // else the chosen one; without one, `google.subject`.
+  const googleAccount = (hinted: string | undefined) =>
+    google.chosen === undefined ? google.subject : (hinted ?? google.chosen);
+
   const accessOf = (id: string) => {
     if (verified.has(id)) {
       return 'verified';
@@ -599,6 +621,11 @@ export function createSyntheticVault(
             code: source.refreshFailure,
           });
         }
+        if (source.revokedGrants.has(connection.subject)) {
+          throw Object.assign(new Error('Synthetic'), {
+            code: 'invalid-grant',
+          });
+        }
         live.authorization = {
           provider: connection.provider,
           subject: connection.subject,
@@ -616,24 +643,21 @@ export function createSyntheticVault(
             connection.address,
           ) === id,
       );
-      const source = provider === 'gmail' ? google : microsoft;
+      const gmail = provider === 'gmail';
+      const source = gmail ? google : microsoft;
+      const hinted = googleHint(record, existing, suggest);
       // As native code hints: Gmail by Google account, Microsoft by the connection's address.
-      source.hints.push(
-        provider === 'gmail'
-          ? (existing?.subject ??
-              (suggest && record.provider === 'google'
-                ? record.subject
-                : undefined))
-          : existing?.address,
-      );
+      source.hints.push(gmail ? hinted : existing?.address);
       if (source.outcome !== undefined) {
         return reject(source.outcome);
       }
-      live.authorization = {
-        provider,
-        subject: source.subject,
-        scopes: source.scopes,
-      };
+      const subject = gmail ? googleAccount(hinted) : microsoft.subject;
+      const refused = google.mailRefusals.get(subject);
+      if (refused !== undefined) {
+        return reject(refused);
+      }
+      source.revokedGrants.delete(subject);
+      live.authorization = { provider, subject, scopes: source.scopes };
       return { scopes: source.scopes };
     },
     verifyMailbox: () =>
@@ -935,8 +959,8 @@ export function createSyntheticVault(
           if (!vault.recoveryKeyConfirmed) {
             if (
               vault.recoveryKey === undefined ||
-              entry.length === 0 ||
-              !vault.recoveryKey.toLowerCase().endsWith(entry.toLowerCase())
+              canonical(entry).length === 0 ||
+              !canonical(vault.recoveryKey).endsWith(canonical(entry))
             ) {
               throw Object.assign(new Error('Synthetic'), {
                 code: 'recovery-key-mismatch',

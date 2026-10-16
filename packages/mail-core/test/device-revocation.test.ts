@@ -1,5 +1,5 @@
-import type { NativeRegistration } from '../src/registration.ts';
 import type { Device, Setup } from './device-trust-fixture.ts';
+import type { RegistrationFlow } from './registration-flow-fixture.ts';
 
 import { removeTrustedDevice } from '../src/testing/registration-vault.ts';
 import {
@@ -18,8 +18,8 @@ import {
 
 // Ways the remover settles an unanswered activation.
 const settleBy = {
-  cancelling: (flow: NativeRegistration) => flow.cancelRevocation(),
-  confirming: (flow: NativeRegistration, key: string) =>
+  cancelling: (flow: RegistrationFlow) => flow.cancelRevocation(),
+  confirming: (flow: RegistrationFlow, key: string) =>
     flow.confirmRevocation(lastGroup(key)),
 };
 
@@ -243,7 +243,7 @@ describe('device revocation', () => {
   it.each([
     {
       by: 'synchronizing',
-      settle: (flow: NativeRegistration) => flow.refreshPrivateSync(),
+      settle: (flow: RegistrationFlow) => flow.refreshPrivateSync(),
       notice: undefined,
     },
     { by: 'confirming', settle: settleBy.confirming, notice: 'removed' },
@@ -590,7 +590,7 @@ describe('device revocation', () => {
   it.each([
     {
       by: 'cancelling',
-      finish: async (flow: NativeRegistration) => {
+      finish: async (flow: RegistrationFlow) => {
         await expect(flow.cancelRevocation()).resolves.not.toHaveProperty(
           'revocationRecoveryKey',
         );
@@ -600,7 +600,7 @@ describe('device revocation', () => {
     },
     {
       by: 'confirming the renewed proposal',
-      finish: async (flow: NativeRegistration, key: string) => {
+      finish: async (flow: RegistrationFlow, key: string) => {
         const renewed = await flow.confirmRevocation(lastGroup(key));
         expect(renewed).toMatchObject({ revocationNotice: 'renewed' });
         const replacement = field(renewed, 'revocationRecoveryKey');
@@ -804,7 +804,7 @@ describe('device revocation', () => {
     [
       {
         by: 'synchronizing',
-        settle: (flow: NativeRegistration) => flow.refreshPrivateSync(),
+        settle: (flow: RegistrationFlow) => flow.refreshPrivateSync(),
         notices: [undefined, undefined],
       },
       {
@@ -840,7 +840,7 @@ describe('device revocation', () => {
           second,
         }: Readonly<{
           remove: Setup['remove'];
-          other: NativeRegistration;
+          other: RegistrationFlow;
           second: string;
         }>) => {
           await remove(other, second);

@@ -21,10 +21,8 @@ import {
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 import { png } from './remote-content-fixture.ts';
 
 const ready = (state: GmailInboxState) => {
@@ -683,11 +681,11 @@ describe('reading Microsoft mail through Graph', () => {
 
   it('reports a refused Microsoft grant of the only connection as Microsoft mail being unavailable', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const registration = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const registration = createRegistration(synthetic.vault);
     await registration.register('apple');
     await registration.addMailbox('microsoft-graph');
-    session.expire('casey@example.invalid');
+    synthetic.expire('casey@example.invalid');
     await registration.restore();
     expect(registration.getSnapshot().snapshot).toMatchObject({
       kind: 'mailbox-needed',
@@ -715,8 +713,10 @@ describe('reading Microsoft mail through Graph', () => {
       const graph = createSyntheticGraph();
       gmail.deliver({ subject: 'From Gmail', at: Date.UTC(2026, 8, 1, 9) });
       graph.deliver({ subject: 'From Outlook', at: Date.UTC(2026, 8, 1, 10) });
-      const session = createMockRegistrationSession('registration-success');
-      const registration = createRegistration(session.native);
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const registration = createRegistration(synthetic.vault);
       await registration.register('apple');
       // Microsoft mail can be the first mailbox, without any Gmail grant.
       await registration.addMailbox('microsoft-graph');
@@ -725,6 +725,7 @@ describe('reading Microsoft mail through Graph', () => {
           id: syntheticMailboxes['casey@example.invalid'],
           provider: 'microsoft-graph',
           address: 'casey@example.invalid',
+          epoch: 'synthetic-epoch-1',
           state: 'connected',
           profile: defaultProfile,
         },

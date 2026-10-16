@@ -156,10 +156,13 @@ JavaScript still receives only the stable registration failure code.
 
 ## Deterministic evidence
 
-Shared application and rendered host tests use fixed synthetic registration
-sessions. They exercise consent separation, errors, retry, adding, reauthorizing and
-removing mailboxes, and remounting. The flow's own tests run it over a synthetic
-native vault (`packages/mail-core/src/testing/registration-vault.ts`): consent
+Shared application and rendered host tests construct Registration over the
+synthetic native vault (`packages/mail-core/src/testing/registration-vault.ts`), so
+they run the real registration flow and Product Sync. The registration Mock Mail
+Session scenarios are presets of that vault
+(`packages/mail-core/src/testing/registration-scenarios.ts`). These tests exercise
+consent separation, errors, retry, adding, reauthorizing and removing mailboxes, and
+remounting. The flow's own tests run it over the same vault directly: consent
 failures, interrupted Google and Apple registration, offline restore, another
 client's record, linking and its refusals, sign-out and deletion sequencing,
 revocation, Convex reply decoding and the fixed rejection codes. Convex tests exercise public account operations with authenticated

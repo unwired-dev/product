@@ -86,12 +86,14 @@ sign-in. The relaunch purges the account. Signing in again mints a new device
 identifier, which waits for approval as a Pending Device, and the journey signs
 out of that gate.
 
-The rendered mobile and Mac registration journeys also use fixed synthetic controls
-to add a second removable device and lose this installation's encryption key. They
-cover successive removals, the ready presentation after native adoption, renewed
-Pending Device enrollment and recovery only with the latest confirmed key. These
-controls exist only in the shared test fixture; hosted native tests separately prove
-multi-epoch cryptographic catch-up and reenrollment on the same Keychain installation.
+The rendered mobile and Mac registration journeys run the real registration flow over
+the same scenarios as presets of the synthetic native vault
+(`packages/mail-core/src/testing/registration-scenarios.ts`). Its controls add a second
+removable device and lose this installation's encryption key. They cover successive
+removals, the ready presentation after native adoption, renewed Pending Device
+enrollment and recovery only with the latest confirmed key. These controls exist only
+in the shared test fixture; hosted native tests separately prove multi-epoch
+cryptographic catch-up and reenrollment on the same Keychain installation.
 
 In `registration-removal`, the journey saves and confirms its Recovery Key, then
 signs out and relaunches with nothing kept.

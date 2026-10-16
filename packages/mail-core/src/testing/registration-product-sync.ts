@@ -22,6 +22,7 @@ import { Envelope as ConvexReply } from '../registration-native.ts';
 import { EncryptedPayload } from '../registration-replies.ts';
 import { createSyntheticSyncHandlers } from './registration-product-sync-backend.ts';
 import {
+  canonical,
   mailboxRecord,
   payload,
   proofOf,
@@ -48,7 +49,7 @@ const holdsUnsettledKeys = (vault: SyncVault | undefined) =>
   vault?.revocation?.submitted === true;
 const isPayload = Schema.is(EncryptedPayload);
 // A synthetic Enrollment Code, which reads as one only in this shape.
-const enrollmentCode = /^CODE-\d+$/u;
+const enrollmentCode = /^CODE\d+$/u;
 // Replies this harness wrote itself, which always decode.
 const Completion = Schema.Struct({
   admitted: Schema.Boolean,
@@ -317,7 +318,9 @@ export function createSyntheticSyncVault(
   // Opens a recovery envelope with an entered Recovery Key, only for this account.
   const openRecovery = (ciphertext: string, entry: string, account: string) => {
     const sealed = syncBackend().recoveries.get(ciphertext);
-    return sealed?.key === entry && sealed.account === account
+    return sealed !== undefined &&
+      canonical(sealed.key) === canonical(entry) &&
+      sealed.account === account
       ? structuredClone(sealed.ring)
       : undefined;
   };
@@ -463,7 +466,7 @@ export function createSyntheticSyncVault(
         const opened =
           sealed?.kind === 'enrollment' &&
           sealed.publicKey === enrollment.key &&
-          sealed.code === enrollment.code &&
+          canonical(sealed.code) === canonical(enrollment.code) &&
           sealed.account === product.productAccountId &&
           sealed.device === product.trustedDeviceId &&
           sealed.deviceKey === device.productSync.deviceKeyName &&
@@ -509,7 +512,7 @@ export function createSyntheticSyncVault(
         if (product.pending !== true) {
           throw unavailable();
         }
-        if (entry.trim().length === 0) {
+        if (canonical(entry).length === 0) {
           return { rejected: true };
         }
         const envelope = send('productSyncEnrollment:recover', {
@@ -532,7 +535,7 @@ export function createSyntheticSyncVault(
     recoverTrustedDevice: (entry, envelope) =>
       attempt(() => {
         const { product } = trusted();
-        if (entry.trim().length === 0) {
+        if (canonical(entry).length === 0) {
           return { rejected: true };
         }
         const ring = openRecovery(
@@ -556,10 +559,10 @@ export function createSyntheticSyncVault(
         return { rejected: false };
       }),
     readsAsEnrollmentCode: (entry) =>
-      Promise.resolve(enrollmentCode.test(entry.trim().toUpperCase())),
+      Promise.resolve(enrollmentCode.test(canonical(entry))),
     sealEnrollment: (code, request) =>
       attempt(() => {
-        if (!enrollmentCode.test(code.trim().toUpperCase())) {
+        if (!enrollmentCode.test(canonical(code))) {
           throw Object.assign(new Error('Synthetic'), {
             code: 'enrollment-code-invalid',
           });
@@ -575,7 +578,7 @@ export function createSyntheticSyncVault(
           device: request.pendingDeviceId,
           publicKey: request.enrollmentPublicKey,
           deviceKey: request.deviceEncryptionPublicKey,
-          code: code.trim().toUpperCase(),
+          code: canonical(code),
         });
         return {
           keyVersion: vault.ring.current,
@@ -718,8 +721,8 @@ export function createSyntheticSyncVault(
           throw unavailable();
         }
         if (
-          entry.length === 0 ||
-          !pending.recoveryKey.toLowerCase().endsWith(entry.toLowerCase())
+          canonical(entry).length === 0 ||
+          !canonical(pending.recoveryKey).endsWith(canonical(entry))
         ) {
           throw Object.assign(new Error('Synthetic'), {
             code: 'recovery-key-mismatch',

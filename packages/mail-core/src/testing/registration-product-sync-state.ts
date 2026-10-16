@@ -20,8 +20,12 @@ export const payload = (
   schemaVersion,
   tagBase64: 'synthetic',
 });
+// A typed Recovery Key or Enrollment Code as native code reads it: case, spaces and hyphens aside.
+export const canonical = (entry: string) =>
+  entry.replaceAll(/[\s-]/gu, '').toUpperCase();
 // The value a Recovery Key derives to prove itself, and the digest Convex keeps of it.
-export const proofOf = (recoveryKey: string) => `proof:${recoveryKey}`;
+export const proofOf = (recoveryKey: string) =>
+  `proof:${canonical(recoveryKey)}`;
 export const verifierOf = (proof: string) => `verifier:${proof}`;
 // How long a Pending Device's request and code, and an approval, stay open.
 export const enrollmentLifetime = 900_000;
@@ -53,6 +57,8 @@ type Envelope =
 interface TrustedDevice {
   installation: string;
   registeredAt: number;
+  // The name the account lists; a synthetic installation lists its identifier.
+  name?: string;
   key?: string;
   epoch: number;
   envelope?: { keyEpoch: number; ciphertext: string };
