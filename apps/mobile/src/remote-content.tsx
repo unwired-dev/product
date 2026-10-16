@@ -1,3 +1,4 @@
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
   RemoteContentPolicy,
@@ -7,7 +8,14 @@ import type { ReactNode } from 'react';
 
 import { remoteContentPolicy } from '@private-email/mail-core/remote-content';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { createContext, use, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  use,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -45,6 +53,75 @@ export function useRemoteContentPolicy(
       ? 'ask'
       : remoteContentPolicy(store.getSnapshot(), connection),
   );
+}
+
+// Consent belongs to this mounted reader; queued measurements must still match its policy.
+export function useRemoteImages({
+  inbox,
+  id,
+  reader,
+  connection,
+  current,
+}: {
+  readonly inbox: Pick<GmailInbox, 'loadRemoteImages' | 'forgetRemoteImages'>;
+  readonly id: string;
+  readonly reader: symbol;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const policy = useRemoteContentPolicy(connection);
+  const [consent, setConsent] = useState<{
+    readonly inbox: typeof inbox;
+    readonly id: string;
+  }>();
+  if (
+    consent !== undefined &&
+    (policy === 'never' || consent.inbox !== inbox)
+  ) {
+    setConsent(undefined);
+  }
+  const consented = consent?.inbox === inbox && consent.id === id;
+  // Retire network permission before queued native measurements see the new policy.
+  useLayoutEffect(() => {
+    if (policy === 'never') {
+      inbox.forgetRemoteImages(id);
+    } else if (policy === 'ask' && !consented) {
+      void inbox.loadRemoteImages(id, [], { network: false, reader });
+    }
+  }, [inbox, id, policy, consented, reader]);
+  const showing = useRef<{
+    readonly policy: RemoteContentPolicy;
+    readonly consented: boolean;
+  }>(undefined);
+  useLayoutEffect(() => {
+    showing.current = { policy, consented };
+    return () => {
+      showing.current = undefined;
+    };
+  }, [policy, consented]);
+  return {
+    handleNear: (urls: readonly string[]) => {
+      if (
+        policy !== 'never' &&
+        current() &&
+        showing.current?.policy === policy &&
+        showing.current.consented === consented
+      ) {
+        void inbox.loadRemoteImages(id, urls, {
+          network: policy === 'always' || consented,
+          reader,
+        });
+      }
+    },
+    handleLoadImages:
+      policy === 'ask' && !consented
+        ? () => {
+            if (current()) {
+              setConsent({ inbox, id });
+            }
+          }
+        : undefined,
+  };
 }
 
 const styles = StyleSheet.create({

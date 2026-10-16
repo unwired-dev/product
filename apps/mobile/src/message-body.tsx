@@ -54,7 +54,7 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { MessageSummary } from './message-summary.tsx';
-import { useRemoteContentPolicy } from './remote-content.tsx';
+import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -1004,32 +1004,16 @@ export function GmailMessageBody({
   const quotes = use(QuotedHistoryContext);
   const [quotedRevision, setQuotedRevision] = useState(0);
   const quotedShown = quotedRevision % 2 === 1;
-  const policy = useRemoteContentPolicy(connection);
   const provider = useProviderName();
-  // Consent under Ask belongs to this message's presentation; Gmail IDs repeat across mailboxes.
-  const [consent, setConsent] = useState<{
-    readonly inbox: GmailInbox;
-    readonly id: string;
-  }>();
-  // Never, or another Inbox showing the same Gmail ID, revokes this presentation's Ask consent,
-  // so a later Ask must be consented again.
-  if (
-    consent !== undefined &&
-    (policy === 'never' || consent.inbox !== inbox)
-  ) {
-    setConsent(undefined);
-  }
-  const consented = consent?.inbox === inbox && consent.id === id;
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('message reader'));
-  // Retire network permission before queued native measurements can observe the new policy.
-  useLayoutEffect(() => {
-    if (policy === 'never') {
-      inbox.forgetRemoteImages(id);
-    } else if (policy === 'ask' && !consented) {
-      void inbox.loadRemoteImages(id, [], { network: false, reader });
-    }
-  }, [inbox, id, policy, consented, reader]);
+  const remoteImages = useRemoteImages({
+    inbox,
+    id,
+    reader,
+    connection,
+    current,
+  });
   const body = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageBody(id, reader),
   );
@@ -1039,16 +1023,14 @@ export function GmailMessageBody({
   const showing = useRef<{
     readonly inbox: GmailInbox;
     readonly id: string;
-    readonly policy: typeof policy;
-    readonly consented: boolean;
     readonly quotedRevision: number;
   }>(undefined);
   useLayoutEffect(() => {
-    showing.current = { inbox, id, policy, consented, quotedRevision };
+    showing.current = { inbox, id, quotedRevision };
     return () => {
       showing.current = undefined;
     };
-  }, [inbox, id, policy, consented, quotedRevision]);
+  }, [inbox, id, quotedRevision]);
   useEffect(() => {
     const release = inbox.retainMessage(id, reader);
     void inbox.readMessage(id);
@@ -1095,11 +1077,14 @@ export function GmailMessageBody({
 
   // Native input can be queued before the owner changes and delivered afterward, so a stale
   // choice shows nothing.
-  const current = () =>
-    showing.current?.inbox === inbox &&
-    showing.current.id === id &&
-    showing.current.quotedRevision === quotedRevision &&
-    inbox.messageBody(id, reader) === body;
+  function current() {
+    return (
+      showing.current?.inbox === inbox &&
+      showing.current.id === id &&
+      showing.current.quotedRevision === quotedRevision &&
+      inbox.messageBody(id, reader) === body
+    );
+  }
   const { withoutQuotedHistory } = body.presentation;
   const collapsible =
     quotes === 'collapsible' && withoutQuotedHistory !== undefined;
@@ -1127,29 +1112,8 @@ export function GmailMessageBody({
         presentation={
           collapsible && !quotedShown ? withoutQuotedHistory : body.presentation
         }
-        // Never shows no remote content, even what an earlier authorization cached.
-        onNear={(urls) => {
-          if (
-            policy !== 'never' &&
-            current() &&
-            showing.current?.policy === policy &&
-            showing.current.consented === consented
-          ) {
-            void inbox.loadRemoteImages(id, urls, {
-              network: policy === 'always' || consented,
-              reader,
-            });
-          }
-        }}
-        onLoadImages={
-          policy === 'ask' && !consented
-            ? () => {
-                if (current()) {
-                  setConsent({ inbox, id });
-                }
-              }
-            : undefined
-        }
+        onNear={remoteImages.handleNear}
+        onLoadImages={remoteImages.handleLoadImages}
         onFailure={() => {
           if (current()) {
             inbox.discardRichMessage(id, body.presentation, reader);

@@ -20,7 +20,7 @@ import {
   withoutLinkFrom,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { useRemoteContentPolicy } from './remote-content.tsx';
+import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -42,45 +42,28 @@ export function ImapMessageBody({
   const colors = usePalette();
   const { t } = useLocalization();
   const confirm = use(LinkConfirmationContext);
-  const policy = useRemoteContentPolicy(connection);
-  // Consent under Ask belongs to this message's presentation.
-  const [consent, setConsent] = useState<{
-    readonly inbox: ImapInbox;
-    readonly id: string;
-  }>();
-  // Never, or another Inbox, revokes this presentation's Ask consent.
-  if (
-    consent !== undefined &&
-    (policy === 'never' || consent.inbox !== inbox)
-  ) {
-    setConsent(undefined);
-  }
-  const consented = consent?.inbox === inbox && consent.id === id;
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('IMAP reader'));
-  // Retire network permission before queued native measurements can observe the new policy.
-  useLayoutEffect(() => {
-    if (policy === 'never') {
-      inbox.forgetRemoteImages(id);
-    } else if (policy === 'ask' && !consented) {
-      void inbox.loadRemoteImages(id, [], { network: false, reader });
-    }
-  }, [inbox, id, policy, consented, reader]);
+  const remoteImages = useRemoteImages({
+    inbox,
+    id,
+    reader,
+    connection,
+    current,
+  });
   const body = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageBody(id, reader),
   );
   const showing = useRef<{
     readonly inbox: ImapInbox;
     readonly id: string;
-    readonly policy: typeof policy;
-    readonly consented: boolean;
   }>(undefined);
   useLayoutEffect(() => {
-    showing.current = { inbox, id, policy, consented };
+    showing.current = { inbox, id };
     return () => {
       showing.current = undefined;
     };
-  }, [inbox, id, policy, consented]);
+  }, [inbox, id]);
   useEffect(() => {
     const release = inbox.retainMessage(id, reader);
     void inbox.readMessage(id);
@@ -122,10 +105,13 @@ export function ImapMessageBody({
       </View>
     );
   }
-  const current = () =>
-    showing.current?.inbox === inbox &&
-    showing.current.id === id &&
-    inbox.messageBody(id, reader) === body;
+  function current() {
+    return (
+      showing.current?.inbox === inbox &&
+      showing.current.id === id &&
+      inbox.messageBody(id, reader) === body
+    );
+  }
   return (
     <View style={styles.body}>
       <View style={styles.assistance}>
@@ -148,29 +134,8 @@ export function ImapMessageBody({
           }
         }}
         presentation={body.presentation}
-        // Never shows no remote content, even what an earlier authorization cached.
-        onNear={(urls) => {
-          if (
-            policy !== 'never' &&
-            current() &&
-            showing.current?.policy === policy &&
-            showing.current.consented === consented
-          ) {
-            void inbox.loadRemoteImages(id, urls, {
-              network: policy === 'always' || consented,
-              reader,
-            });
-          }
-        }}
-        onLoadImages={
-          policy === 'ask' && !consented
-            ? () => {
-                if (current()) {
-                  setConsent({ inbox, id });
-                }
-              }
-            : undefined
-        }
+        onNear={remoteImages.handleNear}
+        onLoadImages={remoteImages.handleLoadImages}
         onFailure={() => {
           if (current()) {
             inbox.discardRichMessage(id, body.presentation, reader);

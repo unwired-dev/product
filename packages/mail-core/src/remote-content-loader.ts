@@ -84,6 +84,10 @@ const remoteImageLoaded = (result: RemoteImageResult) =>
   result.kind === 'loaded' || result.kind === 'restored';
 let nextRemoteSession = 0;
 
+type PresentedBody =
+  | Readonly<{ kind: 'ready'; presentation: MessagePresentation }>
+  | Readonly<{ kind: 'loading' | 'unavailable' }>;
+
 // The rich presentations an Inbox's readers show of a message: each window's reader by its
 // symbol, and the legacy readers by the message ID while any is open.
 export const shownRemote = ({
@@ -93,14 +97,8 @@ export const shownRemote = ({
   legacyReaders,
 }: Readonly<{
   viewReaders: ReadonlyMap<symbol, string>;
-  viewBodies: ReadonlyMap<
-    symbol,
-    Readonly<{ kind: string; presentation?: MessagePresentation }>
-  >;
-  bodies: ReadonlyMap<
-    string,
-    Readonly<{ kind: string; presentation?: MessagePresentation }>
-  >;
+  viewBodies: ReadonlyMap<symbol, PresentedBody>;
+  bodies: ReadonlyMap<string, PresentedBody>;
   legacyReaders: ReadonlyMap<string, number>;
 }>) => {
   const presented = (id: string, reader: string | symbol) => {
@@ -109,7 +107,7 @@ export const shownRemote = ({
     }
     const body =
       typeof reader === 'symbol' ? viewBodies.get(reader) : bodies.get(id);
-    return body?.kind === 'ready' ? body.presentation?.rich?.remote : undefined;
+    return body?.kind === 'ready' ? body.presentation.rich?.remote : undefined;
   };
   return {
     presented,
