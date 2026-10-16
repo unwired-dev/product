@@ -703,6 +703,15 @@ export function createImapInbox(
     inlineImages: (id) => documents.get(id)?.images?.admitted.length ?? 0,
     present: presentRemote,
     notify,
+    failed: (mailbox, cause) => {
+      const kind = failureKinds[rejectionCode(cause) ?? ''];
+      return kind !== undefined &&
+        closesAccess(kind) &&
+        opened?.address === mailbox.address &&
+        opened.generation === mailbox.generation
+        ? loadFailed({ kind, diagnostic: rejectionDiagnostic(cause) })
+        : Effect.void;
+    },
   });
   // Gmail and IMAP readers share one budget; every visible occurrence and window counts.
   const present = (
@@ -1095,7 +1104,7 @@ export function createImapInbox(
 
   // A removed device purged its data; the account page, not the Inbox, explains it. Locked storage
   // and transient or refused server access are expected; anything else is logged.
-  const loadFailed = ({ kind, diagnostic }: Failure) => {
+  function loadFailed({ kind, diagnostic }: Failure) {
     if (forgotten) {
       return Effect.void;
     }
@@ -1127,7 +1136,7 @@ export function createImapInbox(
     return expected(kind)
       ? Effect.void
       : Effect.logError('IMAP synchronization failed:', diagnostic);
-  };
+  }
 
   // What the notice says once the server answered: a refusal replaces it, and a move the server
   // mapped to a new UID can be undone from there.

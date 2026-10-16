@@ -185,7 +185,7 @@ describe('imap remote message content', () => {
     }
   });
 
-  it('shares the display budget with Gmail readers and the message inline images', async () => {
+  it('shares the display budget with Gmail readers', async () => {
     expect.hasAssertions();
     const shared = createBodyLoads();
     const gmail = createSyntheticGmail();
@@ -220,5 +220,61 @@ describe('imap remote message content', () => {
     expect(reader.shown().remote.pending).toStrictEqual([]);
     reader.release();
   });
+
+  it.each([
+    { operation: 'openRemoteContent', code: 'locked', state: 'locked' },
+    {
+      operation: 'fetchRemoteContent',
+      code: 'mailbox-invalidated',
+      state: 'failed',
+    },
+    {
+      operation: 'commitRemoteContent',
+      code: 'mailbox-revoked',
+      state: 'failed',
+    },
+  ] as const)(
+    'closes the reader when $operation reports $code',
+    async ({ operation, code, state }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      const photo = 'https://images.example/photo.png';
+      imap.serveRemote(photo, { data: png(4, 3) });
+      imap.deliver('INBOX', {
+        subject: 'Access loss',
+        raw: raw('Access loss', html([photo])),
+      });
+      let removed = false;
+      const shared = createBodyLoads();
+      const inbox = createImapInbox(
+        {
+          ...imap.native,
+          [operation]: () =>
+            Promise.reject(Object.assign(new Error('Access lost'), { code })),
+        },
+        {
+          shared,
+          removed: () => {
+            removed = true;
+          },
+        },
+      );
+      await inbox.load();
+      const id = idOf(inbox, 'Access loss');
+      const reader = await read(inbox, id);
+      try {
+        await inbox.loadRemoteImages(id, [photo], true);
+        expect(inbox.getSnapshot().kind).toBe(state);
+        expect(inbox.messageBody(id)).toBeUndefined();
+        expect(reader.shown).toThrow('Expected a rich body');
+        expect([...shared.images.values()]).toStrictEqual([]);
+        expect([...shared.remoteImages.values()]).toStrictEqual([]);
+        expect(removed).toBe(code === 'mailbox-revoked');
+      } finally {
+        reader.release();
+        inbox.forget();
+      }
+    },
+  );
   /* oxlint-enable vitest/max-expects */
 });

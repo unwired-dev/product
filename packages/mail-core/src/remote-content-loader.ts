@@ -144,6 +144,7 @@ export function createRemoteContentLoader(
     inlineImages,
     present,
     notify,
+    failed = () => Effect.void,
   }: Readonly<{
     connection: string;
     // Twelve requests account-wide, and the images every connection holds for display.
@@ -165,6 +166,8 @@ export function createRemoteContentLoader(
     // Presents the message's readers again; true when a presentation changed.
     present: (id: string) => boolean;
     notify: () => void;
+    // Lets the Inbox retire its readable state when native storage or ownership is lost.
+    failed?: (mailbox: MailboxScope, cause: unknown) => Effect.Effect<void>;
   }>,
 ) {
   interface RemoteLoad {
@@ -426,6 +429,7 @@ export function createRemoteContentLoader(
       try: () => native.touchRemoteContent(mailbox, resource),
       catch: (cause) => rejected(cause, 'failed'),
     }).pipe(
+      Effect.tapError(({ cause }) => failed(mailbox, cause)),
       Effect.catchTag('SyncFailure', ({ cause, diagnostic }) =>
         rejectionCode(cause) === 'locked'
           ? Effect.void
@@ -483,8 +487,9 @@ export function createRemoteContentLoader(
       }
       return { kind: 'loaded', image } as const;
     },
-    // A refused destination or response is final for the presentation; an unreachable server or
-    // locked storage may recover while the reader stays open.
+    (effect, mailbox) =>
+      effect.pipe(Effect.tapError(({ cause }) => failed(mailbox, cause))),
+    // A refusal is final; transient failures can retry if the Inbox keeps access open.
     Effect.catchTag('SyncFailure', ({ cause, diagnostic }) => {
       const code = rejectionCode(cause);
       if (code === 'refused') {
@@ -519,6 +524,7 @@ export function createRemoteContentLoader(
           reply,
         ).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
       ),
+      Effect.tapError(({ cause }) => failed(mailbox, cause)),
       Effect.catchTag('SyncFailure', ({ diagnostic }) =>
         Effect.logError('Remote content could not be cached:', diagnostic),
       ),
