@@ -215,10 +215,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `createGmailInbox` admitting ranked Thread reads to a FIFO account queue before
+  provider work can start. Re-evaluate priority at shared account admission while
+  enforcing both account and connection limits; scroll changes must overtake all
+  still-waiting work, including reads blocked by other connections. Release of a
+  Thread's ranking must lower its abandoned background reads below the current
+  Thread's visible bodies, without downgrading an independently retained explicit
+  reader. Otherwise account contention or navigation defeats viewport priority.
+
 - `imap-inbox.ts.readMessage` downloading a body outside the shared `BodyLoads`
   coordinator. Acquire the connection's two-permit semaphore before the shared
   four-permit semaphore, and bracket waiting and downloading with
-  `shared.begin`/`shared.end` through `Effect.acquireUseRelease`, as Gmail does.
+  `shared.begin`/`shared.end` through `Effect.acquireUseRelease`, matching Gmail's
+  shared admission limits.
   Keep cache hits outside download permits, and release acquired permits and
   interactive ownership on failure or interruption. Otherwise simultaneous
   windows/connections multiply native sessions and MIME allocations, while Gmail

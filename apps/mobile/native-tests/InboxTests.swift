@@ -1,3 +1,5 @@
+import CryptoKit
+import CoreFoundation
 import UIKit
 import XCTest
 
@@ -304,6 +306,76 @@ final class InboxTests: XCTestCase {
     shot.name = "Recovered with the Recovery Key"
     shot.lifetime = .keepAlways
     add(shot)
+  }
+
+  // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
+  // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
+  // is within one screen of the visible range.
+  private func threadJourney(_ app: XCUIApplication) {
+    app.buttons["Continue"].tap()
+    app.buttons["Sign in with Google"].tap()
+    let recoveryKey = app.staticTexts["recovery-key"]
+    XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
+    let presented = recoveryKey.label
+    app.buttons["Choose another Google mailbox"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
+    enter(String(presented.suffix(4)), into: app.textFields["Last four characters"], in: app)
+    app.buttons["Confirm Recovery Key"].tap()
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
+    let connection = SHA256.hash(
+      data: Data("dev.unwired.mailbox-connection\nsynthetic-alternate-mailbox".utf8)
+    ).prefix(16).map { String(format: "%02x", $0) }.joined()
+    app.terminate()
+    app.open(URL(string: "unwired-mail://thread/19a0c0ffee000013?mailbox=\(connection)")!)
+    let opened = app.staticTexts["crew3@example.invalid"].firstMatch
+    XCTAssertTrue(opened.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["6 Messages"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Crew 3, note 2."].waitForExistence(timeout: 20))
+    let window = app.windows.firstMatch.frame
+    // On screen by frame: the header's text sits inside its context-menu host, so it is never
+    // reported hittable.
+    let onScreen = { (element: XCUIElement) in
+      element.exists && window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+    }
+    waitUntil { onScreen(opened) }
+    let anchored = opened.frame.minY
+    XCTAssertLessThan(anchored, window.midY)
+    // Drag into Crew 3 while Crew 4's full-body reply is held outside native registration custody.
+    XCTAssertFalse(app.staticTexts["Crew 4, note 40."].exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+      .press(forDuration: 0.1, thenDragTo:
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+    let visibleText = (2...35).map { app.staticTexts["Crew 3, note \($0)."].firstMatch }
+      .first { onScreen($0) && $0.frame.midY > window.midY }
+    XCTAssertNotNil(visibleText)
+    guard let visibleText else { return }
+    let textOffset = visibleText.frame.minY
+    let identifier = ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"]!
+    CFNotificationCenterPostNotification(
+      CFNotificationCenterGetDarwinNotifyCenter(),
+      CFNotificationName((identifier + ".thread-body-release") as CFString), nil, nil, true)
+    XCTAssertTrue(app.staticTexts["Crew 4, note 40."].waitForExistence(timeout: 20))
+    waitUntil { abs(visibleText.frame.minY - textOffset) <= 2 }
+    XCTAssertEqual(visibleText.frame.minY, textOffset, accuracy: 2)
+    // Crew 6 lies more than a screen above once Crew 4 and 5 have loaded, so its body unmounts.
+    waitUntil { !app.staticTexts["Crew 6, note 40."].exists }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Thread opened at an older message"
+    shot.lifetime = .keepAlways
+    add(shot)
+    // Scrolling back to the newest message mounts its body again.
+    let newest = app.staticTexts["crew6@example.invalid"].firstMatch
+    for _ in 0..<30 where !onScreen(newest) {
+      app.swipeDown(velocity: .fast)
+    }
+    XCTAssertTrue(onScreen(newest))
+    XCTAssertTrue(app.staticTexts["Crew 6, note 2."].waitForExistence(timeout: 20))
+    let top = XCTAttachment(screenshot: app.screenshot())
+    top.name = "Thread scrolled to its newest message"
+    top.lifetime = .keepAlways
+    add(top)
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -908,6 +980,7 @@ final class InboxTests: XCTestCase {
       case "registration-revoked": revokedJourney(app)
       case "registration-removal": removalJourney(app)
       case "registration-draft-editor": draftEditorJourney(app)
+      case "registration-thread": threadJourney(app)
       default:
         try registrationJourney(app)
       }

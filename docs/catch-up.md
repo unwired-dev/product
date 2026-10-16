@@ -66,8 +66,9 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
 - It shows every locally cached message with the opened message's Gmail
   `threadId` (the listed Inbox and any open search results), newest at the top.
   A message that is not cached shows as unavailable.
-- It scrolls to the opened message once that message is first laid out and
-  highlights it (`accessibilityState.selected`). Bodies loading above it keep it in
+- It scrolls to the opened message and highlights it
+  (`accessibilityState.selected`). Until the person drags the reader, every new
+  layout of that message scrolls to it again, so bodies loading above it keep it in
   place.
 - Each message starts with its quoted history collapsed behind **Show quoted
   text**. Quoted history is Gmail's `gmail_quote` container, a
@@ -76,17 +77,27 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
   attribution line above it. Inline replies and Outlook HTML quotes stay
   shown. A body that would be empty without its quote shows in full.
 
-Every cached message of the Thread is mounted at once, each with its own body
-view, so a long Thread creates that many native views and rich documents. Bodies
-currently start loading in newest-first mount order within the shared store's
-concurrency limits. Bounded rendering of mounted messages, viewport priority,
-immediate reprioritization and off-screen distance ordering remain required
-follow-up work in
-[#862](https://github.com/unwired-dev/product/issues/862); an older opened
-message can wait behind off-screen bodies. This slice does not qualify the full
-[conversation reader loading behavior](product/messages-and-delivery.md#thread-identity-and-reader-behavior).
-Native scroll-to, scroll anchoring as bodies resolve, and highlight accessibility
-still require iPhone and iPad validation.
+Bodies initially load the opened message first, then the messages intersecting the viewport,
+then the rest in distance-from-viewport order. Scrolling reorders reads that are
+still waiting; reads already running finish. The order applies within each
+Mailbox Connection's two body loads and the device-wide four, so other
+connections keep their own loads. After dragging, visible messages take priority
+over the opened message too. Leaving a Thread lowers its pending background reads
+below the current Thread's work. Every cached message's body is brought onto the
+device whether or not its view is mounted.
+
+Every message header stays mounted, but a body view and its rich document mount
+only while the message lies within one viewport of the visible range (the opened
+message's body always stays mounted). A body that leaves that range keeps its
+measured height, and returning to it opens the body from the device again,
+including its quoted text collapsed and, under **Ask**, a new Remote Message
+Content consent.
+
+The `registration-thread` [Mock Mail Session](mock-mail-sessions.md) journey
+checks scroll-to, the visible text position before and after a held newer body
+above resolves following a drag, and body unmounting and remounting on iPhone and
+iPad simulators. CI does not run it;
+highlight accessibility and physical devices still require validation.
 
 ## Summaries
 

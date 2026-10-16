@@ -394,7 +394,7 @@ custody and cleanup ordering remain unchanged.
 ## Shared presentation budget across connections
 
 `createMailboxes` passes one body coordinator to every connection's Inbox. Besides
-its four-load semaphore and interactive latch, it owns the image reservation
+its four-load ranked queue and interactive latch, it owns the image reservation
 ledgers. Each Inbox uses an opaque owner token for its local reader ledger, so
 provider message IDs shared by different connections never collide. Admission
 sums every ledger and excludes only the reservation being replaced within its own

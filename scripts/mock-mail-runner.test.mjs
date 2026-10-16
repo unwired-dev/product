@@ -249,6 +249,7 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-revoked', 'normal'],
     ['registration-removal', 'normal'],
     ['registration-draft-editor', 'normal'],
+    ['registration-thread', 'normal'],
     ['categorization-spike', 'sourceFile'],
   ]);
   // Only the evaluation scenario substitutes the packaged Tiptap page for the empty default.
@@ -270,6 +271,7 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['open-read-relaunch', 'normal'],
     ['registration-apple', 'sourceFile'],
     ['registration-draft-editor', 'sourceFile'],
+    ['registration-thread', 'sourceFile'],
     ['registration-enrollment', 'normal'],
   ]);
   const script = seedScript('@private-email/mail-core/inbox-seed', 'ios');

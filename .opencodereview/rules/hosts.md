@@ -730,6 +730,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   fail-closed unresolved-policy state, and exercise the transition through the
   real settings store and reader rather than only checking the button.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
+- `message-detail.tsx.ThreadMessageList` keeping the opened message ahead of
+  visible bodies after the person drags it offscreen. Initial scroll targeting
+  must end with the pin; check a still-queued opened body while another message
+  becomes visible. Keep mounting and fetch rank separate, or preserving the
+  opened view can permanently override the reader's viewport priority.
 - `message-detail.tsx.ThreadMessages` or another multi-message rich reader treating
   bounded download concurrency, image reservations or viewport fetch priority as
   a bound on mounted bodies. Trace mounted `GmailMessageBody`/WebView instances and

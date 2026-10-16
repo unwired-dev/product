@@ -1,5 +1,6 @@
 #if UNWIRED_REGISTRATION_MOCK
   import CryptoKit
+  import CoreFoundation
   import Foundation
   import React
 
@@ -95,6 +96,36 @@
       case ProductSyncWriteFailure.payloadChanged.rawValue: ProductSyncWriteFailure.payloadChanged
       default: RegistrationError.unavailable
       }
+    }
+  }
+
+  // Hold the above-body reply outside registration custody until the external XCTest releases it.
+  @MainActor enum SyntheticThreadBodyBarrier {
+    private static var released = false
+
+    static func wait(_ operation: String, reply: [String: Any]) async throws {
+      guard
+        Bundle.main.object(forInfoDictionaryKey: "UnwiredMockScenario") as? String
+          == "registration-thread",
+        operation == "gmailRequest", let body = reply["body"] as? String,
+        let message = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+        message["id"] as? String == "19a0c0ffee000014",
+        let payload = message["payload"] as? [String: Any], payload["body"] != nil,
+        let bundle = Bundle.main.bundleIdentifier
+      else { return }
+      let center = CFNotificationCenterGetDarwinNotifyCenter()
+      let name = (bundle + ".thread-body-release") as CFString
+      released = false
+      CFNotificationCenterAddObserver(
+        center, nil,
+        { _, _, _, _, _ in Task { @MainActor in SyntheticThreadBodyBarrier.released = true } },
+        name, nil, .deliverImmediately)
+      defer { CFNotificationCenterRemoveObserver(center, nil, CFNotificationName(name), nil) }
+      for _ in 0..<2400 {
+        try await Task.sleep(for: .milliseconds(25))
+        if released { return }
+      }
+      throw RegistrationError.unavailable
     }
   }
 

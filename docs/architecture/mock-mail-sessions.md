@@ -34,3 +34,11 @@ verifier for the journey's fixed Recovery Key. Backend records persist through
 the relay's run-scoped Keychain item; mailbox mutations retain their original
 launch-only lifetime. Mocked journeys remain separate from real provider and
 native qualification under ADR 0060.
+
+`registration-thread` adds six long plain-text messages. Its mock-only native
+reply barrier holds Crew 4's full body after the registration operation gate has
+released, so other bodies and cache commits can finish. The XCTest runner posts a
+bundle-scoped Darwin notification only after dragging and recording a visible
+text coordinate. The barrier removes its notification observer on completion or
+interruption and refuses after a bounded wait; time never releases a successful
+reply. Production does not compile the barrier or its call site.

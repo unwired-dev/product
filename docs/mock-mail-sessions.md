@@ -43,12 +43,13 @@ summarizes a message through this synthetic native binding.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the twelve registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the thirteen registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence),
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
-[sign-out and deletion](account-removal.md#deterministic-evidence) and the
-[Tiptap Draft editor evaluation](draft-editor-evaluation.md).
+[sign-out and deletion](account-removal.md#deterministic-evidence), the
+[Tiptap Draft editor evaluation](draft-editor-evaluation.md) and the
+[Thread view](catch-up.md#thread-view).
 The registration journeys use the real native vault, Keychain and encrypted Inbox store.
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
@@ -102,6 +103,15 @@ In `registration-draft-editor`, the journey signs in like Google registration, t
 types a new Draft into the Tiptap evaluation editor, rotates or resizes it, closes it
 and reopens it after relaunch. It is the only registration scenario whose
 JavaScript differs from production: its bundles substitute the packaged editor page.
+In `registration-thread`, the synthetic Gmail mailbox also lists one Thread of six
+plain-text messages from Crew 1 to Crew 6, each body taller than a screen. The
+journey signs in like Google registration, then cold-opens the Thread view at
+Crew 3 through its `unwired-mail://thread/<id>?mailbox=<connection>` deep link. It
+checks that the opened message starts in the upper half of the screen, then drags
+into its text while Crew 4's body reply is held. Releasing that reply must retain
+the visible text position. It also checks that Crew 6's body unmounts once it lies
+more than a screen away, and that scrolling back to Crew 6 mounts it again. CI
+does not run this scenario; it is local native evidence.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift

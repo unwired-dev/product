@@ -160,6 +160,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Evidence is labelled honestly
 
+- A Thread anchoring journey recording its baseline only after above-viewport
+  bodies have resolved. For `registration-thread`, record a visible text position
+  after dragging while an above-body response is held, release it externally,
+  observe completion and compare the position on both iPhone and iPad. A final
+  header position alone cannot qualify preservation through that transition.
+
 - `scripts/testflight-signing.test.rb` validating imported signing material only
   with Ruby OpenSSL while substituting macOS `security`. That proves preparation
   and orchestration, not Apple's native importer or key-access compatibility.

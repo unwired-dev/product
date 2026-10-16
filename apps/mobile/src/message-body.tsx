@@ -431,20 +431,35 @@ export function useReaderScrollTo() {
   return use(ReaderViewportContext)?.scrollTo;
 }
 
+// The visible range of the enclosing reader, for content that loads only near it.
+export function useReaderViewport() {
+  return use(ReaderViewportContext);
+}
+
 // The reader's scrolling content, reporting its visible range to the documents inside it.
 export function ReaderScrollView({
   children,
   contentContainerStyle,
   maintainVisibleContentPosition,
+  onScrollBeginDrag,
 }: Pick<
   ScrollViewProps,
-  'children' | 'contentContainerStyle' | 'maintainVisibleContentPosition'
+  | 'children'
+  | 'contentContainerStyle'
+  | 'maintainVisibleContentPosition'
+  | 'onScrollBeginDrag'
 >) {
   const scroll = useRef<ScrollView>(null);
   // oxlint-disable-next-line react/hook-use-state -- The viewport store is created once and updates its listeners.
   const [viewport] = useState(() => {
     const listeners = new Set<() => void>();
     let visible = { offset: 0, height: 0 };
+    const update = (next: Partial<typeof visible>) => {
+      visible = { ...visible, ...next };
+      for (const listener of listeners) {
+        listener();
+      }
+    };
     return {
       subscribe: (listener: () => void) => {
         listeners.add(listener);
@@ -456,13 +471,9 @@ export function ReaderScrollView({
       content: () => scroll.current?.getNativeScrollRef(),
       scrollTo: (offset: number) => {
         scroll.current?.scrollTo({ y: offset, animated: false });
+        update({ offset });
       },
-      update: (next: Partial<typeof visible>) => {
-        visible = { ...visible, ...next };
-        for (const listener of listeners) {
-          listener();
-        }
-      },
+      update,
     };
   });
   return (
@@ -471,6 +482,7 @@ export function ReaderScrollView({
         ref={scroll}
         contentContainerStyle={contentContainerStyle}
         maintainVisibleContentPosition={maintainVisibleContentPosition}
+        onScrollBeginDrag={onScrollBeginDrag}
         scrollEventThrottle={100}
         onLayout={({ nativeEvent }) => {
           viewport.update({ height: nativeEvent.layout.height });
