@@ -752,21 +752,39 @@ const settleObserved = (
     messages.filter(({ id }) => id !== head.message.id),
   );
   const { checkpoint } = document;
-  if (
-    (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') ||
-    next.views === undefined
-  ) {
+  if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
     return next;
   }
+  // History cannot name the older message that now fits, so a full Inbox is listed again.
+  const inbox =
+    checkpoint.kind === 'current' &&
+    document.messages.length === cacheLimit &&
+    next.messages.length < cacheLimit
+      ? {
+          checkpoint: {
+            kind: 'backfill' as const,
+            historyId: checkpoint.historyId,
+            seen: [],
+          },
+        }
+      : {};
   return {
     ...next,
-    views: next.views.map((entry, index) =>
-      entry.listing === undefined &&
-      document.views?.[index]?.messages.length === cacheLimit &&
-      entry.messages.length < cacheLimit
-        ? { ...entry, listing: { historyId: checkpoint.historyId, seen: [] } }
-        : entry,
-    ),
+    ...inbox,
+    ...(next.views === undefined
+      ? {}
+      : {
+          views: next.views.map((entry, index) =>
+            entry.listing === undefined &&
+            document.views?.[index]?.messages.length === cacheLimit &&
+            entry.messages.length < cacheLimit
+              ? {
+                  ...entry,
+                  listing: { historyId: checkpoint.historyId, seen: [] },
+                }
+              : entry,
+          ),
+        }),
   };
 };
 
