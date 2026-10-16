@@ -178,7 +178,9 @@ and retains the parsed readable body and admitted inline images in the Bounded
 Encrypted Body Cache for later opens without the server.
 The reader shows sanitized HTML or plain text and inline `cid:` images within the
 per-message and shared display budgets, including repeated images and multiple windows.
-A reader held back by the shared budget shows its images once a Gmail or IMAP reader closes.
+A reader held back by the shared budget shows its images once a Gmail or IMAP reader closes
+or hides Remote Message Content, or Gmail removes a message from its cached views
+or refreshes it to a smaller presentation.
 
 Remote Message Content in IMAP mail follows the device's remote content policy and the
 connection's own setting in Settings, with the same **Load images** consent, Authorized

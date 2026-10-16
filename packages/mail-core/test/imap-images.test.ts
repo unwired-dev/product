@@ -60,6 +60,14 @@ const cached = (id: string, copies: number) => ({
     },
   }),
 });
+const photo = 'https://images.example/photo.png';
+const remoteBody = (id: string) => ({
+  document: JSON.stringify({
+    version: 2,
+    id,
+    html: `<p>Photo</p>${`<img src="${photo}">`.repeat(2)}`,
+  }),
+});
 const firstId = (inbox: ImapInbox) => {
   const state = inbox.getSnapshot();
   assert.equal(state.kind, 'ready');
@@ -300,6 +308,114 @@ describe('imap reader image and lifetime boundaries', () => {
     ).toStrictEqual([]);
   });
   /* oxlint-enable vitest/max-expects */
+
+  it.each(['synchronization removal', 'body refresh'] as const)(
+    'shows waiting IMAP images after Gmail %s',
+    async (release) => {
+      expect.hasAssertions();
+      const shared = createBodyLoads();
+      const gmail = createSyntheticGmail();
+      const first = gmail.deliver({});
+      const second = gmail.deliver({});
+      gmail.native.openMessageBody = (_scope, id) =>
+        Promise.resolve(cached(id, 1));
+      const gmailInbox = createGmailInbox(gmail.native, { shared });
+      await gmailInbox.load();
+      const closeFirst = gmailInbox.retainMessage(first);
+      const closeSecond = gmailInbox.retainMessage(second);
+      await gmailInbox.readMessage(first);
+      await gmailInbox.readMessage(second);
+
+      const imap = createSyntheticImap();
+      imap.deliver('INBOX', { subject: 'Photo' });
+      vi.spyOn(imap.native, 'openMessageBody').mockImplementation(
+        (_scope, id) => Promise.resolve(cached(id, 1)),
+      );
+      const inbox = createImapInbox(imap.native, { shared });
+      await inbox.load();
+      const id = firstId(inbox);
+      const closeImap = inbox.retainMessage(id);
+      await inbox.readMessage(id);
+      expect(rich(inbox, id).document).not.toContain('data:image/png');
+
+      const releaseBody = {
+        'synchronization removal': () => {
+          gmail.remove(first);
+          return gmailInbox.load();
+        },
+        'body refresh': () => {
+          gmail.native.openMessageBody = (_scope, message) =>
+            Promise.resolve(cached(message, 0));
+          return gmailInbox.readMessage(first, { refresh: true });
+        },
+      };
+      await releaseBody[release]();
+      expect(rich(inbox, id).document).toContain('data:image/png');
+      closeFirst();
+      closeSecond();
+      closeImap();
+    },
+  );
+
+  it.each([
+    {
+      provider: 'Gmail',
+      other: 'IMAP',
+      gmailBody: remoteBody,
+      imapBody: (id: string) => cached(id, 1),
+    },
+    {
+      provider: 'IMAP',
+      other: 'Gmail',
+      gmailBody: (id: string) => cached(id, 1),
+      imapBody: remoteBody,
+    },
+  ] as const)(
+    'shows waiting inline images when $provider hides remote content',
+    async ({ provider, other, gmailBody, imapBody }) => {
+      expect.hasAssertions();
+      const shared = createBodyLoads();
+      const gmail = createSyntheticGmail();
+      const gmailId = gmail.deliver({});
+      gmail.serveRemote(photo, { data: image });
+      gmail.native.openMessageBody = (_scope, id) =>
+        Promise.resolve(gmailBody(id));
+      const gmailInbox = createGmailInbox(gmail.native, { shared });
+      await gmailInbox.load();
+      const imap = createSyntheticImap();
+      imap.deliver('INBOX', { subject: 'Photo' });
+      imap.serveRemote(photo, { data: image });
+      vi.spyOn(imap.native, 'openMessageBody').mockImplementation(
+        (_scope, id) => Promise.resolve(imapBody(id)),
+      );
+      const inbox = createImapInbox(imap.native, { shared });
+      await inbox.load();
+      const imapId = firstId(inbox);
+      const stores = {
+        Gmail: { inbox: gmailInbox, id: gmailId },
+        IMAP: { inbox, id: imapId },
+      };
+      const holder = stores[provider];
+      const waiting = stores[other];
+      const closeHolder = holder.inbox.retainMessage(holder.id);
+      await holder.inbox.readMessage(holder.id);
+      await holder.inbox.loadRemoteImages(holder.id, [photo], true);
+      const closeWaiting = waiting.inbox.retainMessage(waiting.id);
+      await waiting.inbox.readMessage(waiting.id);
+      const before = waiting.inbox.messageBody(waiting.id);
+      assert.equal(before?.kind, 'ready');
+      expect(before.presentation.rich?.document).not.toContain(
+        'data:image/png',
+      );
+
+      holder.inbox.forgetRemoteImages(holder.id);
+      const after = waiting.inbox.messageBody(waiting.id);
+      assert.equal(after?.kind, 'ready');
+      expect(after.presentation.rich?.document).toContain('data:image/png');
+      closeHolder();
+      closeWaiting();
+    },
+  );
 
   it('retries the surviving legacy readers with their reduced image cost', async () => {
     expect.hasAssertions();

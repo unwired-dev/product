@@ -1848,6 +1848,8 @@ export function createGmailInbox(
         limitedReaders.delete(reader);
       }
     }
+    presentWaiting();
+    shared.released(imageOwner);
   };
 
   // Search readers keep their bodies after Inbox removal, but removal still ends file ownership.
@@ -2014,6 +2016,8 @@ export function createGmailInbox(
       }
     }
     notify(state);
+    presentWaiting();
+    shared.released(imageOwner);
   };
 
   const reservedImages = (key: string | symbol) => {
@@ -4276,7 +4280,11 @@ export function createGmailInbox(
     loadRemoteImages: remoteContent.load,
     // Drops a message's loaded Remote Message Content from memory and presents it again, as when
     // its policy becomes Never; cached bytes stay until eviction or Clear Remote Content.
-    forgetRemoteImages: remoteContent.forget,
+    forgetRemoteImages: (id: string) => {
+      remoteContent.forget(id);
+      presentWaiting();
+      shared.released(imageOwner);
+    },
     // A failed rich view discards its document immediately and returns its image reservation.
     discardRichMessage: (
       id: string,

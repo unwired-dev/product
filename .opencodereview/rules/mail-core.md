@@ -167,6 +167,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   hidden until reopen, or closing an uncharged reader clears another window's
   pending link confirmation and reloads its unchanged WebView.
 
+- `gmail-inbox.ts.releaseBody` or another shared image-ledger release waking only
+  the releasing store's readers or only reader-close paths. Re-admit limited
+  readers across every registered store after reservation cleanup, including
+  synchronization removal, body eviction, a smaller refreshed presentation and
+  hiding Remote Message Content, while keeping unaffected presentations stable.
+  Otherwise another mailbox keeps placeholders after the aggregate display budget
+  has room for its images.
+
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.

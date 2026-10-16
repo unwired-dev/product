@@ -2117,7 +2117,11 @@ export function createImapInbox(
     loadRemoteImages: remoteContent.load,
     // Drops a message's loaded Remote Message Content from memory and presents it again, as when
     // its policy becomes Never; cached bytes stay until eviction or Clear Remote Content.
-    forgetRemoteImages: remoteContent.forget,
+    forgetRemoteImages: (id: string) => {
+      remoteContent.forget(id);
+      presentWaiting();
+      shared.released(imageOwner);
+    },
     // A failed rich view falls back to the readable text.
     discardRichMessage: (
       id: string,
