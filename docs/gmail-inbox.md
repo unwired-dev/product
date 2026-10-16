@@ -802,7 +802,11 @@ Count every independent reader, including multiple Mac windows displaying the
 same message. Each reader admits its own prepared presentation; if adding a
 reader would exceed the budget, images that do not fit remain placeholders only
 in that new reader. Existing readers keep their document and position. Closing
-one reader returns only its own cost. A stale
+one reader returns only its own cost, which the readers held back by the budget
+then use without reopening, whichever message and Gmail or IMAP connection they
+show; readers that were not held back keep their presentation. Removing a message
+from the cached views, refreshing it to a smaller presentation or hiding Remote
+Message Content also frees its display budget for waiting inline images. A stale
 load or close from an earlier Inbox owner cannot change the current budget.
 
 Save admitted inline bytes and their validated resolution state with the encrypted
