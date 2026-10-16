@@ -5,6 +5,8 @@ import * as Order from 'effect/Order';
 
 import type { NativeImapMailbox } from '../imap-inbox.ts';
 
+import { createSyntheticRemoteContent } from './remote-content.ts';
+
 // A controlled IMAP server behind one connection, with the encrypted cache native code keeps for
 // it. Synchronization answers as the native engine does: without a checkpoint at the folder's
 // UIDVALIDITY it lists the newest messages again; otherwise it reads the flags of the known
@@ -203,7 +205,14 @@ export function createSyntheticImap({
     return answer({ outcome: 'moved', ...copied });
   };
 
+  // A controlled image server for the connection's Remote Message Content.
+  const remote = createSyntheticRemoteContent(
+    (owner) =>
+      owner.address === address && owner.generation === cache.generation,
+    () => address,
+  );
   const native: NativeImapMailbox = {
+    ...remote.native,
     imapSend: (message) => {
       const { failure } = smtp;
       smtp.failure = undefined;
@@ -471,6 +480,7 @@ export function createSyntheticImap({
     smtp,
     cache,
     bodies,
+    ...remote.controls,
     // Ends every IDLE wait, as a change to the watched folder or the wait's bound would.
     notify: (changed = true) => {
       for (const end of idles.splice(0)) {

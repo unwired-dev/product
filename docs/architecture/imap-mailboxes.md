@@ -58,9 +58,20 @@ metadata before dropping retired views; commit refusal preserves the previous
 listing and evicted-folder rows. Still-selectable evicted views continue to
 protect their saved bodies.
 MIME parsing feeds the shared sanitizer, with positional capture extraction for
-native runtimes, bounded depth/parts and blocked remote content. IMAP reader owners
+native runtimes and bounded depth/parts. IMAP reader owners
 use the same display allocation coordinator as Gmail, charging repeated images and
 simultaneous windows, releasing allocations on reader cleanup and rich-body failure.
+
+Issue #1019 adds Remote Message Content through the shared loader. The host resolves
+the device policy and connection override before authorizing the loader, as for Gmail.
+The connection-bound native operations use the existing Authorized Remote Content
+Cache; message IDs include folder, UIDVALIDITY and UID, so a new identity cannot reuse
+the old identity's authorization. Still-shown old rows remain readable until their
+view is replaced. Loaded remote images share the display budget with inline images
+and other readers. Last-reader closure, Inbox closure and access-closing failures
+release remote work; a failed rich presentation withdraws that reader's interest.
+Attachments remain counted only, and prefetch and reader responses remain follow-up
+work under #882.
 
 Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies

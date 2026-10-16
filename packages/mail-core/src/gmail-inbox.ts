@@ -92,7 +92,10 @@ import {
   withinMetadataBudgets,
 } from './message-body.ts';
 import { graphChange } from './microsoft-graph.ts';
-import { createRemoteContentLoader } from './remote-content-loader.ts';
+import {
+  createRemoteContentLoader,
+  shownRemote,
+} from './remote-content-loader.ts';
 
 export type { GmailMessage } from './mailbox-document.ts';
 export type { RemoteResource } from './remote-content-loader.ts';
@@ -1768,27 +1771,11 @@ export function createGmailInbox(
     { bytes: number; pixels: number }
   >();
   const readingBodies = new Map<string, Promise<void>>();
-  // The rich presentation a reader shows of a message.
-  const richView = (id: string, reader: string | symbol) => {
-    if (typeof reader === 'symbol' && viewReaders.get(reader) !== id) {
-      return undefined;
-    }
-    const body =
-      typeof reader === 'symbol' ? viewBodies.get(reader) : bodies.get(id);
-    return body?.kind === 'ready' ? body.presentation.rich : undefined;
-  };
   const remoteContent = createRemoteContentLoader(native, {
     connection,
     shared,
     scope: readableScope,
-    presented: (id, reader) => richView(id, reader)?.remote,
-    displayed: (id) =>
-      [
-        ...[...viewReaders]
-          .filter(([, message]) => message === id)
-          .map(([reader]) => reader),
-        ...((legacyReaders.get(id) ?? 0) > 0 ? [id] : []),
-      ].flatMap((reader) => richView(id, reader)?.remote ?? []),
+    ...shownRemote({ viewReaders, viewBodies, bodies, legacyReaders }),
     inlineImages: (id) => documents.get(id)?.images?.admitted.length ?? 0,
     present: prepareRemotePresentations,
     notify: () => {

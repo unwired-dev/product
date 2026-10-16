@@ -20,32 +20,44 @@ import {
   withoutLinkFrom,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
+import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
 // An IMAP message's body, downloaded once and then read from this device. Remote Message Content
-// is never loaded for IMAP mail yet, and its attachments are only counted; links open only after
-// the person confirms the destination shown here.
+// follows the connection's policy as for Gmail mail, and attachments are only counted; links open
+// only after the person confirms the destination shown here.
 export function ImapMessageBody({
   inbox,
   id,
   subject,
+  connection,
 }: {
   readonly inbox: ImapInbox;
   readonly id: string;
   readonly subject?: string | undefined;
+  // The Mailbox Connection whose remote content policy applies.
+  readonly connection?: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const confirm = use(LinkConfirmationContext);
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('IMAP reader'));
+  const remoteImages = useRemoteImages({
+    inbox,
+    id,
+    reader,
+    connection,
+    current,
+  });
   const body = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageBody(id, reader),
   );
-  const showing = useRef<{ readonly inbox: ImapInbox; readonly id: string }>(
-    undefined,
-  );
+  const showing = useRef<{
+    readonly inbox: ImapInbox;
+    readonly id: string;
+  }>(undefined);
   useLayoutEffect(() => {
     showing.current = { inbox, id };
     return () => {
@@ -93,10 +105,13 @@ export function ImapMessageBody({
       </View>
     );
   }
-  const current = () =>
-    showing.current?.inbox === inbox &&
-    showing.current.id === id &&
-    inbox.messageBody(id, reader) === body;
+  function current() {
+    return (
+      showing.current?.inbox === inbox &&
+      showing.current.id === id &&
+      inbox.messageBody(id, reader) === body
+    );
+  }
   return (
     <View style={styles.body}>
       <View style={styles.assistance}>
@@ -112,11 +127,6 @@ export function ImapMessageBody({
           body={body.presentation.readable}
         />
       </View>
-      {(body.presentation.rich?.remote.images.length ?? 0) > 0 ? (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('messageBody.imap-remote')}
-        </Text>
-      ) : null}
       <Presentation
         onCopy={(link) => {
           if (current()) {
@@ -124,8 +134,8 @@ export function ImapMessageBody({
           }
         }}
         presentation={body.presentation}
-        onNear={() => undefined}
-        onLoadImages={undefined}
+        onNear={remoteImages.handleNear}
+        onLoadImages={remoteImages.handleLoadImages}
         onFailure={() => {
           if (current()) {
             inbox.discardRichMessage(id, body.presentation, reader);

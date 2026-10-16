@@ -84,6 +84,43 @@ const remoteImageLoaded = (result: RemoteImageResult) =>
   result.kind === 'loaded' || result.kind === 'restored';
 let nextRemoteSession = 0;
 
+type PresentedBody =
+  | Readonly<{ kind: 'ready'; presentation: MessagePresentation }>
+  | Readonly<{ kind: 'loading' | 'unavailable' }>;
+
+// The rich presentations an Inbox's readers show of a message: each window's reader by its
+// symbol, and the legacy readers by the message ID while any is open.
+export const shownRemote = ({
+  viewReaders,
+  viewBodies,
+  bodies,
+  legacyReaders,
+}: Readonly<{
+  viewReaders: ReadonlyMap<symbol, string>;
+  viewBodies: ReadonlyMap<symbol, PresentedBody>;
+  bodies: ReadonlyMap<string, PresentedBody>;
+  legacyReaders: ReadonlyMap<string, number>;
+}>) => {
+  const presented = (id: string, reader: string | symbol) => {
+    if (typeof reader === 'symbol' && viewReaders.get(reader) !== id) {
+      return undefined;
+    }
+    const body =
+      typeof reader === 'symbol' ? viewBodies.get(reader) : bodies.get(id);
+    return body?.kind === 'ready' ? body.presentation.rich?.remote : undefined;
+  };
+  return {
+    presented,
+    displayed: (id: string) =>
+      [
+        ...[...viewReaders]
+          .filter(([, message]) => message === id)
+          .map(([reader]) => reader),
+        ...((legacyReaders.get(id) ?? 0) > 0 ? [id] : []),
+      ].flatMap((reader) => presented(id, reader) ?? []),
+  };
+};
+
 // Remote bytes become content only as one complete supported image within the per-image bounds.
 const admittedRemote = (data: string): RemoteImage | undefined => {
   const bytes = Result.getOrUndefined(Base64.decode(data));
@@ -105,6 +142,7 @@ export function createRemoteContentLoader(
     inlineImages,
     present,
     notify,
+    failed = () => Effect.void,
   }: Readonly<{
     connection: string;
     // Twelve requests account-wide, and the images every connection holds for display.
@@ -126,6 +164,8 @@ export function createRemoteContentLoader(
     // Presents the message's readers again; true when a presentation changed.
     present: (id: string) => boolean;
     notify: () => void;
+    // Lets the Inbox retire its readable state when native storage or ownership is lost.
+    failed?: (mailbox: MailboxScope, cause: unknown) => Effect.Effect<void>;
   }>,
 ) {
   interface RemoteLoad {
@@ -387,6 +427,7 @@ export function createRemoteContentLoader(
       try: () => native.touchRemoteContent(mailbox, resource),
       catch: (cause) => rejected(cause, 'failed'),
     }).pipe(
+      Effect.tapError(({ cause }) => failed(mailbox, cause)),
       Effect.catchTag('SyncFailure', ({ cause, diagnostic }) =>
         rejectionCode(cause) === 'locked'
           ? Effect.void
@@ -444,8 +485,9 @@ export function createRemoteContentLoader(
       }
       return { kind: 'loaded', image } as const;
     },
-    // A refused destination or response is final for the presentation; an unreachable server or
-    // locked storage may recover while the reader stays open.
+    (effect, mailbox) =>
+      effect.pipe(Effect.tapError(({ cause }) => failed(mailbox, cause))),
+    // A refusal is final; transient failures can retry if the Inbox keeps access open.
     Effect.catchTag('SyncFailure', ({ cause, diagnostic }) => {
       const code = rejectionCode(cause);
       if (code === 'refused') {
@@ -480,6 +522,7 @@ export function createRemoteContentLoader(
           reply,
         ).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
       ),
+      Effect.tapError(({ cause }) => failed(mailbox, cause)),
       Effect.catchTag('SyncFailure', ({ diagnostic }) =>
         Effect.logError('Remote content could not be cached:', diagnostic),
       ),

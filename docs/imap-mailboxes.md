@@ -179,10 +179,15 @@ Encrypted Body Cache for later opens without the server.
 The reader shows sanitized HTML or plain text and inline `cid:` images within the
 per-message and shared display budgets, including repeated images and multiple windows.
 
-The current reader supports:
+Remote Message Content in IMAP mail follows the device's remote content policy and the
+connection's own setting in Settings, with the same **Load images** consent, Authorized
+Remote Content Cache, tracking-pixel blocking and shared display budget as
+[Gmail mail](gmail-inbox.md#links-and-blocked-remote-content). Cached images belong to the
+connection and the message's UIDVALIDITY and UID, so a folder with a new UIDVALIDITY
+restores none of them. Closing a message's last reader, or its Inbox, ends its remote loads.
 
-- Remote Message Content is never loaded for IMAP mail; the reader says so, and the
-  per-mailbox remote content setting is not offered for IMAP connections.
+The current reader also supports:
+
 - Received attachments are counted, not listed or downloadable.
 - There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
   message can be sent from an IMAP connection, as [Sending](#sending) describes.
@@ -288,7 +293,7 @@ sources without Swift packages and gets an engine stub instead.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
@@ -314,7 +319,10 @@ copy or submission, each refusal before acceptance, an ambiguous acceptance conf
 only by one Sent copy, a stop after acceptance read as unknown, and refusal without a
 Sent folder or verified SMTP. `test/imap-registration.test.ts` checks that SMTP is
 verified on its own with its own password and that each form builds its reviewed SMTP
-endpoint. The native suite checks password custody, Gmail isolation and stale
+endpoint. `test/imap-remote-content.test.ts` checks that remote images load only once a
+presentation authorizes them, cache restoration and Never, loads ending with the last
+reader and the Inbox, a new UIDVALIDITY restoring nothing, and the display budget shared
+with Gmail readers. The native suite checks password custody, Gmail isolation and stale
 operations, SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing
 a connection before credentials are sent.
