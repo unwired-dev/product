@@ -245,12 +245,27 @@ describe('the synthetic Gmail mailbox answers as Gmail does', () => {
             yield* Schema.decodeEffect(Page)(body);
           return { ids: messages.map(({ id }) => id), nextPageToken };
         });
-        expect(yield* page('?format=metadata')).toStrictEqual({
+        expect(yield* page('?labelIds=INBOX')).toStrictEqual({
           ids: ['19a0c0ffee000001', '19a0c0ffee000002'],
           nextPageToken: '2',
         });
-        expect(yield* page('?format=metadata&pageToken=2')).toStrictEqual({
+        expect(yield* page('?labelIds=INBOX&pageToken=2')).toStrictEqual({
           ids: ['19a0c0ffee000003'],
+          nextPageToken: undefined,
+        });
+        // Other views list the packaged label's archived message and the trashed one.
+        expect(yield* page('?labelIds=Label_1')).toStrictEqual({
+          ids: ['19a0c0ffee000004'],
+          nextPageToken: undefined,
+        });
+        expect(yield* page('?labelIds=TRASH')).toStrictEqual({
+          ids: [],
+          nextPageToken: undefined,
+        });
+        expect(
+          yield* page('?labelIds=TRASH&includeSpamTrash=true'),
+        ).toStrictEqual({
+          ids: ['19a0c0ffee000005'],
           nextPageToken: undefined,
         });
       }),

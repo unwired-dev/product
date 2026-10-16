@@ -1,11 +1,14 @@
+import * as Arr from 'effect/Array';
 import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Layer from 'effect/Layer';
+import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type { Reply, RequestURL } from './synthetic-relay.ts';
 
+import { allMail, inView } from '../gmail-actions.ts';
 import {
   SyntheticScenario,
   refuse,
@@ -26,8 +29,9 @@ interface SyntheticGmailMessage {
   readonly disposition?: string;
 }
 
-// A synthetic Gmail mailbox: three Inbox messages over two list pages and one label. Label changes
-// from this launch apply; history reports no other changes.
+// A synthetic Gmail mailbox: three Inbox messages over two list pages, one label with an archived
+// message, and a trashed message. Label changes from this launch apply; history reports no other
+// changes.
 export const SyntheticGmailMessages = Context.Reference<
   Readonly<Record<string, SyntheticGmailMessage>>
 >('@private-email/mail-core/testing/SyntheticGmailMessages', {
@@ -58,6 +62,22 @@ export const SyntheticGmailMessages = Context.Reference<
       internalDate: '1759046400000',
       labelIds: ['INBOX', 'CATEGORY_UPDATES'],
       text: 'Nothing here came from a real mailbox.',
+    },
+    '19a0c0ffee000004': {
+      from: 'Lena Park <lena@example.invalid>',
+      subject: 'Train tickets to Vienna',
+      snippet: 'Both seats are booked for the 9:10 departure.',
+      internalDate: '1758960000000',
+      labelIds: ['Label_1'],
+      text: 'Both seats are booked for the 9:10 departure.',
+    },
+    '19a0c0ffee000005': {
+      from: 'Store <orders@example.invalid>',
+      subject: 'Your order has shipped',
+      snippet: 'Your parcel is on its way.',
+      internalDate: '1758873600000',
+      labelIds: ['TRASH'],
+      text: 'Your parcel is on its way.',
     },
   }),
 });
@@ -103,6 +123,13 @@ const mimeHeaders = (message: SyntheticGmailMessage, mimeType: string) => [
     : [{ name: 'Content-Disposition', value: message.disposition }]),
 ];
 const missing: Reply = { status: 404, body: '' };
+const newestFirst = Order.flip(
+  Order.mapInput(
+    Order.Number,
+    ([, message]: readonly [string, SyntheticGmailMessage]) =>
+      Number(message.internalDate ?? 0),
+  ),
+);
 
 const mimeTypeOf = (message: SyntheticGmailMessage) =>
   message.html === undefined ? 'text/plain' : 'text/html';
@@ -275,12 +302,26 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
             labels: [{ id: 'Label_1', name: 'Travel', type: 'user' }],
           }),
         modify: ({ segments }, body) => modify(segments.at(-2) ?? '', body),
-        // The first two messages, then the rest on a second page.
+        // The Inbox and search list the Inbox messages, the first two then the rest on a second
+        // page; another view lists its messages as Gmail does, Spam and Trash only with
+        // includeSpamTrash and every other message without a label.
         messages: ({ item }) => {
-          const listed = Object.keys(messages).map((id) => ({
-            id,
-            threadId: threadOf(id),
-          }));
+          if (item('labelIds') !== 'INBOX' && item('q') === undefined) {
+            return reply(200, {
+              messages: Arr.sort(
+                Object.entries(messages).filter(
+                  ([id]) =>
+                    inView(item('labelIds') ?? allMail, labels.get(id) ?? []) &&
+                    (item('includeSpamTrash') === 'true' ||
+                      !['SPAM', 'TRASH'].includes(item('labelIds') ?? '')),
+                ),
+                newestFirst,
+              ).map(([id]) => ({ id, threadId: threadOf(id) })),
+            });
+          }
+          const listed = Object.entries(messages)
+            .filter(([, message]) => message.labelIds?.includes('INBOX'))
+            .map(([id]) => ({ id, threadId: threadOf(id) }));
           return reply(
             200,
             item('pageToken') === '2'

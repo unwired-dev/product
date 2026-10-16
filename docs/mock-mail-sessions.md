@@ -58,8 +58,9 @@ build, answer as Google, Apple, Microsoft and Convex would. `registration-enroll
 still uses a native synthetic provider, because its trusted device seals a live
 approval with CryptoKit ([#960](https://github.com/unwired-dev/product/issues/960)).
 The synthetic Google layer also answers the [Gmail Inbox](gmail-inbox.md#deterministic-evidence)'s
-requests from a synthetic mailbox of three messages over two list pages and one
-label, each with a synthetic HTML or plain-text body for the reader, applying label
+requests from a synthetic mailbox of three Inbox messages over two list pages, one
+label with an archived message, and a trashed message, listing each view as Gmail
+does, each with a synthetic HTML or plain-text body for the reader, applying label
 changes for the rest of the launch. Journeys that confirm setup with a connected
 mailbox open that synchronized Inbox, open a message, star, archive and undo,
 relaunch from its encrypted cache and return to the account page. A synthetic

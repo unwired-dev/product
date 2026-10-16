@@ -2643,6 +2643,7 @@ function ReaderApp({
   drafts,
   gmail,
   message,
+  folder,
   senders,
   mailboxes: providedMailboxes,
 }: {
@@ -2650,6 +2651,7 @@ function ReaderApp({
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly gmail: ReturnType<typeof createSyntheticGmail>;
   readonly message: string;
+  readonly folder?: string;
   readonly senders?: ReturnType<typeof mailboxesOf>;
   readonly mailboxes?: MailboxList;
 }) {
@@ -2680,12 +2682,14 @@ function ReaderApp({
           onCompose={setComposing}
           onSelect={ignore}
           selected={undefined}
+          view={folder === undefined ? {} : { mailbox: alex, folder }}
         />
         {composing === undefined ? (
           <View testID="message-reader">
             <MessageDetail
               id={message}
               mailbox={alex}
+              folder={folder}
               onCompose={setComposing}
             />
           </View>
@@ -3453,6 +3457,47 @@ describe('adding files and images to a Draft', () => {
 
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it.each(['TRASH', 'SPAM'])(
+    'restores mail from %s through the iPhone Reply sheet',
+    async (folder) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        subject: 'Recover these plans',
+        content: { text: 'Meet on Friday?' },
+        headers: { 'Message-ID': '<recover@example.invalid>' },
+      });
+      gmail.setLabel(message, folder, true);
+      gmail.setLabel(message, 'INBOX', false);
+      await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          folder={folder}
+          registration={registration}
+        />,
+      );
+      await screen.findByRole('button', { name: 'Reply' });
+      await press('Reply');
+      expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: 'Move to Trash' }),
+      ).toBeNull();
+      await press('Move to Inbox');
+      await waitFor(() => {
+        expect(gmail.labelsOf(message)).toContain('INBOX');
+        expect(gmail.labelsOf(message)).not.toContain(folder);
+      });
+      expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+    },
+  );
+
   it('offers the Thread actions in the iPhone Reply sheet beside More', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

@@ -35,15 +35,19 @@ import type { MailGrantProvider } from './registration.ts';
 
 import { rejectionCode, runLogged } from './diagnostics.ts';
 import {
+  allMail,
   canOrganize,
   GmailLabelSchema,
   inInbox,
+  inView,
   relabel,
+  systemViews,
 } from './gmail-actions.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { inlineImageLimits, inspectImage } from './inline-images.ts';
 import {
+  cachedViews,
   cacheLimit,
   decodeCache,
   decodeDocument,
@@ -334,6 +338,16 @@ export type OrganizeNotice = Readonly<
 
 type Sync = 'syncing' | 'current' | 'authentication' | 'retry';
 
+// A Gmail view other than the Inbox: its newest messages with requested changes applied. A view
+// whose last read failed keeps its saved messages.
+export type GmailView = Readonly<{
+  label: string;
+  messages: readonly GmailMessage[];
+  status: 'syncing' | 'current' | 'failed';
+  // The view keeps as many messages as it can; older ones stay in Gmail.
+  limited?: true;
+}>;
+
 export type GmailInboxState =
   | { readonly kind: 'loading' | 'locked' | 'failed' }
   | {
@@ -348,6 +362,8 @@ export type GmailInboxState =
       readonly labels: readonly GmailLabel[];
       // More folders exist than `labels` lists.
       readonly labelsLimited?: true;
+      // The Gmail views a reader opened, most recently opened first.
+      readonly views?: readonly GmailView[];
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -512,16 +528,38 @@ const sender = (from: string) => {
   return { sender: name === '' ? address : name, address };
 };
 
-// The cached conversation for a message in this mailbox; listed metadata wins over search copies.
+// A message listed in the exact view its reader belongs to.
+export const viewMessage = (
+  state: Extract<GmailInboxState, { kind: 'ready' }>,
+  id: string,
+  view: string,
+) =>
+  (view === 'INBOX'
+    ? state.messages
+    : state.views?.find(({ label }) => label === view)?.messages
+  )?.find((message) => message.id === id);
+
+// A message the Inbox or another opened view lists.
+export const listedMessage = (
+  state: Extract<GmailInboxState, { kind: 'ready' }>,
+  id: string,
+) =>
+  [state.messages, ...(state.views ?? []).map((view) => view.messages)]
+    .flat()
+    .find((message) => message.id === id);
+
+// The cached conversation for a message in this mailbox; the Inbox's metadata wins over other
+// views', and listed metadata over search copies.
 export function threadMessages(state: GmailInboxState, id: string) {
   if (state.kind !== 'ready') {
     return [];
   }
   const messages = new Map(
-    [...(state.found ?? []), ...state.messages].map((message) => [
-      message.id,
-      message,
-    ]),
+    [
+      ...(state.found ?? []),
+      ...(state.views ?? []).flatMap((view) => view.messages),
+      ...state.messages,
+    ].map((message) => [message.id, message]),
   );
   const opened = messages.get(id);
   return opened === undefined
@@ -545,10 +583,12 @@ const withLabels = (
 ): GmailMessage => ({ ...message, labels, unread: labels.includes('UNREAD') });
 
 // Provider-confirmed messages with the requested changes applied in order. A message that left
-// the cache returns only for a change that puts it back into the Inbox.
+// the cache returns only for a change that puts it back into the view, which is the Inbox, or
+// a label, All Mail, Spam or Trash.
 const organized = (
   messages: readonly GmailMessage[],
   pending: readonly PendingAction[],
+  view = 'INBOX',
 ) => {
   const byId = new Map(
     messages.map((message) => [
@@ -557,10 +597,12 @@ const organized = (
     ]),
   );
   for (const { action, message } of pending) {
+    const before = labelsOf(message);
     const current =
       byId.get(message.id) ??
-      (action.add.includes('INBOX')
-        ? { message, labels: labelsOf(message) }
+      (action.add.includes(view === allMail ? 'INBOX' : view) ||
+      (!inView(view, before) && inView(view, relabel(before, action)))
+        ? { message, labels: before }
         : undefined);
     if (current !== undefined) {
       const labels = relabel(current.labels, action);
@@ -576,10 +618,88 @@ const organized = (
   }
   return Arr.sort(
     [...byId.values()]
-      .filter(({ labels }) => inInbox(labels))
+      .filter(({ labels }) => inView(view, labels))
       .map(({ message }) => message),
     newestFirst,
   );
+};
+
+// The document with `change` applied to the Inbox's messages and to every other view's.
+const everyView = (
+  document: MailboxDocument,
+  change: (
+    view: string,
+    messages: readonly GmailMessage[],
+  ) => readonly GmailMessage[],
+): MailboxDocument => ({
+  ...document,
+  messages: change('INBOX', document.messages),
+  ...(document.views === undefined
+    ? {}
+    : {
+        views: document.views.map((entry) => ({
+          ...entry,
+          messages: change(entry.label, entry.messages),
+        })),
+      }),
+});
+
+// Every message the document keeps, once, whether in the Inbox or in other views.
+const cachedMessages = (document: MailboxDocument) => [
+  ...new Map(
+    [
+      ...(document.views ?? []).flatMap((view) => view.messages),
+      ...document.messages,
+    ].map((message) => [message.id, message]),
+  ).values(),
+];
+
+// History and delta cannot name the older message that now fits after a settlement removes one, so a
+// full Inbox or view it shortened is listed again from the history already applied.
+const withRefills = (
+  before: MailboxDocument,
+  after: MailboxDocument,
+): MailboxDocument => {
+  const { checkpoint } = before;
+  const shortened =
+    before.messages.length === cacheLimit && after.messages.length < cacheLimit;
+  if (checkpoint.kind === 'graph-current' && shortened) {
+    return {
+      ...after,
+      checkpoint: { kind: 'graph-listing', link: checkpoint.link },
+    };
+  }
+  if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
+    return after;
+  }
+  const inbox =
+    checkpoint.kind === 'current' && shortened
+      ? {
+          checkpoint: {
+            kind: 'backfill' as const,
+            historyId: checkpoint.historyId,
+            seen: [],
+          },
+        }
+      : {};
+  return {
+    ...after,
+    ...inbox,
+    ...(after.views === undefined
+      ? {}
+      : {
+          views: after.views.map((entry, index) =>
+            entry.listing === undefined &&
+            before.views?.[index]?.messages.length === cacheLimit &&
+            entry.messages.length < cacheLimit
+              ? {
+                  ...entry,
+                  listing: { historyId: checkpoint.historyId, seen: [] },
+                }
+              : entry,
+          ),
+        }),
+  };
 };
 
 // The document after Gmail answered its oldest pending change: confirmed labels replace the
@@ -592,18 +712,44 @@ const settled = (
   if (head === undefined || confirmed === undefined) {
     return { ...document, pending: rest };
   }
-  const cached = document.messages.find(({ id }) => id === head.message.id);
-  return {
-    ...document,
-    messages:
-      cached === undefined && !inInbox(confirmed)
-        ? document.messages
-        : merge(document.messages, [
-            [head.message.id, withLabels(cached ?? head.message, confirmed)],
-          ]),
+  // A confirmed message leaves every view it no longer belongs to and joins those it now does.
+  return withRefills(document, {
+    ...everyView(document, (view, messages) => {
+      const cached = messages.find(({ id }) => id === head.message.id);
+      if (!inView(view, confirmed)) {
+        return cached === undefined
+          ? messages
+          : messages.filter(({ id }) => id !== head.message.id);
+      }
+      return merge(messages, [
+        [head.message.id, withLabels(cached ?? head.message, confirmed)],
+      ]).slice(0, cacheLimit);
+    }),
     pending: rest,
-  };
+  });
 };
+
+// Whether refreshed labels leave a document's labels and views as they were.
+const sameListing = (before: MailboxDocument, after: MailboxDocument) => {
+  const left = before.labels ?? [];
+  const right = after.labels ?? [];
+  return (
+    after.labelsLimited === before.labelsLimited &&
+    after.views?.length === before.views?.length &&
+    left.length === right.length &&
+    left.every(
+      (label, index) =>
+        label.id === right[index]?.id && label.name === right[index]?.name,
+    )
+  );
+};
+
+// Whether a mailbox with these labels still offers a view: its own labels, All Mail, Spam and Trash.
+const offeredBy =
+  (labels: readonly GmailLabel[]) =>
+  ({ label }: Readonly<{ label: string }>) =>
+    systemViews.some((view) => view === label) ||
+    labels.some(({ id }) => id === label);
 
 // The labels or folders a document lists, and whether some were left out.
 const listedLabels = (document: MailboxDocument | undefined) => ({
@@ -652,10 +798,12 @@ const settleObserved = (
   labels: readonly string[] | undefined,
 ): MailboxDocument =>
   labels === undefined
-    ? {
-        ...settled(document, undefined),
-        messages: document.messages.filter(({ id }) => id !== head.message.id),
-      }
+    ? withRefills(
+        document,
+        everyView(settled(document, undefined), (_view, messages) =>
+          messages.filter(({ id }) => id !== head.message.id),
+        ),
+      )
     : settled(document, labels);
 
 // Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
@@ -1148,15 +1296,23 @@ export function createGmailInbox(
       Effect.catchTag('GmailNotFound', () => Effect.succeedNone),
       Effect.map((message) => [id, Option.getOrUndefined(message)] as const),
     );
-  const fetchAll = (scope: MailboxScope, ids: readonly string[]) =>
-    Effect.forEach(ids, (id) => metadata(scope, id), { concurrency: 4 });
+  const fetchAll = (
+    scope: MailboxScope,
+    ids: readonly string[],
+    anywhere = false,
+  ) =>
+    Effect.forEach(ids, (id) => metadata(scope, id, anywhere), {
+      concurrency: 4,
+    });
 
-  // A new listing starts from the current history ID, so changes during it are replayed after.
-  // Pending changes and labels carry over from the document it replaces.
+  // A new listing starts from the current history ID, or from the still-valid one it was given,
+  // so changes during it are replayed after. Cached messages stay visible meanwhile; pending
+  // changes, labels and other views carry over from the document it replaces. Without a valid
+  // history ID, the other views are listed again.
   const startListing = Effect.fnUntraced(function* (
     scope: MailboxScope,
     previous: MailboxDocument | undefined,
-    messages: readonly GmailMessage[],
+    from?: string,
   ): Effect.fn.Return<
     MailboxDocument,
     SyncFailure | GmailNotFound | GmailInvalidPage
@@ -1172,8 +1328,20 @@ export function createGmailInbox(
     return {
       ...previous,
       version: 1,
-      messages,
-      checkpoint: { kind: 'backfill', historyId: profile.historyId, seen: [] },
+      messages: previous?.messages ?? [],
+      checkpoint: {
+        kind: 'backfill',
+        historyId: from ?? profile.historyId,
+        seen: [],
+      },
+      ...(from === undefined && previous?.views !== undefined
+        ? {
+            views: previous.views.map((entry) => ({
+              ...entry,
+              listing: { historyId: profile.historyId, seen: [] },
+            })),
+          }
+        : {}),
     };
   });
 
@@ -1181,6 +1349,52 @@ export function createGmailInbox(
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   >;
+  type ViewEntry = NonNullable<MailboxDocument['views']>[number];
+  type ListedView = ViewEntry &
+    Readonly<{ listing: NonNullable<ViewEntry['listing']> }>;
+
+  // Reads and reconciles one page for the Inbox or another Gmail view. Callers own their
+  // checkpoint publication and recovery when Gmail rejects a page token.
+  const readListingPage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    { label: view, messages, listing }: ListedView,
+  ) {
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ...(view === allMail ? [] : [['labelIds', view] as const]),
+        // Gmail leaves Spam and Trash out of a listing unless it is asked to include them.
+        ...(view === 'SPAM' || view === 'TRASH'
+          ? [['includeSpamTrash', 'true'] as const]
+          : []),
+        ['maxResults', String(pageSize)],
+        ...(listing.pageToken === undefined
+          ? []
+          : [['pageToken', listing.pageToken] as const]),
+      ],
+      decodeList,
+    );
+    const ids = (page.messages ?? []).map(({ id }) => id);
+    const seen = Arr.dedupe([...listing.seen, ...ids]);
+    const { nextPageToken } = page;
+    const found = (yield* fetchAll(scope, ids, view !== 'INBOX')).map(
+      ([id, message]) =>
+        [
+          id,
+          message !== undefined && inView(view, labelsOf(message))
+            ? message
+            : undefined,
+        ] as const,
+    );
+    return {
+      ...listedPage(messages, found, {
+        seen,
+        more: nextPageToken !== undefined,
+      }),
+      seen,
+      nextPageToken,
+    };
+  });
 
   // Lists the next Inbox page from a backfill checkpoint.
   const continueListing = Effect.fnUntraced(function* (
@@ -1188,37 +1402,25 @@ export function createGmailInbox(
     document: MailboxDocument,
     checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'backfill' }>,
   ): Step {
-    const page = yield* gmail(scope)(
-      'messages',
-      [
-        ['labelIds', 'INBOX'],
-        ['maxResults', String(pageSize)],
-        ...(checkpoint.pageToken === undefined
-          ? []
-          : [['pageToken', checkpoint.pageToken] as const]),
-      ],
-      decodeList,
-    ).pipe(
+    const page = yield* readListingPage(scope, {
+      label: 'INBOX',
+      messages: document.messages,
+      listing: checkpoint,
+    }).pipe(
       Effect.asSome,
       Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
     );
     if (Option.isNone(page)) {
       return Option.some(
-        yield* startListing(scope, document, document.messages),
+        yield* startListing(scope, document, checkpoint.historyId),
       );
     }
-    const ids = (page.value.messages ?? []).map(({ id }) => id);
-    const seen = Arr.dedupe([...checkpoint.seen, ...ids]);
-    const { nextPageToken } = page.value;
-    const listed = listedPage(document.messages, yield* fetchAll(scope, ids), {
-      seen,
-      more: nextPageToken !== undefined,
-    });
+    const { nextPageToken, seen, messages, done } = page.value;
     return Option.some({
       ...document,
-      messages: listed.messages,
+      messages,
       checkpoint:
-        listed.done || nextPageToken === undefined
+        done || nextPageToken === undefined
           ? { kind: 'current', historyId: checkpoint.historyId }
           : { ...checkpoint, pageToken: nextPageToken, seen },
     });
@@ -1230,7 +1432,6 @@ export function createGmailInbox(
     document: MailboxDocument,
     checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'current' }>,
   ): Step {
-    const { messages } = document;
     const history = yield* gmail(scope)(
       'history',
       [
@@ -1247,7 +1448,7 @@ export function createGmailInbox(
     );
     if (Option.isNone(history)) {
       // An expired or invalid history ID lists the Inbox again; cached messages stay visible.
-      return Option.some(yield* startListing(scope, document, messages));
+      return Option.some(yield* startListing(scope, document));
     }
     const records = history.value.history ?? [];
     const historyId = nextHistoryId(history.value, records);
@@ -1255,44 +1456,238 @@ export function createGmailInbox(
       return Option.none();
     }
     const { deleted, changed } = historyChanges(records);
-    const merged = merge(messages, yield* fetchAll(scope, changed), deleted);
-    const remaining = new Set(merged.map(({ id }) => id));
-    const updated = merged.slice(0, cacheLimit);
-    // History cannot name the unchanged older message that now fits after an entry leaves.
-    if (
-      messages.length === cacheLimit &&
-      messages.some(({ id }) => !remaining.has(id))
-    ) {
-      return Option.some(yield* startListing(scope, document, updated));
+    const fetched = yield* fetchAll(
+      scope,
+      changed,
+      document.views !== undefined,
+    );
+    // History cannot name the unchanged older message that now fits after an entry leaves, so
+    // a full view that lost one is listed again.
+    const refilled = new Set<string>();
+    const next = everyView(document, (view, before) => {
+      const after = merge(
+        before,
+        fetched.map(([id, message]) => [
+          id,
+          message !== undefined && inView(view, labelsOf(message))
+            ? message
+            : undefined,
+        ]),
+        deleted,
+      );
+      const remaining = new Set(after.map(({ id }) => id));
+      if (
+        before.length === cacheLimit &&
+        before.some(({ id }) => !remaining.has(id))
+      ) {
+        refilled.add(view);
+      }
+      return after.slice(0, cacheLimit);
+    });
+    const updated: MailboxDocument = {
+      ...next,
+      ...(next.views === undefined
+        ? {}
+        : {
+            views: next.views.map((entry) =>
+              entry.listing === undefined && refilled.has(entry.label)
+                ? { ...entry, listing: { historyId, seen: [] } }
+                : entry,
+            ),
+          }),
+    };
+    if (refilled.has('INBOX')) {
+      return Option.some(yield* startListing(scope, updated, historyId));
     }
     return Option.some({
-      ...document,
-      messages: updated,
+      ...updated,
       checkpoint: { kind: 'current', historyId },
     });
   });
 
-  // The next document to commit, or none when the cache is current.
+  // Views a reader asked to open, in request order, until the saved document lists each first;
+  // and views whose read failed during this synchronization, which wait for the next one.
+  const requestedViews = new Set<string>();
+  const failedViews = new Set<string>();
+  // Window lifetimes protect shown views from another window's LRU eviction.
+  const activeViews = new Map<symbol, string>();
+  const retainedViews = (views: NonNullable<MailboxDocument['views']>) => {
+    // A lease on a view the mailbox no longer has, such as a removed label's, protects nothing.
+    const active = new Set([
+      ...[...activeViews.values()].filter((label) =>
+        views.some((view) => view.label === label),
+      ),
+      ...requestedViews,
+    ]);
+    let spare = Math.max(cachedViews, active.size) - active.size;
+    return views.filter(({ label }) => {
+      if (active.has(label)) {
+        return true;
+      }
+      if (spare === 0) {
+        return false;
+      }
+      spare -= 1;
+      return true;
+    });
+  };
+
+  // Lists the next page of a view, as continueListing does for the Inbox.
+  const continueView = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: MailboxDocument,
+    entry: ListedView,
+  ): Step {
+    const { listing } = entry;
+    const { messages, done, seen, nextPageToken } = yield* readListingPage(
+      scope,
+      entry,
+    );
+    const next: ViewEntry = {
+      label: entry.label,
+      messages,
+      ...(done || nextPageToken === undefined
+        ? {}
+        : {
+            listing: {
+              historyId: listing.historyId,
+              pageToken: nextPageToken,
+              seen,
+            },
+          }),
+    };
+    return Option.some({
+      ...document,
+      // History may have advanced while this listing was interrupted. Preserve any earlier
+      // replay another completed listing needs so unseen additions discarded by listedPage return.
+      ...(next.listing === undefined
+        ? {
+            checkpoint: {
+              kind: 'current' as const,
+              historyId:
+                document.checkpoint.kind === 'current' &&
+                BigInt(document.checkpoint.historyId) <
+                  BigInt(listing.historyId)
+                  ? document.checkpoint.historyId
+                  : listing.historyId,
+            },
+          }
+        : {}),
+      views: (document.views ?? []).map((view) =>
+        view.label === entry.label ? next : view,
+      ),
+    });
+  });
+
+  // The document with the first requested view most recently opened, or none once every
+  // requested view is.
+  const openedView = (document: MailboxDocument, historyId: string) => {
+    for (const requested of requestedViews) {
+      const views = document.views ?? [];
+      if (views[0]?.label !== requested) {
+        const entry = views.find(({ label }) => label === requested) ?? {
+          label: requested,
+          messages: [],
+          listing: { historyId, seen: [] },
+        };
+        return {
+          ...document,
+          views: retainedViews([
+            entry,
+            ...views.filter(({ label }) => label !== requested),
+          ]),
+        };
+      }
+      requestedViews.delete(requested);
+    }
+    return undefined;
+  };
+
+  // The next page of a view, or none when Gmail cannot list it now: the view keeps its saved
+  // messages until the next synchronization, which lists it from its first page when Gmail
+  // refused its page token.
+  const listView = (
+    scope: MailboxScope,
+    document: MailboxDocument,
+    listing: ListedView,
+  ) => {
+    const failed = Effect.sync(() => {
+      failedViews.add(listing.label);
+    });
+    return continueView(scope, document, listing).pipe(
+      Effect.catchTags({
+        GmailNotFound: () => failed.pipe(Effect.as(Option.none())),
+        GmailInvalidPage: () =>
+          failed.pipe(
+            Effect.as(
+              Option.some({
+                ...document,
+                views: (document.views ?? []).map((view) =>
+                  view === listing
+                    ? {
+                        ...view,
+                        listing: {
+                          historyId: listing.listing.historyId,
+                          seen: [],
+                        },
+                      }
+                    : view,
+                ),
+              }),
+            ),
+          ),
+        SyncFailure: (failure) =>
+          failure.kind === 'retry'
+            ? failed.pipe(Effect.as(Option.none()))
+            : Effect.fail(failure),
+      }),
+    );
+  };
+
+  // The next document to commit, or none when the cache is current. After the Inbox's own
+  // listing, a requested view becomes the most recently opened and the views are listed, before
+  // the history that keeps them all current.
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
     step: number,
-  ) => {
+  ): Effect.Effect<
+    Option.Option<MailboxDocument>,
+    SyncFailure | GmailNotFound | GmailInvalidPage
+  > => {
     if (graph !== undefined) {
       return graph.advance(scope, document, step);
     }
     if (document === undefined) {
-      return startListing(scope, undefined, []).pipe(Effect.asSome);
+      return startListing(scope, undefined).pipe(Effect.asSome);
     }
     const { checkpoint } = document;
     if (checkpoint.kind === 'backfill') {
       return continueListing(scope, document, checkpoint);
     }
-    // A cache written before messages kept their labels is listed again to read them.
-    return checkpoint.kind !== 'current' ||
+    // A cache written before messages kept their labels needs a fresh Inbox listing.
+    if (
+      checkpoint.kind !== 'current' ||
       document.messages.some(({ labels }) => labels === undefined)
-      ? startListing(scope, document, document.messages).pipe(Effect.asSome)
-      : applyHistory(scope, document, checkpoint);
+    ) {
+      return startListing(scope, document).pipe(Effect.asSome);
+    }
+    const opened = openedView(document, checkpoint.historyId);
+    if (opened !== undefined) {
+      return Effect.succeedSome(opened);
+    }
+    const listing = document.views?.find(
+      (view): view is ListedView =>
+        view.listing !== undefined && !failedViews.has(view.label),
+    );
+    if (listing !== undefined) {
+      return listView(scope, document, listing).pipe(
+        Effect.filterOrElse(Option.isSome, () =>
+          advance(scope, document, step),
+        ),
+      );
+    }
+    return applyHistory(scope, document, checkpoint);
   };
 
   const semaphore = Semaphore.makeUnsafe(1);
@@ -1363,18 +1758,59 @@ export function createGmailInbox(
   const found = new Map<string, GmailMessage>();
   // Membership at the last durable publication, before any later optimistic hiding.
   let settledMessages = new Set<string>();
+  // A requested view waits for the synchronization it started; a saved view still being listed
+  // after a synchronization could not be read.
+  const viewStatus = (entry?: ViewEntry): GmailView['status'] => {
+    if (entry === undefined) {
+      return sync === 'retry' || sync === 'authentication'
+        ? 'failed'
+        : 'syncing';
+    }
+    if (
+      failedViews.has(entry.label) ||
+      (entry.listing !== undefined && sync !== 'syncing')
+    ) {
+      return 'failed';
+    }
+    return entry.listing === undefined ? 'current' : 'syncing';
+  };
+  // The requested and saved views with the requested changes applied, most recent first, each
+  // message claimed for organizing; none when no view was opened.
+  const renderedViews = (
+    document: MailboxDocument | undefined,
+    changes: readonly PendingAction[],
+  ): Readonly<{ views?: readonly GmailView[] }> => {
+    const saved = document?.views ?? [];
+    const views: GmailView[] = [
+      ...[...requestedViews]
+        .filter((label) => saved.every((entry) => entry.label !== label))
+        .map((label) => ({
+          label,
+          messages: [],
+          status: viewStatus(),
+          limited: true as const,
+        })),
+      ...saved.map((entry) => ({
+        label: entry.label,
+        messages: organized(entry.messages, changes, entry.label),
+        status: viewStatus(entry),
+        limited: true as const,
+      })),
+    ];
+    claim(views.flatMap((view) => view.messages));
+    return views.length === 0 ? {} : { views };
+  };
   const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
     const document = shown?.document;
     const durable = document?.pending ?? [];
-    const messages = organized(document?.messages ?? [], [
-      ...durable,
-      ...queued.map((item) => item.pending),
-    ]);
+    const changes = [...durable, ...queued.map((item) => item.pending)];
+    const messages = organized(document?.messages ?? [], changes);
     claim(messages);
     return {
       kind: 'ready',
       messages,
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
+      ...renderedViews(document, changes),
       sync: shownSyncState(),
       ...listedLabels(document),
       ...(graph === undefined
@@ -1539,7 +1975,12 @@ export function createGmailInbox(
   const settle = (next: Sync) => {
     sync = next;
     const rendered = render();
-    const listed = new Set(rendered.messages.map(({ id }) => id));
+    const listed = new Set(
+      [
+        ...rendered.messages,
+        ...(rendered.views ?? []).flatMap((view) => view.messages),
+      ].map(({ id }) => id),
+    );
     const previouslyListed = settledMessages;
     settledMessages = listed;
     for (const id of bodies.keys()) {
@@ -1600,12 +2041,12 @@ export function createGmailInbox(
       ]),
     ]),
   );
-  // Bodies of messages that left the cached Inbox leave the device with them; the recent working
-  // set's bodies stay protected as far as they fit. A failed prune is retried at the end of the
+  // Bodies of messages that left the cached Inbox and every other cached view leave the device
+  // with them; the recent working set's bodies stay protected as far as they fit. A failed prune is retried at the end of the
   // next synchronization, even when it commits nothing.
   const retainBodies = (
     { address, generation, revision }: Cache,
-    messages: readonly GmailMessage[],
+    document: MailboxDocument | undefined,
   ) =>
     referenceInstant.pipe(
       Effect.flatMap((reference) =>
@@ -1613,8 +2054,11 @@ export function createGmailInbox(
           try: () =>
             native.retainMessageBodies(
               { address, generation, revision },
-              messages.map(({ id }) => id),
-              recentWorkingSet(messages, reference),
+              (document === undefined ? [] : cachedMessages(document)).map(
+                ({ id }) => id,
+              ),
+              // Other views' bodies stay, but only the Inbox's recent working set is protected.
+              recentWorkingSet(document?.messages ?? [], reference),
             ),
           catch: (cause) => rejected(cause, 'failed'),
         }),
@@ -1641,7 +2085,7 @@ export function createGmailInbox(
     const committed = yield* storage(() =>
       native.commitMailbox({ address, generation }, revision, text),
     );
-    yield* retainBodies(committed, document.messages);
+    yield* retainBodies(committed, document);
     return committed;
   });
 
@@ -2217,8 +2661,7 @@ export function createGmailInbox(
   };
 
   const listed = (id: string) =>
-    state.kind === 'ready' &&
-    state.messages.some((message) => message.id === id);
+    state.kind === 'ready' && listedMessage(state, id) !== undefined;
   // The reader also opens online search results, which the cache never keeps.
   const readable = (id: string) =>
     state.kind === 'ready' && (listed(id) || found.has(id));
@@ -3169,6 +3612,9 @@ export function createGmailInbox(
     opened = undefined;
     discardDownloads();
     found.clear();
+    requestedViews.clear();
+    failedViews.clear();
+    activeViews.clear();
     settledMessages.clear();
     bodies.clear();
     readers.clear();
@@ -3510,23 +3956,19 @@ export function createGmailInbox(
     const { labels, limited } = yield* graph === undefined
       ? gmailLabels(cache)
       : graph.labels(cache);
-    const previous = document.labels ?? [];
-    if (
-      limited === (document.labelsLimited === true) &&
-      labels.length === previous.length &&
-      labels.every(
-        (label, index) =>
-          label.id === previous[index]?.id &&
-          label.name === previous[index]?.name,
-      )
-    ) {
-      return { cache, document };
-    }
-    const saved = yield* commitOver(cache, document, {
-      ...Struct.omit(document, ['labelsLimited']),
+    const next: MailboxDocument = {
+      ...Struct.omit(document, ['labelsLimited', 'views']),
       labels,
       ...(limited ? { labelsLimited: true as const } : {}),
-    });
+      // A view of a label Gmail no longer has leaves with it.
+      ...(document.views === undefined
+        ? {}
+        : { views: document.views.filter(offeredBy(labels)) }),
+    };
+    if (sameListing(document, next)) {
+      return { cache, document };
+    }
+    const saved = yield* commitOver(cache, document, next);
     return saved;
   });
 
@@ -3555,7 +3997,7 @@ export function createGmailInbox(
   ) =>
     publication
       .withPermit(
-        retainBodies(cache, document?.messages ?? []).pipe(
+        retainBodies(cache, document).pipe(
           Effect.andThen(
             Effect.sync(() => {
               settle('current');
@@ -3565,6 +4007,20 @@ export function createGmailInbox(
       )
       .pipe(Effect.andThen(schedulePrefetch), Effect.andThen(rereadBodies));
 
+  // Window exits release protection immediately; the next sync durably trims inactive extras.
+  const trimViewCache = Effect.fnUntraced(function* (
+    cache: Cache,
+    document: MailboxDocument | undefined,
+  ) {
+    if (document?.views === undefined) {
+      return { cache, document };
+    }
+    const views = retainedViews(document.views);
+    return views.length === document.views.length
+      ? { cache, document }
+      : yield* commitOver(cache, document, { ...document, views });
+  });
+
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
@@ -3572,11 +4028,13 @@ export function createGmailInbox(
     if (!forgotten) {
       opened = { address, generation };
     }
+    failedViews.clear();
     let document = Option.getOrUndefined(yield* documentOf(cache));
     if (cache.availability === 'retry') {
       return yield* ready(cache, document, 'retry');
     }
     yield* ready(cache, document, 'syncing');
+    ({ cache, document } = yield* trimViewCache(cache, document));
     let restarts = 0;
     for (let step = 0; ; step += 1) {
       if (document !== undefined) {
@@ -3923,6 +4381,29 @@ export function createGmailInbox(
     forget: forgetOpenInbox,
     load,
     resolvePending,
+    // A window protects its chosen view before opening it, then releases this exact lease on exit.
+    retainView: (label: string) => {
+      const token = Symbol('gmail-view');
+      activeViews.set(token, label);
+      return () => {
+        activeViews.delete(token);
+      };
+    },
+    // Lists a Gmail label, All Mail, Spam or Trash, kept current through mailbox history.
+    openView: (label: string) => {
+      const labels = shown?.document?.labels ?? [];
+      if (
+        graph !== undefined ||
+        forgotten ||
+        (systemViews.every((view) => view !== label) &&
+          labels.every(({ id }) => id !== label))
+      ) {
+        return Promise.resolve();
+      }
+      requestedViews.add(label);
+      publish(render());
+      return load();
+    },
     // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
     // verified open mailbox nothing could be saved, so nothing changes.
     organize: (message: GmailMessage, action: GmailAction) => {

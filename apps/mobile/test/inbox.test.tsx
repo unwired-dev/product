@@ -785,6 +785,7 @@ function renderConnected(
             <MessageDetail
               id={selected?.id}
               mailbox={selected?.mailbox}
+              folder={selected?.folder}
               onClose={() => {
                 setSelected(undefined);
               }}
@@ -1173,6 +1174,206 @@ describe('connected Gmail Inbox', () => {
         .mock.calls.filter(([message]) => message === unsaved),
     ).toStrictEqual([[unsaved]]);
   });
+
+  it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const receipt = gmail.deliver({ subject: 'Old receipt' });
+    gmail.setLabel(receipt, 'TRASH', true);
+    gmail.setLabel(receipt, 'INBOX', false);
+    await renderConnected(gmail.native).rendered;
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    // Each label follows the Inbox, then All Mail, Spam and Trash.
+    expect(
+      screen.getByRole('button', { name: 'All Mail. In alex@example.invalid' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Travel. In alex@example.invalid' }),
+      );
+    });
+    // An archived message stays in its label.
+    await expect(
+      screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    ).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'Travel' })).toBeVisible();
+    expect(
+      screen.getByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText('Lunch on Friday')).toBeNull();
+    // Archived mail in a label has nothing for Archive to remove.
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Old receipt/u }),
+    );
+    // Trashed mail moves back to the Inbox instead of being archived again.
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Move to Inbox' }),
+      );
+    });
+    expect(
+      screen.getByText('Moved back to the Inbox: “Old receipt”.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Old receipt/u })).toBeNull();
+    expect(gmail.labelsOf(receipt)).toContain('INBOX');
+    expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+
+    // Online search from Trash still returns ordinary Inbox mail with Inbox actions.
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Lunch');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Lunch on Friday/u }),
+    );
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+
+    // Search widened from Trash to every Inbox opens Inbox mail with Inbox actions.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('tab', { name: 'All Mailboxes' }));
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Lunch on Friday/u }),
+    );
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(screen.queryByRole('button', { name: 'Move to Inbox' })).toBeNull();
+
+    // A cached label-only message found online still has no Inbox organizing actions.
+    await fireEvent.changeText(field, 'Flight');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Search mail servers for “Flight”' }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
+  it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const [first] = Array.from({ length: 10 }, (_, index) =>
+      gmail.createLabel(`Label ${index}`),
+    );
+    const kept = gmail.deliver({ subject: 'Only in its label' });
+    gmail.setLabel(kept, String(first), true);
+    gmail.archive(kept);
+    await renderConnected(gmail.native).rendered;
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Label 0. In alex@example.invalid',
+        }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Only in its label/u }),
+    );
+    // Nine other views are more than the eight the mailbox keeps beside its Inbox.
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: `Label ${index}. In alex@example.invalid`,
+          }),
+        );
+      });
+    }
+    expect(
+      screen.getByRole('header', { name: 'Only in its label' }),
+    ).toBeVisible();
+  });
+
+  it('keeps organizing a message whose label Gmail removed while it was open', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(flight, travel, true);
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Travel. In alex@example.invalid',
+        }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+    );
+    gmail.deleteLabel(travel);
+    await act(connected.store().load);
+    // The message is still in the Inbox, so the reader keeps the Inbox's actions.
+    expect(
+      screen.getByRole('header', { name: 'Flight to Zagreb' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
+  });
+
+  it.each([
+    ['Travel', 'Inbox', true],
+    ['Inbox', 'Travel', false],
+  ] as const)(
+    'keeps the %s reader according to its own view when archiving from %s',
+    async (opened, browsing, remains) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const travel = gmail.createLabel('Travel');
+      const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(flight, travel, true);
+      await renderConnected(gmail.native).rendered;
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', {
+            name: `${opened}. In alex@example.invalid`,
+          }),
+        );
+      });
+      await fireEvent.press(
+        await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      );
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: `${browsing}. In alex@example.invalid`,
+          }),
+        );
+      });
+      await act(async () => {
+        await fireEvent(
+          await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      const reader = screen.queryByRole('header', { name: 'Flight to Zagreb' });
+      expect(reader !== null).toBe(remains);
+    },
+  );
 
   it('hides Archive from Microsoft reader and row actions when its folder is absent', async () => {
     expect.hasAssertions();

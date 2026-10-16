@@ -53,6 +53,26 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
   its heading's subtitle shows the same status as its sidebar row, and
   **New Message** stays unavailable until access is allowed again.
+- **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
+  lists the mailbox's own labels by name, then **All Mail**, **Spam** and **Trash**
+  ([#1004](https://github.com/unwired-dev/product/issues/1004)). Choosing one lists
+  that view's newest messages, as Gmail shows them: a label leaves out Spam and Trash,
+  an archived message stays in its labels, and All Mail lists every message outside
+  Spam and Trash. Each window chooses its view on its own; the list heading names it,
+  and a label's row counts the unread mail of its saved view. The device keeps the
+  newest 200 messages per view beside the Inbox, keeping the eight most recently
+  opened views and protecting views currently shown in windows. With more than eight
+  distinct active views, the bound grows to that active count; inactive extras leave
+  on the next synchronization after windows close or change views. These views stay
+  current by the same Gmail history as the Inbox and are saved across relaunch; a view
+  that loses one of 200 messages is listed again. Every view says that only its
+  newest mail is saved and older mail stays in Gmail. A view Gmail could not read
+  keeps its saved messages and shows **… could not be read from Gmail** in the list
+  and on its sidebar row until a later synchronization reads it. A label removed in
+  Gmail leaves the sidebar with its saved view, and a window that showed it returns
+  to the Inbox. The unified Sent, Archive, All Mail, Spam and Trash mailboxes and
+  complete history remain with [#1006](https://github.com/unwired-dev/product/issues/1006)
+  and [#1007](https://github.com/unwired-dev/product/issues/1007).
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -169,9 +189,11 @@ mailbox, or every mailbox under **All inboxes**. The API search excludes spam an
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
-  access. A result outside the cached Inbox keeps its metadata and body in memory
+  access. A result outside every cached view keeps its metadata and body in memory
   while that mailbox's Inbox is open, without writing them to the encrypted cache.
-  A result also listed in the Inbox opens and caches as the Inbox message. A result
+  A result also listed in a cached view opens and caches as that listed message.
+  Mail-server results offer organizing actions only when also listed in the Inbox,
+  using Inbox actions even when the search started from another view. A result
   outside the Inbox shows no organizing actions.
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved
@@ -244,16 +266,16 @@ Gmail's label semantics. These are **Provider Mail Actions** for Gmail only; fut
 IMAP or Microsoft connections need their own actions rather than pretending to match
 Gmail's labels.
 
-| Action                            | Gmail change                                     |
-| --------------------------------- | ------------------------------------------------ |
-| **Mark as read** / **unread**     | Removes or adds `UNREAD`                         |
-| **Star** / **Remove star**        | Adds or removes `STARRED`                        |
-| **Archive**                       | Removes `INBOX`                                  |
-| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                    |
-| **Report spam**                   | Adds `SPAM`, removes `INBOX`                     |
-| A label checkbox under **Labels** | Adds or removes that label                       |
-| **Move to** a label               | Adds the label, removes `INBOX`, keeps others    |
-| **Undo**                          | Reverses the latest archive, move, trash or spam |
+| Action                            | Gmail change                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mark as read** / **unread**     | Removes or adds `UNREAD`                                                                                                                 |
+| **Star** / **Remove star**        | Adds or removes `STARRED`                                                                                                                |
+| **Archive**                       | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
+| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                                                                                                            |
+| **Report spam**                   | Adds `SPAM`, removes `INBOX`                                                                                                             |
+| A label checkbox under **Labels** | Adds or removes that label                                                                                                               |
+| **Move to** a label               | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
+| **Undo**                          | Reverses the latest removal from the Inbox                                                                                               |
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
@@ -279,19 +301,23 @@ iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward the
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
-synchronization and kept with the cache. Restoring from Trash or Spam is the
-**Undo** of the latest removal; browsing Trash, Spam or a label is not part of
-this slice.
+synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
+takes the place of Archive, Move to Trash and Report spam, and **Undo** of the
+latest removal also restores. **Move to** from a label removes that label instead
+of the Inbox, keeping the message's other labels; from Trash or Spam it takes the
+message out of them. A message that leaves the view it was opened in closes the
+reader, as leaving the Inbox does.
 
 Inbox rows and the reader also offer native context menus: long-press on iPhone and
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
-Mac. A row's menu lists the row's own actions in the design's order: **Archive**,
+Mac. A row's menu lists the row's own actions in the design's order: **Archive**
+(or **Move to Inbox** in Trash and Spam),
 **Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
-and **Delete** (Move to Trash), placed last on every platform. Report spam stays a
-row accessibility action and a reader action. The
+and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every platform.
+Report spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
-**Move Message** with the same destinations as the reader's Move to, and **Delete
-Message**; its sender offers **Copy Address**. A link in the reader's link list
+**Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
+the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address**. A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
@@ -908,8 +934,8 @@ may be shown for the current open but is not saved.
 
 A prefetched body leaving the 30-day/selected set loses protection and becomes
 eligible for the prefetched eviction tier; leaving the set alone does not require
-immediate deletion. A message leaving the cached Inbox removes its saved body,
-including a late download that finishes after the metadata was removed. A failed
+immediate deletion. A message leaving the cached Inbox and every other cached Gmail view
+removes its saved body, including a late download that finishes after the metadata was removed. A failed
 prune is retried at the end of the next successful synchronization, even after a
 relaunch or when no metadata changes remain. A stale synchronization retries
 rather than deleting bodies from a newer list. Pruning,
@@ -1090,21 +1116,22 @@ are excluded from backups and never uploaded. The store holds at most 250 MiB,
 evicting the least recently used files before another save. A missing or evicted
 file offers **Download** again. Their owner deletes them:
 
-- closing the message's last reader, or a listed message leaving the Inbox;
+- closing the message's last reader, or a listed message leaving the Inbox and every
+  other cached Gmail view;
 - the Inbox closing or changing owner;
 - removing the mailbox, sign-out, account deletion and device removal, which also
   delete the connection's folder in native code;
 - relaunch, which deletes files left by an earlier process.
 
-Attachments in an online Gmail search result outside the Inbox have the same
+Attachments in an online Gmail search result outside every cached view have the same
 explicit Download, Open and Share actions. Their downloaded files last only while
-a reader stays open. If a listed message also appears in search, leaving the Inbox
-deletes its downloads even while the search reader stays open; another explicit
-Download acquires a new copy. Opening an off-Inbox result does not save its body
+a reader stays open. If a listed message also appears in search, leaving the Inbox and
+every other cached view deletes its downloads even while the search reader stays open; another explicit
+Download acquires a new copy. Opening a result outside every cached view does not save its body
 in the encrypted body cache.
 
 A file still shown in Quick Look, or handed to a share that has not finished, is
-deleted after its reader closes, its message leaves the Inbox, or the Inbox closes or
+deleted after its reader closes, its message leaves the Inbox and every other cached view, or the Inbox closes or
 changes owner only once that preview closes or the share ends.
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
@@ -1185,7 +1212,11 @@ The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).
 They cover pagination, relaunch with history only, interrupted pages and commits,
 expired history, authorization and retry classification, competing stores,
-mailbox reselection and log privacy. The #605 body reading cases cover:
+mailbox reselection and log privacy. Views other than the Inbox (#1004) cover label,
+All Mail, Spam and Trash membership, history across relaunch without listing again,
+Move to Inbox and moves out of a label, moving to the current label, a failed view
+read and its recovery, history replay after an interrupted listing resumes across
+relaunch, removed labels, the bound of eight views and the listing that refills a full view. The #605 body reading cases cover:
 
 - untrusted HTML sanitized into the CSP-bound document, with vetted links, sender
   colors and remote loads removed, tracking pixels dropped and hidden preheaders
@@ -1427,8 +1458,9 @@ synthetic. An earlier run replacing only Keychain with an in-memory stand-in pas
 the then 40 tests; that run is logic evidence, not Keychain qualification.
 
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
-preflight, from a synthetic mailbox of three Inbox messages over two pages and one
-label. Each message has an HTML or plain-text body; label changes apply for the
+preflight, from a synthetic mailbox of three Inbox messages over two pages, one
+label with an archived message, and a trashed message; its other views list them as
+Gmail does. Each message has an HTML or plain-text body; label changes apply for the
 rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
 render the opened HTML body in WebKit, confirm and cancel a link destination,

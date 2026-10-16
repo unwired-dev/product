@@ -232,6 +232,35 @@ const inboxNewMessage = () => {
 };
 
 describe('profile-scoped mobile routes', () => {
+  it('retains the routed reader view when archiving its row from the Inbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const id = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(id, travel, true);
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.openView(travel);
+    jest.replaceProperty(
+      jest.requireMock<{ mailboxes: MailboxList }>('../src/private-storage.ts'),
+      'mailboxes',
+      singleMailbox(inbox, 'garden'),
+    );
+    route.setParams({ mailbox: 'garden', id, folder: travel });
+    await render(<RootLayout />);
+    await act(async () => {
+      await fireEvent(
+        await screen.findByRole('button', { name: /Flight to Zagreb/u }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'archive' } },
+      );
+    });
+    expect(
+      screen.getByRole('header', { name: 'Flight to Zagreb' }),
+    ).toBeVisible();
+    expect(route.params()).toMatchObject({ id, folder: travel });
+  });
+
   /* oxlint-disable vitest/max-expects -- One composition session crosses reader, expansion and adaptive-layout transitions. */
   it('keeps the same Draft and history through iPad expansion, reader selection and compact layout', async () => {
     expect.hasAssertions();

@@ -677,6 +677,160 @@ function holdingListing(
 }
 
 describe('mac windows over a connected Gmail mailbox', () => {
+  it.each([
+    ['Travel', 'Inbox', true],
+    ['Inbox', 'Travel', false],
+  ] as const)(
+    'keeps the %s reader according to its own view when archiving from %s',
+    async (opened, browsing, remains) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const travel = gmail.createLabel('Travel');
+      const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(flight, travel, true);
+      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      await fireEvent.press(
+        await app.findByRole('button', {
+          name: new RegExp(`^${opened}\\. In`, 'u'),
+        }),
+      );
+      await fireEvent.press(
+        await app.findByRole('button', { name: /Flight to Zagreb/u }),
+      );
+      await fireEvent.press(
+        await app.findByRole('button', {
+          name: new RegExp(`^${browsing}\\. In`, 'u'),
+        }),
+      );
+      await act(async () => {
+        await fireEvent(
+          await app.findByRole('button', { name: /Flight to Zagreb/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      const reader = app.queryByRole('header', { name: 'Flight to Zagreb' });
+      expect(reader !== null).toBe(remains);
+    },
+  );
+
+  it('keeps Gmail view selection independent across windows and restores Trash mail', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({
+      subject: 'Archived flight',
+      content: { text: 'Your seat is booked.' },
+    });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    const receipt = gmail.deliver({ subject: 'Old receipt' });
+    gmail.setLabel(receipt, 'TRASH', true);
+    gmail.setLabel(receipt, 'INBOX', false);
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await fireEvent.press(
+        await first.findByRole('button', { name: /^Travel\. In/u }),
+      );
+      await fireEvent.press(
+        await first.findByRole('button', { name: /Archived flight/u }),
+      );
+      await expect(
+        first.findByText('Your seat is booked.'),
+      ).resolves.toBeVisible();
+      await fireEvent.press(
+        await second.findByRole('button', { name: /^Trash\. In/u }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Old receipt/u }),
+      );
+      expect(first.getByRole('header', { name: 'Travel' })).toBeVisible();
+      expect(first.getByText('Your seat is booked.')).toBeVisible();
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Move to Inbox' }),
+      );
+      await waitFor(() => {
+        expect(gmail.labelsOf(receipt)).toContain('INBOX');
+      });
+      expect(second.queryByRole('button', { name: /Old receipt/u })).toBeNull();
+      expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('uses Inbox actions for online results while another window caches a Gmail label', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const flight = gmail.deliver({ subject: 'Archived flight' });
+    gmail.setLabel(flight, travel, true);
+    gmail.archive(flight);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await fireEvent.press(
+        await first.findByRole('button', { name: /^Travel\. In/u }),
+      );
+      await first.findByRole('button', { name: /Archived flight/u });
+      await fireEvent.press(
+        await second.findByRole('button', { name: /^Trash\. In/u }),
+      );
+      // Online results come from the mailbox, independently of this window's Trash view.
+      const field = second.getByLabelText('Search senders and subjects');
+      await fireEvent.changeText(field, 'Lunch');
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Lunch on Friday/u }),
+      );
+      expect(second.getByRole('button', { name: 'Archive' })).toBeVisible();
+      expect(
+        second.queryByRole('button', { name: 'Move to Inbox' }),
+      ).toBeNull();
+
+      // The other window's cached label does not grant this online result Inbox actions.
+      await fireEvent.changeText(field, 'Archived');
+      await fireEvent.press(
+        second.getByRole('button', {
+          name: 'Search mail servers for “Archived”',
+        }),
+      );
+      await fireEvent.press(
+        await second.findByRole('button', { name: /Archived flight/u }),
+      );
+      expect(second.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(second.queryByRole('button', { name: 'Show labels' })).toBeNull();
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
   it('keeps Command-P from opening behind a link confirmation in its window', async () => {
     expect.hasAssertions();
     const menu: TurboModule &

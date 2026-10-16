@@ -9,12 +9,13 @@ import type { TextInput } from 'react-native';
 
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
+  leavesView,
   quickActions,
-  restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
+  gmailViewName,
   inboxChoice,
   inboxMessages,
   messageDateSections,
@@ -38,7 +39,6 @@ import {
   useOpenDraft,
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
-import { useImapFolder } from './imap-folders.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
@@ -51,6 +51,7 @@ import {
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailboxFolder } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -84,7 +85,12 @@ const listedDrafts = (
 ): readonly Draft[] => (composing ? draftsOf(state) : []);
 
 // A message in a mailbox; Gmail message IDs are unique only within their mailbox.
-export type Selection = Readonly<{ mailbox: string; id: string }>;
+// A Gmail message also names the view it was chosen in, which its actions can take it out of.
+export type Selection = Readonly<{
+  mailbox: string;
+  id: string;
+  folder?: string;
+}>;
 
 interface InboxProps {
   readonly selected: Selection | undefined;
@@ -518,12 +524,15 @@ function InboxFooter({
   empty,
   syncing,
   connected,
+  limited,
   children,
 }: {
   readonly empty: boolean;
   readonly syncing: boolean;
   // Whether a signed-in account's mail, rather than sample messages, is listed.
   readonly connected: boolean;
+  // Whether the listed Gmail view keeps only its newest messages.
+  readonly limited: boolean;
   // The empty state.
   readonly children: ReactNode;
 }) {
@@ -534,6 +543,11 @@ function InboxFooter({
       {empty ? children : null}
       {syncing ? <SkeletonRows /> : null}
       <LanguageSelector />
+      {limited ? (
+        <Text style={[styles.footer, { color: colors.textSecondary }]}>
+          {t('inbox.footerView', { provider: t('mailProviders.gmail') })}
+        </Text>
+      ) : null}
       <Text style={[styles.footer, { color: colors.textSecondary }]}>
         {connected ? t('inbox.footerConnected') : t('inbox.footer')}
       </Text>
@@ -599,7 +613,14 @@ export function Inbox({
     () => inboxMessages(mailboxes, scoped),
     [mailboxes, scoped],
   );
-  const { folder, listed, failed } = useImapFolder(shown, inboxListed, {
+  const {
+    folder,
+    selection,
+    title: folderName,
+    listed,
+    failure,
+    limited,
+  } = useMailboxFolder(shown, inboxListed, {
     view,
     onView,
   });
@@ -613,6 +634,10 @@ export function Inbox({
     folder,
   });
   const { searching, searched, results, online } = searchState;
+  // Search widened to every Inbox lists Inbox mail, whatever view the list shows.
+  const origin = searchState.searchesAll
+    ? { view: inboxFolder, selection: {} }
+    : { view: folder, selection };
   // Asked again when a result is opened or the reader closes, since opening saves the body.
   const saved = useSavedBodies(
     results,
@@ -659,7 +684,6 @@ export function Inbox({
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
   });
-  const folderName = folder === inboxFolder ? undefined : folder;
   const title =
     folderName ??
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
@@ -703,11 +727,18 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
+        view: origin.view,
       }).map(({ name, label, action }) => ({
         name,
         label,
         run: () => {
-          leaving(restoreAfter(action) !== undefined);
+          leaving(
+            leavesView(
+              gmailViewName(state, selected?.folder ?? inboxFolder),
+              message.labels ?? [],
+              action,
+            ),
+          );
           void inbox.organize(message, action);
         },
       }));
@@ -762,14 +793,14 @@ export function Inbox({
             </SearchHeading>
           </InboxHeading>
           <View style={styles.notices}>
-            {failed ? (
+            {failure === undefined ? null : (
               <Notice
                 icon="exclamationmark.triangle"
                 iconColor={colors.statusWarning}
-                message={t('imap.foldersUnavailable')}
+                message={failure}
                 messageRole="alert"
               />
-            ) : null}
+            )}
             {shown.map((mailbox) => (
               <MailboxScope
                 key={mailbox.id}
@@ -875,6 +906,7 @@ export function Inbox({
               ) : (
                 <InboxFooter
                   connected={gmail}
+                  limited={limited}
                   empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
                   syncing={syncing}>
                   {empty}
@@ -922,6 +954,7 @@ export function Inbox({
                     void select({
                       mailbox: item.mailbox.id,
                       id: item.message.id,
+                      ...(section.key === 'gmail' ? {} : origin.selection),
                     });
                   }}
                   selected={

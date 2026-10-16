@@ -14,21 +14,31 @@ import {
   canOrganize,
   gmailAction,
   gmailActionCopy,
-  restoreAfter,
+  leavesView,
   quickActions,
+  restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
+import {
+  listedMessage,
+  viewMessage,
+} from '@private-email/mail-core/gmail-inbox';
 import {
   imapActionCopy,
   imapMoveTargets,
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
-import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { gmailViewName } from '@private-email/mail-core/mailboxes';
+import { spacing } from '@private-email/mail-core/theme';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   AccessibilityInfo,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,13 +46,7 @@ import {
 } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
-import {
-  GlassGroup,
-  GlassPanel,
-  Notice,
-  SFSymbol,
-  ToolbarButton,
-} from './design.tsx';
+import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -51,6 +55,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MoveSheet } from './move-sheet.tsx';
+import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -72,19 +77,6 @@ const styles = StyleSheet.create({
     right: spacing.l,
     gap: spacing.s,
   },
-  button: {
-    minHeight: 44,
-    minWidth: 44,
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.m,
-    borderWidth: 2,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  label: { ...textStyles.subheadline, flexShrink: 1 },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
     flexDirection: 'row',
@@ -113,6 +105,7 @@ const actionIcons: Readonly<Record<string, string>> = {
   unstar: 'star.slash',
   spam: 'xmark.bin',
   trash: 'trash',
+  restore: 'tray.and.arrow.down',
 };
 type Named = Readonly<{ name: string; label: string; run: () => void }>;
 
@@ -124,59 +117,17 @@ const folderIcon = (name: string, roles: readonly string[]) => {
   return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
 
-// A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
-function ActionButton({
-  label,
-  onPress,
-  checked,
-}: {
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly checked?: boolean;
-}) {
-  const colors = usePalette();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
-      accessibilityState={checked === undefined ? undefined : { checked }}
-      focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
-          borderColor: focused ? colors.accentInk : 'transparent',
-        },
-      ]}>
-      {checked === true ? (
-        <SFSymbol
-          name="checkmark"
-          color={colors.textPrimary}
-        />
-      ) : null}
-      <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
 // response actions passed as children, and More, whose panel lists the remaining actions.
 export function MessageActions({
   id,
+  folder,
   onClose,
   children,
 }: {
   readonly id: string;
+  // The Gmail view the message was chosen in, when not the Inbox.
+  readonly folder?: string | undefined;
   readonly onClose?: (() => void) | undefined;
   readonly children?: ReactNode;
 }) {
@@ -199,6 +150,7 @@ export function MessageActions({
   ) : (
     <GmailMessageActions
       id={id}
+      view={folder ?? inboxFolder}
       onClose={onClose}>
       {children}
     </GmailMessageActions>
@@ -220,7 +172,7 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
   ) {
     return null;
   }
-  const message = state.messages.find((item) => item.id === id);
+  const message = listedMessage(state, id);
   return message !== undefined && canOrganize(message) ? (
     <Notice
       icon="info.circle"
@@ -294,7 +246,7 @@ function Toolbar({
               run: folders.show.run,
             },
           ]),
-      ...['spam', 'trash']
+      ...['restore', 'spam', 'trash']
         .flatMap((name) =>
           more.actions.filter((action) => action.name === name),
         )
@@ -586,13 +538,16 @@ function ImapMessageActions({
   );
 }
 
-// The reader's Gmail and Microsoft actions. A message that leaves the Inbox closes the reader.
+// The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
+// Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
   id,
+  view: opened,
   onClose,
   children,
 }: {
   readonly id: string;
+  readonly view: string;
   readonly onClose?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
@@ -605,6 +560,13 @@ function GmailMessageActions({
   const [origin, setOrigin] = useState(0);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
+  // The reader holds the view it was opened in, so browsing other views cannot evict its message.
+  useLayoutEffect(() => {
+    if (opened === inboxFolder || !('retainView' in store)) {
+      return undefined;
+    }
+    return store.retainView(opened);
+  }, [store, opened]);
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
@@ -612,7 +574,9 @@ function GmailMessageActions({
   ) {
     return null;
   }
-  const message = state.messages.find((item) => item.id === id);
+  // A label Gmail removed falls back to the Inbox, as the list does.
+  const view = gmailViewName(state, opened);
+  const message = viewMessage(state, id, view);
   // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {
     return <GlassGroup>{children}</GlassGroup>;
@@ -626,7 +590,7 @@ function GmailMessageActions({
   }
   const act = (action: GmailAction) => {
     void store.organize(message, action);
-    if (restoreAfter(action) !== undefined) {
+    if (leavesView(view, message.labels ?? [], action)) {
       onClose?.();
     }
   };
@@ -636,6 +600,7 @@ function GmailMessageActions({
   const actions = quickActions(t, message, {
     provider,
     unavailableActions: state.unavailableActions,
+    view,
   });
   const archive = actions.find(({ name }) => name === 'archive');
   const toggle = (which: 'folders' | 'more') => {
@@ -653,7 +618,7 @@ function GmailMessageActions({
               id: label.id,
               title: label.name,
               run: () => {
-                act(gmailAction.move(label.id));
+                act(gmailAction.move(label.id, view));
               },
             })),
           })
@@ -779,7 +744,7 @@ function GmailMessageActions({
                               label: label.name,
                             })}
                             onPress={() => {
-                              act(gmailAction.move(label.id));
+                              act(gmailAction.move(label.id, view));
                             }}
                           />
                         </View>
