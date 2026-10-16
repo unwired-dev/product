@@ -3,7 +3,7 @@ import Testing
 
 @testable import PrivateInbox
 
-@MainActor private final class MailboxPause {
+@MainActor final class MailboxPause {
   private var release: CheckedContinuation<Void, Never>?
   private var entered: CheckedContinuation<Void, Never>?
 

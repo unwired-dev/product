@@ -122,7 +122,6 @@ import os
 final class UnwiredRegistration: NSObject {
   private static let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "registration")
-  @MainActor private static var busy = false
   @MainActor private static let operations = RegistrationOperationGate()
   @MainActor private static var sharedStore: RegistrationStore?
   @MainActor private static var reads: [String: Task<Void, Never>] = [:]
@@ -306,12 +305,6 @@ final class UnwiredRegistration: NSObject {
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> Any
   ) async {
-    guard !Self.busy else {
-      reject("busy", "Authorization is already running.", nil)
-      return
-    }
-    Self.busy = true
-    defer { Self.busy = false }
     do {
       let value = try await Self.operations.perform { try await operation(store()) }
       resolve(value)
@@ -320,16 +313,7 @@ final class UnwiredRegistration: NSObject {
       let code = RegistrationStore.rejectionCode(error)
       Self.logger.error(
         "\(name, privacy: .public) failed: \(code, privacy: .public)")
-      let message =
-        switch code {
-        case "cancelled": "Sign-in was cancelled."
-        case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
-        case "enrollment-code-invalid": "That code does not match the new device's code."
-        case "enrollment-unavailable": "That device request is no longer available."
-        case "locked": "Unlock your device to open your saved account."
-        default: "Registration could not finish. Retry with your saved account."
-        }
-      reject(code, message, nil)
+      reject(code, nil, nil)
     }
   }
 

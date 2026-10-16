@@ -262,6 +262,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
   // Accepted account changes replace this fence; a late mailbox failure cannot relabel removal.
   let accountIntent = { removing: false };
   // One operation runs at a time; foreground verification queues behind interactive work.
+  // Only within this instance: the native operation gate queues native steps across instances
+  // and JavaScript reloads.
   const semaphore = Semaphore.makeUnsafe(1);
   type MailboxLoading = 'automatic' | 'explicit';
   type Listener = (
