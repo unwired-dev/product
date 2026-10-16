@@ -669,7 +669,7 @@ const settled = (
         ? messages
         : merge(messages, [
             [head.message.id, withLabels(cached ?? head.message, confirmed)],
-          ]);
+          ]).slice(0, cacheLimit);
     }),
     pending: rest,
   };

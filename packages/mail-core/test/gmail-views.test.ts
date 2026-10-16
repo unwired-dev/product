@@ -6,6 +6,8 @@ import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 // The views a mailbox keeps besides its Inbox.
 const cachedViews = 8;
+// The newest messages each view keeps.
+const cacheLimit = 200;
 
 const ready = (state: GmailInboxState) => {
   if (state.kind !== 'ready') {
@@ -48,6 +50,18 @@ const failingViews = (
     failing() &&
     path === 'messages' &&
     query.some(([name, value]) => name === 'labelIds' && value !== 'INBOX')
+      ? Promise.resolve({ status: 503, body: '{}' })
+      : native.gmailRequest(path, query, mailbox),
+});
+
+// Gmail answers history with a server error while `failing` says so.
+const failingHistory = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+  failing: () => boolean,
+): ReturnType<typeof createSyntheticGmail>['native'] => ({
+  ...native,
+  gmailRequest: (path, query, mailbox) =>
+    failing() && path === 'history'
       ? Promise.resolve({ status: 503, body: '{}' })
       : native.gmailRequest(path, query, mailbox),
 });
@@ -441,6 +455,29 @@ describe('browsing Gmail views other than the Inbox', () => {
       ready(inbox.getSnapshot()).views?.map(({ label }) => label),
     ).toHaveLength(cachedViews);
     release();
+  });
+
+  it('keeps a full Inbox bounded when a restored message joins it and history cannot be read', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: cacheLimit });
+    const receipt = gmail.deliver({ subject: 'Old receipt' });
+    gmail.setLabel(receipt, 'TRASH', true);
+    gmail.setLabel(receipt, 'INBOX', false);
+    let historyFails = false;
+    const inbox = createGmailInbox(
+      failingHistory(gmail.native, () => historyFails),
+    );
+    await inbox.load();
+    await inbox.openView('TRASH');
+    historyFails = true;
+    await inbox.organize(
+      first(view(inbox, 'TRASH').messages),
+      gmailAction.restore('TRASH'),
+    );
+    // The restored message is newest; the oldest leaves rather than growing the cache.
+    const { messages } = ready(inbox.getSnapshot());
+    expect(messages).toHaveLength(cacheLimit);
+    expect(messages[0]?.id).toBe(receipt);
   });
 
   it('keeps a bounded number of views and lists a full view again when one of its messages leaves', async () => {
