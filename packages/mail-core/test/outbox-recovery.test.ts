@@ -1,6 +1,6 @@
 import type { MockInstance } from 'vitest';
 
-import { english } from '@private-email/localization';
+import { createLocalization, english } from '@private-email/localization';
 
 import type { DeliveryProblem, OutboxEntry } from '../src/drafts.ts';
 import type {
@@ -508,12 +508,17 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         expect(sentList.held()).toBe(true);
       });
 
+      const checked = sending.outbox.check(id);
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'checking' },
+      ]);
       await sending.mailboxes.load();
       gmail.fail({ code: 'mailbox-invalidated' });
       sentList.release();
       await processing;
+      await expect(checked).resolves.toBe(true);
 
-      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(sending.outbox.getSnapshot()).toStrictEqual([]);
       expect(gmail.sends).toHaveLength(1);
     } finally {
       sentList.release();
@@ -592,6 +597,22 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         expect(sentList?.held()).toBe(true);
       });
       const second = sending.outbox.check(id);
+      const snapshot = sending.outbox.getSnapshot();
+      const checking = present(snapshot[0], 'checking message');
+      const settings = { preference: null, language: 'en', locale: 'en-US' };
+      const localization = createLocalization(settings, {
+        getSettings: () => Promise.resolve(settings),
+        setLanguage: () => Promise.resolve(settings),
+      });
+      const originalCopy = outboxCopy(english, checking, 'gmail').status;
+      // i18next's test language returns keys without requiring another shipped catalog.
+      await localization.i18n.changeLanguage('cimode');
+      const translatedCopy = outboxCopy(
+        localization.i18n.getFixedT('cimode'),
+        checking,
+        'gmail',
+      ).status;
+      const sameSnapshot = sending.outbox.getSnapshot() === snapshot;
       sentList.release();
 
       const left = await Promise.all([first, second]);
@@ -599,6 +620,9 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         left,
         lookups: sentLists(gmail) - before,
         windows: windows.map((each) => each.history),
+        originalCopy,
+        translatedCopy,
+        sameSnapshot,
       }).toStrictEqual({
         left: [false, false],
         lookups: 1,
@@ -606,6 +630,10 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
           ['idle', 'checking', 'unconfirmed'],
           ['idle', 'checking', 'unconfirmed'],
         ],
+        originalCopy:
+          'Delivery unknown. Check Sent in Gmail before sending it again.',
+        translatedCopy: 'outbox.state.unknown',
+        sameSnapshot: true,
       });
 
       // Once Gmail's Sent mailbox holds one copy, Check Again records it as sent.
@@ -649,6 +677,48 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       expect(restored).not.toBe(false);
       expect(window.history).toStrictEqual(['idle', 'checking', undefined]);
       expect(sending.outbox.getSnapshot()).toStrictEqual([]);
+    } finally {
+      sentList?.release();
+      window.unsubscribe();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('retires a pending Check Again across sign-out and re-entry to the same stored message', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const window = watch(sending.outbox);
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      sentList = holdSentList(gmail);
+      const checked = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+
+      await sending.reconnect();
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'idle' },
+      ]);
+      sentList.release();
+      await checked;
+
+      expect(window.history).toStrictEqual([
+        'idle',
+        'checking',
+        undefined,
+        'idle',
+      ]);
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'idle' },
+      ]);
+      expect(gmail.sends).toStrictEqual([]);
     } finally {
       sentList?.release();
       window.unsubscribe();
@@ -833,6 +903,56 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       expect(
         table.map(([provider, outcome]) => copyOf(provider, outcome).status),
       ).toStrictEqual(table.map((row) => row[2]));
+
+      // These states ignore a retained problem; filing recognizes only its four copy-saving reasons.
+      const states = [
+        ['waiting', 'Sending soon', []],
+        ['sending', 'Sending…', []],
+        [
+          'unknown',
+          'Delivery unknown. Check Sent in Gmail before sending it again.',
+          [],
+        ],
+        [
+          'filing',
+          'Sent. Saving a copy to Sent…',
+          [
+            [
+              'offline',
+              'Sent. Its copy is saved to Sent when the mail server can be reached.',
+            ],
+            [
+              'locked',
+              'Sent. Its copy is saved to Sent once private storage is unlocked.',
+            ],
+            [
+              'authorization',
+              "Sent. Enter this mailbox's password again in Settings to save its copy to Sent.",
+            ],
+            [
+              'sent-folder',
+              'Sent. Waiting for one Sent folder to be identified before saving its copy.',
+            ],
+          ],
+        ],
+      ] as const;
+      for (const [state, fallback, overrides] of states) {
+        const expected = new Map<string, string>([
+          ...Object.keys(reasons).map(
+            (problem) => [problem, fallback] as const,
+          ),
+          ...overrides,
+        ]);
+        for (const problem of Object.keys(reasons)) {
+          expect(
+            copyOf('gmail', {
+              state,
+              // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Object.keys widens the keys of `reasons`.
+              problem: problem as DeliveryProblem,
+            }).status,
+          ).toBe(expected.get(problem));
+        }
+      }
 
       // An unknown message's notices, before and after Check Again found no confirmation.
       expect(

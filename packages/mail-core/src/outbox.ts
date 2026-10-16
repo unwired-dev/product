@@ -154,16 +154,20 @@ const statusOf = (
         'outbox.state.filing',
     );
   }
-  if ((state === 'queued' || state === 'failed') && problem !== undefined) {
-    return t(providerProblems[provider][problem]);
+  if (state === 'queued') {
+    return t(
+      problem === undefined
+        ? 'outbox.state.sending'
+        : providerProblems[provider][problem],
+    );
   }
   if (state === 'failed') {
-    return t(providerProblems[provider].refused);
+    return t(providerProblems[provider][problem ?? 'refused']);
   }
   if (state === 'unknown') {
     return t(`outbox.state.unknown${unknownCopy[provider]}`);
   }
-  return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
+  return t(`outbox.state.${state}`);
 };
 
 // An entry's words in the provider it was handed to, undefined once its connection is no longer
@@ -294,18 +298,27 @@ export function createOutbox({
   const listeners = new Set<() => void>();
   let listed: readonly OutboxEntry[] | undefined = undefined;
   let snapshot: readonly OutboxSnapshotEntry[] = [];
+  // A check answers only the unknown Send it was asked about, never a later one of the same Draft.
+  const checkOf = (entry: OutboxEntry): OutboxCheck => {
+    const request = asked.get(entry.id);
+    return entry.state === 'unknown' &&
+      request?.sendAt === entry.sendAt &&
+      request.owner === ownerOf(registration)
+      ? request.check
+      : 'idle';
+  };
   const publish = () => {
+    const outbox = drafts.getOutbox();
+    for (const id of asked.keys()) {
+      const entry = outbox.find((each) => each.id === id);
+      if (entry === undefined || checkOf(entry) === 'idle') {
+        asked.delete(id);
+      }
+    }
     listed = undefined;
     for (const listener of listeners) {
       listener();
     }
-  };
-  // A check answers only the unknown Send it was asked about, never a later one of the same Draft.
-  const checkOf = (entry: OutboxEntry): OutboxCheck => {
-    const request = asked.get(entry.id);
-    return entry.state === 'unknown' && request?.sendAt === entry.sendAt
-      ? request.check
-      : 'idle';
   };
 
   const entryOf = (id: string) =>
@@ -801,12 +814,6 @@ export function createOutbox({
           checks.delete(id);
         }
       }
-      for (const id of asked.keys()) {
-        const entry = outbox.find((each) => each.id === id);
-        if (entry === undefined || checkOf(entry) === 'idle') {
-          asked.delete(id);
-        }
-      }
       publish();
       if (checkUnknown(false)) {
         void process();
@@ -926,11 +933,7 @@ export function createOutbox({
       const current = entryOf(id);
       if (request !== undefined && asked.get(id) === request) {
         // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
-        if (
-          current !== undefined &&
-          checkOf(current) === 'checking' &&
-          ownerOf(registration) === request.owner
-        ) {
+        if (current !== undefined && checkOf(current) === 'checking') {
           asked.set(id, { ...request, check: 'unconfirmed' });
         } else {
           asked.delete(id);
