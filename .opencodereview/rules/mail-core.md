@@ -103,7 +103,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   declarations before and after them; otherwise malformed styles can throw before
   rejection, make readable mail fall back, or erase hiding declarations and
   authorize previously hidden CID requests.
-- `registration.ts.MailboxesSchema` or
+- `registration-snapshot.ts.MailboxesSchema` or
   `registration-vault.ts.RegistrationRecordSchema` admitting an IMAP connection
   without its non-secret endpoint, an invalid port, or an endpoint on another
   provider. Decode both projections against the same endpoint invariant;
@@ -476,12 +476,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   through `gmail-inbox.ts.threadMessages` and reopened caches; otherwise unrelated
   messages with empty conversation identities appear in one Thread. Preserve newest-first grouping
   for nonempty provider conversation identities.
-- `src/testing/registration-session.ts.withMailboxes` hardcoding one provider's
-  authorization failure for a connection from another provider. Compare the
-  synthetic projection with `registration-flow.ts.pending` and the shared
-  `mailbox-authorization.ts` mapping, including all connections needing
-  authorization and no saved connections. Otherwise Mock Mail Sessions display
-  Gmail recovery for a refused Microsoft grant and misrepresent production behavior.
+- `testing/registration-vault.ts.signInMailbox` or a scenario preset applying
+  one provider's refusal to another provider with the same subject. Scope
+  synthetic refusal state by provider and compare the real flow's projection
+  with `registration-flow.ts.pending` and `mailbox-authorization.ts`, including
+  all connections needing authorization and no saved connections. Otherwise
+  Mock Mail Sessions block an independent provider or display the wrong recovery.
 - `graph-inbox.ts.quietRound` or another incremental reader discarding a fresh
   final checkpoint because its page contains no changes. Persist every new
   provider checkpoint, end the current pass after that commit and use it on the

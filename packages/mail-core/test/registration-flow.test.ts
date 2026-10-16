@@ -51,7 +51,7 @@ describe('registration flow', () => {
   it('composes the vault flow with the shared store through registration, offline restore and sign-out', async () => {
     expect.hasAssertions();
     const { vault, backend } = createSyntheticVault();
-    const store = createRegistration(registrationPrograms(vault));
+    const store = createRegistration(vault);
     await store.restore();
     await store.register('google');
     // Product Sign-In connects no mailbox until the person chooses one.
@@ -85,9 +85,7 @@ describe('registration flow', () => {
     const malformed = vi.fn<NativeRegistrationVault['renewIdentity']>(
       vault.renewIdentity,
     );
-    const store = createRegistration(
-      registrationPrograms({ ...vault, renewIdentity: malformed }),
-    );
+    const store = createRegistration({ ...vault, renewIdentity: malformed });
     await store.register('google');
     malformed.mockResolvedValue({ matches: 'private-input' });
     const error = vi.spyOn(console, 'error').mockReturnValue(undefined);

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 
 import type {
-  NativeRegistration,
   Registration,
-  RegistrationSnapshot,
+  SignInProvider,
 } from '@private-email/mail-core/registration';
-import type { SyntheticAddress } from '@private-email/mail-core/testing/registration-session';
+import type {
+  RegistrationScenario,
+  SyntheticRegistrationScenario,
+} from '@private-email/mail-core/testing/registration-scenarios';
 import type { TurboModule } from 'react-native';
 
 import { english } from '@private-email/localization';
@@ -23,16 +25,14 @@ import {
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import {
-  createMockRegistrationSession,
-  createSyntheticAccount,
-  syntheticEnrollmentCode,
-  syntheticMailboxes,
-  syntheticRecoveryKey,
-  syntheticRenewedRecoveryKey,
-  syntheticReplacementRecoveryKey,
+  createRegistrationScenario,
   syntheticSecondTrustedDevice,
   syntheticTrustedDevice,
-} from '@private-email/mail-core/testing/registration-session';
+} from '@private-email/mail-core/testing/registration-scenarios';
+import {
+  removeTrustedDevice,
+  syntheticMailboxes,
+} from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
   fireEvent,
@@ -68,11 +68,81 @@ jest.mock('../src/private-storage.ts', () => ({
   mailboxes: undefined,
 }));
 
-// The connection list native code reports for one connected synthetic mailbox.
-const connectedTo = (address: SyntheticAddress) =>
-  JSON.stringify([
-    { id: syntheticMailboxes[address], address, state: 'connected' },
-  ]);
+// The Enrollment Code a Pending Device shows.
+const enrollmentCodeOf = (store: Registration) => {
+  const { snapshot } = store.getSnapshot();
+  assert.ok(snapshot.kind === 'device-pending');
+  assert.ok(snapshot.enrollmentCode !== undefined);
+  return snapshot.enrollmentCode;
+};
+
+// The replacement Recovery Key a prepared removal shows.
+const replacementKeyOf = (store: Registration) => {
+  const { snapshot } = store.getSnapshot();
+  assert.ok(snapshot.kind !== 'signed-out');
+  assert.ok(snapshot.revocationRecoveryKey !== undefined);
+  return snapshot.revocationRecoveryKey;
+};
+
+// A connection saved before SMTP receives only.
+const savedBeforeSmtp = ({ device }: SyntheticRegistrationScenario) => {
+  for (const connection of device.record?.connections ?? []) {
+    delete connection.smtp;
+  }
+};
+
+// The four characters of a Recovery Key that confirm it: its end, without separators.
+const lastFour = (key: string) => key.replaceAll('-', '').slice(-4);
+
+// The Recovery Key this device holds for its Product Account's current keys.
+const recoveryKeyOf = (synthetic: SyntheticRegistrationScenario) => {
+  const key = synthetic.device.productSync.vault?.recoveryKey;
+  assert.ok(key !== undefined);
+  return key;
+};
+
+// A Google Product Account another window of this process signed in to, before the test's store
+// opens it; its Recovery Key is confirmed unless the journey needs it pending.
+const signedIn = async ({
+  scenario = 'registration-success',
+  confirmKey = true,
+}: Readonly<{
+  scenario?: RegistrationScenario;
+  confirmKey?: boolean;
+}> = {}) => {
+  const synthetic = await createRegistrationScenario(scenario);
+  const setup = createRegistration(synthetic.vault);
+  await setup.register('google');
+  if (confirmKey) {
+    await setup.confirmRecoveryKey(lastFour(recoveryKeyOf(synthetic)));
+  }
+  return { synthetic, setup };
+};
+
+// Connects an IMAP mailbox with the password the synthetic server accepts, sending through
+// smtp.example.invalid; returns its connection.
+const connectImap = async (
+  { synthetic, setup }: Awaited<ReturnType<typeof signedIn>>,
+  mailbox: Readonly<{ address: string; host: string; username: string }>,
+) => {
+  await setup.connectImap({
+    ...mailbox,
+    port: 993,
+    password: synthetic.imap.password,
+    smtp: {
+      host: 'smtp.example.invalid',
+      port: 465,
+      security: 'tls',
+      username: mailbox.username,
+    },
+  });
+  const connection = mailboxesOf(setup.getSnapshot().snapshot).find(
+    ({ address }) => address === mailbox.address,
+  )?.id;
+  assert.ok(connection !== undefined);
+  return connection;
+};
+
 const alex = syntheticMailboxes['alex@example.invalid'];
 
 // Whether a synthetic Gmail request from `connection` is an online search of Alex's mailbox.
@@ -189,22 +259,20 @@ const commandMenu = () => {
   };
 };
 
-const barConnected = {
-  kind: 'connected',
-  productAccountId: 'synthetic-product-account',
-  signInProvider: 'google',
-  mailboxes: connectedTo('alex@example.invalid'),
-  privateSync: 'ready',
-} as const;
-
-// A window's gate whose screens show only its Command Palette bar, as the window composes them,
-// with the account the next restore reports.
-const renderBarWindow = async (restored: RegistrationSnapshot) => {
-  let next = restored;
-  const store = createRegistration({
-    ...createMockRegistrationSession('registration-success').native,
-    restore: () => Promise.resolve(next),
-  });
+// A window's gate whose screens show only its Command Palette bar, as the window composes them.
+// Another window of the app signs in or out; this one learns of it at its next restore.
+const renderBarWindow = async (initially: 'connected' | 'signed-out') => {
+  const synthetic = await createRegistrationScenario('registration-success');
+  const elsewhere = createRegistration(synthetic.vault);
+  const connect = async (provider: SignInProvider) => {
+    await elsewhere.register(provider);
+    await elsewhere.confirmRecoveryKey(lastFour(recoveryKeyOf(synthetic)));
+    await elsewhere.addMailbox();
+  };
+  if (initially === 'connected') {
+    await connect('google');
+  }
+  const store = createRegistration(synthetic.vault);
   await render(
     <CommandPaletteProvider windowId="bar">
       <RegistrationGate
@@ -214,12 +282,19 @@ const renderBarWindow = async (restored: RegistrationSnapshot) => {
       </RegistrationGate>
     </CommandPaletteProvider>,
   );
+  const restore = async () => {
+    await act(async () => {
+      await store.restore();
+    });
+  };
   return {
-    restore: async (snapshot: RegistrationSnapshot) => {
-      next = snapshot;
-      await act(async () => {
-        await store.restore();
-      });
+    connect: async (provider: SignInProvider) => {
+      await connect(provider);
+      await restore();
+    },
+    signOut: async () => {
+      await elsewhere.signOut();
+      await restore();
     },
   };
 };
@@ -248,40 +323,23 @@ const settings = async (destination: string) => {
   });
 };
 
-// Hosts without another device of the account never enroll, approve or recover one.
-const noEnrollment = {
-  recoverWithRecoveryKey: () =>
-    Promise.reject(new Error('No device to recover')),
-  approveEnrollment: () => Promise.reject(new Error('No device to approve')),
-  declineEnrollment: () => Promise.reject(new Error('No device to decline')),
-  revokeTrustedDevice: () => Promise.reject(new Error('No device to remove')),
-  confirmRevocation: () => Promise.reject(new Error('No device to remove')),
-  cancelRevocation: () => Promise.reject(new Error('No device to remove')),
-  refreshPrivateSync: () => Promise.reject(new Error('No private sync')),
-  signOut: () => Promise.reject(new Error('Not signing out')),
-  deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-  removeMailbox: () => Promise.reject(new Error('Not removing a mailbox')),
-};
-
 describe('product registration', () => {
   it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
     expect.hasAssertions();
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: connectedTo('alex@example.invalid'),
-    } as const;
-    let finish: (snapshot: unknown) => void = () => undefined;
+    const account = await signedIn();
+    await account.setup.addMailbox();
+    const { vault } = account.synthetic;
+    let finish: () => void = () => undefined;
     // oxlint-disable-next-line promise/avoid-new -- Hold native authorization while trying the IMAP provider row.
-    const authorization = new Promise<unknown>((resolve) => {
+    const authorization = new Promise<void>((resolve) => {
       finish = resolve;
     });
     const store = createRegistration({
-      ...noEnrollment,
-      ...createMockRegistrationSession('registration-success').native,
-      restore: () => Promise.resolve(connected),
-      addMailbox: () => authorization,
+      ...vault,
+      signInMailbox: async (...request) => {
+        await authorization;
+        return vault.signInMailbox(...request);
+      },
     });
     const view = await render(
       <RegistrationGate
@@ -306,13 +364,13 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'iCloud Mail' }),
       ).toBeDisabled();
       await act(async () => {
-        finish(connected);
+        finish();
       });
       await press('iCloud Mail');
       expect(screen.getByRole('header', { name: 'iCloud Mail' })).toBeVisible();
     } finally {
       await act(async () => {
-        finish(connected);
+        finish();
       });
       await view.unmount();
     }
@@ -321,27 +379,20 @@ describe('product registration', () => {
   it.each([
     {
       host: 'imap.example.invalid',
-      saved: {},
+      saved: savedBeforeSmtp,
       smtpPassword: '',
       sendingPassword: {},
       canConnect: false,
-      setup: {},
+      confirmKey: true,
       inboxActions: [],
     },
     {
       host: 'imap.fastmail.com',
-      saved: {
-        smtp: {
-          host: 'smtp.example.invalid',
-          port: 465,
-          security: 'tls',
-          username: 'alex',
-        },
-      },
+      saved: () => undefined,
       smtpPassword: 'separate-smtp-password',
       sendingPassword: { password: 'separate-smtp-password' },
       canConnect: true,
-      setup: { recoveryKey: syntheticRecoveryKey },
+      confirmKey: false,
       inboxActions: ['Open Inbox'],
     },
   ])(
@@ -352,7 +403,7 @@ describe('product registration', () => {
       smtpPassword,
       sendingPassword,
       canConnect: expectedConnect,
-      setup,
+      confirmKey,
       inboxActions,
     }) => {
       expect.hasAssertions();
@@ -360,33 +411,20 @@ describe('product registration', () => {
       imap.deliver('INBOX', { subject: 'Saved IMAP message' });
       imap.addFolder('Archive');
       imap.deliver('Archive', { subject: 'Private archived message' });
-      const session = createMockRegistrationSession('registration-success');
-      const connection = 'imap-connection';
-      const connected = {
-        kind: 'connected',
-        productAccountId: 'synthetic-product-account',
-        signInProvider: 'google',
-        mailboxes: JSON.stringify([
-          {
-            id: connection,
-            address: 'alex@example.invalid',
-            state: 'connected',
-            provider: 'imap',
-            imap: { host, port: 993, username: 'alex' },
-            ...saved,
-          },
-        ]),
-        privateSync: 'ready',
-        ...setup,
-      } as const;
+      const account = await signedIn({ confirmKey });
+      const { synthetic } = account;
+      const connection = await connectImap(account, {
+        address: 'alex@example.invalid',
+        host,
+        username: 'alex',
+      });
+      saved(synthetic);
       const setups: unknown[] = [];
       const store = createRegistration({
-        ...session.native,
-        restore: () => Promise.resolve(connected),
+        ...synthetic.vault,
         connectImap: (setup) => {
           setups.push(setup);
-          imap.server.failure = undefined;
-          return Promise.resolve(connected);
+          return synthetic.vault.connectImap(setup);
         },
       });
       const connections = createMailboxes(
@@ -471,6 +509,10 @@ describe('product registration', () => {
       const credentialGuidance = screen.getAllByText(
         'Same as incoming if blank.',
       ).length;
+      // The person changed the password at the mail server, and any separate SMTP password.
+      synthetic.imap.password = 'replacement-password';
+      Object.assign(synthetic.imap.smtp, sendingPassword);
+      imap.server.failure = undefined;
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: 'Connect' }));
       });
@@ -510,31 +552,13 @@ describe('product registration', () => {
     });
     imap.deliver('INBOX', { subject: 'Saved IMAP message' });
     imap.addFolder('Primary', ['inbox']);
-    const session = createMockRegistrationSession('registration-success');
-    const connection = 'icloud-connection';
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        {
-          id: connection,
-          address: 'alex@icloud.example.invalid',
-          state: 'connected',
-          provider: 'imap',
-          imap: {
-            host: 'imap.mail.me.com',
-            port: 993,
-            username: 'alex@icloud.example.invalid',
-          },
-        },
-      ]),
-      privateSync: 'ready',
-    } as const;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(connected),
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      username: 'alex@icloud.example.invalid',
     });
+    const store = createRegistration(account.synthetic.vault);
     const connections = createMailboxes(
       syntheticConnections({}, { [connection]: imap.native }),
       store,
@@ -593,27 +617,13 @@ describe('product registration', () => {
     imap.addFolder('2026');
     imap.addFolder('Archive\n2026');
     imap.deliver('Archive\n2026', { subject: 'Private archived message' });
-    const session = createMockRegistrationSession('registration-success');
-    const connection = 'imap-connection';
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        {
-          id: connection,
-          address: 'alex@example.invalid',
-          state: 'connected',
-          provider: 'imap',
-          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
-        },
-      ]),
-      privateSync: 'ready',
-    } as const;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(connected),
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      username: 'alex',
     });
+    const store = createRegistration(account.synthetic.vault);
     const connections = createMailboxes(
       syntheticConnections({}, { [connection]: imap.native }),
       store,
@@ -766,27 +776,13 @@ describe('product registration', () => {
     imap.addFolder('Archived Mail', ['archive']);
     imap.addFolder('Projects');
     imap.deliver('Projects', { subject: 'Filed invoice' });
-    const session = createMockRegistrationSession('registration-success');
-    const connection = 'imap-connection';
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        {
-          id: connection,
-          address: 'alex@example.invalid',
-          state: 'connected',
-          provider: 'imap',
-          imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
-        },
-      ]),
-      privateSync: 'ready',
-    } as const;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(connected),
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      username: 'alex',
     });
+    const store = createRegistration(account.synthetic.vault);
     const connections = createMailboxes(
       syntheticConnections({}, { [connection]: imap.native }),
       store,
@@ -911,31 +907,17 @@ describe('product registration', () => {
       address: 'other@example.invalid',
       messages: 0,
     });
-    const session = createMockRegistrationSession('registration-success');
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify(
-        (['alex@example.invalid', 'other@example.invalid'] as const).map(
-          (address) => ({
-            id: syntheticMailboxes[address],
-            address,
-            state: 'connected',
-          }),
-        ),
-      ),
-      privateSync: 'ready',
-    } as const;
-    let snapshot: unknown = { ...connected, kind: 'cached' };
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    await setup.addMailbox('gmail', true);
+    const connected = setup.getSnapshot().snapshot;
+    // Google cannot be reached, so both mailboxes open from what this device saved.
+    synthetic.google.refreshFailure = 'offline';
     let openMailbox: () => Promise<unknown> = async () => ({
       ...(await gmail.native.openMailbox()),
       availability: 'retry',
     });
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(snapshot),
-    });
+    const store = createRegistration(synthetic.vault);
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: { ...gmail.native, openMailbox: () => openMailbox() } },
       [syntheticMailboxes['other@example.invalid']]: other,
@@ -985,7 +967,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
     });
     gmail.deliver({ subject: 'After verification' });
-    snapshot = connected;
+    synthetic.google.refreshFailure = undefined;
     ({ openMailbox } = gmail.native);
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
@@ -1005,18 +987,9 @@ describe('product registration', () => {
   it('keeps the Command Palette bar on the account page and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    const session = createMockRegistrationSession('registration-success');
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: connectedTo('alex@example.invalid'),
-      privateSync: 'ready',
-    } as const;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => Promise.resolve(connected),
-    });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: gmail.native },
     });
@@ -1085,7 +1058,7 @@ describe('product registration', () => {
     expect.hasAssertions();
     const menu = commandMenu();
     try {
-      await renderBarWindow(barConnected);
+      await renderBarWindow('connected');
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Open Command Palette' }),
       );
@@ -1109,7 +1082,7 @@ describe('product registration', () => {
     const menu = commandMenu();
     const focus = jest.spyOn(View.prototype, 'focus');
     try {
-      await renderBarWindow(barConnected);
+      await renderBarWindow('connected');
       const button = await screen.findByRole('button', {
         name: 'Open Command Palette',
       });
@@ -1137,14 +1110,14 @@ describe('product registration', () => {
     expect.hasAssertions();
     const menu = commandMenu();
     try {
-      const window = await renderBarWindow({ kind: 'signed-out' });
+      const window = await renderBarWindow('signed-out');
       await expect(
         screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
       ).resolves.toBeVisible();
       await menu.choose('bar');
       expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
       // Nor does the Inbox's bar open later with the commands of that press.
-      await window.restore(barConnected);
+      await window.connect('google');
       await expect(
         screen.findByRole('button', { name: 'Open Command Palette' }),
       ).resolves.toBeVisible();
@@ -1158,17 +1131,18 @@ describe('product registration', () => {
     expect.hasAssertions();
     const menu = commandMenu();
     try {
-      const window = await renderBarWindow(barConnected);
+      const window = await renderBarWindow('connected');
       await expect(
         screen.findByRole('button', { name: 'Open Command Palette' }),
       ).resolves.toBeVisible();
       await menu.choose('bar');
       expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
-      await window.restore({ kind: 'signed-out' });
+      await window.signOut();
       await expect(
         screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
       ).resolves.toBeVisible();
-      await window.restore(barConnected);
+      // This device gave up the Google account's keys, so the Apple account opens here instead.
+      await window.connect('apple');
       await expect(
         screen.findByRole('button', { name: 'Open Command Palette' }),
       ).resolves.toBeVisible();
@@ -1182,25 +1156,27 @@ describe('product registration', () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
       .calls.length;
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: connectedTo('alex@example.invalid'),
-    } as const;
-    let finish: (snapshot: unknown) => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Hold the native restore response to prove foreground ordering.
-    const resumed = new Promise<unknown>((resolve) => {
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const { vault } = synthetic;
+    let finish: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native restore read to prove foreground ordering.
+    const resumed = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    let restore = () => Promise.resolve<unknown>(connected);
+    // The next verification waits on its first native read until released.
+    let hold: Promise<void> | undefined = undefined;
     let prematureReads = 0;
     const gmail = createSyntheticGmail({ messages: 1 });
     let openMailbox = () => gmail.native.openMailbox();
     const store = createRegistration({
-      ...noEnrollment,
-      ...createMockRegistrationSession('registration-success').native,
-      restore: () => restore(),
+      ...vault,
+      registration: async () => {
+        const held = hold;
+        hold = undefined;
+        await held;
+        return vault.registration();
+      },
     });
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: { ...gmail.native, openMailbox: () => openMailbox() } },
@@ -1221,7 +1197,7 @@ describe('product registration', () => {
       screen.findByText('Synthetic message 0'),
     ).resolves.toBeVisible();
     gmail.deliver({ subject: 'After foreground verification' });
-    restore = () => resumed;
+    hold = resumed;
     openMailbox = () => {
       prematureReads += 1;
       return Promise.reject(
@@ -1239,7 +1215,7 @@ describe('product registration', () => {
     expect(prematureReads).toBe(0);
     await act(async () => {
       ({ openMailbox } = gmail.native);
-      finish(connected);
+      finish();
     });
     await expect(
       screen.findByText('After foreground verification'),
@@ -1248,10 +1224,10 @@ describe('product registration', () => {
 
   it('retains setup after declined consent and connects a reselected Gmail account after remount', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-declined');
+    const synthetic = await createRegistrationScenario('registration-declined');
     const first = await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1275,7 +1251,7 @@ describe('product registration', () => {
     await first.unmount();
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1297,19 +1273,12 @@ describe('product registration', () => {
 
   it('offers interactive sign-in to recover a retained account after interruption', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    await session.native.signIn('google');
-    let addMailbox: NativeRegistration['addMailbox'] = () =>
-      Promise.reject(new Error('Synthetic identity needs sign-in'));
-    const store = createRegistration({
-      ...session.native,
-      signIn: (provider) => {
-        ({ addMailbox } = session.native);
-        return session.native.signIn(provider);
-      },
-      addMailbox: (provider, chooseAccount) =>
-        addMailbox(provider, chooseAccount),
-    });
+    const synthetic = await createRegistrationScenario(
+      'registration-interrupted',
+    );
+    await createRegistration(synthetic.vault).register('google');
+    // The relaunched host's first mailbox authorization is interrupted.
+    const store = createRegistration(synthetic.relaunch());
     await render(
       <RegistrationGate
         store={store}
@@ -1342,10 +1311,10 @@ describe('product registration', () => {
   it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the provider choice and the Gmail grant. */
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-declined');
+    const synthetic = await createRegistrationScenario('registration-declined');
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1401,8 +1370,8 @@ describe('product registration', () => {
   it('connects Microsoft mail as the first mailbox after Apple sign-in, without Gmail, and reads its Inbox', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the provider choice, connection and Inbox. */
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     const graph = createSyntheticGraph();
     graph.deliver({
       from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -1448,7 +1417,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
+        lastFour(recoveryKeyOf(synthetic)),
       );
     });
     await press('Confirm Recovery Key');
@@ -1463,7 +1432,7 @@ describe('product registration', () => {
 
   it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-declined');
+    const synthetic = await createRegistrationScenario('registration-declined');
     const saved: string[] = [];
     const remoteContent = createRemoteContentSettings({
       remoteContentSettings: () => Promise.resolve({ settings: null }),
@@ -1475,7 +1444,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}
         remoteContent={remoteContent}>
         {null}
@@ -1519,8 +1488,8 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves adding, switching, reauthorizing and removing mailboxes. */
   it('adds, switches, reauthorizes and removes Gmail mailboxes without mixing their mail', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     const gmail = {
       alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
       other: createSyntheticGmail({ address: 'other@example.invalid' }),
@@ -1557,7 +1526,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
+        lastFour(recoveryKeyOf(synthetic)),
       );
     });
     await press('Confirm Recovery Key');
@@ -1575,7 +1544,7 @@ describe('product registration', () => {
       ),
     ).toBeVisible();
     // Adding a mailbox that is already connected authorizes it again; nothing is duplicated.
-    session.choose('alex@example.invalid');
+    synthetic.choose('alex@example.invalid');
     await settings('Email Accounts');
     await press('Add another Gmail mailbox');
     expect(screen.getAllByText('alex@example.invalid')).toHaveLength(1);
@@ -1595,7 +1564,7 @@ describe('product registration', () => {
     await press('All inboxes');
 
     // Alex's grant is refused at the next verification; Other's mail stays available.
-    session.expire('alex@example.invalid');
+    synthetic.expire('alex@example.invalid');
     await act(store.resume);
     expect(screen.queryByText('Only for Alex')).toBeNull();
     expect(screen.getByText('Only for Other')).toBeVisible();
@@ -1626,7 +1595,7 @@ describe('product registration', () => {
     expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
     // A chosen mailbox stays chosen while its grant lapses, so nothing else is shown or sent from.
     await press('Inbox. In alex@example.invalid');
-    session.expire('alex@example.invalid');
+    synthetic.expire('alex@example.invalid');
     await act(store.resume);
     expect([
       alexRow().props.accessibilityState?.selected,
@@ -1661,8 +1630,8 @@ describe('product registration', () => {
 
   it('searches saved senders and subjects across mailboxes, shows saved bodies, and keeps only the current answer', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     const gmail = {
       alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
       other: createSyntheticGmail({ address: 'other@example.invalid' }),
@@ -1778,7 +1747,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
+        lastFour(recoveryKeyOf(synthetic)),
       );
     });
     await press('Confirm Recovery Key');
@@ -1912,8 +1881,8 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves asking, reading, failures and stale answers. */
   it('searches Gmail online when asked, opens a result, keeps saved results through an outage, and drops a stale answer', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     const gmail = {
       alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
       other: createSyntheticGmail({ address: 'other@example.invalid' }),
@@ -2003,7 +1972,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         await screen.findByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
+        lastFour(recoveryKeyOf(synthetic)),
       );
     });
     await press('Confirm Recovery Key');
@@ -2157,10 +2126,12 @@ describe('product registration', () => {
 
   it('links Google from account settings and keeps both sign-in methods after remount', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-link');
+    const synthetic = await createRegistrationScenario('registration-link');
+    // Apple suggests no Google account; the person chooses Alex's.
+    synthetic.choose('alex@example.invalid');
     const first = await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2193,7 +2164,7 @@ describe('product registration', () => {
     await first.unmount();
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2206,8 +2177,8 @@ describe('product registration', () => {
 
   it('explains that an Apple identity owned by another Product Account is not linked', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
         store={store}
@@ -2238,24 +2209,11 @@ describe('product registration', () => {
 
   it('forgets the account page choice when the Product Account signs out', async () => {
     expect.hasAssertions();
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedTo('other@example.invalid'),
-    } as const;
-    const store = createRegistration({
-      restore: () => Promise.resolve(connected),
-      signIn: () => Promise.resolve(connected),
-      addMailbox: () => Promise.resolve(connected),
-      authorizeMailbox: () => Promise.resolve(connected),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      ...noEnrollment,
-      signOut: () => Promise.resolve({ kind: 'signed-out' }),
-    });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    // Another Trusted Device of the account approves this device when it signs in again.
+    synthetic.sync.approves = true;
+    const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
         store={store}
@@ -2273,6 +2231,17 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Sign in with Google' }),
       );
     });
+    // This device gave up the account's keys on signing out; it is approved again, then reconnects.
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Check for approval' }),
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Gmail' }),
+      );
+    });
     // The next sign-in lands where its setup decides, not on the page chosen before.
     await expect(
       screen.findByRole('button', { name: 'Account' }),
@@ -2281,24 +2250,15 @@ describe('product registration', () => {
 
   it('shows setup that appears after the person returned to the Inbox', async () => {
     expect.hasAssertions();
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedTo('other@example.invalid'),
-    } as const;
-    let current: RegistrationSnapshot = connected;
-    const store = createRegistration({
-      restore: () => Promise.resolve(current),
-      signIn: () => Promise.resolve(current),
-      addMailbox: () => Promise.resolve(current),
-      authorizeMailbox: () => Promise.resolve(current),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      ...noEnrollment,
-    });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    // A minute later, another device of the account signs in and waits for approval.
+    const requestFrom = async () => {
+      synthetic.sync.clock += 60_000;
+      const other = synthetic.otherDevice();
+      await createRegistration(other.vault).register('google');
+    };
     await render(
       <RegistrationGate
         store={store}
@@ -2311,11 +2271,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
     });
     // Another device asks for approval; the earlier choice of the Inbox does not hide it.
-    current = {
-      ...connected,
-      enrollmentRequest: 'synthetic-request',
-      enrollmentDevice: 'iPad',
-    };
+    await requestFrom();
     await act(async () => {
       await store.restore();
     });
@@ -2324,15 +2280,7 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.queryByRole('button', { name: 'Account' })).toBeNull();
 
-    // This device can leave its pending approval for later; unchanged setup stays bypassed.
-    current = {
-      ...connected,
-      privateSync: 'enrollment-pending',
-      enrollmentCode: '1111 2222 3333',
-    };
-    await act(async () => {
-      await store.resume();
-    });
+    // This device can leave that approval for later; unchanged setup stays bypassed.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
     });
@@ -2343,52 +2291,37 @@ describe('product registration', () => {
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
 
-    // Expiry renews that request while keeping enrollment-pending: the new code needs attention.
-    current = {
-      ...current,
-      enrollmentCode: '4444 5555 6666',
-      enrollmentNotice: 'renewed',
-    };
+    // A newer request is new setup: it needs attention again.
+    await requestFrom();
     await act(async () => {
       await store.resume();
     });
     await expect(
-      screen.findByRole('header', { name: 'Approve this device' }),
+      screen.findByRole('header', { name: 'Approve a new device' }),
     ).resolves.toBeVisible();
-    expect(screen.getByText('4444 5555 6666')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Account' })).toBeNull();
   });
 
   it('recovers an unverifiable Apple account through a Google link made on another device without new Gmail consent', async () => {
     expect.hasAssertions();
-    const account = {
-      productAccountId: 'synthetic-apple-product-account',
-      signInProvider: 'apple',
-    } as const;
+    const synthetic = await createRegistrationScenario('registration-link');
+    synthetic.choose('alex@example.invalid');
+    const setup = createRegistration(synthetic.vault);
+    await setup.register('apple');
+    await setup.confirmRecoveryKey(lastFour(recoveryKeyOf(synthetic)));
+    await setup.addMailbox();
+    // Another Trusted Device of the account links Google; this device's saved receipt predates it.
+    const other = synthetic.otherDevice();
+    const elsewhere = createRegistration(other.vault);
+    await elsewhere.register('apple');
+    await elsewhere.recoverWithRecoveryKey(recoveryKeyOf(synthetic));
+    await elsewhere.link('google');
+    // Apple can no longer verify this device's sign-in.
+    synthetic.apple.state = 'revoked';
     const store = createRegistration({
-      // This device's saved receipt predates the link.
-      restore: () =>
-        Promise.resolve({
-          kind: 'mailbox-needed',
-          ...account,
-          reason: 'unavailable',
-        }),
-      signIn: (provider) =>
-        Promise.resolve({
-          kind: 'connected',
-          ...account,
-          signInProvider: provider,
-          alternateSignIn: 'apple',
-          mailboxes: connectedTo('alex@example.invalid'),
-        }),
-      addMailbox: () =>
+      ...synthetic.vault,
+      signInMailbox: () =>
         Promise.reject(new Error('Gmail consent must not restart')),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      authorizeMailbox: () =>
-        Promise.reject(new Error('Gmail consent must not restart')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () =>
-        Promise.reject(new Error('No Recovery Key to confirm')),
-      ...noEnrollment,
     });
     await render(
       <RegistrationGate
@@ -2410,7 +2343,7 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(store.getSnapshot().snapshot).toMatchObject({
-      ...account,
+      productAccountId: 'account-synthetic-apple-subject',
       signInProvider: 'google',
     });
   });
@@ -2418,10 +2351,10 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves setup confirmation and the Inbox it opens. */
   it('presents the Recovery Key until its final group is confirmed, then shows the encrypted mailbox list', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
+    const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2452,12 +2385,12 @@ describe('product registration', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       /does not match the end of your Recovery Key/u,
     );
-    expect(screen.getByText(syntheticRecoveryKey)).toBeVisible();
+    expect(screen.getByText(recoveryKeyOf(synthetic))).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(
         entry,
         // Separators and case are ignored, as in native confirmation.
-        [...syntheticRecoveryKey.slice(-4).toLowerCase()].join(' '),
+        [...lastFour(recoveryKeyOf(synthetic)).toLowerCase()].join(' '),
       );
     });
     await act(async () => {
@@ -2477,7 +2410,7 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
+    expect(screen.queryByText(recoveryKeyOf(synthetic))).toBeNull();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
     });
@@ -2490,13 +2423,12 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves both devices' sides of an approval. */
   it('unlocks a new device only after a trusted device approves the code it shows', async () => {
     expect.hasAssertions();
-    const account = createSyntheticAccount();
-    const trusted = createRegistration(
-      createMockRegistrationSession('registration-success', account).native,
-    );
-    const added = createRegistration(
-      createMockRegistrationSession('registration-enrollment', account).native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const trusted = createRegistration(synthetic.vault);
+    // Another installation of the same account, with its own Keychain.
+    const other = synthetic.otherDevice();
+    const added = createRegistration(other.vault);
+    const enrollmentCode = () => enrollmentCodeOf(added);
     const show = (store: typeof trusted) =>
       render(
         <RegistrationGate
@@ -2531,11 +2463,11 @@ describe('product registration', () => {
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
-      syntheticEnrollmentCode.replaceAll('-', ' '),
+      enrollmentCode().replaceAll('-', ' '),
     );
     expect(screen.getByTestId('enrollment-code')).toHaveProp(
       'accessibilityLabel',
-      syntheticEnrollmentCode,
+      enrollmentCode(),
     );
     for (const name of [
       'Check for approval',
@@ -2568,7 +2500,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         entry,
-        syntheticEnrollmentCode.toLowerCase().replaceAll('-', ' '),
+        enrollmentCode().toLowerCase().replaceAll('-', ' '),
       );
     });
     await press('Approve device');
@@ -2596,13 +2528,11 @@ describe('product registration', () => {
 
   it('unlocks a new device with the Recovery Key after a wrong key changes nothing, and offers no reset', async () => {
     expect.hasAssertions();
-    const account = createSyntheticAccount();
-    const lost = createRegistration(
-      createMockRegistrationSession('registration-success', account).native,
-    );
-    const added = createRegistration(
-      createMockRegistrationSession('registration-enrollment', account).native,
-    );
+    const synthetic = await createRegistrationScenario('registration-success');
+    const lost = createRegistration(synthetic.vault);
+    // Another installation of the same account, with its own Keychain.
+    const other = synthetic.otherDevice();
+    const added = createRegistration(other.vault);
     const show = (store: typeof lost) =>
       render(
         <RegistrationGate
@@ -2641,7 +2571,8 @@ describe('product registration', () => {
     expect(screen.queryByRole('button', { name: /reset/iu })).toBeNull();
     const entry = screen.getByLabelText('Recovery Key');
     await act(async () => {
-      await fireEvent.changeText(entry, syntheticEnrollmentCode);
+      // The code this device shows is not the Recovery Key.
+      await fireEvent.changeText(entry, enrollmentCodeOf(added));
     });
     await press('Unlock with Recovery Key');
     expect(screen.getByRole('alert')).toHaveTextContent(
@@ -2653,7 +2584,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         entry,
-        syntheticRecoveryKey.toLowerCase().replaceAll('-', ' '),
+        recoveryKeyOf(synthetic).toLowerCase().replaceAll('-', ' '),
       );
     });
     await press('Unlock with Recovery Key');
@@ -2680,46 +2611,17 @@ describe('product registration', () => {
 
   it('replaces a request that is no longer available and clears the code typed for it', async () => {
     expect.hasAssertions();
-    const trusted = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedTo('alex@example.invalid'),
-    } as const;
-    let refreshes = 0;
-    const store = createRegistration({
-      restore: () => Promise.resolve(trusted),
-      signIn: () => Promise.reject(new Error('Not signing in')),
-      addMailbox: () => Promise.reject(new Error('Not authorizing')),
-      authorizeMailbox: () => Promise.reject(new Error('Not authorizing')),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      removeMailbox: () => Promise.reject(new Error('Not removing')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () =>
-        Promise.reject(new Error('No Recovery Key to confirm')),
-      recoverWithRecoveryKey: () =>
-        Promise.reject(new Error('No device to recover')),
-      // The first request was handled by another trusted device meanwhile.
-      approveEnrollment: () =>
-        Promise.reject(
-          Object.assign(new Error('Request unavailable'), {
-            code: 'enrollment-unavailable',
-          }),
-        ),
-      declineEnrollment: () => Promise.reject(new Error('Not declining')),
-      revokeTrustedDevice: () => Promise.reject(new Error('Not removing')),
-      confirmRevocation: () => Promise.reject(new Error('Not removing')),
-      cancelRevocation: () => Promise.reject(new Error('Not removing')),
-      signOut: () => Promise.reject(new Error('Not signing out')),
-      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-      refreshPrivateSync: () =>
-        Promise.resolve({
-          ...trusted,
-          enrollmentRequest: `synthetic-request-${(refreshes += 1)}`,
-          enrollmentDevice: 'iPad',
-        }),
-    });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    // A minute later, another device of the account signs in and waits for approval.
+    const requestFrom = async () => {
+      synthetic.sync.clock += 60_000;
+      const other = synthetic.otherDevice();
+      const requesting = createRegistration(other.vault);
+      await requesting.register('google');
+      return requesting;
+    };
     await store.restoreOnce();
     await render(
       <RegistrationGate
@@ -2734,15 +2636,19 @@ describe('product registration', () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
       });
     };
+    const requesting = await requestFrom();
     await press('Check for a new device');
     await act(async () => {
       await fireEvent.changeText(
         screen.getByLabelText('Code from the new device'),
-        syntheticEnrollmentCode,
+        enrollmentCodeOf(requesting),
       );
     });
+    // Meanwhile that device was unlocked with the Recovery Key, which handled its request.
+    await requesting.recoverWithRecoveryKey(recoveryKeyOf(synthetic));
     await press('Approve device');
     expect(screen.getByRole('alert')).toHaveTextContent(/no longer available/u);
+    await requestFrom();
     await press('Check for a new device');
     expect(screen.getByLabelText('Code from the new device')).toHaveProp(
       'value',
@@ -2752,15 +2658,9 @@ describe('product registration', () => {
 
   it("opens the replacement Product Account's pending setup while Settings stays mounted", async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    await session.native.signIn('google');
-    await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-    await session.native.addMailbox('gmail', false);
-    let current = session.native;
-    const store = createRegistration({
-      ...session.native,
-      restore: () => current.restore(),
-    });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
         store={store}
@@ -2773,11 +2673,11 @@ describe('product registration', () => {
     expect(
       screen.getByRole('header', { name: 'Email Accounts' }),
     ).toBeVisible();
-    // Foreground verification discovers another Product Account with an unconfirmed key.
-    const replacement = createMockRegistrationSession('registration-success');
-    await replacement.native.signIn('apple');
-    await replacement.native.addMailbox('gmail', false);
-    current = replacement.native;
+    // Foreground verification discovers another Product Account with an unconfirmed key, which
+    // another window signed in to after signing out.
+    await setup.signOut();
+    await setup.register('apple');
+    await setup.addMailbox();
     await act(async () => {
       await store.resume();
     });
@@ -2785,7 +2685,7 @@ describe('product registration', () => {
       screen.getByRole('header', { name: 'Account & Devices' }),
     ).toBeVisible();
     expect(screen.getByTestId('recovery-key')).toHaveTextContent(
-      syntheticRecoveryKey,
+      recoveryKeyOf(synthetic),
     );
     expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
   });
@@ -2794,16 +2694,17 @@ describe('product registration', () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
       .calls.length;
-    const session = createMockRegistrationSession('registration-success');
-    await session.native.signIn('google');
-    await session.native.addMailbox('gmail', false);
-    let restore = (): Promise<unknown> =>
+    const { synthetic, setup } = await signedIn({ confirmKey: false });
+    await setup.addMailbox();
+    const { vault } = synthetic;
+    // Protected storage cannot be read until the device is unlocked.
+    let registration: typeof vault.registration = () =>
       Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
     await render(
       <RegistrationGate
         store={createRegistration({
-          ...session.native,
-          restore: () => restore(),
+          ...vault,
+          registration: () => registration(),
         })}
         preview={false}>
         {null}
@@ -2817,7 +2718,7 @@ describe('product registration', () => {
       screen.queryByRole('button'),
       screen.queryByRole('alert'),
     ]).toStrictEqual([null, null, null]);
-    ({ restore } = session.native);
+    ({ registration } = vault);
     // The React Native Jest preset records AppState listeners on its mock.
     await act(async () => {
       for (const [, activate] of jest
@@ -2830,13 +2731,8 @@ describe('product registration', () => {
     await expect(
       screen.findByText('alex@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
-    restore = () =>
-      Promise.resolve({
-        kind: 'mailbox-needed',
-        productAccountId: 'synthetic-product-account',
-        signInProvider: 'google',
-        reason: 'unavailable',
-      });
+    // Google now refuses the saved grant, so the next verification cannot open the account.
+    synthetic.google.refreshFailure = 'invalid-grant';
     await act(async () => {
       for (const [, activate] of jest
         .mocked(AppState.addEventListener)
@@ -2860,10 +2756,10 @@ describe('product registration', () => {
     expect.hasAssertions();
     const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     try {
-      const session = createMockRegistrationSession('registration-revocation');
-      await session.native.signIn('google');
-      await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-      const store = createRegistration(session.native);
+      const { synthetic } = await signedIn({
+        scenario: 'registration-revocation',
+      });
+      const store = createRegistration(synthetic.vault);
       const view = await render(
         <RegistrationGate
           store={store}
@@ -2899,10 +2795,13 @@ describe('product registration', () => {
     expect.hasAssertions();
     const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     try {
-      const session = createMockRegistrationSession('registration-revocation');
+      const synthetic = await createRegistrationScenario(
+        'registration-revocation',
+      );
+      const store = createRegistration(synthetic.vault);
       await render(
         <RegistrationGate
-          store={createRegistration(session.native)}
+          store={store}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -2917,7 +2816,7 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.changeText(
           screen.getByLabelText('Last four characters'),
-          syntheticRecoveryKey.slice(-4),
+          lastFour(recoveryKeyOf(synthetic)),
         );
       });
       await act(async () => {
@@ -2965,11 +2864,12 @@ describe('product registration', () => {
           await fireEvent.press(screen.getByRole('button', { name: remove }));
         });
       };
+      const replacementKey = () => replacementKeyOf(store);
       await prepare();
       // Prepared, not removed: the replacement key waits for confirmation instead of the list.
       expect(screen.getByRole('header', { name: proposal })).toBeVisible();
       expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        syntheticReplacementRecoveryKey,
+        replacementKey(),
       );
       expect(screen.queryByText(added)).toBeNull();
       await act(async () => {
@@ -2984,24 +2884,27 @@ describe('product registration', () => {
         screen.queryByText(english('revocation.confirm', { name })),
       ).toBeNull();
       await prepare();
-      await confirm(syntheticRecoveryKey.slice(-4));
+      const replacement = replacementKey();
+      await confirm(lastFour(recoveryKeyOf(synthetic)));
       expect(screen.getByRole('alert')).toHaveTextContent(
         english('revocation.mismatch'),
       );
       expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        syntheticReplacementRecoveryKey,
+        replacement,
       );
       // Another device changed the account: a fresh key must be saved and confirmed again.
-      session.changeAccount();
-      await confirm(syntheticReplacementRecoveryKey.slice(-4));
+      synthetic.changeAccount();
+      await confirm(lastFour(replacement));
       expect(screen.getByRole('alert')).toHaveTextContent(
         english('revocation.renewed'),
       );
+      const renewed = replacementKey();
+      expect(renewed).not.toBe(replacement);
       expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        syntheticRenewedRecoveryKey,
+        renewed,
       );
       expect(screen.getByLabelText(entry)).toHaveProp('value', '');
-      await confirm(syntheticRenewedRecoveryKey.slice(-4));
+      await confirm(lastFour(renewed));
       await expect(
         screen.findByText(english('revocation.removed')),
       ).resolves.toBeVisible();
@@ -3025,11 +2928,12 @@ describe('product registration', () => {
     expect.hasAssertions();
     const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     try {
-      const session = createMockRegistrationSession('registration-revocation');
-      await session.native.signIn('google');
-      await session.native.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-      session.addSecondTrustedDevice();
-      const store = createRegistration(session.native);
+      const { synthetic } = await signedIn({
+        scenario: 'registration-revocation',
+      });
+      const firstKey = recoveryKeyOf(synthetic);
+      synthetic.addSecondTrustedDevice();
+      const store = createRegistration(synthetic.vault);
       const show = () =>
         render(
           <RegistrationGate
@@ -3043,10 +2947,12 @@ describe('product registration', () => {
         screen.findByRole('header', { name: 'Private sync is on' }),
       ).resolves.toBeVisible();
       const removals = [
-        [syntheticTrustedDevice.name, syntheticReplacementRecoveryKey],
-        [syntheticSecondTrustedDevice.name, syntheticRenewedRecoveryKey],
-      ] as const;
-      for (const [name, key] of removals) {
+        syntheticTrustedDevice.name,
+        syntheticSecondTrustedDevice.name,
+      ];
+      // Each removal's replacement Recovery Key, which becomes the account's current one.
+      let latestKey = firstKey;
+      for (const name of removals) {
         const remove = english('revocation.remove', { name });
         await act(async () => {
           await fireEvent.press(screen.getByRole('button', { name: remove }));
@@ -3056,13 +2962,16 @@ describe('product registration', () => {
             ?.find(({ style }) => style === 'destructive')
             ?.onPress?.();
         });
+        const key = replacementKeyOf(store);
+        expect(key).not.toBe(latestKey);
+        latestKey = key;
         expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
           key,
         );
         await act(async () => {
           await fireEvent.changeText(
             screen.getByLabelText(english('revocation.label')),
-            key.slice(-4),
+            lastFour(key),
           );
         });
         await act(async () => {
@@ -3078,14 +2987,14 @@ describe('product registration', () => {
         screen.findByRole('header', { name: 'Private sync is on' }),
       ).resolves.toBeVisible();
       expect(screen.queryByLabelText('Recovery Key')).toBeNull();
-      session.loseDeviceKey();
+      synthetic.loseDeviceKey();
       await act(async () => {
         await store.resume();
       });
       await expect(
         screen.findByTestId('enrollment-code'),
       ).resolves.toHaveTextContent(
-        syntheticEnrollmentCode.replaceAll('-', ' '),
+        enrollmentCodeOf(store).replaceAll('-', ' '),
       );
       expect(
         screen.getByRole('header', { name: 'Approve this device' }),
@@ -3096,7 +3005,7 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.changeText(
           screen.getByLabelText('Recovery Key'),
-          syntheticRecoveryKey,
+          firstKey,
         );
       });
       await act(async () => {
@@ -3110,7 +3019,7 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.changeText(
           screen.getByLabelText('Recovery Key'),
-          syntheticRenewedRecoveryKey,
+          latestKey,
         );
       });
       await act(async () => {
@@ -3131,45 +3040,55 @@ describe('product registration', () => {
 
   // Mocked presentation: native separately proves exact replay and retention without a receipt.
   /* oxlint-disable vitest/max-expects -- One journey covers keyless routing, Cancel retention and Confirm settlement. */
-  it.each(['mailbox-needed', 'connected', 'cached'] as const)(
-    'keeps a retained removal proposal confirmable after this device loses its key (%s)',
-    async (kind) => {
+  it.each([
+    { kind: 'mailbox-needed', mailbox: () => Promise.resolve() },
+    {
+      kind: 'connected',
+      mailbox: async ({ setup }: Awaited<ReturnType<typeof signedIn>>) => {
+        await setup.addMailbox();
+      },
+    },
+    {
+      kind: 'cached',
+      // Gmail cannot be reached, so the mailbox opens from what this device saved.
+      mailbox: async ({
+        synthetic,
+        setup,
+      }: Awaited<ReturnType<typeof signedIn>>) => {
+        await setup.addMailbox();
+        synthetic.google.refreshFailure = 'offline';
+      },
+    },
+  ])(
+    'keeps a retained removal proposal confirmable after this device loses its key ($kind)',
+    async ({ kind, mailbox }) => {
       expect.hasAssertions();
-      const retained = {
-        kind,
-        productAccountId: 'synthetic-product-account',
-        signInProvider: 'google',
-        privateSync: 'enrollment-needed',
-        mailboxes: connectedTo('alex@example.invalid'),
-        revocationDevice: syntheticTrustedDevice.id,
-        revocationRecoveryKey: syntheticReplacementRecoveryKey,
-      } as const;
-      const session = createMockRegistrationSession('registration-revocation');
+      const account = await signedIn({ scenario: 'registration-revocation' });
+      const { synthetic, setup } = account;
+      await mailbox(account);
+      await setup.revokeTrustedDevice(syntheticTrustedDevice.id);
+      const replacement = replacementKeyOf(setup);
+      // The removal was sent but never reached the backend, so it stays to be sent again.
+      synthetic.sync.failActivationBeforeCommit = true;
+      await setup.confirmRevocation(lastFour(replacement));
+      // This device then loses its encryption key.
+      synthetic.device.productSync.deviceKey = false;
+      synthetic.device.productSync.deviceKeyName = undefined;
+      const store = createRegistration(synthetic.vault);
       await render(
         <RegistrationGate
-          store={createRegistration({
-            ...session.native,
-            restore: () => Promise.resolve(retained),
-            cancelRevocation: () =>
-              Promise.resolve({ ...retained, revocationNotice: 'unconfirmed' }),
-            confirmRevocation: (entry) => {
-              expect(entry).toBe(syntheticReplacementRecoveryKey.slice(-4));
-              return Promise.resolve({
-                kind: 'device-pending',
-                productAccountId: retained.productAccountId,
-                signInProvider: retained.signInProvider,
-                privateSync: 'enrollment-pending',
-                enrollmentCode: syntheticEnrollmentCode,
-              });
-            },
-          })}
+          store={store}
           preview={false}>
           {null}
         </RegistrationGate>,
       );
       await expect(
         screen.findByTestId('revocation-recovery-key'),
-      ).resolves.toHaveTextContent(syntheticReplacementRecoveryKey);
+      ).resolves.toHaveTextContent(replacement);
+      expect(store.getSnapshot().snapshot).toMatchObject({
+        kind,
+        privateSync: 'enrollment-needed',
+      });
       const remove = english('revocation.remove', {
         name: english('revocation.device'),
       });
@@ -3193,12 +3112,12 @@ describe('product registration', () => {
         english('revocation.unconfirmed'),
       );
       expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        syntheticReplacementRecoveryKey,
+        replacement,
       );
       await act(async () => {
         await fireEvent.changeText(
           screen.getByLabelText(english('revocation.label')),
-          syntheticReplacementRecoveryKey.slice(-4),
+          lastFour(replacement),
         );
       });
       await act(async () => {
@@ -3207,7 +3126,7 @@ describe('product registration', () => {
       await expect(
         screen.findByTestId('enrollment-code'),
       ).resolves.toHaveTextContent(
-        syntheticEnrollmentCode.replaceAll('-', ' '),
+        enrollmentCodeOf(store).replaceAll('-', ' '),
       );
       expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     },
@@ -3217,33 +3136,18 @@ describe('product registration', () => {
   // Mocked journey: native outcomes after a lost reply and after another device's removal.
   it('keeps an unconfirmed removal proposal, then explains a superseded one without its key', async () => {
     expect.hasAssertions();
-    const proposed = {
-      kind: 'mailbox-needed',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      trustedDevices: JSON.stringify([syntheticTrustedDevice]),
-      revocationDevice: syntheticTrustedDevice.id,
-      revocationRecoveryKey: syntheticReplacementRecoveryKey,
-    } as const;
-    const {
-      trustedDevices: _devices,
-      revocationDevice: _device,
-      revocationRecoveryKey: _key,
-      ...discarded
-    } = proposed;
-    const outcomes: RegistrationSnapshot[] = [
-      { ...proposed, revocationNotice: 'unconfirmed' },
-      { ...discarded, revocationNotice: 'superseded' },
-    ];
-    const session = createMockRegistrationSession('registration-revocation');
+    const { synthetic, setup } = await signedIn({
+      scenario: 'registration-revocation',
+    });
+    await setup.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const replacement = replacementKeyOf(setup);
+    const { snapshot } = setup.getSnapshot();
+    assert.ok(snapshot.kind !== 'signed-out');
+    // The removal's request is lost before it reaches the backend, so no reply confirms it.
+    synthetic.sync.failActivationBeforeCommit = true;
     await render(
       <RegistrationGate
-        store={createRegistration({
-          ...session.native,
-          restore: () => Promise.resolve(proposed),
-          confirmRevocation: () => Promise.resolve(outcomes.shift()),
-        })}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -3255,7 +3159,7 @@ describe('product registration', () => {
       await act(async () => {
         await fireEvent.changeText(
           screen.getByLabelText(english('revocation.label')),
-          syntheticReplacementRecoveryKey.slice(-4),
+          lastFour(replacement),
         );
       });
       await act(async () => {
@@ -3264,13 +3168,19 @@ describe('product registration', () => {
     };
     await expect(
       screen.findByTestId('revocation-recovery-key'),
-    ).resolves.toHaveTextContent(syntheticReplacementRecoveryKey);
+    ).resolves.toHaveTextContent(replacement);
     await confirm();
     expect(screen.getByRole('alert')).toHaveTextContent(
       english('revocation.unconfirmed'),
     );
     expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-      syntheticReplacementRecoveryKey,
+      replacement,
+    );
+    // Another device removes the iPad first.
+    removeTrustedDevice(
+      synthetic.sync,
+      snapshot.productAccountId,
+      syntheticTrustedDevice.id,
     );
     await confirm();
     expect(screen.getByRole('alert')).toHaveTextContent(
@@ -3282,9 +3192,8 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves removal, the next sign-in and leaving it. */
   it('explains on the next activation that this device was removed, then admits a new sign-in only as a Pending Device', async () => {
     expect.hasAssertions();
-    const store = createRegistration(
-      createMockRegistrationSession('registration-revoked').native,
-    );
+    const synthetic = await createRegistrationScenario('registration-revoked');
+    const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
         store={store}
@@ -3318,12 +3227,13 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Add this device' }),
     ).resolves.toBeVisible();
+    const code = enrollmentCodeOf(store);
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
-      syntheticEnrollmentCode.replaceAll('-', ' '),
+      code.replaceAll('-', ' '),
     );
     expect(screen.getByTestId('enrollment-code')).toHaveProp(
       'accessibilityLabel',
-      syntheticEnrollmentCode,
+      code,
     );
     expect(screen.queryByRole('button', { name: 'Gmail' })).toBeNull();
     // Leaving the Pending Device returns to Welcome.
@@ -3345,10 +3255,10 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves the explanation, cancellation and outcome. */
   it('signs this device out only after confirmation and keeps nothing of the account', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
+    const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration(session.native)}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -3370,7 +3280,7 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         screen.getByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4),
+        lastFour(recoveryKeyOf(synthetic)),
       );
     });
     await act(async () => {
@@ -3378,6 +3288,7 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Confirm Recovery Key' }),
       );
     });
+    const recoveryKey = recoveryKeyOf(synthetic);
     await openAccount();
     const signOut = { name: english('accountRemoval.signOut') };
     // The first press explains what sign-out removes; cancelling keeps the account.
@@ -3409,42 +3320,47 @@ describe('product registration', () => {
       screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText('Signed in with Google.')).toBeNull();
-    expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
+    expect(screen.queryByText(recoveryKey)).toBeNull();
   });
 
   it.each([
     {
-      removalPending: 'sign-out' as const,
+      removalPending: 'sign-out',
+      // The backend cannot be reached to unregister this device.
+      interrupt: async ({
+        synthetic,
+        setup,
+      }: Awaited<ReturnType<typeof signedIn>>) => {
+        synthetic.backend.unregisterFailure = 'offline';
+        await setup.signOut();
+        synthetic.backend.unregisterFailure = undefined;
+      },
       title: 'Finish signing out',
       action: english('accountRemoval.signOut'),
       result: 'Your mail,\non your devices.',
     },
     {
-      removalPending: 'deletion' as const,
+      removalPending: 'deletion',
+      // The backend deletes the account, but its reply is lost.
+      interrupt: async ({
+        synthetic,
+        setup,
+      }: Awaited<ReturnType<typeof signedIn>>) => {
+        synthetic.backend.loseReply = true;
+        await setup.deleteProductAccount();
+        synthetic.backend.loseReply = false;
+      },
       title: 'Confirm account deletion',
       action: english('accountRemoval.deletePermanently'),
       result: 'Product Account deleted',
     },
   ])(
     'resumes a pending $removalPending after relaunch without offering mailbox or sign-in work',
-    async ({ removalPending, title, action, result }) => {
+    async ({ removalPending, interrupt, title, action, result }) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-success');
-      const store = createRegistration({
-        ...session.native,
-        restore: () =>
-          Promise.resolve({
-            kind: 'mailbox-needed',
-            productAccountId: 'synthetic-product-account',
-            signInProvider: 'google',
-            privateSync: 'unavailable',
-            reason: 'unavailable',
-            removalPending,
-          }),
-        signOut: () => Promise.resolve({ kind: 'signed-out' }),
-        deleteProductAccount: () =>
-          Promise.resolve({ kind: 'signed-out', notice: 'deleted' }),
-      });
+      const account = await signedIn();
+      await interrupt(account);
+      const store = createRegistration(account.synthetic.relaunch());
       await render(
         <RegistrationGate
           store={store}
@@ -3457,6 +3373,7 @@ describe('product registration', () => {
           name: title,
         }),
       ).resolves.toBeVisible();
+      expect(store.getSnapshot().snapshot).toMatchObject({ removalPending });
       expect(screen.queryByRole('button', { name: 'Gmail' })).toBeNull();
       expect(
         screen.queryByRole('button', { name: 'Sign in again with Google' }),
@@ -3483,15 +3400,10 @@ describe('product registration', () => {
 
   it('deletes the Product Account only after explicit confirmation, keeping it when deletion fails', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    let deletion: () => Promise<unknown> = () =>
-      Promise.reject(new Error('Synthetic deletion offline'));
+    const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration({
-          ...session.native,
-          deleteProductAccount: () => deletion(),
-        })}
+        store={createRegistration(synthetic.vault)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -3513,6 +3425,8 @@ describe('product registration', () => {
       screen.getByText(english('accountRemoval.deleteConfirm')),
     ).toBeVisible();
     const permanently = { name: english('accountRemoval.deletePermanently') };
+    // The backend cannot be reached for the first deletion.
+    synthetic.backend.offline = true;
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', permanently));
     });
@@ -3520,7 +3434,7 @@ describe('product registration', () => {
       screen.findByRole('alert', { name: english('accountRemoval.deletion') }),
     ).resolves.toBeVisible();
     expect(screen.getByText('Signed in with Google.')).toBeVisible();
-    deletion = session.native.deleteProductAccount;
+    synthetic.backend.offline = false;
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', permanently));
     });

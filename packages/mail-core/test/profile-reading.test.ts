@@ -16,10 +16,8 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const other = syntheticMailboxes['other@example.invalid'];
@@ -49,8 +47,8 @@ describe('profile-scoped reading', () => {
       alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
       other: createSyntheticGmail({ address: 'other@example.invalid' }),
     };
-    const session = createMockRegistrationSession('registration-success');
-    const registration = createRegistration(session.native);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const registration = createRegistration(synthetic.vault);
     await registration.register('google');
     await registration.addMailbox();
     await registration.addMailbox('gmail', true);

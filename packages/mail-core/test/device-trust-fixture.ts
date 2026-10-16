@@ -1,8 +1,8 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Journey helpers read the mutable synthetic Keychain record shared with each device. */
 import * as Predicate from 'effect/Predicate';
 
-import type { NativeRegistration } from '../src/registration.ts';
 import type { createSyntheticDevice } from '../src/testing/registration-vault.ts';
+import type { RegistrationFlow } from './registration-flow-fixture.ts';
 
 import {
   createSyntheticDevice as syntheticDevice,
@@ -57,7 +57,7 @@ export const revocationOf = (device: Readonly<Device>) =>
   device.productSync.vault?.revocation;
 
 // Prepares and confirms a removal on `flow`, returning the confirmation's snapshot.
-const remove = async (flow: NativeRegistration, target: string) => {
+const remove = async (flow: RegistrationFlow, target: string) => {
   const prepared = await flow.revokeTrustedDevice(target);
   return flow.confirmRevocation(
     lastGroup(field(prepared, 'revocationRecoveryKey')),

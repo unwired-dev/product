@@ -1,10 +1,9 @@
 import { createRegistration } from '@private-email/mail-core/registration';
-import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import { waitFor } from '@testing-library/react-native';
 import {
@@ -43,7 +42,7 @@ describe('headless Gmail freshness', () => {
   it('restores mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
-    const flow = createRegistration(createRegistrationFlow(vault));
+    const flow = createRegistration(vault);
     await flow.register('google');
     await flow.addMailbox();
     const gmail = createSyntheticGmail();

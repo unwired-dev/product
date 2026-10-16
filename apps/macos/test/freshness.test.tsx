@@ -1,10 +1,9 @@
 import { createRegistration } from '@private-email/mail-core/registration';
-import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import { waitFor } from '@testing-library/react-native';
 import { AppState, TurboModuleRegistry } from 'react-native';
@@ -33,7 +32,7 @@ describe('application-scoped Gmail freshness', () => {
   it('polls while active, relies on push wakes in the background while every mailbox is routed, and polls again when one is not', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
-    const flow = createRegistration(createRegistrationFlow(vault));
+    const flow = createRegistration(vault);
     await flow.register('google');
     await flow.addMailbox();
     const gmail = createSyntheticGmail();

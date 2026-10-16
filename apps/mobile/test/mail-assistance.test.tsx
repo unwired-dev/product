@@ -10,10 +10,7 @@ import {
 } from '@private-email/mail-core/registration';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
-import {
-  createMockRegistrationSession,
-  syntheticRecoveryKey,
-} from '@private-email/mail-core/testing/registration-session';
+import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Profiler, use } from 'react';
 
@@ -146,10 +143,14 @@ describe('account settings availability', () => {
     'explains %s only after an explicit check without generating mail',
     async (outcome, copy) => {
       expect.hasAssertions();
-      const session = createMockRegistrationSession('registration-success');
-      const registration = createRegistration(session.native);
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const registration = createRegistration(synthetic.vault);
       await registration.register('google');
-      const enablement = createMailAssistanceEnablement(session.mailAssistance);
+      const enablement = createMailAssistanceEnablement(
+        synthetic.mailAssistance,
+      );
       await enablement.load('signed-in');
       const assistance = scriptedAssistance();
       const native: NativeAssistance = {
@@ -170,7 +171,7 @@ describe('account settings availability', () => {
       await render(
         <MailAssistanceContext value={enablement}>
           <MailAssistanceSettings
-            account="synthetic-product-account"
+            account="account-synthetic-product-subject"
             assistance={native}
             button={settingsButton}
           />
@@ -496,9 +497,9 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves the gate end to end. */
   it('keeps assistance hidden until enabled, ends it when disabled and forgets it on sign-out', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration(session.native);
-    const enablement = createMailAssistanceEnablement(session.mailAssistance);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    const enablement = createMailAssistanceEnablement(synthetic.mailAssistance);
     const assistance = scriptedAssistance();
     const translated: string[] = [];
     const { translation: mockTranslation } =
@@ -510,13 +511,6 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
         return mockTranslation.translationLanguages();
       },
     };
-    const signIn = async () => {
-      await act(async () => {
-        await store.register('google');
-        await store.addMailbox('gmail', false);
-        await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
-      });
-    };
     await render(
       <RegistrationGate
         store={store}
@@ -527,7 +521,13 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
         <Reader />
       </RegistrationGate>,
     );
-    await signIn();
+    let recoveryKey = '';
+    await act(async () => {
+      await store.register('google');
+      await store.addMailbox('gmail', false);
+      recoveryKey = String(synthetic.device.productSync.vault?.recoveryKey);
+      await store.confirmRecoveryKey(recoveryKey.slice(-4));
+    });
 
     // Off by default: no assistance action is offered and nothing reaches either framework.
     expect(screen.getByRole('button', { name: 'Account' })).toBeVisible();
@@ -568,7 +568,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     // Off fences queued input before React commits the hidden action.
     await act(async () => {
       const off = enablement.setEnabled(
-        'synthetic-product-account',
+        'account-synthetic-product-subject',
         defaultProfile,
         false,
       );
@@ -580,7 +580,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     expect(assistance.calls).toStrictEqual([]);
     await act(async () => {
       await enablement.setEnabled(
-        'synthetic-product-account',
+        'account-synthetic-product-subject',
         defaultProfile,
         true,
       );
@@ -591,7 +591,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     expect(screen.getByText('Summarizing on this device…')).toBeVisible();
     await act(async () => {
       await enablement.setEnabled(
-        'synthetic-product-account',
+        'account-synthetic-product-subject',
         defaultProfile,
         false,
       );
@@ -609,7 +609,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     // Turning it on again offers the action without requesting anything.
     await act(async () => {
       await enablement.setEnabled(
-        'synthetic-product-account',
+        'account-synthetic-product-subject',
         defaultProfile,
         true,
       );
@@ -624,7 +624,12 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     await act(async () => {
       await store.signOut();
     });
-    await signIn();
+    // This installation signs in again as a new device, which the Recovery Key admits.
+    await act(async () => {
+      await store.register('google');
+      await store.recoverWithRecoveryKey(recoveryKey);
+      await store.addMailbox('gmail', false);
+    });
     expect(screen.getByRole('button', { name: 'Account' })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Summarize this message' }),

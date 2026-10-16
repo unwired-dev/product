@@ -16,7 +16,8 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { palette } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
@@ -676,6 +677,26 @@ function holdingListing(
   };
 }
 
+// A Google Product Account connected to alex@example.invalid over the synthetic vault, with its
+// Recovery Key confirmed so the gate opens the Inbox; `authorized` lists each mailbox authorization.
+async function connectedRegistration() {
+  const synthetic = await createRegistrationScenario('registration-success');
+  const authorized: Array<string | null> = [];
+  const registration = createRegistration({
+    ...synthetic.vault,
+    signInMailbox: (connection, suggest, provider) => {
+      authorized.push(connection);
+      return synthetic.vault.signInMailbox(connection, suggest, provider);
+    },
+  });
+  await registration.register('google');
+  await registration.addMailbox();
+  await registration.confirmRecoveryKey(
+    synthetic.device.productSync.vault?.recoveryKey?.slice(-4) ?? '',
+  );
+  return { synthetic, registration, authorized };
+}
+
 describe('mac windows over a connected Gmail mailbox', () => {
   it.each([
     ['Travel', 'Inbox', true],
@@ -1011,33 +1032,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
     );
     const held = holdingListing(gmail.native);
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedMailboxes,
-    } as const;
-    const authorizeMailbox = jest.fn(() => Promise.resolve(connected));
-    const registration = createRegistration({
-      restore: () => Promise.resolve(connected),
-      addMailbox: () => Promise.reject(new Error('Not adding')),
-      authorizeMailbox,
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      removeMailbox: () => Promise.reject(new Error('Not removing')),
-      signIn: () => Promise.reject(new Error('Not signing in')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
-      approveEnrollment: () => Promise.reject(new Error('No device')),
-      declineEnrollment: () => Promise.reject(new Error('No device')),
-      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
-      confirmRevocation: () => Promise.reject(new Error('No device')),
-      cancelRevocation: () => Promise.reject(new Error('No device')),
-      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
-      signOut: () => Promise.reject(new Error('Not signing out')),
-      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-    });
+    const { registration, authorized } = await connectedRegistration();
     const list = createMailboxes(
       syntheticConnections({ [alex]: { native: held.native } }),
       registration,
@@ -1205,7 +1200,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       await Promise.resolve();
     });
-    expect(authorizeMailbox).toHaveBeenCalledWith(alex);
+    expect(authorized).toContain(alex);
     gmail.fail({ code: 'unavailable' });
     await act(list.load);
     expect(
@@ -1242,32 +1237,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedMailboxes,
-    } as const;
-    const registration = createRegistration({
-      restore: () => Promise.resolve(connected),
-      addMailbox: () => Promise.reject(new Error('Not adding')),
-      authorizeMailbox: () => Promise.resolve(connected),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      removeMailbox: () => Promise.reject(new Error('Not removing')),
-      signIn: () => Promise.reject(new Error('Not signing in')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
-      approveEnrollment: () => Promise.reject(new Error('No device')),
-      declineEnrollment: () => Promise.reject(new Error('No device')),
-      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
-      confirmRevocation: () => Promise.reject(new Error('No device')),
-      cancelRevocation: () => Promise.reject(new Error('No device')),
-      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
-      signOut: () => Promise.reject(new Error('Not signing out')),
-      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-    });
+    const { registration } = await connectedRegistration();
     showMailboxes(
       createMailboxes(
         syntheticConnections({ [alex]: { native: gmail.native } }),
@@ -1334,36 +1304,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       from: 'Maya Chen <maya@example.invalid>',
       subject: 'A little more room to think',
     });
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      mailboxes: connectedMailboxes,
-    } as const;
-    // After native code purges this device, restore finds it signed out.
-    const restored: Array<typeof connected | { kind: 'signed-out' }> = [
-      connected,
-    ];
-    const registration = createRegistration({
-      restore: () => Promise.resolve(restored.at(-1)),
-      addMailbox: () => Promise.resolve(connected),
-      authorizeMailbox: () => Promise.resolve(connected),
-      connectImap: () => Promise.reject(new Error('Not connecting')),
-      removeMailbox: () => Promise.reject(new Error('Not removing')),
-      signIn: () => Promise.reject(new Error('Not signing in')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
-      approveEnrollment: () => Promise.reject(new Error('No device')),
-      declineEnrollment: () => Promise.reject(new Error('No device')),
-      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
-      confirmRevocation: () => Promise.reject(new Error('No device')),
-      cancelRevocation: () => Promise.reject(new Error('No device')),
-      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
-      signOut: () => Promise.reject(new Error('Not signing out')),
-      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-    });
+    const { registration, synthetic } = await connectedRegistration();
     // As the app composes them: the Inbox hands a removal to the registration store.
     showMailboxes(
       createMailboxes(syntheticConnections({ [alex]: gmail }), registration, {
@@ -1380,7 +1321,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
       </RegistrationGate>,
     );
     const row = await app.findByRole('button', { name: maya });
-    restored.push({ kind: 'signed-out' });
+    // Native code purges this device when the write's Trusted Device check finds it removed.
+    await synthetic.vault.purge('revoked');
     gmail.failModify({ code: 'mailbox-revoked' });
     await act(async () => {
       await fireEvent(row, 'accessibilityAction', {

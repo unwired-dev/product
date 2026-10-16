@@ -7,16 +7,15 @@ import type { RevocationReply } from './product-sync-devices.ts';
 import type { ListedDevices } from './product-sync.ts';
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
+  MailGrantProvider,
+  RegistrationSnapshot,
+  SignInProvider,
+} from './registration-snapshot.ts';
+import type {
   NativeRegistrationVault,
   RegistrationRecord,
   SetupReason,
 } from './registration-vault.ts';
-import type {
-  MailGrantProvider,
-  RegistrationPrograms,
-  RegistrationSnapshot,
-  SignInProvider,
-} from './registration.ts';
 
 import { imapFallback } from './imap-setup.ts';
 import { profileList, profileOwners } from './mail-profiles.ts';
@@ -879,14 +878,18 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   return {
     restore: () => program(restore),
-    signIn: (provider) => program(signIn(provider)),
-    addMailbox: (provider, chooseAccount) =>
+    signIn: (provider: SignInProvider) => program(signIn(provider)),
+    // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless
+    // `chooseAccount`. Adding a mailbox that is already connected authorizes it again instead.
+    addMailbox: (provider: MailGrantProvider, chooseAccount: boolean) =>
       program(authorizeMailbox(null, provider, chooseAccount)),
-    authorizeMailbox: (connection) =>
+    // Authorizes one Mailbox Connection's provider again, with the same account.
+    authorizeMailbox: (connection: string) =>
       program(authorizeMailbox(connection, 'gmail', false)),
-    connectImap: (setup) => program(connectImap(setup)),
+    // Connects an IMAP mailbox at a reviewed endpoint, or repairs the connection for its account.
+    connectImap: (setup: ImapSetup) => program(connectImap(setup)),
     // The removal then reaches Product Sync and every Trusted Device.
-    removeMailbox: (connection) =>
+    removeMailbox: (connection: string) =>
       program(
         step(() => vault.removeMailbox(connection)).pipe(
           Effect.andThen(synchronize),
@@ -894,22 +897,22 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         ),
       ),
     // A Profile is named on this device first and published when Product Sync is reachable.
-    createProfile: (name) =>
+    createProfile: (name: string) =>
       program(
         productSyncFlow
           .createProfile(name)
           .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
       ),
-    renameProfile: (id, name) =>
+    renameProfile: (id: string, name: string) =>
       program(
         productSyncFlow
           .renameProfile(id, name)
           .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
       ),
     // Removing a Profile and moving a connection need Product Sync.
-    removeProfile: (id) =>
+    removeProfile: (id: string) =>
       program(productSyncFlow.removeProfile(id).pipe(Effect.andThen(current))),
-    moveMailbox: (connection, profile) =>
+    moveMailbox: (connection: string, profile: string) =>
       program(
         saved.pipe(
           Effect.flatMap((value) =>
@@ -918,10 +921,13 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(current),
         ),
       ),
-    link: (provider) => program(link(provider)),
-    confirmRecoveryKey: (entry) =>
+    // Verifies the current Product Account and the identity being linked, interactively.
+    link: (provider: SignInProvider) => program(link(provider)),
+    // Confirms Recovery Key setup with the final group the person wrote down.
+    confirmRecoveryKey: (entry: string) =>
       program(thenStatus(() => vault.confirmRecoveryKey(entry))),
-    recoverWithRecoveryKey: (entry) =>
+    // Unlocks this device's private data with the Recovery Key when no trusted device can.
+    recoverWithRecoveryKey: (entry: string) =>
       program(
         Effect.gen(function* () {
           const value = yield* saved;
@@ -953,27 +959,28 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
             : snapshot;
         }),
       ),
-    approveEnrollment: (requestId, code) =>
+    // Seals this device's keys to another device, unlocked by the code that device shows.
+    approveEnrollment: (requestId: string, code: string) =>
       program(
         productSyncFlow
           .approveEnrollment(requestId, code)
           .pipe(Effect.andThen(current)),
       ),
-    declineEnrollment: (requestId) =>
+    declineEnrollment: (requestId: string) =>
       program(
         productSyncFlow
           .declineEnrollment(requestId)
           .pipe(Effect.andThen(current)),
       ),
     // Prepares the removal of another Trusted Device after a fresh interactive Product Sign-In.
-    revokeTrustedDevice: (trustedDeviceId) =>
+    revokeTrustedDevice: (trustedDeviceId: string) =>
       program(
         renewSignIn.pipe(
           Effect.andThen(noticed(productSyncFlow.revoke(trustedDeviceId))),
         ),
       ),
     // Activation needs a recent sign-in; one that aged while the key was saved is renewed once.
-    confirmRevocation: (entry) =>
+    confirmRevocation: (entry: string) =>
       program(
         noticed(productSyncFlow.confirmRevocation(entry)).pipe(
           Effect.catchIf(
@@ -987,6 +994,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           ),
         ),
       ),
+    // Discards an unsent proposal; an unanswered activation must be reconciled first.
     cancelRevocation: () => program(noticed(productSyncFlow.cancelRevocation)),
     // Checks for an approval of this device, or for another device waiting for one.
     refreshPrivateSync: () =>
@@ -1015,6 +1023,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           return yield* current;
         }),
       ),
+    // Adopts the newest key epoch after a removal refused a Product Sync write, so the next write is
+    // sealed at it.
     adoptKeyRotation: () =>
       program(
         Effect.gen(function* () {
@@ -1034,7 +1044,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           return yield* current;
         }),
       ),
+    // Unregisters this Trusted Device, then removes the Product Account's data from this device.
     signOut: () => program(signOut, 'signOut'),
+    // Permanently deletes the Product Account after an interactive Product Sign-In.
     deleteProductAccount: () => program(deleteAccount, 'deletion'),
-  } satisfies RegistrationPrograms;
+  };
 }

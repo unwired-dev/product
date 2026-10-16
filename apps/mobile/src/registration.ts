@@ -15,7 +15,6 @@ import {
   createRegistration,
   microsoftMailAvailable,
 } from '@private-email/mail-core/registration';
-import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import { answerSyntheticRegistration } from '@private-email/mail-core/synthetic-registration';
 import { NativeEventEmitter, TurboModuleRegistry } from 'react-native';
 
@@ -73,74 +72,70 @@ export const microsoftMail = () =>
     )?.getConstants?.(),
   );
 
-export const registration = createRegistration(
-  createRegistrationFlow({
-    registration: () => native().registration(),
-    signInIdentity: (provider, hint) => native().signInIdentity(provider, hint),
-    renewIdentity: () => native().renewIdentity(),
-    appleCredentialState: () => native().appleCredentialState(),
-    reuseSession: () => native().reuseSession(),
-    saveIdentity: (replacing) => native().saveIdentity(replacing),
-    connect: (mode) => native().connect(mode),
-    createKeyRing: () => native().createKeyRing(),
-    recordInitialization: (initialized) =>
-      native().recordInitialization(initialized),
-    reenroll: () => native().reenroll(),
-    beginEnrollment: (notice) => native().beginEnrollment(notice),
-    openEnrollment: (approval) => native().openEnrollment(approval),
-    confirmAdmission: () => native().confirmAdmission(),
-    recoverPendingDevice: (entry) => native().recoverPendingDevice(entry),
-    recoverTrustedDevice: (entry, envelope) =>
-      native().recoverTrustedDevice(entry, envelope),
-    readsAsEnrollmentCode: (entry) => native().readsAsEnrollmentCode(entry),
-    sealEnrollment: (code, request) => native().sealEnrollment(code, request),
-    adoptRotation: (envelope) => native().adoptRotation(envelope),
-    settleRevocation: (keyEpoch) => native().settleRevocation(keyEpoch),
-    adoptIdentity: () => native().adoptIdentity(),
-    prepareRevocation: (proposal) => native().prepareRevocation(proposal),
-    submitRevocation: (entry) => native().submitRevocation(entry),
-    withdrawRevocation: () => native().withdrawRevocation(),
-    discardRevocation: () => native().discardRevocation(),
-    finishSynchronization: () => native().finishSynchronization(),
-    sealMailboxDescriptor: (record, descriptor) =>
-      native().sealMailboxDescriptor(record, descriptor),
-    openMailboxDescriptors: (records) =>
-      native().openMailboxDescriptors(records),
-    recordMailboxChanges: (connections, settledRemovals) =>
-      native().recordMailboxChanges(connections, settledRemovals),
-    purgeMailbox: (connection) => native().purgeMailbox(connection),
-    removeQueuedPushRoutes: () => native().removeQueuedPushRoutes(),
-    recordMailboxReadback: (addresses, confirmed, epochs) =>
-      native().recordMailboxReadback(addresses, confirmed, epochs),
-    sealProfileRecord: (record) => native().sealProfileRecord(record),
-    openProfileRecords: (records) => native().openProfileRecords(records),
-    recordProfiles: (state) => native().recordProfiles(state),
-    forgetMailboxAccess: () => native().forgetMailboxAccess(),
-    retryMailboxCleanup: () => native().retryMailboxCleanup(),
-    refreshMailbox: (connection) => native().refreshMailbox(connection),
-    signInMailbox: (connection, suggest, provider) =>
-      native().signInMailbox(connection, suggest, provider),
-    verifyMailbox: () => native().verifyMailbox(),
-    connectImap: (setup) => native().connectImap(setup),
-    verifyImap: (connection) => native().verifyImap(connection),
-    confirmMailbox: (connection) => native().confirmMailbox(connection),
-    storeMailbox: () => native().storeMailbox(),
-    markMailbox: (connection, access) =>
-      native().markMailbox(connection, access),
-    recordMailboxSetup: (reason) => native().recordMailboxSetup(reason),
-    saveSignInProviders: (providers) => native().saveSignInProviders(providers),
-    recordRemoval: (operation) => native().recordRemoval(operation),
-    prepareSignOut: () => native().prepareSignOut(),
-    endSession: () => native().endSession(),
-    purge: (notice) => native().purge(notice),
-    call: (request) => native().call(request),
-    removeMailbox: (connection) => native().removeMailbox(connection),
-    routeMailboxes: () => native().routeMailboxes(),
-    stopMailboxWatches: () => native().stopMailboxWatches(),
-    confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
-    readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
-  }),
-);
+export const registration = createRegistration({
+  registration: () => native().registration(),
+  signInIdentity: (provider, hint) => native().signInIdentity(provider, hint),
+  renewIdentity: () => native().renewIdentity(),
+  appleCredentialState: () => native().appleCredentialState(),
+  reuseSession: () => native().reuseSession(),
+  saveIdentity: (replacing) => native().saveIdentity(replacing),
+  connect: (mode) => native().connect(mode),
+  createKeyRing: () => native().createKeyRing(),
+  recordInitialization: (initialized) =>
+    native().recordInitialization(initialized),
+  reenroll: () => native().reenroll(),
+  beginEnrollment: (notice) => native().beginEnrollment(notice),
+  openEnrollment: (approval) => native().openEnrollment(approval),
+  confirmAdmission: () => native().confirmAdmission(),
+  recoverPendingDevice: (entry) => native().recoverPendingDevice(entry),
+  recoverTrustedDevice: (entry, envelope) =>
+    native().recoverTrustedDevice(entry, envelope),
+  readsAsEnrollmentCode: (entry) => native().readsAsEnrollmentCode(entry),
+  sealEnrollment: (code, request) => native().sealEnrollment(code, request),
+  adoptRotation: (envelope) => native().adoptRotation(envelope),
+  settleRevocation: (keyEpoch) => native().settleRevocation(keyEpoch),
+  adoptIdentity: () => native().adoptIdentity(),
+  prepareRevocation: (proposal) => native().prepareRevocation(proposal),
+  submitRevocation: (entry) => native().submitRevocation(entry),
+  withdrawRevocation: () => native().withdrawRevocation(),
+  discardRevocation: () => native().discardRevocation(),
+  finishSynchronization: () => native().finishSynchronization(),
+  sealMailboxDescriptor: (record, descriptor) =>
+    native().sealMailboxDescriptor(record, descriptor),
+  openMailboxDescriptors: (records) => native().openMailboxDescriptors(records),
+  recordMailboxChanges: (connections, settledRemovals) =>
+    native().recordMailboxChanges(connections, settledRemovals),
+  purgeMailbox: (connection) => native().purgeMailbox(connection),
+  removeQueuedPushRoutes: () => native().removeQueuedPushRoutes(),
+  recordMailboxReadback: (addresses, confirmed, epochs) =>
+    native().recordMailboxReadback(addresses, confirmed, epochs),
+  sealProfileRecord: (record) => native().sealProfileRecord(record),
+  openProfileRecords: (records) => native().openProfileRecords(records),
+  recordProfiles: (state) => native().recordProfiles(state),
+  forgetMailboxAccess: () => native().forgetMailboxAccess(),
+  retryMailboxCleanup: () => native().retryMailboxCleanup(),
+  refreshMailbox: (connection) => native().refreshMailbox(connection),
+  signInMailbox: (connection, suggest, provider) =>
+    native().signInMailbox(connection, suggest, provider),
+  verifyMailbox: () => native().verifyMailbox(),
+  connectImap: (setup) => native().connectImap(setup),
+  verifyImap: (connection) => native().verifyImap(connection),
+  confirmMailbox: (connection) => native().confirmMailbox(connection),
+  storeMailbox: () => native().storeMailbox(),
+  markMailbox: (connection, access) => native().markMailbox(connection, access),
+  recordMailboxSetup: (reason) => native().recordMailboxSetup(reason),
+  saveSignInProviders: (providers) => native().saveSignInProviders(providers),
+  recordRemoval: (operation) => native().recordRemoval(operation),
+  prepareSignOut: () => native().prepareSignOut(),
+  endSession: () => native().endSession(),
+  purge: (notice) => native().purge(notice),
+  call: (request) => native().call(request),
+  removeMailbox: (connection) => native().removeMailbox(connection),
+  routeMailboxes: () => native().routeMailboxes(),
+  stopMailboxWatches: () => native().stopMailboxWatches(),
+  confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
+  readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
+});
 
 // APNs wake hints waiting for JavaScript, and the routes they may name.
 export const wakes: NativeWakes = {

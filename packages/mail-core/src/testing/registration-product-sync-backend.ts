@@ -734,7 +734,7 @@ export function createSyntheticSyncHandlers(
       return success(
         [...entry.devices].map(([id, trustedDevice]) => ({
           id,
-          displayName: `Device ${id}`,
+          displayName: trustedDevice.name ?? `Device ${id}`,
           registeredAt: trustedDevice.registeredAt,
           lastSeenAt: trustedDevice.registeredAt,
           platform: 'ios',

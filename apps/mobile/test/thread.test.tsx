@@ -1,7 +1,7 @@
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
   fireEvent,

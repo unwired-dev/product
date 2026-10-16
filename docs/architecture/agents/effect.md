@@ -28,7 +28,8 @@ through a Promise so Convex calls stay in the function's async context. Convex c
 calls `fetch` through `Effect.tryPromise` rather than `HttpClient`, which keeps
 fetch's abort deadlines and test fetch mocks.
 
-The registration flow exposes Effect programs. `createRegistration` composes
-these with snapshot validation, error recovery and its semaphore before the
-single `runLogged` at each store action. Its existing Promise-returning native
-adapter remains supported for mock sessions; the flow starts no nested runtime.
+`createRegistration` accepts only a native vault and builds the registration
+flow itself. It composes the flow's Effect programs with snapshot validation,
+error recovery and its semaphore before the single `runLogged` at each store
+action. Mock sessions supply synthetic vault presets and exercise the same flow;
+the flow starts no nested runtime.

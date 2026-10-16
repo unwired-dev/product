@@ -35,8 +35,9 @@ retry resumes the same subject and stable installation ID.
 The registration flow runs in TypeScript, in
 `packages/mail-core/src/registration-flow.ts`, over a minimal native vault. Both
 hosts' `registration.ts` only wire the vault's native methods into
-`createRegistrationFlow`, whose Effect programs `createRegistration` composes in the shared
-store before its single host-facing run. TypeScript decides every step: restoring, signing in, switching to a Linked
+`createRegistration`. The shared store builds `createRegistrationFlow` from that
+vault and composes its Effect programs before its single host-facing run.
+TypeScript decides every step: restoring, signing in, switching to a Linked
 Sign-In, linking, verifying and adding mailboxes, recording why setup ended, and the
 order of sign-out and deletion. It builds every status value and Schema-decodes
 every native result, failing closed on anything malformed.

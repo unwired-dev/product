@@ -8,14 +8,17 @@ import type {
   PendingEnrollment,
   StoredPayload,
 } from './registration-replies.ts';
-import type { MailGrantProvider, SignInProvider } from './registration.ts';
+import type {
+  MailGrantProvider,
+  SignInProvider,
+} from './registration-snapshot.ts';
 
 import {
   ImapEndpointSchema,
   SmtpEndpointSchema,
   endpointMatchesProvider,
 } from './imap-setup.ts';
-import { MailProviderSchema } from './registration.ts';
+import { MailProviderSchema } from './registration-snapshot.ts';
 
 const Provider = Schema.Literals(['google', 'apple']);
 const SetupReasonSchema = Schema.Literals([

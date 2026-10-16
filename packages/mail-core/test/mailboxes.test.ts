@@ -1,3 +1,5 @@
+import * as Effect from 'effect/Effect';
+
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
 import type { ImapInboxState } from '../src/imap-inbox.ts';
 import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
@@ -15,6 +17,7 @@ import {
   searchGmail,
   searchMessages,
 } from '../src/mailboxes.ts';
+import { createRegistrationFlow } from '../src/registration-flow.ts';
 import {
   createRegistration,
   defaultProfile,
@@ -24,10 +27,8 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const other = syntheticMailboxes['other@example.invalid'];
@@ -163,8 +164,8 @@ async function twoMailboxes(
     alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
     other: createSyntheticGmail({ address: 'other@example.invalid' }),
   };
-  const session = createMockRegistrationSession('registration-success');
-  const registration = createRegistration(session.native);
+  const synthetic = await createRegistrationScenario('registration-success');
+  const registration = createRegistration(synthetic.vault);
   await registration.register('google');
   // Product Sign-In connects no mailbox; the person chooses Gmail.
   await registration.addMailbox();
@@ -174,7 +175,7 @@ async function twoMailboxes(
     [other]: gmail.other,
   });
   const mailboxes = createMailboxes(native?.(base) ?? base, registration);
-  return { gmail, session, registration, mailboxes };
+  return { gmail, synthetic, registration, mailboxes };
 }
 
 describe('mailbox connections and the unified Inbox', () => {
@@ -243,6 +244,7 @@ describe('mailbox connections and the unified Inbox', () => {
         id: alex,
         provider: 'gmail',
         address: 'alex@example.invalid',
+        epoch: 'synthetic-epoch-1',
         state: 'connected',
         profile: defaultProfile,
       },
@@ -250,6 +252,7 @@ describe('mailbox connections and the unified Inbox', () => {
         id: other,
         provider: 'gmail',
         address: 'other@example.invalid',
+        epoch: 'synthetic-epoch-2',
         state: 'connected',
         profile: defaultProfile,
       },
@@ -596,7 +599,7 @@ describe('mailbox connections and the unified Inbox', () => {
 
   it('keeps one connection usable and isolated while another needs Gmail again', async () => {
     expect.hasAssertions();
-    const { gmail, session, registration, mailboxes } = await twoMailboxes();
+    const { gmail, synthetic, registration, mailboxes } = await twoMailboxes();
     const shared = gmail.alex.deliver({ subject: 'In Alex', at: at(2) });
     expect(gmail.other.deliver({ subject: 'In Other', at: at(1) })).toBe(
       shared,
@@ -627,7 +630,7 @@ describe('mailbox connections and the unified Inbox', () => {
     ).toStrictEqual(['In Alex']);
 
     // Verification then finds Alex's grant refused: its Inbox closes, and Other's stays open.
-    session.expire('alex@example.invalid');
+    synthetic.expire('alex@example.invalid');
     await registration.restore();
     expect(registration.getSnapshot().snapshot.kind).toBe('connected');
     expect(mailboxes.getSnapshot().map(({ id }) => id)).toStrictEqual([other]);
@@ -679,6 +682,7 @@ describe('mailbox connections and the unified Inbox', () => {
         id: alex,
         provider: 'gmail',
         address: 'alex@example.invalid',
+        epoch: 'synthetic-epoch-1',
         state: 'connected',
         profile: defaultProfile,
       },
@@ -702,40 +706,14 @@ describe('mailbox connections and the unified Inbox', () => {
   it('forgets every connection held in memory when its account leaves, including a late result', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    const mailboxList = JSON.stringify([
-      {
-        id: alex,
-        provider: 'gmail',
-        address: 'alex@example.invalid',
-        state: 'connected',
-      },
-    ]);
-    let snapshot: unknown = {
-      kind: 'connected',
-      productAccountId: 'account-a',
-      signInProvider: 'google',
-      mailboxes: mailboxList,
-    };
-    const unused = () => Promise.reject(new Error('Not used'));
-    const registration = createRegistration({
-      restore: () => Promise.resolve(snapshot),
-      signIn: unused,
-      addMailbox: unused,
-      authorizeMailbox: unused,
-      connectImap: unused,
-      removeMailbox: unused,
-      link: unused,
-      confirmRecoveryKey: unused,
-      recoverWithRecoveryKey: unused,
-      approveEnrollment: unused,
-      declineEnrollment: unused,
-      revokeTrustedDevice: unused,
-      confirmRevocation: unused,
-      cancelRevocation: unused,
-      refreshPrivateSync: unused,
-      signOut: () => Promise.resolve({ kind: 'signed-out' }),
-      deleteProductAccount: unused,
-    });
+    const synthetic = await createRegistrationScenario('registration-success');
+    const registration = createRegistration(synthetic.vault);
+    await registration.register('google');
+    await registration.addMailbox();
+    // A confirmed Recovery Key lets this device sign out.
+    await registration.confirmRecoveryKey(
+      String(synthetic.device.productSync.vault?.recoveryKey).slice(-4),
+    );
     let release: () => void = () => undefined;
     let paused = false;
     const base = syntheticConnections({ [alex]: gmail });
@@ -775,31 +753,18 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(first?.inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
 
     // Another Product Account connecting the same mailbox gets a new Inbox; nothing carries over.
-    snapshot = {
-      kind: 'connected',
-      productAccountId: 'account-b',
-      signInProvider: 'google',
-      mailboxes: mailboxList,
-    };
-    await registration.restore();
+    synthetic.choose('alex@example.invalid');
+    await registration.register('apple');
+    await registration.addMailbox();
     const [next] = mailboxes.getSnapshot();
     expect(next?.id).toBe(alex);
     expect(next?.inbox).not.toBe(first?.inbox);
     expect(first?.inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
     await mailboxes.load();
-    snapshot = {
-      kind: 'connected',
-      productAccountId: 'account-b',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        {
-          id: alex,
-          address: 'alex@example.invalid',
-          state: 'connected',
-          epoch: 'recreated',
-        },
-      ]),
-    };
+    // Another window removes and recreates the connection, which keeps its identifier.
+    const elsewhere = createRegistrationFlow(synthetic.vault);
+    await Effect.runPromise(elsewhere.removeMailbox(alex));
+    await Effect.runPromise(elsewhere.addMailbox('gmail', false));
     await registration.restore();
     const recreated = mailbox(mailboxes.getSnapshot(), alex);
     expect(recreated.inbox).not.toBe(next?.inbox);
@@ -907,54 +872,31 @@ describe('mailbox connections and the unified Inbox', () => {
 
   it('runs at most two body downloads per connection and four across connections', async () => {
     expect.hasAssertions();
-    const connections = ['a', 'b', 'c'].map((letter) => {
-      const gmail = createSyntheticGmail({
-        address: `${letter}@example.invalid`,
-      });
-      return {
-        id: `synthetic-connection-${letter}`,
-        address: `${letter}@example.invalid`,
-        gmail,
-        delivered: [1, 2, 3].map((day) => gmail.deliver({ at: at(day) })),
-      };
-    });
+    const synthetic = await createRegistrationScenario('registration-success');
+    const registration = createRegistration(synthetic.vault);
+    await registration.register('google');
+    // The person chooses three Google accounts.
+    for (const letter of ['a', 'b', 'c']) {
+      synthetic.google.chosen = `synthetic-${letter}`;
+      synthetic.google.addresses[`synthetic-${letter}`] =
+        `${letter}@example.invalid`;
+      await registration.addMailbox('gmail', true);
+    }
+    const connections = mailboxesOf(registration.getSnapshot().snapshot).map(
+      ({ id, address }) => {
+        const gmail = createSyntheticGmail({ address });
+        return {
+          id,
+          gmail,
+          delivered: [1, 2, 3].map((day) => gmail.deliver({ at: at(day) })),
+        };
+      },
+    );
     const held = holdingBodies(
       syntheticConnections(
         Object.fromEntries(connections.map(({ id, gmail }) => [id, gmail])),
       ),
     );
-    const snapshot = {
-      kind: 'connected',
-      productAccountId: 'account-a',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify(
-        connections.map(({ id, address }) => ({
-          id,
-          address,
-          state: 'connected',
-        })),
-      ),
-    };
-    const unused = () => Promise.reject(new Error('Not used'));
-    const registration = createRegistration({
-      restore: () => Promise.resolve(snapshot),
-      signIn: unused,
-      addMailbox: unused,
-      authorizeMailbox: unused,
-      connectImap: unused,
-      removeMailbox: unused,
-      link: unused,
-      confirmRecoveryKey: unused,
-      recoverWithRecoveryKey: unused,
-      approveEnrollment: unused,
-      declineEnrollment: unused,
-      revokeTrustedDevice: unused,
-      confirmRevocation: unused,
-      cancelRevocation: unused,
-      refreshPrivateSync: unused,
-      signOut: unused,
-      deleteProductAccount: unused,
-    });
     const mailboxes = createMailboxes(held.native, registration);
     await registration.restore();
     await mailboxes.load();

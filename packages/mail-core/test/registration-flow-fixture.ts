@@ -1,7 +1,6 @@
 import * as Effect from 'effect/Effect';
 
 import type { NativeRegistrationVault } from '../src/registration-flow.ts';
-import type { NativeRegistration } from '../src/registration.ts';
 
 import { createRegistrationFlow as registrationPrograms } from '../src/registration-flow.ts';
 import {
@@ -9,10 +8,17 @@ import {
   createSyntheticVault,
 } from '../src/testing/registration-vault.ts';
 
-// Promise adapter for the flow journeys; production composes these programs in the store.
+type Programs = ReturnType<typeof registrationPrograms>;
+// The registration programs as Promises, for the flow journeys; the store composes the programs.
+export type RegistrationFlow = {
+  readonly [Method in keyof Programs]: (
+    ...args: Parameters<Programs[Method]>
+  ) => Promise<unknown>;
+};
+
 export const createRegistrationFlow = (
   vault: NativeRegistrationVault,
-): Required<NativeRegistration> => {
+): RegistrationFlow => {
   const flow = registrationPrograms(vault);
   return {
     restore: () => Effect.runPromise(flow.restore()),

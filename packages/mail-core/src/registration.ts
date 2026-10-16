@@ -6,269 +6,53 @@ import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import type { ImapSetup } from './imap-setup.ts';
+import type {
+  MailboxConnection,
+  MailGrantProvider,
+  PrivateSync,
+  RegistrationSnapshot,
+  SignInProvider,
+} from './registration-snapshot.ts';
+import type { NativeRegistrationVault } from './registration-vault.ts';
 
 import {
   decodeDiagnostic,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { createRegistrationFlow } from './registration-flow.ts';
 import {
-  ImapEndpointSchema,
-  SmtpEndpointSchema,
-  endpointMatchesProvider,
-} from './imap-setup.ts';
-
-const SignInProviderSchema = Schema.Literals(['google', 'apple']);
-export type SignInProvider = typeof SignInProviderSchema.Type;
-
-// End-to-End Encrypted Product Sync on this device.
-const PrivateSyncSchema = Schema.Literals([
-  'setup-pending',
-  'recovery-key',
-  'ready',
-  'enrollment-needed',
-  // Waiting for a trusted device to approve this one with the code it shows.
-  'enrollment-pending',
-  // This device's Product Sync state cannot be read; registration and mail stay usable.
-  'unavailable',
-]);
-export type PrivateSync = typeof PrivateSyncSchema.Type;
-
-const TrustedDevicesSchema = Schema.fromJsonString(
-  Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      name: Schema.NonEmptyString,
-      // Milliseconds since 1970, within the JavaScript Date range used for display.
-      registeredAt: Schema.Finite.check(
-        Schema.isBetween({
-          minimum: -8_640_000_000_000_000,
-          maximum: 8_640_000_000_000_000,
-        }),
-      ),
-    }),
-  ),
-);
-const decodeTrustedDevices = Schema.decodeOption(TrustedDevicesSchema);
-const trustedDevicesText = Schema.NonEmptyString.check(
-  Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
-);
-
-// The Mail Profiles besides the Default Profile: each one's identifier and name, and whether that
-// name, chosen on this device, is not yet synchronized.
-const ProfilesSchema = Schema.fromJsonString(
-  Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      name: Schema.NonEmptyString,
-      pending: Schema.optionalKey(Schema.Literal(true)),
-    }),
-  ),
-);
-const decodeProfiles = Schema.decodeOption(ProfilesSchema);
-const profilesText = Schema.NonEmptyString.check(
-  Schema.makeFilter((value) => Option.isSome(decodeProfiles(value))),
-);
-export type MailProfile = (typeof ProfilesSchema.Type)[number];
-
-// The Mail Provider a Mailbox Connection reads: Gmail, Outlook.com and Microsoft 365 mail through
-// Microsoft Graph, or a Standards-Based Mailbox Connection over IMAP.
-export const MailProviderSchema = Schema.Literals([
-  'gmail',
-  'microsoft-graph',
-  'imap',
-]);
-export type MailProvider = typeof MailProviderSchema.Type;
-// A Mail Provider whose mailbox is authorized through the provider's own sign-in.
-export type MailGrantProvider = Exclude<MailProvider, 'imap'>;
+  RegistrationSnapshotSchema,
+  mailboxesOf,
+  trustedDevicesOf,
+} from './registration-snapshot.ts';
 
 // A malformed native capability cannot offer an authorization action.
 export const microsoftMailAvailable = Schema.is(
   Schema.Struct({ microsoftMail: Schema.Literal(true) }),
 );
 
-// The lossless migrated Mail Profile. It owns every Mailbox Connection recorded before Profiles,
-// and its Profile Record Scope is the Product Account's existing Product Sync namespace, so no
-// connection, Draft, Outbox or encrypted-record identity changes. Unique within a Product Account.
-export const defaultProfile = 'default';
-// The owner of a connection whose Mail Profile this device cannot determine; no window reads it.
-export const unavailableProfile = 'unavailable';
+export {
+  MailProviderSchema,
+  PrivateSyncStateSchema,
+  RegistrationSnapshotSchema,
+  defaultProfile,
+  mailboxesOf,
+  profilesOf,
+  trustedDevicesOf,
+  unavailableProfile,
+} from './registration-snapshot.ts';
+export type {
+  MailboxConnection,
+  MailGrantProvider,
+  MailProfile,
+  MailProvider,
+  PrivateSync,
+  RegistrationSnapshot,
+  SignInProvider,
+  TrustedDevice,
+} from './registration-snapshot.ts';
 
-// This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
-// Inbox until its provider verifies again; 'authorization' needs it authorized again first.
-const MailboxesSchema = Schema.fromJsonString(
-  Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      // Connections listed before Microsoft mail are Gmail.
-      provider: MailProviderSchema.pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed('gmail')),
-      ),
-      address: Schema.NonEmptyString,
-      // The reviewed IMAP endpoint, shown again when its password is entered again.
-      imap: Schema.optionalKey(ImapEndpointSchema),
-      // The verified SMTP endpoint; an IMAP connection without one receives only.
-      smtp: Schema.optionalKey(SmtpEndpointSchema),
-      state: Schema.Literals(['connected', 'cached', 'authorization']),
-      // A removal/recreation changes this owner lifetime; ordinary verification does not.
-      epoch: Schema.optionalKey(Schema.NonEmptyString),
-      // The owning Mail Profile. Entries written before Profiles carry none and belong to the
-      // Default Profile.
-      profile: Schema.NonEmptyString.pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed(defaultProfile)),
-      ),
-    }).check(Schema.makeFilter(endpointMatchesProvider)),
-  ).check(
-    Schema.makeFilter(
-      (mailboxes) =>
-        new Set(mailboxes.map(({ id }) => id)).size === mailboxes.length,
-    ),
-  ),
-);
-const decodeMailboxes = Schema.decodeOption(MailboxesSchema);
-const mailboxesText = Schema.NonEmptyString.check(
-  Schema.makeFilter((value) => Option.isSome(decodeMailboxes(value))),
-);
-export type MailboxConnection = (typeof MailboxesSchema.Type)[number];
-
-const Account = Schema.Struct({
-  productAccountId: Schema.NonEmptyString,
-  signInProvider: SignInProviderSchema,
-  // Action-only receipt metadata, removed before publishing the snapshot to hosts.
-  imapConnected: Schema.optionalKey(Schema.NonEmptyString),
-  // An unanswered removal stays resumable instead of reopening account access.
-  removalPending: Schema.optionalKey(Schema.Literals(['sign-out', 'deletion'])),
-  // The other Sign-In Provider explicitly linked to the same Product Account.
-  alternateSignIn: Schema.optionalKey(SignInProviderSchema),
-  // Display and contact information only; it never links identities or selects a mailbox.
-  contactEmail: Schema.optionalKey(Schema.NonEmptyString),
-  // Absent where a host has no Product Sync backend.
-  privateSync: Schema.optionalKey(PrivateSyncSchema),
-  // Shown only until its setup is confirmed; never stored outside native device storage.
-  recoveryKey: Schema.optionalKey(Schema.NonEmptyString),
-  // Mailbox addresses read back and decrypted from Product Sync, one per line.
-  privateSyncMailboxes: Schema.optionalKey(Schema.NonEmptyString),
-  // The connected mailbox is not yet saved to Product Sync; a sign-in will save it.
-  privateSyncPending: Schema.optionalKey(Schema.Literal('mailbox')),
-  // Shown on a device waiting for approval; it never leaves native device storage otherwise.
-  enrollmentCode: Schema.optionalKey(Schema.NonEmptyString),
-  // Why an earlier request ended without unlocking this device.
-  enrollmentNotice: Schema.optionalKey(
-    Schema.Literals(['renewed', 'rejected']),
-  ),
-  // Only in the reply to a Recovery Key attempt that unlocked nothing.
-  recoveryNotice: Schema.optionalKey(Schema.Literal('rejected')),
-  // Another device of this Product Account waiting for this trusted device's approval.
-  enrollmentRequest: Schema.optionalKey(Schema.NonEmptyString),
-  enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
-  // JSON text listing the account's other Trusted Devices that this device can remove.
-  trustedDevices: Schema.optionalKey(trustedDevicesText),
-  // JSON text listing this device's Mailbox Connections; absent before the first one.
-  mailboxes: Schema.optionalKey(mailboxesText),
-  // JSON text listing the Mail Profiles besides the Default Profile; absent without any.
-  profiles: Schema.optionalKey(profilesText),
-  // A prepared removal of this listed Trusted Device waits for its replacement Recovery Key to be
-  // confirmed, or for the outcome of its activation, which may already have committed.
-  revocationDevice: Schema.optionalKey(Schema.NonEmptyString),
-  // That proposal's replacement Recovery Key; it becomes current only when the removal activates.
-  revocationRecoveryKey: Schema.optionalKey(Schema.NonEmptyString),
-  // Only in the reply to a removal call: 'renewed' replaced the proposal and its key after the
-  // account changed, 'unconfirmed' kept the proposal after a lost reply, and 'superseded'
-  // discarded a key that never activated or was replaced by a later removal.
-  revocationNotice: Schema.optionalKey(
-    Schema.Literals(['removed', 'renewed', 'unconfirmed', 'superseded']),
-  ),
-});
-// The account's Product Sync status values, from this device's Product Sync state.
-export const PrivateSyncStateSchema = Schema.Struct({
-  privateSync: Account.fields.privateSync,
-  recoveryKey: Account.fields.recoveryKey,
-  privateSyncMailboxes: Account.fields.privateSyncMailboxes,
-  privateSyncPending: Account.fields.privateSyncPending,
-  enrollmentCode: Account.fields.enrollmentCode,
-  enrollmentNotice: Account.fields.enrollmentNotice,
-  enrollmentRequest: Account.fields.enrollmentRequest,
-  enrollmentDevice: Account.fields.enrollmentDevice,
-  trustedDevices: Account.fields.trustedDevices,
-  revocationDevice: Account.fields.revocationDevice,
-  revocationRecoveryKey: Account.fields.revocationRecoveryKey,
-});
-export const RegistrationSnapshotSchema = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal('signed-out'),
-    // This device purged the Product Account after it was removed, or after the Product Account
-    // was deleted from this device or another.
-    notice: Schema.optionalKey(Schema.Literals(['revoked', 'deleted'])),
-  }),
-  // Signed in but not admitted: until a Trusted Device approves it or the Recovery Key unlocks
-  // it, this device has no account data, no Product Sync and no mailbox.
-  Schema.Struct({
-    kind: Schema.Literal('device-pending'),
-    ...Account.fields,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal('mailbox-needed'),
-    ...Account.fields,
-    reason: Schema.optionalKey(
-      Schema.Literals([
-        'cancelled',
-        'declined',
-        'gmail-unavailable',
-        'microsoft-unavailable',
-        'interrupted',
-        'unavailable',
-        'imap-refused',
-        'imap-offline',
-        'imap-insecure',
-        'smtp-refused',
-        'smtp-insecure',
-      ]),
-    ),
-  }),
-  // At least one mailbox verified.
-  Schema.Struct({
-    kind: Schema.Literal('connected'),
-    ...Account.fields,
-    mailboxes: mailboxesText,
-  }),
-  // Only saved Inboxes open, until registration verifies again.
-  Schema.Struct({
-    kind: Schema.Literal('cached'),
-    ...Account.fields,
-    mailboxes: mailboxesText,
-  }),
-]);
-export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
-
-export type TrustedDevice = Readonly<{
-  id: string;
-  name: string;
-  registeredAt: number;
-}>;
-
-// The native snapshot boundary has already validated this JSON text.
-export const trustedDevicesOf = (
-  snapshot: RegistrationSnapshot | Readonly<{ trustedDevices?: string }>,
-): readonly TrustedDevice[] =>
-  !('trustedDevices' in snapshot) || snapshot.trustedDevices === undefined
-    ? []
-    : Option.getOrThrow(decodeTrustedDevices(snapshot.trustedDevices));
-
-// The native snapshot boundary has already validated this JSON text.
-export const profilesOf = (
-  snapshot: RegistrationSnapshot,
-): readonly MailProfile[] =>
-  !('profiles' in snapshot) || snapshot.profiles === undefined
-    ? []
-    : Option.getOrThrow(decodeProfiles(snapshot.profiles));
-
-// The native snapshot boundary has already validated this JSON text.
-export const mailboxesOf = (
-  snapshot: RegistrationSnapshot | Readonly<{ mailboxes?: string }>,
-): readonly MailboxConnection[] =>
-  !('mailboxes' in snapshot) || snapshot.mailboxes === undefined
-    ? []
-    : Option.getOrThrow(decodeMailboxes(snapshot.mailboxes));
 const sameSnapshot = Schema.toEquivalence(RegistrationSnapshotSchema);
 
 // Native hosts reject with the registration failure code; a cancelled session is not a failure.
@@ -317,71 +101,6 @@ export type ImapFailure = typeof ImapFailureSchema.Type | 'failed';
 const imapFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ImapFailureSchema }),
 );
-
-export interface NativeRegistration {
-  readonly restore: () => Promise<unknown>;
-  readonly signIn: (provider: SignInProvider) => Promise<unknown>;
-  // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless
-  // `chooseAccount`. Adding a mailbox that is already connected authorizes it again instead.
-  readonly addMailbox: (
-    provider: MailGrantProvider,
-    chooseAccount: boolean,
-  ) => Promise<unknown>;
-  // Authorizes one Mailbox Connection's provider again, with the same account.
-  readonly authorizeMailbox: (connection: string) => Promise<unknown>;
-  // Connects an IMAP mailbox at a reviewed endpoint, or repairs the connection for its account.
-  readonly connectImap: (setup: ImapSetup) => Promise<unknown>;
-  // Removes a Mailbox Connection from this Product Account; its provider's mail is untouched.
-  readonly removeMailbox: (connection: string) => Promise<unknown>;
-  // Names a new Mail Profile on this device; Product Sync publishes it when reachable. Hosts
-  // without Product Sync omit the Profile operations.
-  readonly createProfile?: (name: string) => Promise<unknown>;
-  readonly renameProfile?: (profile: string, name: string) => Promise<unknown>;
-  // Removes a Mail Profile that owns no Mailbox Connection; needs Product Sync.
-  readonly removeProfile?: (profile: string) => Promise<unknown>;
-  // Moves one of this device's Mailbox Connections to a published Mail Profile, or back to the
-  // Default Profile; needs Product Sync.
-  readonly moveMailbox?: (
-    connection: string,
-    profile: string,
-  ) => Promise<unknown>;
-  // Verifies the current Product Account and the identity being linked, interactively.
-  readonly link: (provider: SignInProvider) => Promise<unknown>;
-  // Confirms Recovery Key setup with the final group the person wrote down.
-  readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
-  // Unlocks this device's private data with the Recovery Key when no trusted device can.
-  readonly recoverWithRecoveryKey: (entry: string) => Promise<unknown>;
-  // Seals this device's keys to another device, unlocked by the code that device shows.
-  readonly approveEnrollment: (
-    requestId: string,
-    code: string,
-  ) => Promise<unknown>;
-  readonly declineEnrollment: (requestId: string) => Promise<unknown>;
-  // Prepares the removal of another Trusted Device after an interactive Product Sign-In; the
-  // backend is unchanged until its replacement Recovery Key is confirmed.
-  readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
-  // Confirms the replacement Recovery Key with its final group, then removes the device and
-  // rotates the keys.
-  readonly confirmRevocation: (entry: string) => Promise<unknown>;
-  // Discards an unsent proposal; an unanswered activation must be reconciled first.
-  readonly cancelRevocation: () => Promise<unknown>;
-  // Checks for an approval of this device, or for another device waiting for one.
-  readonly refreshPrivateSync: () => Promise<unknown>;
-  // Adopts the newest key epoch after a removal refused a Product Sync write, so the next write is
-  // sealed at it. Hosts without Product Sync omit it.
-  readonly adoptKeyRotation?: () => Promise<unknown>;
-  // Unregisters this Trusted Device, then removes the Product Account's data from this device.
-  readonly signOut: () => Promise<unknown>;
-  // Permanently deletes the Product Account after an interactive Product Sign-In.
-  readonly deleteProductAccount: () => Promise<unknown>;
-}
-
-// Shared flows compose with the store's run; native adapters keep their Promise interface.
-export type RegistrationPrograms = {
-  readonly [Method in keyof NativeRegistration]: (
-    ...args: Parameters<NonNullable<NativeRegistration[Method]>>
-  ) => Effect.Effect<unknown, unknown>;
-};
 
 type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
@@ -488,20 +207,11 @@ const registrationError = (cause: unknown) => {
     : new RegistrationFailed({ cause, diagnostic: rejectionDiagnostic(cause) });
 };
 
-// Composes a registration program or a legacy native operation and decodes its snapshot.
+// Composes a registration program and decodes its snapshot.
 const request = Effect.fnUntraced(function* (
-  operation: () => Promise<unknown> | Effect.Effect<unknown, unknown>,
+  program: Effect.Effect<unknown, unknown>,
 ) {
-  const program = yield* Effect.try({
-    try: () => {
-      const result = operation();
-      return Effect.isEffect(result)
-        ? result.pipe(Effect.mapError(registrationError))
-        : Effect.tryPromise({ try: () => result, catch: registrationError });
-    },
-    catch: registrationError,
-  });
-  const value = yield* program;
+  const value = yield* program.pipe(Effect.mapError(registrationError));
   return yield* decodeSnapshot(value).pipe(
     Effect.mapError(
       (error) =>
@@ -539,9 +249,8 @@ const enrollmentFailed = (
   enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : 'failed',
 });
 
-export function createRegistration(
-  native: NativeRegistration | RegistrationPrograms,
-) {
+export function createRegistration(vault: NativeRegistrationVault) {
+  const native = createRegistrationFlow(vault);
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
     busy: true,
@@ -708,7 +417,7 @@ export function createRegistration(
               ),
       ),
     );
-  const restoredAccount = request(native.restore).pipe(
+  const restoredAccount = request(native.restore()).pipe(
     Effect.map((snapshot) =>
       snapshot.kind === 'signed-out' &&
       snapshot.notice === undefined &&
@@ -791,7 +500,7 @@ export function createRegistration(
         Effect.gen(function* () {
           // Product Sign-In never starts a mailbox authorization: the person chooses the first
           // mailbox's provider.
-          const snapshot = yield* request(() => native.signIn(provider));
+          const snapshot = yield* request(native.signIn(provider));
           publish({ snapshot, busy: true, failed: false });
           if (snapshot.kind !== 'mailbox-needed') {
             return snapshot;
@@ -804,7 +513,7 @@ export function createRegistration(
           );
           return granted === undefined
             ? snapshot
-            : yield* request(() => native.authorizeMailbox(granted.id));
+            : yield* request(native.authorizeMailbox(granted.id));
         }),
         undefined,
         { accountChange: 'sign-in' },
@@ -812,12 +521,12 @@ export function createRegistration(
     addMailbox: (
       provider: MailGrantProvider = 'gmail',
       chooseAccount = false,
-    ) => execute(request(() => native.addMailbox(provider, chooseAccount))),
+    ) => execute(request(native.addMailbox(provider, chooseAccount))),
     authorizeMailbox: (connection: string) =>
-      execute(request(() => native.authorizeMailbox(connection))),
+      execute(request(native.authorizeMailbox(connection))),
     connectImap: (setup: ImapSetup) =>
       execute(
-        request(() => native.connectImap(setup)),
+        request(native.connectImap(setup)),
         (snapshot, cause) => ({
           ...settled(snapshot),
           imapFailure: Option.match(imapFailureCode(cause), {
@@ -828,34 +537,18 @@ export function createRegistration(
         { imapSetup: setup },
       ),
     removeMailbox: (connection: string) =>
-      execute(request(() => native.removeMailbox(connection))),
-    createProfile: (name: string) => {
-      const { createProfile } = native;
-      return createProfile === undefined
-        ? Promise.resolve()
-        : execute(request(() => createProfile(name)));
-    },
-    renameProfile: (profile: string, name: string) => {
-      const { renameProfile } = native;
-      return renameProfile === undefined
-        ? Promise.resolve()
-        : execute(request(() => renameProfile(profile, name)));
-    },
-    removeProfile: (profile: string) => {
-      const { removeProfile } = native;
-      return removeProfile === undefined
-        ? Promise.resolve()
-        : execute(request(() => removeProfile(profile)));
-    },
-    moveMailbox: (connection: string, profile: string) => {
-      const { moveMailbox } = native;
-      return moveMailbox === undefined
-        ? Promise.resolve()
-        : execute(request(() => moveMailbox(connection, profile)));
-    },
+      execute(request(native.removeMailbox(connection))),
+    createProfile: (name: string) =>
+      execute(request(native.createProfile(name))),
+    renameProfile: (profile: string, name: string) =>
+      execute(request(native.renameProfile(profile, name))),
+    removeProfile: (profile: string) =>
+      execute(request(native.removeProfile(profile))),
+    moveMailbox: (connection: string, profile: string) =>
+      execute(request(native.moveMailbox(connection, profile))),
     link: (provider: SignInProvider) =>
       execute(
-        request(() => native.link(provider)).pipe(
+        request(native.link(provider)).pipe(
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('RegistrationFailed', (error) =>
             Effect.fail(
@@ -869,35 +562,32 @@ export function createRegistration(
         (snapshot) => ({ ...settled(snapshot), linkFailure: 'failed' }),
       ),
     confirmRecoveryKey: (entry: string) =>
-      execute(
-        request(() => native.confirmRecoveryKey(entry)),
-        (snapshot) => ({ ...settled(snapshot), recoveryKeyFailure: 'failed' }),
-      ),
+      execute(request(native.confirmRecoveryKey(entry)), (snapshot) => ({
+        ...settled(snapshot),
+        recoveryKeyFailure: 'failed',
+      })),
     recoverWithRecoveryKey: (entry: string) =>
       execute(
-        request(() => native.recoverWithRecoveryKey(entry)).pipe(
+        request(native.recoverWithRecoveryKey(entry)).pipe(
           Effect.flatMap(recoveryOutcome),
         ),
         (snapshot) => ({ ...settled(snapshot), recoveryFailure: 'failed' }),
       ),
     approveEnrollment: (requestId: string, code: string) =>
       execute(
-        request(() => native.approveEnrollment(requestId, code)),
+        request(native.approveEnrollment(requestId, code)),
         enrollmentFailed,
       ),
     declineEnrollment: (requestId: string) =>
-      execute(
-        request(() => native.declineEnrollment(requestId)),
-        enrollmentFailed,
-      ),
+      execute(request(native.declineEnrollment(requestId)), enrollmentFailed),
     revokeTrustedDevice: (trustedDeviceId: string) =>
       execute(
-        request(() => native.revokeTrustedDevice(trustedDeviceId)),
+        request(native.revokeTrustedDevice(trustedDeviceId)),
         revocationFailed,
       ),
     confirmRevocation: (entry: string) =>
       execute(
-        request(() => native.confirmRevocation(entry)).pipe(
+        request(native.confirmRevocation(entry)).pipe(
           Effect.catchTag('RecoveryKeyMismatch', () =>
             Effect.fail(new RevocationKeyMismatch()),
           ),
@@ -905,18 +595,17 @@ export function createRegistration(
         revocationFailed,
       ),
     cancelRevocation: () =>
-      execute(request(native.cancelRevocation), revocationFailed),
-    refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
+      execute(request(native.cancelRevocation()), revocationFailed),
+    // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
+    refreshPrivateSync: () => execute(request(native.refreshPrivateSync())),
     // Background work learned of a newer key epoch; a failure leaves the status as it was.
-    adoptKeyRotation: () => {
-      const { adoptKeyRotation } = native;
-      return adoptKeyRotation === undefined
-        ? Promise.resolve()
-        : execute(request(adoptKeyRotation), settled, { foreground: true });
-    },
+    adoptKeyRotation: () =>
+      execute(request(native.adoptKeyRotation()), settled, {
+        foreground: true,
+      }),
     signOut: () =>
       execute(
-        request(native.signOut),
+        request(native.signOut()),
         (snapshot) => ({
           ...settled(snapshot),
           removalFailure: 'sign-out',
@@ -925,7 +614,7 @@ export function createRegistration(
       ),
     deleteProductAccount: () =>
       execute(
-        request(native.deleteProductAccount),
+        request(native.deleteProductAccount()),
         (snapshot, cause) => ({
           ...settled(snapshot),
           removalFailure: isRemovalRefused(cause)

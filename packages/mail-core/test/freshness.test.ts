@@ -1,23 +1,20 @@
-import * as Schema from 'effect/Schema';
+import * as Effect from 'effect/Effect';
 
 import type { NativeWakes } from '../src/freshness.ts';
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
 import type { Mailboxes } from '../src/mailboxes.ts';
+import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 
 import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
-import {
-  createRegistration,
-  RegistrationSnapshotSchema,
-} from '../src/registration.ts';
+import { createRegistrationFlow } from '../src/registration-flow.ts';
+import { createRegistration } from '../src/registration.ts';
 import {
   createSyntheticGmail,
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '../src/testing/registration-session.ts';
+import { createRegistrationScenario } from '../src/testing/registration-scenarios.ts';
+import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const other = syntheticMailboxes['other@example.invalid'];
@@ -37,31 +34,30 @@ async function twoMailboxes(messages = 0, connectOther = true) {
     alex: createSyntheticGmail({ address: 'alex@example.invalid', messages }),
     other: createSyntheticGmail({ address: 'other@example.invalid' }),
   };
-  const session = createMockRegistrationSession('registration-success').native;
+  const synthetic = await createRegistrationScenario('registration-success');
   let online = true;
   let cacheOnly = false;
-  const nativeRegistration = {
-    ...session,
-    restore: async () => {
-      const snapshot = Schema.decodeUnknownSync(RegistrationSnapshotSchema)(
-        await session.restore(),
-      );
+  // Runs once before the next verification reads this device's registration.
+  let beforeRead: (() => Promise<void>) | undefined = undefined;
+  const vault: NativeRegistrationVault = {
+    ...synthetic.vault,
+    registration: async () => {
+      const hook = beforeRead;
+      beforeRead = undefined;
+      await hook?.();
+      return synthetic.vault.registration();
+    },
+    // Offline, verification leaves each saved Inbox cache-only until it verifies again.
+    refreshMailbox: (connection) => {
       cacheOnly = !online;
-      return snapshot.kind === 'connected' && cacheOnly
-        ? {
-            ...snapshot,
-            mailboxes: JSON.stringify([
-              { id: alex, address: 'alex@example.invalid', state: 'cached' },
-              { id: other, address: 'other@example.invalid', state: 'cached' },
-            ]),
-          }
-        : snapshot;
+      return online
+        ? synthetic.vault.refreshMailbox(connection)
+        : Promise.reject(
+            Object.assign(new Error('Synthetic offline'), { code: 'offline' }),
+          );
     },
   };
-  const registration = createRegistration({
-    ...nativeRegistration,
-    restore: () => nativeRegistration.restore(),
-  });
+  const registration = createRegistration(vault);
   await registration.register('google');
   await registration.addMailbox();
   if (connectOther) {
@@ -89,7 +85,14 @@ async function twoMailboxes(messages = 0, connectOther = true) {
   return {
     gmail,
     registration,
-    nativeRegistration,
+    beforeVerification: (hook: () => Promise<void>) => {
+      beforeRead = hook;
+    },
+    // Another window of this process adds a mailbox, outside this store.
+    addElsewhere: () =>
+      Effect.runPromise(
+        createRegistrationFlow(vault).addMailbox('gmail', true),
+      ),
     launch,
     setOnline: (next: boolean) => {
       online = next;
@@ -228,24 +231,18 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     'keeps newly revealed unrelated mail unloaded during a $outcome wake, then catches up in foreground',
     async ({ outcome, invalidate, arrivals, reads }) => {
       expect.hasAssertions();
-      const { gmail, nativeRegistration, launch } = await twoMailboxes(
-        0,
-        false,
-      );
+      const { gmail, beforeVerification, addElsewhere, launch } =
+        await twoMailboxes(0, false);
       const { mailboxes, freshness } = launch();
       await mailboxes.load();
       gmail.alex.deliver({ subject: 'Routed arrival' });
       gmail.other.deliver({ subject: 'Unrouted arrival' });
       const routes = new Map([['route-alex', alex]]);
-      const { restore } = nativeRegistration;
-      vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(
-        async () => {
-          // Verification learns another eligible connection that was absent from this store.
-          await nativeRegistration.addMailbox('gmail', true);
-          invalidate(routes);
-          return restore();
-        },
-      );
+      beforeVerification(async () => {
+        // Verification learns another eligible connection that was absent from this store.
+        await addElsewhere();
+        invalidate(routes);
+      });
       const requests = gmail.alex.requests.length;
       await expect(
         freshness.wake({ provider: 'gmail', routeId: 'route-alex' }, (id) =>
@@ -266,7 +263,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     expect.hasAssertions();
     const output = vi.spyOn(console, 'error');
     const logs = vi.spyOn(console, 'log');
-    const { gmail, registration, nativeRegistration, launch } =
+    const { gmail, registration, beforeVerification, launch } =
       await twoMailboxes();
     const { mailboxes, freshness } = launch();
     await mailboxes.load();
@@ -307,12 +304,10 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     expect(gmail.alex.requests).toHaveLength(alexRequests);
 
     // Route revocation while verification is suspended invalidates this queued wake.
-    const { restore } = nativeRegistration;
     const { promise: held, resolve: release } =
       Promise.withResolvers<undefined>();
-    vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(async () => {
+    beforeVerification(async () => {
       await held;
-      return restore();
     });
     const queued = freshness.wake(hint, route);
     routes.delete('route-alex');
@@ -400,15 +395,13 @@ describe('keeping Gmail fresh through application lifecycles', () => {
 
   it('rechecks a native route after verification removes it without removing the mailbox', async () => {
     expect.hasAssertions();
-    const { gmail, nativeRegistration, launch } = await twoMailboxes();
+    const { gmail, beforeVerification, launch } = await twoMailboxes();
     const { mailboxes, freshness } = launch();
     await mailboxes.load();
     let routes: Record<string, string> = { 'route-alex': alex };
     const host = hostWakes(async () => ({ routes, complete: true }));
-    const { restore } = nativeRegistration;
-    vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(async () => {
+    beforeVerification(async () => {
       routes = {};
-      return restore();
     });
     gmail.alex.deliver({ subject: 'Removed route reads nothing' });
     const requests = gmail.alex.requests.length;
