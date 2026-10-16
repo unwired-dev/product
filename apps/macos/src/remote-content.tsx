@@ -1,24 +1,13 @@
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
-  NativeRemoteContent,
   RemoteContentPolicy,
   RemoteContentSettingsStore,
 } from '@private-email/mail-core/remote-content';
-import type { TurboModule } from 'react-native';
 
-import {
-  createRemoteContentSettings,
-  remoteContentPolicy,
-} from '@private-email/mail-core/remote-content';
+import { remoteContentPolicy } from '@private-email/mail-core/remote-content';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { createContext, use, useState, useSyncExternalStore } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  TurboModuleRegistry,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -26,22 +15,6 @@ import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
-
-interface RemoteContentModule extends TurboModule, NativeRemoteContent {}
-
-const native = () =>
-  TurboModuleRegistry.getEnforcing<RemoteContentModule>('UnwiredRegistration');
-
-// This device's remote content policies; a host without the native module has none saved.
-export const remoteContent = createRemoteContentSettings({
-  remoteContentSettings: () =>
-    TurboModuleRegistry.get<RemoteContentModule>(
-      'UnwiredRegistration',
-    )?.remoteContentSettings() ?? Promise.resolve({ settings: null }),
-  setRemoteContentSettings: (settings) =>
-    native().setRemoteContentSettings(settings),
-  clearRemoteContent: () => native().clearRemoteContent(),
-});
 
 export const RemoteContentContext = createContext<
   RemoteContentSettingsStore | undefined

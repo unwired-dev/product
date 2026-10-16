@@ -78,7 +78,7 @@ function holdAttachment(base: NativeGmailMailboxes) {
 describe('native mailbox capabilities', () => {
   it('offers Microsoft only for a decoded true capability', () => {
     expect.hasAssertions();
-    const module = jest.spyOn(TurboModuleRegistry, 'get');
+    const module = jest.spyOn(TurboModuleRegistry, 'getEnforcing');
     const available: boolean[] = [];
     try {
       for (const constants of [
@@ -95,8 +95,6 @@ describe('native mailbox capabilities', () => {
       }
       module.mockReturnValue({ getConstants: () => ({ microsoftMail: true }) });
       available.push(microsoftMail());
-      module.mockReturnValue(null);
-      available.push(microsoftMail());
       expect(available).toStrictEqual([
         false,
         false,
@@ -104,7 +102,6 @@ describe('native mailbox capabilities', () => {
         false,
         false,
         true,
-        false,
       ]);
     } finally {
       module.mockRestore();

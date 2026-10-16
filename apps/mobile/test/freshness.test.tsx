@@ -20,8 +20,8 @@ import type {
   scheduleGmailFreshness as ScheduleGmailFreshness,
 } from '../src/freshness.ts';
 import type {
+  freshness as HostFreshness,
   gmailMailboxes as HostMailboxes,
-  registration as HostRegistration,
 } from '../src/registration.ts';
 
 // Substitute the native scheduler and app registration: no React views mount on this launch.
@@ -146,11 +146,11 @@ describe('headless Gmail freshness', () => {
       );
 
       // A failed opportunity reports failure without handing TaskManager the raw rejection.
-      const { registration } = jest.requireActual<{
-        readonly registration: typeof HostRegistration;
+      const { freshness } = jest.requireActual<{
+        readonly freshness: typeof HostFreshness;
       }>('../src/registration.ts');
       const failedRefresh = jest
-        .spyOn(registration, 'refreshInbox')
+        .spyOn(freshness, 'refresh')
         .mockRejectedValueOnce(new Error('private payload'));
       await expect(
         execute?.({

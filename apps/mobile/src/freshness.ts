@@ -1,7 +1,3 @@
-import {
-  createFreshness,
-  followWakes,
-} from '@private-email/mail-core/freshness';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   BackgroundTaskResult,
@@ -12,7 +8,7 @@ import {
 import { defineTask } from 'expo-task-manager';
 import { AppState } from 'react-native';
 
-import { gmailMailboxes, registration, wakes } from './registration.ts';
+import { followWakes, freshness, gmailMailboxes } from './registration.ts';
 
 const task = 'dev.unwired.mail.gmail-freshness';
 
@@ -21,7 +17,7 @@ const task = 'dev.unwired.mail.gmail-freshness';
 // committed checkpoint; activation catches up on whatever none of them reached.
 defineTask(task, async () => {
   try {
-    await createFreshness(gmailMailboxes, registration.refreshInbox).refresh();
+    await freshness.refresh();
     return BackgroundTaskResult.Success;
   } catch {
     // TaskManager would log the raw rejection, which can contain account data.
@@ -33,10 +29,7 @@ defineTask(task, async () => {
 // A content-free push wake, including one that launches the app in the background, synchronizes
 // only its routed mailbox once registration verifies.
 if (!previewInbox) {
-  void followWakes(
-    createFreshness(gmailMailboxes, registration.refreshInbox),
-    wakes,
-  );
+  followWakes();
 }
 
 export const scheduleGmailFreshness = async () => {
@@ -61,7 +54,6 @@ export const pollGmailWhileActive = () => {
   if (previewInbox) {
     return () => undefined;
   }
-  const freshness = createFreshness(gmailMailboxes, registration.refreshInbox);
   let stop: (() => void) | undefined = undefined;
   const follow = (state: string) => {
     if (state === 'active') {

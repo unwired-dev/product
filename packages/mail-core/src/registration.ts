@@ -453,7 +453,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       };
     },
     restore: () => restore(),
-    // Every mounted host view restores through the same store; only the first mount verifies.
+    // The host restores once at startup, however many windows or screens it opens.
     restoreOnce: () => {
       if (restored) {
         return Promise.resolve();

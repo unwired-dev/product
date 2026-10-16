@@ -1,8 +1,6 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
-import type { NativeMailAssistance } from '@private-email/mail-core/assistance-enablement';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
-import type { TurboModule } from 'react-native';
 
 import { createAssistanceAvailability } from '@private-email/mail-core/assistance';
 import {
@@ -18,7 +16,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { Switch, TurboModuleRegistry, View } from 'react-native';
+import { Switch, View } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -31,23 +29,16 @@ import {
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
 import { AssistanceContext } from './message-summary.tsx';
+import { native } from './registration.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 export { MailAssistanceContext } from './mail-assistance-lifetime.ts';
 
-interface MailAssistanceModule extends TurboModule, NativeMailAssistance {}
-
-const native = () =>
-  TurboModuleRegistry.getEnforcing<MailAssistanceModule>('UnwiredRegistration');
-
-// This device's Mail Assistance Enablement; a host without the native module has no account.
+// This device's Mail Assistance Enablement.
 export const mailAssistance = createMailAssistanceEnablement({
-  mailAssistance: () =>
-    TurboModuleRegistry.get<MailAssistanceModule>(
-      'UnwiredRegistration',
-    )?.mailAssistance() ?? Promise.resolve({ owner: null, profiles: [] }),
+  mailAssistance: () => native().mailAssistance(),
   setMailAssistance: (owner, profiles) =>
     native().setMailAssistance(owner, profiles),
 });

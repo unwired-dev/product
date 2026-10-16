@@ -44,11 +44,12 @@ import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { TrustCard } from './onboarding.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
-import { microsoftMail, registration } from './registration.ts';
 import {
+  microsoftMail,
+  registration,
   remoteContent as deviceRemoteContent,
-  RemoteContentContext,
-} from './remote-content.tsx';
+} from './registration.ts';
+import { RemoteContentContext } from './remote-content.tsx';
 import {
   AccountCard,
   SettingsBlock,
@@ -149,9 +150,8 @@ export function RegistrationGate({
     if (preview) {
       return;
     }
-    void store.restoreOnce();
-    void remoteContent.load();
-    // Like the Inbox, restore on every activation, including after protected storage unlocks.
+    // The host restored at app start. Like the Inbox, restore on every activation, including after
+    // protected storage unlocks.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void store.resume();
@@ -160,7 +160,7 @@ export function RegistrationGate({
     return () => {
       subscription.remove();
     };
-  }, [preview, store, remoteContent]);
+  }, [preview, store]);
   // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
     return (

@@ -1,6 +1,7 @@
 module.exports = {
   preset: 'react-native-macos',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
+  setupFiles: ['<rootDir>/test/native-registration.cjs'],
   moduleNameMapper: {
     '^@react-native-clipboard/clipboard$':
       '@react-native-clipboard/clipboard/jest/clipboard-mock.js',
