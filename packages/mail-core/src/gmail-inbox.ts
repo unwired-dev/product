@@ -654,6 +654,48 @@ const cachedMessages = (document: MailboxDocument) => [
   ).values(),
 ];
 
+// History cannot name the older message that now fits after a settlement removes one, so a
+// full Inbox or view it shortened is listed again from the history already applied.
+const withRefills = (
+  before: MailboxDocument,
+  after: MailboxDocument,
+): MailboxDocument => {
+  const { checkpoint } = before;
+  if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
+    return after;
+  }
+  const inbox =
+    checkpoint.kind === 'current' &&
+    before.messages.length === cacheLimit &&
+    after.messages.length < cacheLimit
+      ? {
+          checkpoint: {
+            kind: 'backfill' as const,
+            historyId: checkpoint.historyId,
+            seen: [],
+          },
+        }
+      : {};
+  return {
+    ...after,
+    ...inbox,
+    ...(after.views === undefined
+      ? {}
+      : {
+          views: after.views.map((entry, index) =>
+            entry.listing === undefined &&
+            before.views?.[index]?.messages.length === cacheLimit &&
+            entry.messages.length < cacheLimit
+              ? {
+                  ...entry,
+                  listing: { historyId: checkpoint.historyId, seen: [] },
+                }
+              : entry,
+          ),
+        }),
+  };
+};
+
 // The document after Gmail answered its oldest pending change: confirmed labels replace the
 // cached ones, and a refused change only leaves the queue.
 const settled = (
@@ -664,17 +706,21 @@ const settled = (
   if (head === undefined || confirmed === undefined) {
     return { ...document, pending: rest };
   }
-  return {
+  // A confirmed message leaves every view it no longer belongs to and joins those it now does.
+  return withRefills(document, {
     ...everyView(document, (view, messages) => {
       const cached = messages.find(({ id }) => id === head.message.id);
-      return cached === undefined && !inView(view, confirmed)
-        ? messages
-        : merge(messages, [
-            [head.message.id, withLabels(cached ?? head.message, confirmed)],
-          ]).slice(0, cacheLimit);
+      if (!inView(view, confirmed)) {
+        return cached === undefined
+          ? messages
+          : messages.filter(({ id }) => id !== head.message.id);
+      }
+      return merge(messages, [
+        [head.message.id, withLabels(cached ?? head.message, confirmed)],
+      ]).slice(0, cacheLimit);
     }),
     pending: rest,
-  };
+  });
 };
 
 // Whether refreshed labels leave a document's labels and views as they were.
@@ -744,49 +790,15 @@ const settleObserved = (
   document: MailboxDocument,
   head: PendingAction,
   labels: readonly string[] | undefined,
-): MailboxDocument => {
-  if (labels !== undefined) {
-    return settled(document, labels);
-  }
-  const next = everyView(settled(document, undefined), (_view, messages) =>
-    messages.filter(({ id }) => id !== head.message.id),
-  );
-  const { checkpoint } = document;
-  if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
-    return next;
-  }
-  // History cannot name the older message that now fits, so a full Inbox is listed again.
-  const inbox =
-    checkpoint.kind === 'current' &&
-    document.messages.length === cacheLimit &&
-    next.messages.length < cacheLimit
-      ? {
-          checkpoint: {
-            kind: 'backfill' as const,
-            historyId: checkpoint.historyId,
-            seen: [],
-          },
-        }
-      : {};
-  return {
-    ...next,
-    ...inbox,
-    ...(next.views === undefined
-      ? {}
-      : {
-          views: next.views.map((entry, index) =>
-            entry.listing === undefined &&
-            document.views?.[index]?.messages.length === cacheLimit &&
-            entry.messages.length < cacheLimit
-              ? {
-                  ...entry,
-                  listing: { historyId: checkpoint.historyId, seen: [] },
-                }
-              : entry,
-          ),
-        }),
-  };
-};
+): MailboxDocument =>
+  labels === undefined
+    ? withRefills(
+        document,
+        everyView(settled(document, undefined), (_view, messages) =>
+          messages.filter(({ id }) => id !== head.message.id),
+        ),
+      )
+    : settled(document, labels);
 
 // Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
 const withIntents = (
