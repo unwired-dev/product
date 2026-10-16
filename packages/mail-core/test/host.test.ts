@@ -115,6 +115,7 @@ describe('the host assembly', () => {
     host.followWakes();
     host.followWakes();
     await Promise.resolve();
+    expect(host.registration.getSnapshot().busy).toBe(false);
     expect(once.settings).toBe(1);
     expect(counts).toStrictEqual({
       ...once,
