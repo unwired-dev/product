@@ -423,6 +423,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   add. Check those cached views before provider confirmation; otherwise offline
   restoration or moves leave them inconsistent with the optimistic Inbox.
 
+- `gmail-inbox.ts.settleObserved` removing an authoritatively missing message
+  from a full saved view before history can detect its loss. Mark that view for
+  refill while preserving any listing already in progress; otherwise the shorter
+  cache bypasses `applyHistory`'s full-view check and stays incomplete as current.
+
 - `gmail-inbox.ts.retainedViews` charging leases for absent saved views against
   the cache budget. Count leased labels only while their view is in the candidate
   cache, while protecting pending `requestedViews` until adoption. Trace label

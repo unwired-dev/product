@@ -744,12 +744,31 @@ const settleObserved = (
   document: MailboxDocument,
   head: PendingAction,
   labels: readonly string[] | undefined,
-): MailboxDocument =>
-  labels === undefined
-    ? everyView(settled(document, undefined), (_view, messages) =>
-        messages.filter(({ id }) => id !== head.message.id),
-      )
-    : settled(document, labels);
+): MailboxDocument => {
+  if (labels !== undefined) {
+    return settled(document, labels);
+  }
+  const next = everyView(settled(document, undefined), (_view, messages) =>
+    messages.filter(({ id }) => id !== head.message.id),
+  );
+  const { checkpoint } = document;
+  if (
+    (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') ||
+    next.views === undefined
+  ) {
+    return next;
+  }
+  return {
+    ...next,
+    views: next.views.map((entry, index) =>
+      entry.listing === undefined &&
+      document.views?.[index]?.messages.length === cacheLimit &&
+      entry.messages.length < cacheLimit
+        ? { ...entry, listing: { historyId: checkpoint.historyId, seen: [] } }
+        : entry,
+    ),
+  };
+};
 
 // Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
 const withIntents = (

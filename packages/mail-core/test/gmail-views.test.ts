@@ -458,6 +458,28 @@ describe('browsing Gmail views other than the Inbox', () => {
     release();
   });
 
+  it('refills a full label when Gmail no longer has a message being organized', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const receipts = gmail.createLabel('Receipts');
+    const messages = Array.from({ length: cacheLimit + 1 }, () => {
+      const id = gmail.deliver();
+      gmail.setLabel(id, receipts, true);
+      gmail.archive(id);
+      return id;
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.openView(receipts);
+    const selected = first(view(inbox, receipts).messages);
+    gmail.remove(selected.id);
+    await inbox.organize(selected, gmailAction.read);
+    expect(view(inbox, receipts).status).toBe('current');
+    expect(view(inbox, receipts).messages).toHaveLength(cacheLimit);
+    expect(ids(view(inbox, receipts).messages)).toContain(first(messages));
+    expect(ids(view(inbox, receipts).messages)).not.toContain(selected.id);
+  });
+
   it('keeps a full Inbox bounded when a restored message joins it and history cannot be read', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: cacheLimit });
