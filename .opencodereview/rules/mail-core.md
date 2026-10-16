@@ -411,6 +411,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-actions.ts.quickActions` offering Archive in a label or All Mail for a
+  message without `INBOX`. Derive availability from the message's membership
+  outside Inbox context, and trace both hosts' reader, row, context-menu and
+  command consumers so none recreates the omitted action. Preserve Microsoft
+  Inbox eligibility and Spam/Trash restoration. Exercise archived mail and an
+  Inbox-positive control; otherwise Archive performs no change and reports a
+  misleading completion with an empty Undo.
+
 - `gmail-inbox.ts.continueView` replacing the shared history checkpoint with a
   completed listing's start after another listing already requested an earlier
   replay. Preserve the earliest required numeric history ID until history runs,
