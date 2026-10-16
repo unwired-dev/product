@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schedule from 'effect/Schedule';
@@ -60,6 +62,139 @@ export type SendRefusal =
   | 'too-large'
   | 'changed'
   | 'storage';
+
+// The answer to the person's last Check Again of an unknown message: none, still looking, or its
+// Sent mailbox did not confirm it.
+export type OutboxCheck = 'idle' | 'checking' | 'unconfirmed';
+
+// An Outbox entry as hosts read it.
+export type OutboxSnapshotEntry = OutboxEntry &
+  Readonly<{ check: OutboxCheck }>;
+
+// The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
+type CopyProvider = MailProvider | 'unlisted';
+
+// Why a message waits or was refused, as the person reads it.
+const problems = {
+  offline: 'outbox.queued.offline',
+  locked: 'outbox.queued.locked',
+  'rate-limited': 'outbox.queued.rate-limited',
+  claimed: 'outbox.failed.claimed',
+  authorization: 'outbox.failed.authorization',
+  mailbox: 'outbox.failed.mailbox',
+  assets: 'outbox.failed.assets',
+  'too-large': 'outbox.failed.too-large',
+  refused: 'outbox.failed.refused',
+  'sent-folder': 'outbox.failed.sent-folder',
+} as const satisfies Readonly<Record<DeliveryProblem, string>>;
+// The same reasons in each provider's words: the copy above names Gmail, and an IMAP connection's
+// mail server or Microsoft send other messages. A message whose connection is no longer listed,
+// as after its removal, names no provider.
+const providerProblems = {
+  gmail: problems,
+  imap: {
+    ...problems,
+    offline: 'outbox.queued.offline_imap',
+    authorization: 'outbox.failed.authorization_imap',
+    'too-large': 'outbox.failed.too-large_imap',
+    refused: 'outbox.failed.refused_imap',
+  },
+  'microsoft-graph': {
+    ...problems,
+    offline: 'outbox.queued.offline_microsoft',
+    'rate-limited': 'outbox.queued.rate-limited_microsoft',
+    authorization: 'outbox.failed.authorization_microsoft',
+    'too-large': 'outbox.failed.too-large_microsoft',
+    refused: 'outbox.failed.refused_microsoft',
+  },
+  unlisted: {
+    ...problems,
+    offline: 'outbox.queued.offline_unlisted',
+    'rate-limited': 'outbox.queued.rate-limited_unlisted',
+    authorization: 'outbox.failed.authorization_unlisted',
+    'too-large': 'outbox.failed.too-large_unlisted',
+    refused: 'outbox.failed.refused_unlisted',
+  },
+} as const satisfies Readonly<
+  Record<CopyProvider, Readonly<Record<DeliveryProblem, string>>>
+>;
+// The unknown-outcome copy's own words for each provider.
+const unknownCopy = {
+  gmail: '',
+  imap: '_imap',
+  'microsoft-graph': '_microsoft',
+  unlisted: '_unlisted',
+} as const satisfies Readonly<Record<CopyProvider, string>>;
+// Why an accepted message's Sent copy still waits.
+const filing: Readonly<
+  Partial<
+    Record<
+      DeliveryProblem,
+      `outbox.filing.${'offline' | 'locked' | 'authorization' | 'sent-folder'}`
+    >
+  >
+> = {
+  offline: 'outbox.filing.offline',
+  locked: 'outbox.filing.locked',
+  authorization: 'outbox.filing.authorization',
+  'sent-folder': 'outbox.filing.sent-folder',
+};
+
+// Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
+// sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
+// outcome.
+const statusOf = (
+  t: Translate,
+  { state, problem }: OutboxEntry,
+  provider: CopyProvider,
+) => {
+  if (state === 'filing') {
+    return t(
+      (problem === undefined ? undefined : filing[problem]) ??
+        'outbox.state.filing',
+    );
+  }
+  if (state === 'queued') {
+    return t(
+      problem === undefined
+        ? 'outbox.state.sending'
+        : providerProblems[provider][problem],
+    );
+  }
+  if (state === 'failed') {
+    return t(providerProblems[provider][problem ?? 'refused']);
+  }
+  if (state === 'unknown') {
+    return t(`outbox.state.unknown${unknownCopy[provider]}`);
+  }
+  return t(`outbox.state.${state}`);
+};
+
+// An entry's words in the provider it was handed to, undefined once its connection is no longer
+// listed: its status, the notice after Check Again found no confirmation, and the warning before
+// editing an unknown message, which the provider may already have sent.
+export function outboxCopy(
+  t: Translate,
+  entry: OutboxSnapshotEntry,
+  provider: CopyProvider = 'unlisted',
+) {
+  return {
+    status: statusOf(t, entry, provider),
+    unconfirmed:
+      entry.check === 'unconfirmed'
+        ? t(`outbox.unknown.unconfirmed${unknownCopy[provider]}`)
+        : undefined,
+    editWarning: t(`outbox.unknown.confirming${unknownCopy[provider]}`),
+  };
+}
+
+// The person's Check Again of an unknown message, for the Send it was asked about and the Product
+// Account it belongs to.
+type CheckRequest = Readonly<{
+  sendAt: number;
+  owner: string | undefined;
+  check: 'checking' | 'unconfirmed';
+}>;
 
 const ownerOf = (registration: Pick<Registration, 'getSnapshot'>) => {
   const { snapshot } = registration.getSnapshot();
@@ -158,6 +293,33 @@ export function createOutbox({
   const checking = new Map<string, boolean>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
+  // The person's Check Again of each unknown message, shared by every window reading this Outbox.
+  const asked = new Map<string, CheckRequest>();
+  const listeners = new Set<() => void>();
+  let listed: readonly OutboxEntry[] | undefined = undefined;
+  let snapshot: readonly OutboxSnapshotEntry[] = [];
+  // A check answers only the unknown Send it was asked about, never a later one of the same Draft.
+  const checkOf = (entry: OutboxEntry): OutboxCheck => {
+    const request = asked.get(entry.id);
+    return entry.state === 'unknown' &&
+      request?.sendAt === entry.sendAt &&
+      request.owner === ownerOf(registration)
+      ? request.check
+      : 'idle';
+  };
+  const publish = () => {
+    const outbox = drafts.getOutbox();
+    for (const id of asked.keys()) {
+      const entry = outbox.find((each) => each.id === id);
+      if (entry === undefined || checkOf(entry) === 'idle') {
+        asked.delete(id);
+      }
+    }
+    listed = undefined;
+    for (const listener of listeners) {
+      listener();
+    }
+  };
 
   const entryOf = (id: string) =>
     drafts.getOutbox().find((each) => each.id === id);
@@ -652,6 +814,7 @@ export function createOutbox({
           checks.delete(id);
         }
       }
+      publish();
       if (checkUnknown(false)) {
         void process();
       } else if (passing === undefined) {
@@ -671,6 +834,21 @@ export function createOutbox({
   }
 
   return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    // The Outbox of the signed-in Product Account, oldest Send first.
+    getSnapshot: (): readonly OutboxSnapshotEntry[] => {
+      const outbox = drafts.getOutbox();
+      if (outbox !== listed) {
+        listed = outbox;
+        snapshot = outbox.map((entry) => ({ ...entry, check: checkOf(entry) }));
+      }
+      return snapshot;
+    },
     // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
     // Resolves why it was refused, or undefined once admitted.
     send: async (expected: () => Draft): Promise<SendRefusal | undefined> => {
@@ -731,14 +909,38 @@ export function createOutbox({
       retryAt.delete(id);
       return drafts.restore(id);
     },
-    // Looks for an unknown message in Gmail's Sent mailbox now. Resolves whether it left the
-    // Outbox as sent.
+    // Looks for an unknown message in Gmail's Sent mailbox now, publishing 'checking' at once and
+    // 'unconfirmed' when it stays unknown. Resolves whether it left the Outbox as sent.
     check: async (id: string) => {
+      const entry = entryOf(id);
+      const request: CheckRequest | undefined =
+        entry?.state === 'unknown'
+          ? {
+              sendAt: entry.sendAt,
+              owner: ownerOf(registration),
+              check: 'checking',
+            }
+          : undefined;
+      if (request !== undefined) {
+        asked.set(id, request);
+        publish();
+      }
+      // A check asked again meanwhile answers from the same running Sent lookup.
       if (!checking.has(id)) {
         checks.add(id);
       }
       await process();
-      return entryOf(id) === undefined;
+      const current = entryOf(id);
+      if (request !== undefined && asked.get(id) === request) {
+        // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
+        if (current !== undefined && checkOf(current) === 'checking') {
+          asked.set(id, { ...request, check: 'unconfirmed' });
+        } else {
+          asked.delete(id);
+        }
+        publish();
+      }
+      return current === undefined;
     },
     // Tries every due message now and checks every unknown one, as when the app becomes active.
     process: async () => {
@@ -754,6 +956,7 @@ export function createOutbox({
       unrecorded.clear();
       checks.clear();
       queuedChecks.clear();
+      asked.clear();
     },
   };
 }

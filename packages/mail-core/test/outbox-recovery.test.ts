@@ -1,11 +1,17 @@
 import type { MockInstance } from 'vitest';
 
-import type { NativeDeliveryClaim } from '../src/outbox.ts';
+import { createLocalization, english } from '@private-email/localization';
+
+import type {
+  NativeDeliveryClaim,
+  Outbox,
+  OutboxCheck,
+} from '../src/outbox.ts';
 import type { Device } from './outbox-fixture.ts';
 
 import { createDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
-import { createOutbox, undoSendWindow } from '../src/outbox.ts';
+import { createOutbox, outboxCopy, undoSendWindow } from '../src/outbox.ts';
 import { boundaryOf } from '../src/outgoing-message.ts';
 import { plainText } from '../src/semantic-document.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
@@ -500,12 +506,17 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         expect(sentList.held()).toBe(true);
       });
 
+      const checked = sending.outbox.check(id);
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'checking' },
+      ]);
       await sending.mailboxes.load();
       gmail.fail({ code: 'mailbox-invalidated' });
       sentList.release();
       await processing;
+      await expect(checked).resolves.toBe(true);
 
-      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(sending.outbox.getSnapshot()).toStrictEqual([]);
       expect(gmail.sends).toHaveLength(1);
     } finally {
       sentList.release();
@@ -541,6 +552,174 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       expect(sentLists(gmail) - before).toBe(1);
     } finally {
       sentList?.release();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('shows every window the same Check Again from one Sent lookup, until Gmail confirms the message', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const windows = [watch(sending.outbox), watch(sending.outbox)];
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      const entry = present(sending.drafts.getOutbox()[0], 'admitted message');
+      const boundary = present(
+        boundaryOf(entry.message.segments),
+        'MIME boundary',
+      );
+      // A second Sent copy with the same marker keeps the lost answer unconfirmed.
+      const other = gmail.deliver({
+        headers: {
+          'Content-Type': `multipart/alternative; boundary="${boundary}"`,
+        },
+      });
+      gmail.label(other, 'SENT');
+      gmail.failSend({ lost: true });
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'idle' },
+      ]);
+      const before = sentLists(gmail);
+      sentList = holdSentList(gmail);
+
+      const first = sending.outbox.check(id);
+      expect(windows.map((each) => each.history.at(-1))).toStrictEqual([
+        'checking',
+        'checking',
+      ]);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+      const second = sending.outbox.check(id);
+      const snapshot = sending.outbox.getSnapshot();
+      const checking = present(snapshot[0], 'checking message');
+      const settings = { preference: null, language: 'en', locale: 'en-US' };
+      const localization = createLocalization(settings, {
+        getSettings: () => Promise.resolve(settings),
+        setLanguage: () => Promise.resolve(settings),
+      });
+      const originalCopy = outboxCopy(english, checking, 'gmail').status;
+      // i18next's test language returns keys without requiring another shipped catalog.
+      await localization.i18n.changeLanguage('cimode');
+      const translatedCopy = outboxCopy(
+        localization.i18n.getFixedT('cimode'),
+        checking,
+        'gmail',
+      ).status;
+      const sameSnapshot = sending.outbox.getSnapshot() === snapshot;
+      sentList.release();
+
+      const left = await Promise.all([first, second]);
+      expect({
+        left,
+        lookups: sentLists(gmail) - before,
+        windows: windows.map((each) => each.history),
+        originalCopy,
+        translatedCopy,
+        sameSnapshot,
+      }).toStrictEqual({
+        left: [false, false],
+        lookups: 1,
+        windows: [
+          ['idle', 'checking', 'unconfirmed'],
+          ['idle', 'checking', 'unconfirmed'],
+        ],
+        originalCopy:
+          'Delivery unknown. Check Sent in Gmail before sending it again.',
+        translatedCopy: 'outbox.state.unknown',
+        sameSnapshot: true,
+      });
+
+      // Once Gmail's Sent mailbox holds one copy, Check Again records it as sent.
+      gmail.remove(other);
+      await expect(sending.outbox.check(id)).resolves.toBe(true);
+      expect({
+        accepted: gmail.sends.length,
+        windows: windows.map((each) => each.history.at(-1)),
+      }).toStrictEqual({ accepted: 1, windows: [undefined, undefined] });
+    } finally {
+      sentList?.release();
+      for (const each of windows) {
+        each.unsubscribe();
+      }
+      sending.outbox.dispose();
+    }
+  });
+
+  it('publishes nothing from a pending Check Again once the person edits the message', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const window = watch(sending.outbox);
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      sentList = holdSentList(gmail);
+
+      const checked = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+      const restored = await sending.outbox.undo(id);
+      sentList.release();
+      await checked;
+
+      expect(restored).not.toBe(false);
+      expect(window.history).toStrictEqual(['idle', 'checking', undefined]);
+      expect(sending.outbox.getSnapshot()).toStrictEqual([]);
+    } finally {
+      sentList?.release();
+      window.unsubscribe();
+      sending.outbox.dispose();
+    }
+  });
+
+  it('retires a pending Check Again across sign-out and re-entry to the same stored message', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const window = watch(sending.outbox);
+    let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      sentList = holdSentList(gmail);
+      const checked = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+
+      await sending.reconnect();
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'idle' },
+      ]);
+      sentList.release();
+      await checked;
+
+      expect(window.history).toStrictEqual([
+        'idle',
+        'checking',
+        undefined,
+        'idle',
+      ]);
+      expect(sending.outbox.getSnapshot()).toMatchObject([
+        { id, state: 'unknown', check: 'idle' },
+      ]);
+      expect(gmail.sends).toStrictEqual([]);
+    } finally {
+      sentList?.release();
+      window.unsubscribe();
       sending.outbox.dispose();
     }
   });
@@ -690,6 +869,22 @@ async function interrupted(
   } finally {
     sending.outbox.dispose();
   }
+}
+
+// A window reading the Outbox: the Check Again state of the first message it shows, recorded when
+// it changes on an update, undefined once the message left the Outbox.
+function watch(outbox: Outbox) {
+  const history: Array<OutboxCheck | undefined> = [];
+  let watched: string | undefined = undefined;
+  const unsubscribe = outbox.subscribe(() => {
+    const snapshot = outbox.getSnapshot();
+    watched ??= snapshot[0]?.id;
+    const check = snapshot.find((entry) => entry.id === watched)?.check;
+    if (watched !== undefined && history.at(-1) !== check) {
+      history.push(check);
+    }
+  });
+  return { history, unsubscribe };
 }
 
 // How many times Gmail was asked for its newest Sent messages.

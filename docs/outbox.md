@@ -75,15 +75,18 @@ with the app in the background or with Mac windows closed is
   recent Sent messages; an older message can remain unknown. Unambiguous confirmation
   records the message as sent and removes it from the Outbox. No confirmation,
   conflicting evidence, or Gmail being unreachable keeps it
-  unknown; after **Check Again**, the row says Gmail did not confirm it.
+  unknown; after **Check Again**, the row says Gmail did not confirm it. Every Mac
+  window showing the message shows the same check in progress and the same answer,
+  and pressing **Check Again** again while it runs starts no second lookup.
   If the check finds locked storage, the Inbox hides its mail; device removal
   closes it, and refused Gmail access asks for authorization again, including
   after an offline retry. The delivery outcome remains unknown.
 - A message whose mailbox is no longer connected, as after its removal, names no
   provider: it asks to check the Sent folder of the mailbox it was sent from.
 - **Edit** on an unknown message first warns that Gmail may already have sent it,
-  and asks to check Sent in Gmail. **Edit Anyway** returns it to the Drafts; sending
-  it again is the person's deliberate choice.
+  and asks to check Sent in Gmail, only in the window where it was pressed.
+  **Edit Anyway** returns it to the Drafts; sending it again is the person's
+  deliberate choice.
 - **Edit** returns the message to the Drafts and opens it. A message whose claim
   was requested returns under a new identifier, because its old one stays claimed.
 - After a relaunch, only this device continues its Outbox. A message within the

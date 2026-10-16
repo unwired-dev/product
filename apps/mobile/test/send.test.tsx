@@ -695,18 +695,6 @@ describe('sending a Draft', () => {
           'Unknown. To sam@example.invalid. Delivery unknown. Check the Sent folder of the mailbox it was sent from before sending it again.',
         ),
       ).toBeOnTheScreen();
-      await press('Check Again');
-      await expect(
-        screen.findByText(
-          'This message could not be confirmed. Check the Sent folder of the mailbox it was sent from.',
-        ),
-      ).resolves.toBeOnTheScreen();
-      await press('Edit');
-      expect(
-        screen.getByText(
-          'This message may already have been sent. Edit it only if it is not in the Sent folder of the mailbox it was sent from.',
-        ),
-      ).toBeOnTheScreen();
     } finally {
       sender.outbox.dispose();
     }

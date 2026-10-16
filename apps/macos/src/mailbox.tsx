@@ -155,8 +155,8 @@ export function useOutbox() {
 
 // The Outbox of the signed-in Product Account, oldest Send first.
 export function useOutboxEntries() {
-  const drafts = use(DraftsContext);
-  return useSyncExternalStore(drafts.subscribe, drafts.getOutbox);
+  const outbox = use(OutboxContext);
+  return useSyncExternalStore(outbox.subscribe, outbox.getSnapshot);
 }
 
 // The signed-in Product Account's Drafts store and its state.
