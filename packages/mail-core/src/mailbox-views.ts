@@ -11,7 +11,10 @@ import type {
   ImapInboxState,
 } from './imap-inbox.ts';
 import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
-import type { MailboxConnection, MailProvider } from './registration.ts';
+import type {
+  MailboxConnection,
+  MailProvider,
+} from './registration-snapshot.ts';
 
 import {
   gmailViewSymbol,

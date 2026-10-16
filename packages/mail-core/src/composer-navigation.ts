@@ -1,6 +1,6 @@
 import type { Drafts } from './drafts.ts';
 import type { GmailInbox } from './gmail-inbox.ts';
-import type { MailboxConnection } from './registration.ts';
+import type { MailboxConnection } from './registration-snapshot.ts';
 
 import { profileOf, sendingMailboxes } from './drafts.ts';
 

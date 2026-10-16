@@ -102,7 +102,7 @@ const imapFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ImapFailureSchema }),
 );
 
-type RegistrationState = Readonly<{
+export type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
   failed: boolean;
@@ -629,7 +629,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
 export type Registration = ReturnType<typeof createRegistration>;
 
 // The name shown for a sign-in provider.
-export const providerName = (t: Translate, provider: SignInProvider) =>
+const providerName = (t: Translate, provider: SignInProvider) =>
   t(`providers.${provider}`);
 
 function accountLine(
@@ -645,12 +645,11 @@ function accountLine(
       });
 }
 
-export const otherSignInProvider = (
-  provider: SignInProvider,
-): SignInProvider => (provider === 'apple' ? 'google' : 'apple');
+const otherSignInProvider = (provider: SignInProvider): SignInProvider =>
+  provider === 'apple' ? 'google' : 'apple';
 
 // Account settings: which identities open this Product Account.
-export function signInMethodsCopy(
+function signInMethodsCopy(
   t: Translate,
   snapshot: Readonly<{
     signInProvider: SignInProvider;
@@ -677,7 +676,7 @@ export function signInMethodsCopy(
   };
 }
 
-export const linkFailureCopy = (
+const linkFailureCopy = (
   t: Translate,
   failure: LinkFailure,
   provider: SignInProvider,
@@ -739,7 +738,8 @@ const addressesIn = (
     .filter((mailbox) => mailbox.state === state)
     .map(({ address }) => address);
 
-export function registrationCopy(t: Translate, snapshot: RegistrationSnapshot) {
+// fallow-ignore-next-line complexity -- One branch per registration state; the screen suite covers each.
+function registrationCopy(t: Translate, snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
       const page = snapshot.notice ?? 'welcome';
@@ -796,7 +796,7 @@ type PrivateSyncState = Readonly<{
 }>;
 
 // Private product data on this device; mailbox credentials never take part in it.
-export function privateSyncCopy(t: Translate, snapshot: PrivateSyncState) {
+function privateSyncCopy(t: Translate, snapshot: PrivateSyncState) {
   if (snapshot.privateSync === undefined) {
     return undefined;
   }
@@ -838,11 +838,11 @@ export const recoveryKeyEntry = (text: string) =>
   text.replaceAll(/[\s-]/gu, '').toUpperCase().slice(0, 4);
 
 // Recovery Key entry is offered only where the account has keys that this device lacks.
-export const offersRecovery = (privateSync: PrivateSync | undefined) =>
+const offersRecovery = (privateSync: PrivateSync | undefined) =>
   privateSync === 'enrollment-needed' || privateSync === 'enrollment-pending';
 
 // Only a device holding the account keys approves another device or removes a Trusted Device.
-export const approvesDevices = (privateSync: PrivateSync | undefined) =>
+const approvesDevices = (privateSync: PrivateSync | undefined) =>
   privateSync === 'ready' || privateSync === 'recovery-key';
 
 // A retained account can be reopened with its own or its linked Sign-In Provider,
@@ -872,10 +872,7 @@ export type SignInOffer = Readonly<{
 }>;
 
 // The registration page's actions in this state, in page order; hosts only render them.
-export function registrationActions(
-  snapshot: RegistrationSnapshot,
-  failed: boolean,
-) {
+function registrationActions(snapshot: RegistrationSnapshot, failed: boolean) {
   const account = snapshot.kind !== 'signed-out';
   const removing = account && snapshot.removalPending !== undefined;
   let signIn: readonly SignInOffer[] = [];
@@ -915,7 +912,7 @@ export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
 // The account setup that needs the person before the Inbox, described so that newly appearing
 // setup differs from setup already pending; empty when none: a Recovery Key to confirm or enter,
 // a device approval on either side, or a mailbox not yet saved to private sync.
-export const inboxSetup = (snapshot: RegistrationSnapshot) => {
+const inboxSetup = (snapshot: RegistrationSnapshot) => {
   if (snapshot.kind !== 'connected' && snapshot.kind !== 'cached') {
     return '';
   }
@@ -966,7 +963,7 @@ const choiceApplies = (
   (choice.destination === 'account' || setup === '' || setup === choice.setup);
 
 // Where a host lands, and whether an earlier choice still applies.
-export function inboxLanding(
+function inboxLanding(
   snapshot: RegistrationSnapshot,
   choice: InboxChoice | undefined,
 ) {
@@ -982,6 +979,120 @@ export function inboxLanding(
   }
   return { account, setup, valid, destination } as const;
 }
+
+function identityOf(
+  t: Translate,
+  account: Exclude<RegistrationSnapshot, { kind: 'signed-out' }>,
+  linkFailure: LinkFailure | undefined,
+) {
+  const methods = signInMethodsCopy(t, account);
+  const { link } = methods;
+  return {
+    name: account.contactEmail,
+    provider: t('registration.account', {
+      provider: providerName(t, account.signInProvider),
+    }),
+    signInMethods: {
+      description: methods.description,
+      link:
+        link === undefined
+          ? undefined
+          : {
+              provider: link,
+              label: t('signInMethods.link', {
+                provider: providerName(t, link),
+              }),
+            },
+      failure:
+        linkFailure === undefined
+          ? undefined
+          : linkFailureCopy(
+              t,
+              linkFailure,
+              otherSignInProvider(account.signInProvider),
+            ),
+    },
+  };
+}
+
+// Hosts hand the mailboxes and choices to the Inbox's context; the same snapshot keeps the same
+// values, so a busy or failure change alone does not re-render or reload the Inbox.
+const landingValues = new WeakMap<
+  RegistrationSnapshot,
+  Readonly<{
+    mailboxes: readonly MailboxConnection[];
+    choices:
+      | Readonly<Record<InboxChoice['destination'], InboxChoice>>
+      | undefined;
+  }>
+>();
+
+function landingValuesOf(snapshot: RegistrationSnapshot) {
+  const known = landingValues.get(snapshot);
+  if (known !== undefined) {
+    return known;
+  }
+  const { account, setup } = inboxLanding(snapshot, undefined);
+  const values = {
+    mailboxes: mailboxesOf(snapshot),
+    // What the host stores when the person picks a destination; only while an Inbox can open.
+    choices:
+      account === undefined
+        ? undefined
+        : ({
+            inbox: { account, destination: 'inbox', setup },
+            account: { account, destination: 'account', setup },
+          } as const),
+  };
+  landingValues.set(snapshot, values);
+  return values;
+}
+
+// Everything the registration gate shows in this state. Hosts keep one choice per window, store
+// the returned `choice` back (an invalidated one becomes undefined) and only render the rest.
+export function registrationScreen(
+  t: Translate,
+  state: RegistrationState,
+  choice: InboxChoice | undefined,
+) {
+  const { snapshot, failed } = state;
+  const landing = inboxLanding(snapshot, choice);
+  const { mailboxes, choices } = landingValuesOf(snapshot);
+  const actions = registrationActions(snapshot, failed);
+  const signedIn = snapshot.kind === 'signed-out' ? undefined : snapshot;
+  return {
+    // Locked storage hides the snapshot, whatever it says.
+    destination: state.locked === true ? 'locked' : landing.destination,
+    choice: landing.valid ? choice : undefined,
+    choices,
+    // Account setup is waiting for the person before the Inbox.
+    setupPending: landing.setup !== '',
+    copy: registrationCopy(t, snapshot),
+    actions: {
+      ...actions,
+      signIn: actions.signIn.map((offer) => ({
+        ...offer,
+        label: t(`registration.${offer.offer}`, {
+          provider: providerName(t, offer.provider),
+        }),
+      })),
+    },
+    // The Product Account's identity: who signed in, and with which Sign-In Providers.
+    identity:
+      signedIn === undefined
+        ? undefined
+        : identityOf(t, signedIn, state.linkFailure),
+    // Mailbox authorization, separate from the Product Account's identity.
+    mailboxes,
+    privateSync: {
+      copy: signedIn === undefined ? undefined : privateSyncCopy(t, signedIn),
+      offersRecovery: offersRecovery(signedIn?.privateSync),
+      approvesDevices: approvesDevices(signedIn?.privateSync),
+    },
+  } as const;
+}
+
+export type RegistrationScreen = ReturnType<typeof registrationScreen>;
 
 // A prepared removal waiting for its replacement Recovery Key to be confirmed, if any.
 export function revocationProposal(

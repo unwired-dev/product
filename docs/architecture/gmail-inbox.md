@@ -142,11 +142,13 @@ The process-owned `createMailboxes` composition subscribes to registration, keep
 one Inbox per openable Product Account/opaque connection/address/incarnation owner. A changed
 owner, refused grant, removal or loss of eligibility forgets only the affected
 store immediately and suppresses its late publications. Each store independently
-serializes synchronization. The hosts discard Account/Inbox presentation choices when
-the Product Account changes or Inbox eligibility is lost. The shared
-`inboxLanding` helper also invalidates an Inbox choice when different pending
-setup appears for that same account. A choice records `inboxSetup` at the time
-it is made: setup kind markers, the transient enrollment code and the pending
+serializes synchronization. The shared `registrationScreen(t, state, choice)`
+view model normalizes Account/Inbox presentation choices when the Product Account
+changes or Inbox eligibility is lost. Each host window stores the returned choice,
+so an invalidated selection cannot reappear with an earlier snapshot. The model
+also invalidates an Inbox choice when different pending setup appears for that
+same account. Its private landing helpers record setup at the time a choice is
+made: setup kind markers, the transient enrollment code and the pending
 enrollment request ID, without copying the Recovery Key. A renewed enrollment
 code therefore differs even while the device remains enrollment-pending. An explicit
 Account choice persists, and choosing the Inbox over already-pending setup

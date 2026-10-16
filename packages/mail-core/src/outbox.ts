@@ -9,7 +9,8 @@ import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts } from './drafts.ts';
 import type { SendOutcome } from './gmail-inbox.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
-import type { MailProvider, Registration } from './registration.ts';
+import type { MailProvider } from './registration-snapshot.ts';
+import type { Registration } from './registration.ts';
 
 import {
   rejectionCode,
@@ -27,7 +28,8 @@ import {
   outgoingMessage,
   sendableAddress,
 } from './outgoing-message.ts';
-import { canOpenInbox, mailboxesOf } from './registration.ts';
+import { mailboxesOf } from './registration-snapshot.ts';
+import { canOpenInbox } from './registration.ts';
 
 // The native module's delivery claim through Convex. Native code names the Draft by an identifier
 // derived from the Product Account's Product Sync keys, so Convex learns nothing about the message.

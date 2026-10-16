@@ -3,7 +3,7 @@ import type { Translate } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
 import type { GmailMessage } from './mailbox-message.ts';
-import type { MailProvider } from './registration.ts';
+import type { MailProvider } from './registration-snapshot.ts';
 
 // Gmail organizes mail with labels: Inbox, Trash, Spam, read state and stars are system labels
 // that one message modify request adds or removes. Microsoft mail uses the same actions on its
