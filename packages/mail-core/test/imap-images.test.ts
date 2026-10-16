@@ -223,6 +223,84 @@ describe('imap reader image and lifetime boundaries', () => {
     closeGmail();
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey proves release across stores in both directions and across Gmail messages. */
+  it('shows waiting readers their images when another store or message releases the budget', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const gmail = createSyntheticGmail();
+    const older = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    const newer = gmail.deliver({ at: Date.UTC(2020, 0, 2) });
+    gmail.native.openMessageBody = (_scope, id) =>
+      Promise.resolve(cached(id, 1));
+    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    await gmailInbox.load();
+    const gmailRich = (id: string, reader?: symbol) => {
+      const state = gmailInbox.messageBody(id, reader);
+      assert.equal(state?.kind, 'ready');
+      assert.ok(state.presentation.rich);
+      return state.presentation.rich;
+    };
+    const closeOlder = gmailInbox.retainMessage(older);
+    await gmailInbox.readMessage(older);
+
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Photo' });
+    vi.spyOn(imap.native, 'openMessageBody').mockImplementation((_scope, id) =>
+      Promise.resolve(cached(id, 1)),
+    );
+    const inbox = createImapInbox(imap.native, { shared });
+    await inbox.load();
+    const id = firstId(inbox);
+    const first = Symbol('first window');
+    const second = Symbol('second window');
+    const closeFirst = inbox.retainMessage(id, first);
+    await inbox.readMessage(id);
+    const established = rich(inbox, id, first);
+    const closeSecond = inbox.retainMessage(id, second);
+    await inbox.readMessage(id);
+    expect(rich(inbox, id, second).document).not.toContain('data:image/png');
+    let imapChanges = 0;
+    const unsubscribeImap = inbox.subscribe(() => {
+      imapChanges += 1;
+    });
+    // Closing the Gmail reader shows the waiting IMAP window its images without reopening it.
+    closeOlder();
+    expect(rich(inbox, id, second).document).toContain('data:image/png');
+    expect(rich(inbox, id, first)).toBe(established);
+    expect(imapChanges).toBe(1);
+    unsubscribeImap();
+
+    // The reverse: a Gmail window waits until an IMAP window closes.
+    const window = Symbol('Gmail window');
+    const closeNewer = gmailInbox.retainMessage(newer, window);
+    await gmailInbox.readMessage(newer);
+    expect(gmailRich(newer, window).document).not.toContain('data:image/png');
+    const shown = rich(inbox, id, second);
+    let gmailChanges = 0;
+    const unsubscribeGmail = gmailInbox.subscribe(() => {
+      gmailChanges += 1;
+    });
+    closeFirst();
+    expect(gmailRich(newer, window).document).toContain('data:image/png');
+    expect(rich(inbox, id, second)).toBe(shown);
+    expect(gmailChanges).toBe(1);
+    unsubscribeGmail();
+
+    // Within Gmail, a reader of another message takes the budget a closing reader held.
+    const reopenOlder = gmailInbox.retainMessage(older);
+    await gmailInbox.readMessage(older);
+    expect(gmailRich(older).document).not.toContain('data:image/png');
+    closeNewer();
+    expect(gmailRich(older).document).toContain('data:image/png');
+    expect(rich(inbox, id, second)).toBe(shown);
+    reopenOlder();
+    closeSecond();
+    expect(
+      [...shared.images.values()].flatMap((ledger) => [...ledger.values()]),
+    ).toStrictEqual([]);
+  });
+  /* oxlint-enable vitest/max-expects */
+
   it('retries the surviving legacy readers with their reduced image cost', async () => {
     expect.hasAssertions();
     const shared = createBodyLoads();

@@ -760,6 +760,7 @@ export function createImapInbox(
       pixels: reservedPixels + remote.pixels,
     });
     shared.images.set(imageOwner, reservations);
+    shared.waiting.set(imageOwner, presentWaiting);
     if (images.length < (body.images?.admitted.length ?? 0)) {
       limited.add(key);
     } else {
@@ -848,6 +849,12 @@ export function createImapInbox(
     }
     return changed;
   };
+  // Another store released part of the budget.
+  function presentWaiting() {
+    if (presentLimited()) {
+      notify();
+    }
+  }
   // A closing legacy reader keeps its share of the reservation only while others remain.
   function releaseLegacyReader(id: string) {
     const count = legacyReaders.get(id) ?? 1;
@@ -1120,8 +1127,10 @@ export function createImapInbox(
       viewBodies.clear();
       reservations.clear();
       shared.images.delete(imageOwner);
+      shared.waiting.delete(imageOwner);
       state = { kind: kind === 'locked' ? 'locked' : 'failed' };
       notify();
+      shared.released(imageOwner);
       if (kind === 'revoked') {
         removed?.();
       }
@@ -2100,6 +2109,7 @@ export function createImapInbox(
         if (presentLimited() || remoteChanged) {
           notify();
         }
+        shared.released(imageOwner);
       };
     },
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
@@ -2132,6 +2142,7 @@ export function createImapInbox(
         remoteContent.discard(id, reader ?? id);
         presentLimited();
         notify();
+        shared.released(imageOwner);
       }
     },
     // Forgets the mail held in memory when the connection or its account leaves the Inbox.
@@ -2155,8 +2166,10 @@ export function createImapInbox(
       notice = undefined;
       noticed = undefined;
       shared.images.delete(imageOwner);
+      shared.waiting.delete(imageOwner);
       state = { kind: 'loading' };
       notify();
+      shared.released(imageOwner);
     },
   };
 }

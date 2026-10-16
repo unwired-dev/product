@@ -1096,6 +1096,7 @@ const createBodyLoadQueue = () => {
 // and speculative prefetch in any connection waits while an explicit read waits or runs.
 export function createBodyLoads() {
   const idle = Latch.makeUnsafe(true);
+  const waiting = new Map<symbol, () => void>();
   let interactive = 0;
   let cacheVersion = 0;
   const cacheListeners = new Set<() => void>();
@@ -1126,6 +1127,16 @@ export function createBodyLoads() {
       symbol,
       ReadonlyMap<string | symbol, { bytes: number; pixels: number }>
     >(),
+    // Each ledger owner's way to present again the readers the budget held back.
+    waiting,
+    // A store that releases part of the budget offers it to the readers every other store holds back.
+    released: (owner: symbol) => {
+      for (const [other, present] of waiting) {
+        if (other !== owner) {
+          present();
+        }
+      }
+    },
     idle,
     begin: Effect.sync(() => {
       interactive += 1;
@@ -1770,6 +1781,8 @@ export function createGmailInbox(
     string | symbol,
     { bytes: number; pixels: number }
   >();
+  // Readers whose inline images the shared budget withheld, presented again when it frees.
+  const limitedReaders = new Set<string | symbol>();
   const readingBodies = new Map<string, Promise<void>>();
   const remoteContent = createRemoteContentLoader(native, {
     connection,
@@ -1827,10 +1840,12 @@ export function createGmailInbox(
     bodies.delete(id);
     documents.delete(id);
     imageReservations.delete(id);
+    limitedReaders.delete(id);
     for (const [reader, message] of viewReaders) {
       if (message === id) {
         viewBodies.delete(reader);
         imageReservations.delete(reader);
+        limitedReaders.delete(reader);
       }
     }
   };
@@ -1975,6 +1990,7 @@ export function createGmailInbox(
     if (previous === 1) {
       legacyReaders.delete(id);
       imageReservations.delete(id);
+      limitedReaders.delete(id);
     } else {
       legacyReaders.set(id, previous - 1);
       if (reservation !== undefined) {
@@ -2020,6 +2036,7 @@ export function createGmailInbox(
     const { id } = document;
     let { bytes, pixels } = reservedImages(key);
     shared.images.set(imageOwner, imageReservations);
+    shared.waiting.set(imageOwner, presentWaiting);
     let occurrences: readonly string[] = [];
     let remoteOccurrences: readonly string[] = [];
     try {
@@ -2029,6 +2046,7 @@ export function createGmailInbox(
       remoteOccurrences = sanitized.remoteImages;
     } catch {
       imageReservations.delete(key);
+      limitedReaders.delete(key);
       return presentation({
         version: 2,
         id,
@@ -2064,6 +2082,11 @@ export function createGmailInbox(
       bytes: reservedBytes + remote.bytes,
       pixels: reservedPixels + remote.pixels,
     });
+    if (visibleImages.length < (document.images?.admitted.length ?? 0)) {
+      limitedReaders.add(key);
+    } else {
+      limitedReaders.delete(key);
+    }
     return presentation(document, visibleImages, remote.admitted);
   };
 
@@ -2115,6 +2138,49 @@ export function createGmailInbox(
     return [legacyChanged, ...changed].includes(true);
   }
 
+  // A released reservation lets the readers the budget held back, of any message, show their images.
+  const presentLimited = () => {
+    let changed = false;
+    const refresh = (key: string | symbol, id: string, count = 1) => {
+      const previous =
+        typeof key === 'symbol' ? viewBodies.get(key) : bodies.get(key);
+      const document = documents.get(id);
+      if (
+        !limitedReaders.has(key) ||
+        document === undefined ||
+        previous?.kind !== 'ready' ||
+        previous.presentation.rich === undefined
+      ) {
+        return previous;
+      }
+      const next = refreshedRemotePresentation(
+        previous,
+        present(key, document, count),
+      );
+      changed ||= next !== previous;
+      return next;
+    };
+    for (const [reader, id] of viewReaders) {
+      const next = refresh(reader, id);
+      if (next !== undefined) {
+        viewBodies.set(reader, next);
+      }
+    }
+    for (const [id, count] of legacyReaders) {
+      const next = refresh(id, id, count);
+      if (next !== undefined) {
+        bodies.set(id, next);
+      }
+    }
+    return changed;
+  };
+  // Another store released part of the budget.
+  function presentWaiting() {
+    if (presentLimited()) {
+      notify(state);
+    }
+  }
+
   // A closing reader's view and reservation go before reconciliation, so the readers that remain
   // are presented again with the budget it held.
   const releaseReader = (id: string, reader: symbol | undefined) => {
@@ -2127,6 +2193,7 @@ export function createGmailInbox(
       viewReaders.delete(reader);
       viewBodies.delete(reader);
       imageReservations.delete(reader);
+      limitedReaders.delete(reader);
       remoteContent.withdraw(id, reader);
     }
     if (remoteContent.has(id)) {
@@ -3103,7 +3170,9 @@ export function createGmailInbox(
     endedReaders.clear();
     readingBodies.clear();
     imageReservations.clear();
+    limitedReaders.clear();
     shared.images.delete(imageOwner);
+    shared.waiting.delete(imageOwner);
     selection = [];
     selectionReference = undefined;
     speculativeBodies.clear();
@@ -3111,6 +3180,7 @@ export function createGmailInbox(
       forgotten = true;
       notify({ kind: 'loading' });
     }
+    shared.released(imageOwner);
   };
 
   // Authentication and retry keep the shown mail; locked or unreadable storage hides it. A removed
@@ -3943,6 +4013,7 @@ export function createGmailInbox(
         } else {
           if (!legacyReaders.has(id)) {
             imageReservations.delete(id);
+            limitedReaders.delete(id);
           }
           viewBodies.set(reader, {
             kind: 'ready',
@@ -3969,6 +4040,10 @@ export function createGmailInbox(
         } else {
           readers.set(id, count);
         }
+        if (presentLimited()) {
+          notify(state);
+        }
+        shared.released(imageOwner);
       };
     },
     // Opens a body from this device, or downloads it from Gmail; a failed read can be tried again.
@@ -4217,25 +4292,31 @@ export function createGmailInbox(
         ) {
           // Its remote requests end with the rich view; nothing it loads could be shown.
           imageReservations.delete(reader);
+          limitedReaders.delete(reader);
           viewBodies.set(reader, {
             kind: 'ready',
             presentation: readableOnly(expected),
           });
           remoteContent.discard(id, reader);
+          presentLimited();
           notify(state);
+          shared.released(imageOwner);
         }
         return;
       }
       const current = bodies.get(id);
       if (current?.kind === 'ready' && current.presentation === expected) {
         imageReservations.delete(id);
+        limitedReaders.delete(id);
         const fallback = {
           kind: 'ready',
           presentation: readableOnly(expected),
         } as const;
         bodies.set(id, fallback);
         remoteContent.discard(id, id);
+        presentLimited();
         setBody(id, fallback);
+        shared.released(imageOwner);
       }
     },
   };
