@@ -220,6 +220,7 @@ describe('registration page copy', () => {
       state: 'cached',
     },
   ]);
+
   // Each state's title and account line, which both hosts show as given.
   it.each<
     Readonly<{
