@@ -411,6 +411,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.retainedViews` charging leases for absent saved views against
+  the cache budget. Count leased labels only while their view is in the candidate
+  cache, while protecting pending `requestedViews` until adoption. Trace label
+  removal, concurrent opens, exact lease release and `forget`; otherwise a reader
+  holding a removed label evicts usable cached views and causes avoidable refetches.
+
 - `gmail-actions.ts.quickActions` offering Archive in a label or All Mail for a
   message without `INBOX`. Derive availability from the message's membership
   outside Inbox context, and trace both hosts' reader, row, context-menu and
