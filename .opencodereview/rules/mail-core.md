@@ -411,6 +411,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
+  another cached view without enforcing `cacheLimit` before commit/publication.
+  Check `everyView` additions and `settleObserved` callers with a full destination
+  and a failed subsequent history read; otherwise restoring or labeling a message
+  durably grows the bounded metadata cache beyond its newest-message limit.
+
 - `gmail-inbox.ts.retainedViews` charging leases for absent saved views against
   the cache budget. Count leased labels only while their view is in the candidate
   cache, while protecting pending `requestedViews` until adoption. Trace label
