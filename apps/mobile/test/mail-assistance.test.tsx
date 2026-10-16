@@ -25,6 +25,7 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageSummary } from '../src/message-summary.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { DraftTranslation, MessageTranslation } from '../src/translation.tsx';
+import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -513,7 +514,7 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
     };
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}
         mailAssistance={enablement}
         assistance={assistance.native}

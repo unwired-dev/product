@@ -3,13 +3,11 @@ import type {
   CommandChoice,
   CommandRegistry,
   CommandTarget,
-  NativePreferences,
 } from '@private-email/mail-core/commands';
 import type { ReactNode } from 'react';
 import type {
   GestureResponderEvent,
   TextInput as TextInputHandle,
-  TurboModule,
   StyleProp,
   ViewProps,
   ViewStyle,
@@ -44,13 +42,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TurboModuleRegistry,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
+import { native } from './registration.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const PaletteContext = createContext<
@@ -99,17 +97,10 @@ export function useMessageCommands(target: CommandTarget) {
   return messageCommands(commands, target);
 }
 
-interface PreferenceModule extends TurboModule, NativePreferences {}
-
-const preferences = () =>
-  TurboModuleRegistry.get<PreferenceModule>('UnwiredRegistration');
-
-// This device's one-time gesture hint; a host without saved preferences shows it each launch.
+// This device's one-time gesture hint.
 const hint = createPaletteHint({
-  preference: (key) =>
-    preferences()?.preference(key) ?? Promise.resolve({ value: null }),
-  setPreference: (key, value) =>
-    preferences()?.setPreference(key, value) ?? Promise.resolve({}),
+  preference: (key) => native().preference(key),
+  setPreference: (key, value) => native().setPreference(key, value),
 });
 
 // iPad keeps a visible command input; iPhone opens the palette by gesture alone.

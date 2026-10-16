@@ -58,6 +58,7 @@ import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -745,12 +746,13 @@ async function renderConnected(
       },
     },
   );
+  const store = started(registration);
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
     const [view, setView] = useState<MailboxView>({});
     return (
       <RegistrationGate
-        store={registration}
+        store={store}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <CommandPaletteProvider>
@@ -1168,7 +1170,7 @@ describe('connected Gmail Inbox', () => {
     const receipt = gmail.deliver({ subject: 'Old receipt' });
     gmail.setLabel(receipt, 'TRASH', true);
     gmail.setLabel(receipt, 'INBOX', false);
-    await renderConnected(gmail.native).rendered;
+    await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
     // Each label follows the Inbox, then All Mail, Spam and Trash.
     expect(
@@ -1263,7 +1265,7 @@ describe('connected Gmail Inbox', () => {
     const kept = gmail.deliver({ subject: 'Only in its label' });
     gmail.setLabel(kept, String(first), true);
     gmail.archive(kept);
-    await renderConnected(gmail.native).rendered;
+    await renderConnected(gmail.native);
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', {
@@ -1295,8 +1297,7 @@ describe('connected Gmail Inbox', () => {
     const travel = gmail.createLabel('Travel');
     const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
     gmail.setLabel(flight, travel, true);
-    const connected = renderConnected(gmail.native);
-    await connected.rendered;
+    const connected = await renderConnected(gmail.native);
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', {
@@ -1327,7 +1328,7 @@ describe('connected Gmail Inbox', () => {
       const travel = gmail.createLabel('Travel');
       const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
       gmail.setLabel(flight, travel, true);
-      await renderConnected(gmail.native).rendered;
+      await renderConnected(gmail.native);
       await act(async () => {
         await fireEvent.press(
           await screen.findByRole('button', {

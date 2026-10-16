@@ -1,6 +1,7 @@
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
 import { readingProfile } from '@private-email/mail-core/mailboxes';
+import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
@@ -28,6 +29,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
+import { start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
@@ -44,6 +46,10 @@ const styles = StyleSheet.create({
   },
 });
 
+// Every gate shows the Registration and remote content settings the host restores once here.
+if (!previewInbox) {
+  void start();
+}
 void scheduleGmailFreshness();
 pollGmailWhileActive();
 

@@ -42,6 +42,7 @@ import type { usePalette } from '../src/theme.ts';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
+import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -1246,7 +1247,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     );
     const app = await render(
       <RegistrationGate
-        store={registration}
+        store={started(registration)}
         preview={false}>
         <InboxWindow windowId="first" />
       </RegistrationGate>,
@@ -1315,7 +1316,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     );
     const app = await render(
       <RegistrationGate
-        store={registration}
+        store={started(registration)}
         preview={false}>
         <InboxWindow windowId="first" />
       </RegistrationGate>,

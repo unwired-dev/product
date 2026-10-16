@@ -61,6 +61,7 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -276,7 +277,7 @@ const renderBarWindow = async (initially: 'connected' | 'signed-out') => {
   await render(
     <CommandPaletteProvider windowId="bar">
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <CommandBar />
       </RegistrationGate>
@@ -343,7 +344,7 @@ describe('product registration', () => {
     });
     const view = await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -437,7 +438,7 @@ describe('product registration', () => {
       };
       await render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           <InboxProvider mailboxes={mailboxes}>
             <Shell
@@ -569,7 +570,7 @@ describe('product registration', () => {
     };
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Shell
@@ -634,7 +635,7 @@ describe('product registration', () => {
     };
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Shell
@@ -814,7 +815,7 @@ describe('product registration', () => {
     }
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <Organizing />
       </RegistrationGate>,
@@ -924,7 +925,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Shell
@@ -1000,7 +1001,7 @@ describe('product registration', () => {
       await render(
         <CommandPaletteProvider windowId="account">
           <RegistrationGate
-            store={store}
+            store={started(store)}
             preview={false}>
             <InboxProvider mailboxes={mailboxes}>
               <Shell
@@ -1183,7 +1184,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Shell
@@ -1227,7 +1228,7 @@ describe('product registration', () => {
     const synthetic = await createRegistrationScenario('registration-declined');
     const first = await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1251,7 +1252,7 @@ describe('product registration', () => {
     await first.unmount();
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1281,7 +1282,7 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.relaunch());
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1314,7 +1315,7 @@ describe('product registration', () => {
     const synthetic = await createRegistrationScenario('registration-declined');
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -1382,7 +1383,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         microsoft
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
@@ -1442,9 +1443,10 @@ describe('product registration', () => {
       },
       clearRemoteContent: () => Promise.resolve(null),
     });
+    await remoteContent.load();
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}
         remoteContent={remoteContent}>
         {null}
@@ -1505,7 +1507,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <InboxProvider mailboxes={mailboxes}>
           <Shell
@@ -1719,7 +1721,7 @@ describe('product registration', () => {
     }
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <Searching list={mailboxes} />
       </RegistrationGate>,
@@ -1944,7 +1946,7 @@ describe('product registration', () => {
     }
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <Searching />
       </RegistrationGate>,
@@ -2131,7 +2133,7 @@ describe('product registration', () => {
     synthetic.choose('alex@example.invalid');
     const first = await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2164,7 +2166,7 @@ describe('product registration', () => {
     await first.unmount();
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2181,7 +2183,7 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2216,7 +2218,7 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2261,7 +2263,7 @@ describe('product registration', () => {
     };
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2325,7 +2327,7 @@ describe('product registration', () => {
     });
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2354,7 +2356,7 @@ describe('product registration', () => {
     const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2432,7 +2434,7 @@ describe('product registration', () => {
     const show = (store: typeof trusted) =>
       render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -2536,7 +2538,7 @@ describe('product registration', () => {
     const show = (store: typeof lost) =>
       render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -2625,7 +2627,7 @@ describe('product registration', () => {
     await store.restoreOnce();
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2663,7 +2665,7 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -2702,10 +2704,12 @@ describe('product registration', () => {
       Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
     await render(
       <RegistrationGate
-        store={createRegistration({
-          ...vault,
-          registration: () => registration(),
-        })}
+        store={started(
+          createRegistration({
+            ...vault,
+            registration: () => registration(),
+          }),
+        )}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -2762,7 +2766,7 @@ describe('product registration', () => {
       const store = createRegistration(synthetic.vault);
       const view = await render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -2801,7 +2805,7 @@ describe('product registration', () => {
       const store = createRegistration(synthetic.vault);
       await render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -2937,7 +2941,7 @@ describe('product registration', () => {
       const show = () =>
         render(
           <RegistrationGate
-            store={store}
+            store={started(store)}
             preview={false}>
             {null}
           </RegistrationGate>,
@@ -3077,7 +3081,7 @@ describe('product registration', () => {
       const store = createRegistration(synthetic.vault);
       await render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -3147,7 +3151,7 @@ describe('product registration', () => {
     synthetic.sync.failActivationBeforeCommit = true;
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -3196,7 +3200,7 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}>
         {null}
       </RegistrationGate>,
@@ -3258,7 +3262,7 @@ describe('product registration', () => {
     const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         <ConnectedInbox />
       </RegistrationGate>,
@@ -3363,7 +3367,7 @@ describe('product registration', () => {
       const store = createRegistration(account.synthetic.relaunch());
       await render(
         <RegistrationGate
-          store={store}
+          store={started(store)}
           preview={false}>
           {null}
         </RegistrationGate>,
@@ -3403,7 +3407,7 @@ describe('product registration', () => {
     const synthetic = await createRegistrationScenario('registration-success');
     await render(
       <RegistrationGate
-        store={createRegistration(synthetic.vault)}
+        store={started(createRegistration(synthetic.vault))}
         preview={false}>
         {null}
       </RegistrationGate>,

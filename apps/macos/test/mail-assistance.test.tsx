@@ -25,6 +25,7 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageSummary } from '../src/message-summary.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { DraftTranslation, MessageTranslation } from '../src/translation.tsx';
+import { started } from './started.ts';
 
 // A native model whose summaries the test releases, recording every call that reached it.
 function scriptedAssistance() {
@@ -503,7 +504,7 @@ describe('mail Assistance Enablement on Mac', () => {
     };
     await render(
       <RegistrationGate
-        store={store}
+        store={started(store)}
         preview={false}
         mailAssistance={enablement}
         assistance={assistance.native}

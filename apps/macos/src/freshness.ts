@@ -1,12 +1,13 @@
-import {
-  createFreshness,
-  followWakes,
-  pushCovers,
-} from '@private-email/mail-core/freshness';
+import { pushCovers } from '@private-email/mail-core/freshness';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { AppState } from 'react-native';
 
-import { gmailMailboxes, registration, wakes } from './registration.ts';
+import {
+  followWakes,
+  freshness,
+  gmailMailboxes,
+  wakes,
+} from './registration.ts';
 
 // The application, not a window, owns Gmail synchronization: it continues after the last window
 // closes and ends with the process on Quit. No helper process runs. Push wakes synchronize each
@@ -17,11 +18,7 @@ import { gmailMailboxes, registration, wakes } from './registration.ts';
 export const keepGmailFresh = () => {
   if (!previewInbox) {
     gmailMailboxes.watch();
-    const freshness = createFreshness(
-      gmailMailboxes,
-      registration.refreshInbox,
-    );
-    void followWakes(freshness, wakes);
+    followWakes();
     freshness.keepAlive(
       5,
       async () =>
