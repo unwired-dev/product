@@ -417,6 +417,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   and a failed subsequent history read; otherwise restoring or labeling a message
   durably grows the bounded metadata cache beyond its newest-message limit.
 
+- `gmail-inbox.ts.organized` admitting an absent message only when `action.add`
+  explicitly names the view. Trace membership transitions when removing Spam or
+  Trash: retained user labels and All Mail become eligible without an explicit
+  add. Check those cached views before provider confirmation; otherwise offline
+  restoration or moves leave them inconsistent with the optimistic Inbox.
+
 - `gmail-inbox.ts.retainedViews` charging leases for absent saved views against
   the cache budget. Count leased labels only while their view is in the candidate
   cache, while protecting pending `requestedViews` until adoption. Trace label

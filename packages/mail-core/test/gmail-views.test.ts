@@ -224,6 +224,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     );
     expect(view(relaunched, 'TRASH').messages).toStrictEqual([]);
     expect(ids(ready(relaunched.getSnapshot()).messages)).toContain(flight);
+    expect(ids(view(relaunched, travel).messages)).toContain(flight);
     await restoring;
     expect(gmail.modifies.at(-1)).toStrictEqual({
       id: flight,

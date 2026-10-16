@@ -597,10 +597,12 @@ const organized = (
     ]),
   );
   for (const { action, message } of pending) {
+    const before = labelsOf(message);
     const current =
       byId.get(message.id) ??
-      (action.add.includes(view === allMail ? 'INBOX' : view)
-        ? { message, labels: labelsOf(message) }
+      (action.add.includes(view === allMail ? 'INBOX' : view) ||
+      (!inView(view, before) && inView(view, relabel(before, action)))
+        ? { message, labels: before }
         : undefined);
     if (current !== undefined) {
       const labels = relabel(current.labels, action);
