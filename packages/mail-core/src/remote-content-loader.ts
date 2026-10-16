@@ -84,6 +84,45 @@ const remoteImageLoaded = (result: RemoteImageResult) =>
   result.kind === 'loaded' || result.kind === 'restored';
 let nextRemoteSession = 0;
 
+// The rich presentations an Inbox's readers show of a message: each window's reader by its
+// symbol, and the legacy readers by the message ID while any is open.
+export const shownRemote = ({
+  viewReaders,
+  viewBodies,
+  bodies,
+  legacyReaders,
+}: Readonly<{
+  viewReaders: ReadonlyMap<symbol, string>;
+  viewBodies: ReadonlyMap<
+    symbol,
+    Readonly<{ kind: string; presentation?: MessagePresentation }>
+  >;
+  bodies: ReadonlyMap<
+    string,
+    Readonly<{ kind: string; presentation?: MessagePresentation }>
+  >;
+  legacyReaders: ReadonlyMap<string, number>;
+}>) => {
+  const presented = (id: string, reader: string | symbol) => {
+    if (typeof reader === 'symbol' && viewReaders.get(reader) !== id) {
+      return undefined;
+    }
+    const body =
+      typeof reader === 'symbol' ? viewBodies.get(reader) : bodies.get(id);
+    return body?.kind === 'ready' ? body.presentation?.rich?.remote : undefined;
+  };
+  return {
+    presented,
+    displayed: (id: string) =>
+      [
+        ...[...viewReaders]
+          .filter(([, message]) => message === id)
+          .map(([reader]) => reader),
+        ...((legacyReaders.get(id) ?? 0) > 0 ? [id] : []),
+      ].flatMap((reader) => presented(id, reader) ?? []),
+  };
+};
+
 // Remote bytes become content only as one complete supported image within the per-image bounds.
 const admittedRemote = (data: string): RemoteImage | undefined => {
   const bytes = Result.getOrUndefined(Base64.decode(data));

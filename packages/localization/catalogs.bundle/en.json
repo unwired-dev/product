@@ -388,7 +388,6 @@
     "imap-authentication": "The mail server needs your password again to download this message.",
     "imap-missing": "This message is no longer in this folder on the mail server.",
     "too-large": "This message is too large to open on this device.",
-    "imap-remote": "Images from the internet are not loaded in mail from IMAP mailboxes yet.",
     "imap-attachments_one": "This message has {{count}} attachment. Attachments from IMAP mailboxes cannot be opened here yet.",
     "imap-attachments_other": "This message has {{count}} attachments. Attachments from IMAP mailboxes cannot be opened here yet."
   },

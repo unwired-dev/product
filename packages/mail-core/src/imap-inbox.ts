@@ -29,6 +29,7 @@ import type {
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
+import type { NativeRemoteContentCache } from './remote-content-loader.ts';
 
 import {
   decodeDiagnostic,
@@ -74,6 +75,10 @@ import {
   receivedAttachments,
 } from './message-body.ts';
 import { parseMime } from './mime.ts';
+import {
+  createRemoteContentLoader,
+  shownRemote,
+} from './remote-content-loader.ts';
 
 export { applyFolderRead, inboxFolder } from './imap-model.ts';
 export type {
@@ -87,16 +92,18 @@ export type {
 // Native code logs in with the connection's password and keeps the cache encrypted; this module
 // chooses what to read and owns the cached document. Messages are read without setting \Seen.
 export interface NativeImapMailbox
-  // The connection's encrypted cache, as for Gmail.
-  extends Pick<
-    NativeGmailMailbox,
-    | 'openMailbox'
-    | 'commitMailbox'
-    | 'openMessageBody'
-    | 'commitMessageBody'
-    | 'listMessageBodies'
-    | 'retainMessageBodies'
-  > {
+  // The connection's encrypted cache and Authorized Remote Content Cache, as for Gmail.
+  extends
+    Pick<
+      NativeGmailMailbox,
+      | 'openMailbox'
+      | 'commitMailbox'
+      | 'openMessageBody'
+      | 'commitMessageBody'
+      | 'listMessageBodies'
+      | 'retainMessageBodies'
+    >,
+    NativeRemoteContentCache {
   // Resolves `{ folders: [{ name, roles, selectable }] }`.
   readonly imapFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
@@ -566,10 +573,12 @@ export function createImapInbox(
   {
     removed,
     shared = createBodyLoads(),
+    connection = '',
   }: Readonly<{
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
     shared?: Readonly<ReturnType<typeof createBodyLoads>>;
+    connection?: string;
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
@@ -686,6 +695,15 @@ export function createImapInbox(
   };
   // Readers whose inline images the shared budget withheld, presented again when it frees.
   const limited = new Set<string | symbol>();
+  const remoteContent = createRemoteContentLoader(native, {
+    connection,
+    shared,
+    scope: readableScope,
+    ...shownRemote({ viewReaders, viewBodies, bodies, legacyReaders }),
+    inlineImages: (id) => documents.get(id)?.images?.admitted.length ?? 0,
+    present: presentRemote,
+    notify,
+  });
   // Gmail and IMAP readers share one budget; every visible occurrence and window counts.
   const present = (
     key: string | symbol,
@@ -694,8 +712,11 @@ export function createImapInbox(
   ): Extract<ImapBodyState, { kind: 'ready' }> => {
     let { bytes, pixels } = otherImageUsage(key);
     let occurrences: readonly string[] = [];
+    let remoteOccurrences: readonly string[] = [];
     try {
-      occurrences = sanitizeHtml(body.html ?? '').contentIdOccurrences;
+      const sanitized = sanitizeHtml(body.html ?? '');
+      occurrences = sanitized.contentIdOccurrences;
+      remoteOccurrences = sanitized.remoteImages;
     } catch {
       // Presentation retains the readable fallback when sanitization fails.
     }
@@ -719,7 +740,16 @@ export function createImapInbox(
       reservedPixels += area;
       return true;
     });
-    reservations.set(key, { bytes: reservedBytes, pixels: reservedPixels });
+    // Loaded Remote Message Content takes what the inline images leave of the budget.
+    const remote = remoteContent.admit(body.id, remoteOccurrences, {
+      bytes,
+      pixels,
+      count,
+    });
+    reservations.set(key, {
+      bytes: reservedBytes + remote.bytes,
+      pixels: reservedPixels + remote.pixels,
+    });
     shared.images.set(imageOwner, reservations);
     if (images.length < (body.images?.admitted.length ?? 0)) {
       limited.add(key);
@@ -728,10 +758,56 @@ export function createImapInbox(
     }
     return {
       kind: 'ready',
-      presentation: presentation(body, images),
+      presentation: presentation(body, images, remote.admitted),
       attachments: body.attachments?.length ?? 0,
     };
   };
+  // Presents every reader of the message again with its loaded Remote Message Content; true when
+  // a presentation changed. A failed rich view stays readable until the message opens again.
+  function presentRemote(id: string) {
+    const body = documents.get(id);
+    if (body === undefined) {
+      return false;
+    }
+    let changed = false;
+    const refresh = (
+      key: string | symbol,
+      previous: ImapBodyState | undefined,
+      count = 1,
+    ) => {
+      if (
+        previous?.kind !== 'ready' ||
+        previous.presentation.rich === undefined
+      ) {
+        return previous;
+      }
+      const next = present(key, body, count);
+      // Replacing an unchanged presentation would make measured readers retry deferred cache hits.
+      if (
+        previous.presentation.rich.document ===
+          next.presentation.rich?.document &&
+        previous.presentation.rich.initialDocument ===
+          next.presentation.rich.initialDocument
+      ) {
+        return previous;
+      }
+      changed = true;
+      return next;
+    };
+    for (const [reader, shown] of viewReaders) {
+      const next =
+        shown === id ? refresh(reader, viewBodies.get(reader)) : undefined;
+      if (next !== undefined) {
+        viewBodies.set(reader, next);
+      }
+    }
+    const count = legacyReaders.get(id) ?? 0;
+    const next = count > 0 ? refresh(id, bodies.get(id), count) : undefined;
+    if (next !== undefined) {
+      bodies.set(id, next);
+    }
+    return changed;
+  }
   // A released reservation lets the readers the budget held back show their images.
   const presentLimited = () => {
     let changed = false;
@@ -763,6 +839,25 @@ export function createImapInbox(
     }
     return changed;
   };
+  // A closing legacy reader keeps its share of the reservation only while others remain.
+  function releaseLegacyReader(id: string) {
+    const count = legacyReaders.get(id) ?? 1;
+    if (count === 1) {
+      legacyReaders.delete(id);
+      reservations.delete(id);
+      limited.delete(id);
+      remoteContent.withdraw(id, id);
+      return;
+    }
+    legacyReaders.set(id, count - 1);
+    const reserved = reservations.get(id);
+    if (reserved !== undefined) {
+      reservations.set(id, {
+        bytes: (reserved.bytes * (count - 1)) / count,
+        pixels: (reserved.pixels * (count - 1)) / count,
+      });
+    }
+  }
   // A change the server cannot have received yet, which Undo withdraws.
   const unsent = (target: string) =>
     target !== sending &&
@@ -1010,6 +1105,7 @@ export function createImapInbox(
       document = undefined;
       folderViews.clear();
       found.clear();
+      remoteContent.releaseAll();
       bodies.clear();
       documents.clear();
       viewBodies.clear();
@@ -1464,6 +1560,10 @@ export function createImapInbox(
   };
   // A row still shown from an evicted folder reads its saved body offline too.
   const visibleRow = (id: string) => messageOf(id) !== undefined;
+  // The mailbox an open reader of a readable message reads it from.
+  function readableScope(id: string) {
+    return readers.has(id) && visibleRow(id) ? opened : undefined;
+  }
 
   // The message's raw source from the server, as the body the reader presents.
   // Two concurrent body downloads for this connection, within the device-wide four.
@@ -1969,40 +2069,36 @@ export function createImapInbox(
           return;
         }
         if (reader === undefined) {
-          const count = legacyReaders.get(id) ?? 1;
-          if (count === 1) {
-            legacyReaders.delete(id);
-            reservations.delete(id);
-            limited.delete(id);
-          } else {
-            legacyReaders.set(id, count - 1);
-            const reserved = reservations.get(id);
-            if (reserved !== undefined) {
-              reservations.set(id, {
-                bytes: (reserved.bytes * (count - 1)) / count,
-                pixels: (reserved.pixels * (count - 1)) / count,
-              });
-            }
-          }
+          releaseLegacyReader(id);
         } else {
           viewReaders.delete(reader);
           viewBodies.delete(reader);
           reservations.delete(reader);
           limited.delete(reader);
+          remoteContent.withdraw(id, reader);
         }
         const count = (readers.get(id) ?? 1) - 1;
         if (count === 0) {
           readers.delete(id);
+          remoteContent.release(id);
           bodies.delete(id);
           documents.delete(id);
         } else {
           readers.set(id, count);
         }
-        if (presentLimited()) {
+        // The readers that remain are presented again with the budget the closed one held.
+        const remoteChanged = remoteContent.has(id) && presentRemote(id);
+        if (presentLimited() || remoteChanged) {
           notify();
         }
       };
     },
+    // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
+    // Content Cache, and with `network` also through the isolated native fetch.
+    loadRemoteImages: remoteContent.load,
+    // Drops a message's loaded Remote Message Content from memory and presents it again, as when
+    // its policy becomes Never; cached bytes stay until eviction or Clear Remote Content.
+    forgetRemoteImages: remoteContent.forget,
     // A failed rich view falls back to the readable text.
     discardRichMessage: (
       id: string,
@@ -2023,6 +2119,8 @@ export function createImapInbox(
         }
         reservations.delete(reader ?? id);
         limited.delete(reader ?? id);
+        // Its remote requests end with the rich view; nothing it loads could be shown.
+        remoteContent.discard(id, reader ?? id);
         presentLimited();
         notify();
       }
@@ -2030,6 +2128,7 @@ export function createImapInbox(
     // Forgets the mail held in memory when the connection or its account leaves the Inbox.
     forget: () => {
       forgotten = true;
+      remoteContent.releaseAll();
       opened = undefined;
       document = undefined;
       folderViews.clear();

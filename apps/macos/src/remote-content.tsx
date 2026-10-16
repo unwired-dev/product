@@ -146,17 +146,14 @@ export function RemoteContentSettings({
           }}
         />
       </SettingsRow>
-      {/* Remote Message Content never loads for IMAP mail yet. */}
-      {mailboxes
-        .filter(({ provider }) => provider !== 'imap')
-        .map((mailbox) => (
-          <SettingsRow
-            key={mailbox.id}
-            icon="at"
-            title={mailbox.address}>
-            <MailboxRemoteContent {...mailbox} />
-          </SettingsRow>
-        ))}
+      {mailboxes.map((mailbox) => (
+        <SettingsRow
+          key={mailbox.id}
+          icon="at"
+          title={mailbox.address}>
+          <MailboxRemoteContent {...mailbox} />
+        </SettingsRow>
+      ))}
       <SettingsRow
         title={t('settings.trackingPixels')}
         subtitle={t('settings.trackingPixelsDetail')}>

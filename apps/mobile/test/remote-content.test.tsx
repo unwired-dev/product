@@ -1,14 +1,21 @@
+import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createRemoteContentSettings } from '@private-email/mail-core/remote-content';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
-import { ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { GmailMessageBody, ReaderScrollView } from '../src/message-body.tsx';
-import { RemoteContentContext } from '../src/remote-content.tsx';
+import {
+  RemoteContentContext,
+  RemoteContentSettings,
+} from '../src/remote-content.tsx';
 
 // A 1×1 PNG served by the controlled image server.
 const photo =
@@ -427,6 +434,116 @@ describe('remote message content in the reader', () => {
       expect(gmail.remoteFetches).toStrictEqual([source]);
     } finally {
       await app.unmount();
+    }
+  });
+});
+
+// The IMAP Inbox's only listed message.
+const firstMessage = (inbox: ImapInbox) => {
+  const state = inbox.getSnapshot();
+  const id = state.kind === 'ready' ? state.messages[0]?.id : undefined;
+  if (id === undefined) {
+    throw new Error('Expected the delivered IMAP message');
+  }
+  return id;
+};
+
+describe('remote message content in IMAP mail', () => {
+  it('loads IMAP remote images once the person chooses Load images, and offers the IMAP mailbox its own policy', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const settings = settingsWith(null);
+    await settings.load();
+    const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+    imap.serveRemote(source, { data: photo });
+    imap.deliver('INBOX', {
+      subject: 'Weekly news',
+      raw: [
+        'From: Synthetic Sender <sender@example.invalid>',
+        'To: imap@example.invalid',
+        'Subject: Weekly news',
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=utf-8',
+        '',
+        `<p>Weekly news</p><img src="${source}" alt="Photo">`,
+      ].join('\r\n'),
+    });
+    const inbox = createImapInbox(imap.native, { connection: 'imap-a' });
+    await inbox.load();
+    const id = firstMessage(inbox);
+    const reader = await render(
+      <RemoteContentContext value={settings}>
+        <ReaderScrollView>
+          <ImapMessageBody
+            inbox={inbox}
+            id={id}
+            connection="imap-a"
+          />
+        </ReaderScrollView>
+      </RemoteContentContext>,
+    );
+    try {
+      await act(() => {
+        fireEvent(readerRoot(), 'layout', {
+          nativeEvent: { layout: { height: 600 } },
+        });
+      });
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', { nativeEvent: measured(0) });
+      });
+      // Under Ask, nothing is fetched until the person chooses Load images.
+      expect(imap.remoteFetches).toStrictEqual([]);
+      await act(() => {
+        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+      });
+      expect(imap.remoteFetches).toStrictEqual([source]);
+      expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull();
+    } finally {
+      await reader.unmount();
+    }
+
+    const page = await render(
+      <RemoteContentContext value={settings}>
+        <RemoteContentSettings
+          button={(label, action) => (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                void action();
+              }}>
+              <Text>{label}</Text>
+            </Pressable>
+          )}
+          mailboxes={[
+            {
+              id: 'imap-a',
+              provider: 'imap',
+              address: 'imap@example.invalid',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'imap',
+              },
+              state: 'connected',
+              profile: 'default',
+            },
+          ]}
+        />
+      </RemoteContentContext>,
+    );
+    try {
+      const never = screen.getByRole('radio', {
+        name: 'Remote images for imap@example.invalid: Never',
+      });
+      await act(() => {
+        fireEvent.press(never);
+      });
+      expect(settings.getSnapshot()?.overrides).toStrictEqual({
+        'imap-a': 'never',
+      });
+    } finally {
+      await page.unmount();
     }
   });
 });

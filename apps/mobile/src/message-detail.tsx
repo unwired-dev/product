@@ -804,6 +804,7 @@ function ReaderBody({
         id={message.id}
         inbox={inbox}
         subject={message.subject}
+        connection={connection}
       />
     );
   }
