@@ -1123,11 +1123,11 @@ file offers **Download** again. Their owner deletes them:
   delete the connection's folder in native code;
 - relaunch, which deletes files left by an earlier process.
 
-Attachments in an online Gmail search result outside the Inbox have the same
+Attachments in an online Gmail search result outside every cached view have the same
 explicit Download, Open and Share actions. Their downloaded files last only while
 a reader stays open. If a listed message also appears in search, leaving the Inbox and
 every other cached view deletes its downloads even while the search reader stays open; another explicit
-Download acquires a new copy. Opening an off-Inbox result does not save its body
+Download acquires a new copy. Opening a result outside every cached view does not save its body
 in the encrypted body cache.
 
 A file still shown in Quick Look, or handed to a share that has not finished, is
