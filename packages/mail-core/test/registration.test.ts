@@ -12,6 +12,7 @@ import scenarios from '../../../scripts/mock-mail-scenarios.json' with { type: '
 import {
   approvesDevices,
   createRegistration,
+  mailboxesOf,
   offersRecovery,
   privateSyncCopy,
   registrationActions,
@@ -124,6 +125,27 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('keeps a declined Gmail grant separate from Microsoft mail with the same subject', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    synthetic.microsoft.subject = synthetic.google.subject;
+    const store = createRegistration(synthetic.vault);
+    await store.register('google');
+    await store.addMailbox('gmail');
+    expect(store.getSnapshot().snapshot).toMatchObject({
+      kind: 'mailbox-needed',
+      reason: 'declined',
+    });
+    await store.addMailbox('microsoft-graph');
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'connected' },
+      failed: false,
+    });
+    expect(mailboxesOf(store.getSnapshot().snapshot)).toMatchObject([
+      { provider: 'microsoft-graph', address: 'casey@example.invalid' },
+    ]);
+  });
+
   it('automatically reauthorizes a saved Gmail connection after an IMAP connection', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');

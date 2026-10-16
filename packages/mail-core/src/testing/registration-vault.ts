@@ -652,7 +652,7 @@ export function createSyntheticVault(
         return reject(source.outcome);
       }
       const subject = gmail ? googleAccount(hinted) : microsoft.subject;
-      const refused = google.mailRefusals.get(subject);
+      const refused = gmail ? google.mailRefusals.get(subject) : undefined;
       if (refused !== undefined) {
         return reject(refused);
       }
