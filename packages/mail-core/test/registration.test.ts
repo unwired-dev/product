@@ -81,23 +81,13 @@ const shown = (
     | 'enrollmentRequest'
     | 'revocationRecoveryKey',
 ) => {
-  const value: unknown = Object.entries(store.getSnapshot().snapshot).find(
-    ([key]) => key === field,
-  )?.[1];
-  if (typeof value !== 'string') {
+  const { snapshot } = store.getSnapshot();
+  const value = snapshot.kind === 'signed-out' ? undefined : snapshot[field];
+  if (value === undefined) {
     throw new TypeError(`No ${field} shown`);
   }
   return value;
 };
-
-// The scenario's vault, whose backend calls to a path in `answers` get its answer instead.
-const answering = (
-  synthetic: SyntheticRegistrationScenario,
-  answers: ReadonlyMap<string, () => Promise<unknown>>,
-): NativeRegistrationVault => ({
-  ...synthetic.vault,
-  call: (call) => answers.get(call.path)?.() ?? synthetic.vault.call(call),
-});
 
 // The store state after an operation that finished without a failure.
 const settled = (snapshot: RegistrationSnapshot) => ({
@@ -738,41 +728,24 @@ describe('product registration', () => {
   // A refused link is an expected outcome and stays quiet; any other rejection logs only its code.
   it.each([
     {
+      // Each sign-in identity already owns its own Product Account.
       code: 'identity-owned',
       linkFailure: 'identity-owned',
       logsFailure: false,
-      // Each sign-in identity already owns its own Product Account.
-      arrange: () => undefined,
     },
     {
       code: 'stale-authentication',
       linkFailure: 'stale-authentication',
       logsFailure: false,
-      arrange: (synthetic: SyntheticRegistrationScenario) => {
-        synthetic.backend.stale = true;
-      },
     },
     {
       code: 'unavailable',
       linkFailure: 'failed',
       logsFailure: true,
-      // The link request fails with a message that names an address.
-      arrange: (
-        _synthetic: SyntheticRegistrationScenario,
-        answers: Map<string, () => Promise<unknown>>,
-      ) => {
-        answers.set('/sign-in-links/request', () =>
-          Promise.reject(
-            Object.assign(new Error('Link rejected for sealed@example.com'), {
-              code: 'unavailable',
-            }),
-          ),
-        );
-      },
     },
   ] as const)(
     'reports a $code link rejection without changing the Product Account or logging its message',
-    async ({ code, linkFailure, logsFailure, arrange }) => {
+    async ({ code, linkFailure, logsFailure }) => {
       expect.hasAssertions();
       const logged: unknown[] = [];
       vi.spyOn(console, 'error').mockImplementation((...values) => {
@@ -781,9 +754,23 @@ describe('product registration', () => {
       const synthetic = await createRegistrationScenario(
         'registration-success',
       );
-      const answers = new Map<string, () => Promise<unknown>>();
-      arrange(synthetic, answers);
-      const store = createRegistration(answering(synthetic, answers));
+      synthetic.backend.stale = code === 'stale-authentication';
+      const store = createRegistration({
+        ...synthetic.vault,
+        // Only the unexpected link failure replaces a backend reply; the other refusals are real.
+        call: (call) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the named link request fails; every other real flow step still runs.
+          code === 'unavailable' && call.path === '/sign-in-links/request'
+            ? Promise.reject(
+                Object.assign(
+                  new Error('Link rejected for sealed@example.com'),
+                  {
+                    code: 'unavailable',
+                  },
+                ),
+              )
+            : synthetic.vault.call(call),
+      });
       await store.register('google');
       const before = store.getSnapshot().snapshot;
       await store.link('apple');
@@ -945,35 +932,36 @@ describe('product registration', () => {
         'registration-revocation',
       );
       // The backend lists another Trusted Device with a value no date or row can show.
-      const answers = new Map([
-        [
-          'productAccount:listTrustedDevices',
-          () =>
-            Promise.resolve({
-              status: 200,
-              body: JSON.stringify({
-                status: 'success',
-                value: [
-                  {
-                    id,
-                    displayName: name,
-                    registeredAt,
-                    lastSeenAt: 1,
-                    platform: 'ios',
-                  },
-                ],
-              }),
-            }),
-        ],
-      ]);
-      const store = createRegistration(answering(synthetic, answers));
+      let malformed = true;
+      const store = createRegistration({
+        ...synthetic.vault,
+        call: (call) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Substitute only the malformed device-list reply until retry.
+          malformed && call.path === 'productAccount:listTrustedDevices'
+            ? Promise.resolve({
+                status: 200,
+                body: JSON.stringify({
+                  status: 'success',
+                  value: [
+                    {
+                      id,
+                      displayName: name,
+                      registeredAt,
+                      lastSeenAt: 1,
+                      platform: 'ios',
+                    },
+                  ],
+                }),
+              })
+            : synthetic.vault.call(call),
+      });
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual({
         snapshot: { kind: 'signed-out' },
         busy: false,
         failed: true,
       });
-      answers.clear();
+      malformed = false;
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual({
         snapshot: {
@@ -1014,13 +1002,15 @@ describe('product registration', () => {
       const synthetic = await createRegistrationScenario(
         'registration-revocation',
       );
-      const answers = new Map([
-        [
-          'productAccount:listTrustedDevices',
-          () => Promise.resolve({ status: 200, body }),
-        ],
-      ]);
-      const store = createRegistration(answering(synthetic, answers));
+      let malformed = true;
+      const store = createRegistration({
+        ...synthetic.vault,
+        call: (call) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Substitute only the malformed device-list reply until retry.
+          malformed && call.path === 'productAccount:listTrustedDevices'
+            ? Promise.resolve({ status: 200, body })
+            : synthetic.vault.call(call),
+      });
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual(
         settled({
@@ -1029,7 +1019,7 @@ describe('product registration', () => {
           ...accounts.google,
         }),
       );
-      answers.clear();
+      malformed = false;
       await store.register('google');
       expect(store.getSnapshot()).toStrictEqual(
         settled({
