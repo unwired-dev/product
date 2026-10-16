@@ -415,8 +415,12 @@ extension PrivateInboxTests {
       try await gate.perform { try await store.renewIdentity()["matches"] as? Bool }
     }
     await renewal.reached()
-    let current = Task { try await gate.perform { try await store.purge(notice: "signed-out") } }
-    for _ in 0..<10 { await Task.yield() }
+    let purging = PurgeProgress()
+    let current = Task {
+      purging.begin()
+      try await gate.perform { try await store.purge(notice: "signed-out") }
+    }
+    await purging.reached()
     #expect(try #require(try store.load()).accountRemoval == nil)
     renewal.resume()
     #expect(try await previous.value == true)

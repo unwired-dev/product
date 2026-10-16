@@ -854,7 +854,7 @@ extension PrivateInboxTests {
   }
 }
 
-@MainActor private final class PurgeProgress {
+@MainActor final class PurgeProgress {
   var finished = false
   private var started = false
   private var entered: CheckedContinuation<Void, Never>?
