@@ -31,7 +31,7 @@ import type {
   MessagePresentation,
 } from './message-body.ts';
 import type { MessageSegment } from './outgoing-message.ts';
-import type { MailGrantProvider } from './registration.ts';
+import type { MailGrantProvider } from './registration-snapshot.ts';
 
 import { rejectionCode, runLogged } from './diagnostics.ts';
 import {

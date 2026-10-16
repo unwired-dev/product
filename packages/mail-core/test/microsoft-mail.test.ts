@@ -14,7 +14,7 @@ import {
   createRegistration,
   defaultProfile,
   mailboxesOf,
-  registrationCopy,
+  registrationScreen,
 } from '../src/registration.ts';
 import {
   createSyntheticGmail,
@@ -731,7 +731,8 @@ describe('reading Microsoft mail through Graph', () => {
         },
       ]);
       expect(
-        registrationCopy(english, registration.getSnapshot().snapshot).title,
+        registrationScreen(english, registration.getSnapshot(), undefined).copy
+          .title,
       ).toBe('Mail connected');
       await registration.addMailbox('gmail', true);
       const mailboxes = createMailboxes(

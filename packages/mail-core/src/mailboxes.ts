@@ -22,19 +22,19 @@ import type {
 import type {
   MailGrantProvider,
   MailProvider,
-  Registration,
   RegistrationSnapshot,
-} from './registration.ts';
+} from './registration-snapshot.ts';
+import type { Registration } from './registration.ts';
 
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import {
-  canOpenInbox,
   defaultProfile,
   mailboxesOf,
   unavailableProfile,
-} from './registration.ts';
+} from './registration-snapshot.ts';
+import { canOpenInbox } from './registration.ts';
 
 export { filterMessages, matchedRanges } from './mailbox-matching.ts';
 export type { InboxFilter } from './mailbox-matching.ts';

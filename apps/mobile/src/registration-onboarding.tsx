@@ -1,12 +1,10 @@
 import type { ImapProvider } from '@private-email/mail-core/imap-setup';
-import type { Registration } from '@private-email/mail-core/registration';
+import type {
+  Registration,
+  RegistrationScreen,
+} from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
-import {
-  providerName,
-  registrationActions,
-  registrationCopy,
-} from '@private-email/mail-core/registration';
 import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Text } from 'react-native';
 
@@ -27,7 +25,13 @@ import { usePalette } from './theme.ts';
 
 // Before a Product Account: Welcome, then Sign In. A notice about a removed device or account
 // opens Sign In directly with that notice.
-export function SignedOutPage({ store }: { readonly store: Registration }) {
+export function SignedOutPage({
+  screen,
+  store,
+}: {
+  readonly screen: RegistrationScreen;
+  readonly store: Registration;
+}) {
   const { snapshot, busy, failed } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -45,8 +49,8 @@ export function SignedOutPage({ store }: { readonly store: Registration }) {
       />
     );
   }
-  const copy = notice === undefined ? undefined : registrationCopy(t, snapshot);
-  const actions = registrationActions(snapshot, failed);
+  const copy = notice === undefined ? undefined : screen.copy;
+  const { actions } = screen;
   return (
     <SignIn
       title={copy?.title ?? t('onboarding.signIn.title')}
@@ -60,14 +64,12 @@ export function SignedOutPage({ store }: { readonly store: Registration }) {
       }
       actions={
         <>
-          {actions.signIn.map(({ offer, provider }) => (
+          {actions.signIn.map(({ offer, provider, label }) => (
             <OnboardingAction
               key={`${offer}-${provider}`}
               disabled={busy}
               fill={provider === 'apple' ? 'apple' : 'quiet'}
-              label={t(`registration.${offer}`, {
-                provider: providerName(t, provider),
-              })}
+              label={label}
               onPress={() => {
                 void store.register(provider);
               }}

@@ -26,9 +26,9 @@ import type {
 } from './draft-sync.ts';
 import type {
   MailboxConnection,
-  Registration,
   RegistrationSnapshot,
-} from './registration.ts';
+} from './registration-snapshot.ts';
+import type { Registration } from './registration.ts';
 import type { Asset, Selection } from './semantic-document.ts';
 
 import { rejectionCode, runLogged } from './diagnostics.ts';
@@ -60,7 +60,8 @@ import {
   readRecords,
 } from './draft-sync.ts';
 import { withoutComments } from './message-body.ts';
-import { canOpenInbox, defaultProfile, mailboxesOf } from './registration.ts';
+import { defaultProfile, mailboxesOf } from './registration-snapshot.ts';
+import { canOpenInbox } from './registration.ts';
 import {
   emptyDocument,
   clip,

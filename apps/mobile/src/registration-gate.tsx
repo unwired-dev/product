@@ -4,19 +4,13 @@ import type {
   InboxChoice,
   MailboxConnection,
   Registration,
+  RegistrationScreen,
 } from '@private-email/mail-core/registration';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import {
-  inboxLanding,
-  inboxSetup,
-  mailboxesOf,
-  providerName,
-  registrationActions,
-  registrationCopy,
-} from '@private-email/mail-core/registration';
+import { registrationScreen } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   Fragment,
@@ -105,20 +99,22 @@ export function RegistrationGate({
   readonly assistance?: NativeAssistance;
   readonly translation?: NativeTranslation;
 }) {
-  const { snapshot, busy, locked } = useSyncExternalStore(
+  const registrationState = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
   );
+  const { snapshot, busy, locked } = registrationState;
   const colors = usePalette();
   const { t } = useLocalization();
   // The person's choice between the account page and a connected Inbox outlasts status updates.
   const [choice, setChoice] = useState<InboxChoice>();
   // Where Settings opens when the Inbox asks for a destination.
   const [start, setStart] = useState<SettingsDestination>();
-  const landing = inboxLanding(snapshot, choice);
-  const { account: inboxAccount, setup } = landing;
-  if (choice !== undefined && !landing.valid) {
-    setChoice(undefined);
+  const screen = registrationScreen(t, registrationState, choice);
+  const { choices } = screen;
+  // A choice the shared rule no longer applies is forgotten, so an earlier snapshot cannot revive it.
+  if (screen.choice !== choice) {
+    setChoice(screen.choice);
     setStart(undefined);
   }
   // Enablement belongs to an admitted Product Account that is not being removed; it is read again
@@ -139,21 +135,17 @@ export function RegistrationGate({
   }, [preview, mailAssistance, assistanceScope]);
   const actions = useMemo(
     () => ({
-      mailboxes: mailboxesOf(snapshot),
+      mailboxes: screen.mailboxes,
       openAccount: (destination?: SettingsDestination) => {
-        if (inboxAccount !== undefined) {
+        if (choices !== undefined) {
           setStart(destination);
-          setChoice({
-            account: inboxAccount,
-            destination: 'account',
-            setup,
-          });
+          setChoice(choices.account);
         }
       },
       authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
     }),
-    [store, snapshot, inboxAccount, setup],
+    [store, screen.mailboxes, choices],
   );
   useEffect(() => {
     if (preview) {
@@ -178,8 +170,7 @@ export function RegistrationGate({
       </AssistanceContext>
     );
   }
-  const inbox = landing.destination === 'inbox';
-  if (!locked && inbox) {
+  if (screen.destination === 'inbox') {
     return (
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
@@ -193,24 +184,21 @@ export function RegistrationGate({
       </RemoteContentContext>
     );
   }
-  if (!locked) {
+  if (screen.destination === 'account') {
     return (
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
           <RegistrationPage
             assistance={assistance}
             microsoft={microsoft}
+            screen={screen}
             start={start}
             store={store}
             onInbox={
-              inboxAccount === undefined
+              choices === undefined
                 ? undefined
                 : () => {
-                    setChoice({
-                      account: inboxAccount,
-                      destination: 'inbox',
-                      setup,
-                    });
+                    setChoice(choices.inbox);
                   }
             }
           />
@@ -242,12 +230,14 @@ export function RegistrationGate({
 function SettingsPage({
   assistance,
   microsoft,
+  screen,
   start,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
+  readonly screen: RegistrationScreen;
   readonly start: SettingsDestination | undefined;
   readonly store: Registration;
   readonly onInbox: () => void;
@@ -266,18 +256,17 @@ function SettingsPage({
     if (start !== undefined) {
       return start;
     }
-    if (inboxSetup(snapshot) !== '') {
+    if (screen.setupPending) {
       return 'account';
     }
     return settingsColumns ? 'account' : undefined;
   });
-  if (snapshot.kind === 'signed-out') {
+  const { copy, actions, identity } = screen;
+  if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
   }
-  const copy = registrationCopy(t, snapshot);
-  const actions = registrationActions(snapshot, failed);
   const button = settingsButton(busy);
-  const name = snapshot.contactEmail ?? t('settings.productAccount');
+  const name = identity.name ?? t('settings.productAccount');
   return (
     <AccountPage onInbox={onInbox}>
       <SettingsWorkspace
@@ -330,14 +319,9 @@ function SettingsPage({
                   {t('registration.setupFailed')}
                 </Text>
               ) : null}
-              {actions.signIn.map(({ offer, provider }) => (
+              {actions.signIn.map(({ offer, provider, label }) => (
                 <Fragment key={`${offer}-${provider}`}>
-                  {button(
-                    t(`registration.${offer}`, {
-                      provider: providerName(t, provider),
-                    }),
-                    () => store.register(provider),
-                  )}
+                  {button(label, () => store.register(provider))}
                 </Fragment>
               ))}
               {actions.retry ? button(t('common.retry'), store.restore) : null}
@@ -348,9 +332,7 @@ function SettingsPage({
           <>
             <AccountCard
               name={name}
-              detail={t('registration.account', {
-                provider: providerName(t, snapshot.signInProvider),
-              })}
+              detail={identity.provider}
             />
             <SettingsGroup footer={copy.description} />
           </>
@@ -362,6 +344,7 @@ function SettingsPage({
             button={button}
             destination={destination}
             microsoft={microsoft}
+            screen={screen}
             store={store}
           />
         ) : null}
@@ -381,12 +364,14 @@ function SettingsPage({
 function RegistrationPage({
   assistance,
   microsoft,
+  screen,
   start,
   store,
   onInbox,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
+  readonly screen: RegistrationScreen;
   readonly start: SettingsDestination | undefined;
   readonly store: Registration;
   // Returns to the connected Inbox, when it can open.
@@ -399,8 +384,7 @@ function RegistrationPage({
   );
   const colors = usePalette();
   const { t } = useLocalization();
-  const copy = registrationCopy(t, snapshot);
-  const actions = registrationActions(snapshot, failed);
+  const { copy, actions } = screen;
   // A connected Inbox's account page is Settings.
   if (onInbox !== undefined && snapshot.kind !== 'signed-out') {
     return (
@@ -409,6 +393,7 @@ function RegistrationPage({
         key={snapshot.productAccountId}
         assistance={assistance}
         microsoft={microsoft}
+        screen={screen}
         start={start}
         store={store}
         onInbox={onInbox}
@@ -416,7 +401,12 @@ function RegistrationPage({
     );
   }
   if (snapshot.kind === 'signed-out') {
-    return <SignedOutPage store={store} />;
+    return (
+      <SignedOutPage
+        screen={screen}
+        store={store}
+      />
+    );
   }
   // Setup actions are design push buttons; the account's Settings groups keep their own.
   const button = (
@@ -493,14 +483,9 @@ function RegistrationPage({
             store={store}
           />
         ) : null}
-        {actions.signIn.map(({ offer, provider }) => (
+        {actions.signIn.map(({ offer, provider, label }) => (
           <Fragment key={`${offer}-${provider}`}>
-            {button(
-              t(`registration.${offer}`, {
-                provider: providerName(t, provider),
-              }),
-              () => store.register(provider),
-            )}
+            {button(label, () => store.register(provider))}
           </Fragment>
         ))}
         {actions.retry ? button(t('common.retry'), store.restore) : null}
@@ -509,6 +494,7 @@ function RegistrationPage({
             assistance={assistance}
             button={groupButton}
             microsoft={microsoft}
+            screen={screen}
             store={store}
           />
         ) : null}

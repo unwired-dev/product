@@ -7,7 +7,6 @@ import type {
 } from '@private-email/mail-core/registration';
 
 import {
-  approvesDevices,
   recoveryKeyEntry,
   revocationNotice,
   revocationProposal,
@@ -278,6 +277,7 @@ function RevocationProposal({
 // and prepares the removal, which waits for its replacement Recovery Key to be confirmed.
 export function TrustedDevices({
   account,
+  approves,
   button,
   failure,
   store,
@@ -289,6 +289,8 @@ export function TrustedDevices({
     revocationRecoveryKey?: string;
     revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
   }>;
+  // Only a device holding the account keys approves or removes devices.
+  readonly approves: boolean;
   readonly button: SettingsButton;
   readonly failure: RevocationFailure | undefined;
   readonly store: Registration;
@@ -316,7 +318,7 @@ export function TrustedDevices({
   const proposal = revocationProposal(t, account);
   // A retained proposal stays confirmable after this device loses its encryption key, when it
   // can no longer approve devices but may still need to repeat the exact removal it sent.
-  if (!approvesDevices(account.privateSync) && proposal === undefined) {
+  if (!approves && proposal === undefined) {
     return null;
   }
   // While a removal waits for confirmation, no other one starts.

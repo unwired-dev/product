@@ -10,7 +10,7 @@ import type {
 } from './drafts.ts';
 import type { GmailInbox, GmailMessage } from './gmail-inbox.ts';
 import type { BodyDocument, BodySpan } from './message-body.ts';
-import type { MailboxConnection } from './registration.ts';
+import type { MailboxConnection } from './registration-snapshot.ts';
 import type { Asset, Block, SemanticDocument } from './semantic-document.ts';
 
 import {

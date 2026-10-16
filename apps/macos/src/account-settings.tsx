@@ -2,26 +2,15 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type {
   AccountRemoval,
   EnrollmentFailure,
-  LinkFailure,
   MailboxConnection,
-  PrivateSync as PrivateSyncState,
   RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
+  RegistrationScreen,
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
-import {
-  approvesDevices,
-  linkFailureCopy,
-  mailboxesOf,
-  offersRecovery,
-  otherSignInProvider,
-  privateSyncCopy,
-  providerName,
-  recoveryKeyEntry,
-  signInMethodsCopy,
-} from '@private-email/mail-core/registration';
+import { recoveryKeyEntry } from '@private-email/mail-core/registration';
 import { useState, useSyncExternalStore } from 'react';
 import { Text, TextInput, View } from 'react-native';
 
@@ -41,12 +30,12 @@ import { TrustedDevices } from './trusted-devices.tsx';
 
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
-  account,
+  mailboxes,
   button,
   microsoft,
   store,
 }: {
-  readonly account: Readonly<{ mailboxes?: string }>;
+  readonly mailboxes: readonly MailboxConnection[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
   readonly store: Registration;
@@ -58,7 +47,6 @@ function Mailboxes({
   const [imap, setImap] = useState<
     { kind: 'repair'; id: MailboxConnection['id'] } | { kind: 'new' }
   >();
-  const mailboxes = mailboxesOf(account);
   if (mailboxes.length === 0) {
     return null;
   }
@@ -218,11 +206,11 @@ function useCardButton(store: Registration) {
 
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
-  account,
+  copy,
   failure,
   store,
 }: {
-  readonly account: Parameters<typeof privateSyncCopy>[1];
+  readonly copy: RegistrationScreen['privateSync']['copy'];
   readonly failure: RecoveryKeyFailure | undefined;
   readonly store: Registration;
 }) {
@@ -230,7 +218,6 @@ function PrivateSync({
   const { t } = useLocalization();
   const card = useCardButton(store);
   const [entry, setEntry] = useState('');
-  const copy = privateSyncCopy(t, account);
   if (copy === undefined) {
     return null;
   }
@@ -333,11 +320,12 @@ function PrivateSync({
 
 // Without an available trusted device, the Recovery Key unlocks this one; nothing offers a reset.
 function RecoveryKeyUnlock({
-  account,
+  offered,
   failure,
   store,
 }: {
-  readonly account: Readonly<{ privateSync?: PrivateSyncState }>;
+  // Recovery Key entry is offered only where the account has keys that this device lacks.
+  readonly offered: boolean;
   readonly failure: RecoveryFailure | undefined;
   readonly store: Registration;
 }) {
@@ -345,7 +333,7 @@ function RecoveryKeyUnlock({
   const { t } = useLocalization();
   const card = useCardButton(store);
   const [entry, setEntry] = useState('');
-  if (!offersRecovery(account.privateSync)) {
+  if (!offered) {
     return null;
   }
   return (
@@ -390,15 +378,17 @@ function RecoveryKeyUnlock({
 // A trusted device approves another device only with the code that device shows.
 function DeviceApproval({
   account,
+  approves,
   button,
   failure,
   store,
 }: {
   readonly account: Readonly<{
-    privateSync?: PrivateSyncState;
     enrollmentRequest?: string;
     enrollmentDevice?: string;
   }>;
+  // Only a device holding the account keys approves another device.
+  readonly approves: boolean;
   readonly button: SettingsButton;
   readonly failure: EnrollmentFailure | undefined;
   readonly store: Registration;
@@ -408,7 +398,7 @@ function DeviceApproval({
   const card = useCardButton(store);
   const [entry, setEntry] = useState('');
   const { enrollmentRequest: request } = account;
-  if (!approvesDevices(account.privateSync)) {
+  if (!approves) {
     return null;
   }
   const alert =
@@ -469,20 +459,19 @@ function DeviceApproval({
 
 // Account settings: Linked Sign-Ins never come from a mailbox grant or a matching email.
 function SignInMethods({
-  account,
+  methods,
   button,
-  failure,
   store,
 }: {
-  readonly account: Parameters<typeof signInMethodsCopy>[1];
+  readonly methods: NonNullable<
+    RegistrationScreen['identity']
+  >['signInMethods'];
   readonly button: SettingsButton;
-  readonly failure: LinkFailure | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const methods = signInMethodsCopy(t, account);
-  const { link } = methods;
+  const { link, failure } = methods;
   return (
     <SettingsGroup
       title={t('signInMethods.title')}
@@ -493,19 +482,12 @@ function SignInMethods({
             <Label
               accessibilityRole="alert"
               style={[styles.text, { color: colors.textPrimary }]}>
-              {linkFailureCopy(
-                t,
-                failure,
-                otherSignInProvider(account.signInProvider),
-              )}
+              {failure}
             </Label>
           )}
           {link === undefined
             ? null
-            : button(
-                t('signInMethods.link', { provider: providerName(t, link) }),
-                () => store.link(link),
-              )}
+            : button(link.label, () => store.link(link.provider))}
         </SettingsBlock>
       )}
     </SettingsGroup>
@@ -599,6 +581,7 @@ export function AccountSettings({
   button,
   destination,
   microsoft,
+  screen,
   store,
 }: {
   readonly assistance: NativeAssistance;
@@ -606,25 +589,26 @@ export function AccountSettings({
   // Without one, every section shows, as on the welcome flow's account page.
   readonly destination?: SettingsDestination;
   readonly microsoft: boolean;
+  readonly screen: RegistrationScreen;
   readonly store: Registration;
 }) {
   const {
     snapshot,
-    linkFailure,
     recoveryKeyFailure,
     recoveryFailure,
     enrollmentFailure,
     revocationFailure,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = useLocalization();
-  if (snapshot.kind === 'signed-out') {
+  const { identity, mailboxes, privateSync } = screen;
+  if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
   }
   const shows = (page: SettingsDestination) =>
     destination === undefined || destination === page;
   const recovery = (
     <RecoveryKeyUnlock
-      account={snapshot}
+      offered={privateSync.offersRecovery}
       failure={recoveryFailure}
       store={store}
     />
@@ -632,11 +616,11 @@ export function AccountSettings({
   if (snapshot.kind === 'device-pending') {
     return shows('account') ? (
       <>
-        {privateSyncCopy(t, snapshot)?.enrollmentCode === undefined ? (
+        {privateSync.copy?.enrollmentCode === undefined ? (
           button(t('enrollment.check'), store.refreshPrivateSync)
         ) : (
           <PrivateSync
-            account={snapshot}
+            copy={privateSync.copy}
             failure={recoveryKeyFailure}
             store={store}
           />
@@ -645,12 +629,11 @@ export function AccountSettings({
       </>
     ) : null;
   }
-  const mailboxes = mailboxesOf(snapshot);
   return (
     <>
       {shows('mailboxes') ? (
         <Mailboxes
-          account={snapshot}
+          mailboxes={mailboxes}
           button={button}
           microsoft={microsoft}
           store={store}
@@ -673,7 +656,7 @@ export function AccountSettings({
         <>
           <PrivateSync
             key={snapshot.recoveryKey ?? 'confirmed'}
-            account={snapshot}
+            copy={privateSync.copy}
             failure={recoveryKeyFailure}
             store={store}
           />
@@ -682,20 +665,21 @@ export function AccountSettings({
             // A code typed for one request never carries over to the next.
             key={snapshot.enrollmentRequest ?? 'none'}
             account={snapshot}
+            approves={privateSync.approvesDevices}
             button={button}
             failure={enrollmentFailure}
             store={store}
           />
           <TrustedDevices
             account={snapshot}
+            approves={privateSync.approvesDevices}
             button={button}
             failure={revocationFailure}
             store={store}
           />
           <SignInMethods
-            account={snapshot}
+            methods={identity.signInMethods}
             button={button}
-            failure={linkFailure}
             store={store}
           />
         </>
