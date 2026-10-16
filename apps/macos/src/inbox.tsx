@@ -1,8 +1,9 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
-import type { Draft, OutboxEntry } from '@private-email/mail-core/drafts';
+import type { Draft } from '@private-email/mail-core/drafts';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
+import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
@@ -85,7 +86,7 @@ const composeNothing = () => undefined;
 
 // A Draft as a row of the Inbox list, apart from received mail.
 type DraftItem = Readonly<{ draft: Draft }>;
-type OutboxItem = Readonly<{ outbox: OutboxEntry }>;
+type OutboxItem = Readonly<{ outbox: OutboxSnapshotEntry }>;
 
 // The Drafts an Inbox lists: none where it offers no composer.
 const listedDrafts = (
@@ -562,7 +563,7 @@ function inboxSections<M>({
   online,
   searching,
 }: Readonly<{
-  outbox: readonly OutboxEntry[];
+  outbox: readonly OutboxSnapshotEntry[];
   canCompose: boolean;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;

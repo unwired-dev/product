@@ -1,11 +1,7 @@
-import type { Translate } from '@private-email/localization';
-import type {
-  DeliveryProblem,
-  OutboxEntry,
-} from '@private-email/mail-core/drafts';
-import type { MailProvider } from '@private-email/mail-core/registration';
+import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 
 import { draftSummary } from '@private-email/mail-core/drafts';
+import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -40,123 +36,25 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.s },
 });
 
-// The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
-type CopyProvider = MailProvider | 'unlisted';
-
-// Why a message waits or was refused, as the person reads it.
-const problems = {
-  offline: 'outbox.queued.offline',
-  locked: 'outbox.queued.locked',
-  'rate-limited': 'outbox.queued.rate-limited',
-  claimed: 'outbox.failed.claimed',
-  authorization: 'outbox.failed.authorization',
-  mailbox: 'outbox.failed.mailbox',
-  assets: 'outbox.failed.assets',
-  'too-large': 'outbox.failed.too-large',
-  refused: 'outbox.failed.refused',
-  'sent-folder': 'outbox.failed.sent-folder',
-} as const satisfies Readonly<Record<DeliveryProblem, string>>;
-// The same reasons in each provider's words: the copy above names Gmail, and an IMAP connection's
-// mail server or Microsoft send other messages. A message whose connection is no longer listed,
-// as after its removal, names no provider.
-const providerProblems = {
-  gmail: problems,
-  imap: {
-    ...problems,
-    offline: 'outbox.queued.offline_imap',
-    authorization: 'outbox.failed.authorization_imap',
-    'too-large': 'outbox.failed.too-large_imap',
-    refused: 'outbox.failed.refused_imap',
-  },
-  'microsoft-graph': {
-    ...problems,
-    offline: 'outbox.queued.offline_microsoft',
-    'rate-limited': 'outbox.queued.rate-limited_microsoft',
-    authorization: 'outbox.failed.authorization_microsoft',
-    'too-large': 'outbox.failed.too-large_microsoft',
-    refused: 'outbox.failed.refused_microsoft',
-  },
-  unlisted: {
-    ...problems,
-    offline: 'outbox.queued.offline_unlisted',
-    'rate-limited': 'outbox.queued.rate-limited_unlisted',
-    authorization: 'outbox.failed.authorization_unlisted',
-    'too-large': 'outbox.failed.too-large_unlisted',
-    refused: 'outbox.failed.refused_unlisted',
-  },
-} as const satisfies Readonly<
-  Record<CopyProvider, Readonly<Record<DeliveryProblem, string>>>
->;
-// The unknown-outcome copy's own words for each provider.
-const unknownCopy = {
-  gmail: '',
-  imap: '_imap',
-  'microsoft-graph': '_microsoft',
-  unlisted: '_unlisted',
-} as const satisfies Readonly<Record<CopyProvider, string>>;
-// Why an accepted message's Sent copy still waits.
-const filing: Readonly<
-  Partial<
-    Record<
-      DeliveryProblem,
-      `outbox.filing.${'offline' | 'locked' | 'authorization' | 'sent-folder'}`
-    >
-  >
-> = {
-  offline: 'outbox.filing.offline',
-  locked: 'outbox.filing.locked',
-  authorization: 'outbox.filing.authorization',
-  'sent-folder': 'outbox.filing.sent-folder',
-};
-
-// Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
-// sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
-// outcome.
-const statusOf = (
-  t: Translate,
-  { state, problem }: OutboxEntry,
-  provider: CopyProvider,
-) => {
-  if (state === 'filing') {
-    return t(
-      (problem === undefined ? undefined : filing[problem]) ??
-        'outbox.state.filing',
-    );
-  }
-  if ((state === 'queued' || state === 'failed') && problem !== undefined) {
-    return t(providerProblems[provider][problem]);
-  }
-  if (state === 'failed') {
-    return t(providerProblems[provider].refused);
-  }
-  if (state === 'unknown') {
-    return t(`outbox.state.unknown${unknownCopy[provider]}`);
-  }
-  return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
-};
-
 // The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
 // provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
-  id,
-  provider,
+  entry,
+  unconfirmed,
+  editWarning,
   onEdit,
 }: {
-  readonly id: string;
-  // The provider the message was handed to.
-  readonly provider: CopyProvider;
+  readonly entry: OutboxSnapshotEntry;
+  readonly unconfirmed: string | undefined;
+  readonly editWarning: string;
   readonly onEdit: () => void;
 }) {
   const outbox = useOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
-  const [step, setStep] = useState<
-    'idle' | 'checking' | 'unconfirmed' | 'confirming'
-  >('idle');
-  const notice =
-    step === 'unconfirmed' || step === 'confirming'
-      ? t(`outbox.unknown.${step}${unknownCopy[provider]}`)
-      : undefined;
+  // Only the window that opened it asks before editing.
+  const [confirming, setConfirming] = useState(false);
+  const notice = confirming ? editWarning : unconfirmed;
   return (
     <View style={styles.recovery}>
       {notice === undefined ? null : (
@@ -166,12 +64,12 @@ function UnknownRecovery({
           {notice}
         </Text>
       )}
-      {step === 'confirming' ? (
+      {confirming ? (
         <View style={styles.actions}>
           <Action
             label={t('outbox.unknown.cancel')}
             onPress={() => {
-              setStep('idle');
+              setConfirming(false);
             }}
           />
           <Action
@@ -183,27 +81,20 @@ function UnknownRecovery({
       ) : (
         <View style={styles.actions}>
           <Action
-            disabled={step === 'checking'}
+            disabled={entry.check === 'checking'}
             label={t(
-              step === 'checking'
+              entry.check === 'checking'
                 ? 'outbox.unknown.checking'
                 : 'outbox.unknown.check',
             )}
             onPress={() => {
-              setStep('checking');
-              void (async () => {
-                if (!(await outbox.check(id))) {
-                  setStep((current) =>
-                    current === 'checking' ? 'unconfirmed' : current,
-                  );
-                }
-              })();
+              void outbox.check(entry.id);
             }}
           />
           <Action
             label={t('outbox.edit')}
             onPress={() => {
-              setStep('confirming');
+              setConfirming(true);
             }}
           />
         </View>
@@ -216,18 +107,20 @@ export function OutboxRow({
   entry,
   onOpen,
 }: {
-  readonly entry: OutboxEntry;
+  readonly entry: OutboxSnapshotEntry;
   readonly onOpen: (id: string) => Promise<void>;
 }) {
   const outbox = useOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
   const { subject, recipients } = draftSummary(t, entry.draft);
-  const provider =
+  const { status, unconfirmed, editWarning } = outboxCopy(
+    t,
+    entry,
     use(AccountContext)?.mailboxes.find(
       ({ id }) => id === entry.draft.connection,
-    )?.provider ?? 'unlisted';
-  const status = statusOf(t, entry, provider);
+    )?.provider,
+  );
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
@@ -273,9 +166,10 @@ export function OutboxRow({
       )}
       {entry.state === 'unknown' ? (
         <UnknownRecovery
-          id={entry.id}
-          provider={provider}
+          editWarning={editWarning}
+          entry={entry}
           onEdit={edit}
+          unconfirmed={unconfirmed}
         />
       ) : null}
     </View>
