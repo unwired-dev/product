@@ -1380,7 +1380,13 @@ export function createGmailInbox(
   // Window lifetimes protect shown views from another window's LRU eviction.
   const activeViews = new Map<symbol, string>();
   const retainedViews = (views: NonNullable<MailboxDocument['views']>) => {
-    const active = new Set([...activeViews.values(), ...requestedViews]);
+    // A lease on a view the mailbox no longer has, such as a removed label's, protects nothing.
+    const active = new Set([
+      ...[...activeViews.values()].filter((label) =>
+        views.some((view) => view.label === label),
+      ),
+      ...requestedViews,
+    ]);
     let spare = Math.max(cachedViews, active.size) - active.size;
     return views.filter(({ label }) => {
       if (active.has(label)) {

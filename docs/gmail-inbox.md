@@ -1116,7 +1116,8 @@ are excluded from backups and never uploaded. The store holds at most 250 MiB,
 evicting the least recently used files before another save. A missing or evicted
 file offers **Download** again. Their owner deletes them:
 
-- closing the message's last reader, or a listed message leaving the Inbox;
+- closing the message's last reader, or a listed message leaving the Inbox and every
+  other cached Gmail view;
 - the Inbox closing or changing owner;
 - removing the mailbox, sign-out, account deletion and device removal, which also
   delete the connection's folder in native code;
@@ -1124,13 +1125,13 @@ file offers **Download** again. Their owner deletes them:
 
 Attachments in an online Gmail search result outside the Inbox have the same
 explicit Download, Open and Share actions. Their downloaded files last only while
-a reader stays open. If a listed message also appears in search, leaving the Inbox
-deletes its downloads even while the search reader stays open; another explicit
+a reader stays open. If a listed message also appears in search, leaving the Inbox and
+every other cached view deletes its downloads even while the search reader stays open; another explicit
 Download acquires a new copy. Opening an off-Inbox result does not save its body
 in the encrypted body cache.
 
 A file still shown in Quick Look, or handed to a share that has not finished, is
-deleted after its reader closes, its message leaves the Inbox, or the Inbox closes or
+deleted after its reader closes, its message leaves the Inbox and every other cached view, or the Inbox closes or
 changes owner only once that preview closes or the share ends.
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after

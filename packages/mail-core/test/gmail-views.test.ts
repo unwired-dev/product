@@ -419,6 +419,30 @@ describe('browsing Gmail views other than the Inbox', () => {
     }
   });
 
+  it('keeps eight inactive views while a reader still holds a removed label', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const [removed = '', ...others] = Array.from(
+      { length: cachedViews + 1 },
+      (_, index) => gmail.createLabel(`Label ${index}`),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const release = inbox.retainView(removed);
+    await inbox.openView(removed);
+    gmail.deleteLabel(removed);
+    await inbox.load();
+    for (const label of others) {
+      await inbox.openView(label);
+    }
+    await inbox.load();
+    // The stale lease protects nothing, so all eight other views stay cached.
+    expect(
+      ready(inbox.getSnapshot()).views?.map(({ label }) => label),
+    ).toHaveLength(cachedViews);
+    release();
+  });
+
   it('keeps a bounded number of views and lists a full view again when one of its messages leaves', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 201 });
