@@ -411,6 +411,51 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
+  another cached view without enforcing `cacheLimit` before commit/publication.
+  Check `everyView` additions and `settleObserved` callers with a full destination
+  and a failed subsequent history read; otherwise restoring or labeling a message
+  durably grows the bounded metadata cache beyond its newest-message limit.
+
+- `gmail-inbox.ts.organized` admitting an absent message only when `action.add`
+  explicitly names the view. Trace membership transitions when removing Spam or
+  Trash: retained user labels and All Mail become eligible without an explicit
+  add. Check those cached views before provider confirmation; otherwise offline
+  restoration or moves leave them inconsistent with the optimistic Inbox.
+
+- `gmail-inbox.ts.settleObserved` removing an authoritatively missing message
+  from a full saved view before history can detect its loss. Mark that view for
+  refill while preserving any listing already in progress; otherwise the shorter
+  cache bypasses `applyHistory`'s full-view check and stays incomplete as current.
+
+- `gmail-inbox.ts.retainedViews` charging leases for absent saved views against
+  the cache budget. Count leased labels only while their view is in the candidate
+  cache, while protecting pending `requestedViews` until adoption. Trace label
+  removal, concurrent opens, exact lease release and `forget`; otherwise a reader
+  holding a removed label evicts usable cached views and causes avoidable refetches.
+
+- `gmail-actions.ts.quickActions` offering Archive in a label or All Mail for a
+  message without `INBOX`. Derive availability from the message's membership
+  outside Inbox context, and trace both hosts' reader, row, context-menu and
+  command consumers so none recreates the omitted action. Preserve Microsoft
+  Inbox eligibility and Spam/Trash restoration. Exercise archived mail and an
+  Inbox-positive control; otherwise Archive performs no change and reports a
+  misleading completion with an empty Undo.
+
+- `gmail-inbox.ts.continueView` replacing the shared history checkpoint with a
+  completed listing's start after another listing already requested an earlier
+  replay. Preserve the earliest required numeric history ID until history runs,
+  including multiple interrupted listings resumed after relaunch; otherwise a
+  newer refill skips additions discarded by an older listing while both views
+  report current. Exercise the two-listing ordering through the public store.
+
+- `gmail-inbox.ts.readListingPage` selecting Spam or Trash by `labelIds` alone.
+  Check the provider's exclusion flags as well as label membership: these views
+  require `includeSpamTrash=true`, while ordinary label and All Mail listings
+  exclude them. Keep `testing/gmail-mailbox.ts` and `testing/synthetic-gmail.ts`
+  faithful to that contract so a missing request flag fails the public-store
+  journey; otherwise synthetic tests pass while Gmail shows an empty view.
+
 - `testing/registration-vault.ts` and `testing/registration-product-sync.ts` deriving
   connection IDs from a bare subject or address without its provider account.
   Preserve established fixture IDs while scoping unfamiliar and shared addresses

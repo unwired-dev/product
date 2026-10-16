@@ -256,6 +256,7 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
                 <MessageDetail
                   id={selected?.id}
                   mailbox={selected?.mailbox}
+                  folder={selected?.folder}
                   onClose={close}
                   onCompose={compose}
                 />

@@ -4,6 +4,8 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 
 import {
   failedFolders,
+  gmailMailbox,
+  gmailViewRow,
   mailboxSidebar,
 } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -190,7 +192,8 @@ const problemText = (
 
 const noSubscription = () => () => undefined;
 
-// A Mailbox Connection's folder rows. An IMAP folder whose last read failed keeps its warning
+// A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
+// labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
 // after another mailbox is chosen; the connection's own problem rides on its Inbox row.
 function FolderRows({
   mailbox,
@@ -225,16 +228,26 @@ function FolderRows({
             .join('\n')
         : '',
   ).split('\n');
-  const folderTrouble = (folder: string) =>
-    failed.includes(JSON.stringify(folder))
-      ? t('imap.foldersUnavailable')
-      : undefined;
+  const gmail = gmailMailbox(mailbox);
+  // A folder or Gmail view's name, SF Symbol and failed-read notice.
+  const row = (folder: string, isInbox: boolean) => {
+    if (gmail !== undefined) {
+      return gmailViewRow(t, gmail.state, folder);
+    }
+    return {
+      title: isInbox ? t('inbox.title') : folder,
+      icon: isInbox ? 'tray' : 'folder',
+      failure: failed.includes(JSON.stringify(folder))
+        ? t('imap.foldersUnavailable')
+        : undefined,
+    };
+  };
   return (
     <View
       style={compact && [styles.group, { backgroundColor: colors.fillQuiet }]}>
       {folders.map(
         ({ name: folder, inbox: isInbox, unread, selected }, index) => {
-          const label = isInbox ? t('inbox.title') : folder;
+          const { title: label, icon, failure } = row(folder, isInbox);
           return (
             <Fragment key={folder}>
               {compact && index > 0 ? (
@@ -246,14 +259,14 @@ function FolderRows({
                 />
               ) : null}
               <Item
-                icon={isInbox ? 'tray' : 'folder'}
+                icon={icon}
                 label={label}
                 accessibilityLabel={t('inbox.rowLabel_mailbox', {
                   row: label,
                   mailbox: name,
                 })}
                 count={unread}
-                status={isInbox ? trouble : folderTrouble(folder)}
+                status={isInbox ? trouble : failure}
                 selected={selected}
                 onPress={() => {
                   onView({

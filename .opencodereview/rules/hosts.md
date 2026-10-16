@@ -225,12 +225,49 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   distinct folders appear to be the same Inbox.
 
 - `inbox.tsx` retaining the Inbox title while the sidebar selects a
-  different IMAP folder. Trace the effective folder from `useImapFolder` into
+  different IMAP folder. Trace the effective folder from `useMailboxFolder` into
   the visible and accessible list heading on both hosts, including names with
   embedded newlines and fallback after folder retirement. Otherwise the list
   labels Archive or another folder's messages as Inbox. Preserve the Mac search
   title while searching, the iPhone/iPad search scope controls under #974, and the
   aggregate Inbox title for aggregate mail.
+
+- `inbox.tsx` carrying the sidebar's Gmail view into actions or reader selection
+  after `useInboxSearch` widens results to All Mailboxes. Derive both row actions
+  and the selected reader's folder from the results' effective scope, and trace
+  that context through reader/composer routes. Exercise Inbox results found from
+  Spam or Trash; otherwise ordinary mail offers Move to Inbox and Move removes
+  the wrong source label.
+
+- `inbox.tsx` attaching a selected Gmail label to a mail-server result, or
+  `organize.tsx` looking up the reader's target across all cached views. Online
+  Gmail search is mailbox-wide and uses Inbox organizing context. Require the
+  message to be listed in that exact view before offering its actions; another
+  window's cached label must not grant an off-Inbox online result Inbox actions.
+  Exercise both an Inbox result found from Trash and a cached label-only result.
+
+- `organize.tsx.GmailMessageActions` relying on the list's view lease to keep an
+  open reader's message. The reader can outlive its source list selection; retain
+  its own non-Inbox view before cache eviction can run, and release that lease
+  when the reader closes or its store or view changes. Exercise a label-only
+  message while browsing more views than the cache keeps. Otherwise list
+  navigation evicts the open message and removes its reader and actions.
+
+- `organize.tsx.GmailMessageActions` retaining a deleted Gmail label as its action
+  context while the list and reader fall back to a surviving Inbox message.
+  Resolve the action view through the current mailbox's shared view projection,
+  require the message in that exact view, and keep the opened-view lease separate.
+  Exercise provider label deletion while its message stays open in the Inbox;
+  otherwise organizing controls disappear or Move and close decisions use the
+  removed label. Preserve Inbox context for Microsoft mail and online or widened
+  results, and preserve the restoration actions in Spam and Trash.
+
+- `inbox.tsx.rowActions` deciding whether to close the selected reader from the
+  list's current view after the person browses elsewhere. Keep row operations in
+  the list's context, but test reader departure against its retained, currently
+  resolved `Selection.folder`, including that folder in the mobile shell's
+  selected props. Exercise Archive in both directions between Inbox and a label;
+  otherwise a surviving label reader closes or a departed Inbox reader stays open.
 
 - `imap-setup.tsx.ImapForm` deriving password-repair guidance from the manual
   setup provider, or rebuilding the saved endpoint from a recognized preset.
@@ -239,7 +276,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   including iCloud's full-address fallback. Otherwise repairs hide required
   password guidance or authorize a different connection identity.
 
-- `imap-folders.tsx.useImapFolder` treating only a `failed` folder view as a
+- `mailbox-folders.tsx.useMailboxFolder` treating only a `failed` folder view as a
   synchronization failure, or retaining a choice absent from the ready listing's
   selectable folders. Use the shared IMAP projections: cached `ready` rows with
   `retry` or `authentication` still need the folder notice, and a removed,
@@ -884,6 +921,9 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   grouped rows against the approved frames after provider eligibility filtering;
   otherwise Trash and Spam can swap places despite every action being present.
   Preserve the existing More ordering when correcting the sheet projection.
+  Keep every eligible organizing action in the projection, including Move to
+  Inbox in Trash and Spam; otherwise More offers restoration while the Reply
+  sheet silently drops it despite already having its icon and action.
 - Mobile `reply-sheet.tsx.ReplySheet`, `move-sheet.tsx.MoveSheet`,
   `composer-controls.tsx.PopUp` or another foreground presentation relying only on
   native glass to obscure the content underneath. Check settled native captures in

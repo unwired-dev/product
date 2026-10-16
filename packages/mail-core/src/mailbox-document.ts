@@ -13,6 +13,8 @@ export type { GmailMessage } from './mailbox-message.ts';
 // ponytail: the newest Inbox messages kept on this device; older ones stay at the provider. Each commit
 // rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
 export const cacheLimit = 200;
+// The ordinary Gmail view budget; active windows protect their views, growing it when needed.
+export const cachedViews = 8;
 export const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));
 export const HistoryId = Schema.String.check(Schema.isPattern(/^\d+$/u));
 
@@ -45,6 +47,25 @@ const MailboxDocumentSchema = Schema.Struct({
   labels: Schema.optionalKey(Schema.Array(GmailLabelSchema)),
   // More folders exist than were listed.
   labelsLimited: Schema.optionalKey(Schema.Literal(true)),
+  // Gmail views other than the Inbox that a reader opened, most recently opened first. Each keeps
+  // its newest messages; the mailbox's history keeps them current from the same checkpoint.
+  views: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        // A label ID, or All Mail.
+        label: Schema.String,
+        messages: Schema.Array(GmailMessageSchema),
+        // Present while the view is listed from its first page, as for the Inbox's backfill.
+        listing: Schema.optionalKey(
+          Schema.Struct({
+            historyId: HistoryId,
+            pageToken: Schema.optionalKey(Schema.String),
+            seen: Schema.Array(GmailId),
+          }),
+        ),
+      }),
+    ),
+  ),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.

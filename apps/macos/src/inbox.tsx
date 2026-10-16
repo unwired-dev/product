@@ -10,12 +10,13 @@ import type { TextInput } from 'react-native';
 import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf } from '@private-email/mail-core/drafts';
 import {
+  leavesView,
   quickActions,
-  restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
+  gmailViewName,
   inboxChoice,
   inboxMessages,
   messageDateSections,
@@ -52,13 +53,13 @@ import {
   useOpenDraft,
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
-import { useImapFolder } from './imap-folders.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailboxFolder } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -93,7 +94,12 @@ const listedDrafts = (
 ): readonly Draft[] => (composing ? draftsOf(state) : []);
 
 // A message in a mailbox; Gmail message IDs are unique only within their mailbox.
-export type Selection = Readonly<{ mailbox: string; id: string }>;
+// A Gmail message also names the view it was chosen in, which its actions can take it out of.
+export type Selection = Readonly<{
+  mailbox: string;
+  id: string;
+  folder?: string;
+}>;
 
 interface InboxProps {
   readonly selected: Selection | undefined;
@@ -719,7 +725,14 @@ export function Inbox({
     () => inboxMessages(mailboxes, scoped),
     [mailboxes, scoped],
   );
-  const { folder, listed, failed } = useImapFolder(shown, inboxListed, {
+  const {
+    folder,
+    selection,
+    title: folderTitle,
+    listed,
+    failure,
+    limited,
+  } = useMailboxFolder(shown, inboxListed, {
     view,
     onView,
   });
@@ -767,7 +780,7 @@ export function Inbox({
   });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,
-    folder: folder === inboxFolder ? undefined : folder,
+    folder: folderTitle,
     scopeName,
     status,
     shown,
@@ -813,11 +826,18 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
+        view: folder,
       }).map(({ name, label, action }) => ({
         name,
         label,
         run: () => {
-          leaving(restoreAfter(action) !== undefined);
+          leaving(
+            leavesView(
+              gmailViewName(state, selected?.folder ?? inboxFolder),
+              message.labels ?? [],
+              action,
+            ),
+          );
           void inbox.organize(message, action);
         },
       }));
@@ -903,14 +923,14 @@ export function Inbox({
           </View>
         </View>
         <View style={styles.notices}>
-          {failed ? (
+          {failure === undefined ? null : (
             <Notice
               icon="exclamationmark.triangle"
               iconColor={colors.statusWarning}
-              message={t('imap.foldersUnavailable')}
+              message={failure}
               messageRole="alert"
             />
-          ) : null}
+          )}
           {shown.map((mailbox) => (
             <MailboxScope
               key={mailbox.id}
@@ -996,6 +1016,13 @@ export function Inbox({
                 search={online}
               />
               <LanguageSelector />
+              {limited && results === undefined ? (
+                <Text style={[styles.footer, { color: colors.textSecondary }]}>
+                  {t('inbox.footerView', {
+                    provider: t('mailProviders.gmail'),
+                  })}
+                </Text>
+              ) : null}
               <Text style={[styles.footer, { color: colors.textSecondary }]}>
                 {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
               </Text>
@@ -1036,6 +1063,7 @@ export function Inbox({
                   void select({
                     mailbox: item.mailbox.id,
                     id: item.message.id,
+                    ...(section.key === 'gmail' ? {} : selection),
                   });
                 }}
                 selected={

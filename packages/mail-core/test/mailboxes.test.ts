@@ -1082,9 +1082,17 @@ describe('mailbox sidebar projection', () => {
   it('keeps unread totals and row selection tied to the current Inbox snapshots', async () => {
     expect.hasAssertions();
     const { gmail, mailboxes, registration } = await twoMailboxes();
-    gmail.alex.deliver({ subject: 'Unread in Alex', at: at(1) });
+    const travel = gmail.alex.createLabel('Travel');
+    const flight = gmail.alex.deliver({ subject: 'Unread in Alex', at: at(1) });
+    gmail.alex.setLabel(flight, travel, true);
     gmail.other.deliver({ subject: 'Unread in Other', at: at(2) });
     await mailboxes.load();
+    // A Gmail label counts the unread mail of its opened view.
+    const { inbox: alexInbox } = mailbox(mailboxes.getSnapshot(), alex);
+    // oxlint-disable-next-line vitest/no-conditional-in-test -- Only Gmail stores open views.
+    if ('openView' in alexInbox) {
+      await alexInbox.openView(travel);
+    }
     const project = (view: { mailbox?: string; folder?: string }) =>
       mailboxSidebar({
         mailboxes: mailboxes.getSnapshot(),
@@ -1104,8 +1112,25 @@ describe('mailbox sidebar projection', () => {
       unread: 2,
       allSelected: false,
       rows: [
-        [alex, [{ name: 'INBOX', inbox: true, unread: 1, selected: true }]],
-        [other, [{ name: 'INBOX', inbox: true, unread: 1, selected: false }]],
+        [
+          alex,
+          [
+            { name: 'INBOX', inbox: true, unread: 1, selected: true },
+            { name: travel, inbox: false, unread: 1, selected: false },
+            { name: 'ALL_MAIL', inbox: false, unread: 0, selected: false },
+            { name: 'SPAM', inbox: false, unread: 0, selected: false },
+            { name: 'TRASH', inbox: false, unread: 0, selected: false },
+          ],
+        ],
+        [
+          other,
+          [
+            { name: 'INBOX', inbox: true, unread: 1, selected: false },
+            { name: 'ALL_MAIL', inbox: false, unread: 0, selected: false },
+            { name: 'SPAM', inbox: false, unread: 0, selected: false },
+            { name: 'TRASH', inbox: false, unread: 0, selected: false },
+          ],
+        ],
       ],
     });
     const { inbox } = mailbox(mailboxes.getSnapshot(), alex);

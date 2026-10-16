@@ -9,6 +9,7 @@ import {
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import { listedMessage } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -247,12 +248,15 @@ function AttachToNewMessage({
 export function MessageDetail({
   mailbox,
   id,
+  folder,
   onClose,
   onCompose,
 }: {
   // The mailbox the message belongs to; Gmail message IDs are unique only within it.
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
+  // The Gmail view the message was chosen in, when not the Inbox.
+  readonly folder?: string | undefined;
   // Leaves the reader after its message leaves the Inbox.
   readonly onClose?: (() => void) | undefined;
   // Opens a Draft the reader started, such as one with a received attachment.
@@ -265,6 +269,7 @@ export function MessageDetail({
   const message = (
     <MailboxMessage
       id={id}
+      folder={folder}
       onClose={onClose}
       onCompose={onCompose}
     />
@@ -294,7 +299,9 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
     return undefined;
   }
   return (
-    state.messages.find((item) => item.id === id) ??
+    ('sync' in state
+      ? listedMessage(state, id)
+      : state.messages.find((item) => item.id === id)) ??
     ('found' in state ? state.found?.find((item) => item.id === id) : undefined)
   );
 };
@@ -545,10 +552,12 @@ function MessageMenu({
 
 function MailboxMessage({
   id,
+  folder,
   onClose,
   onCompose,
 }: {
   readonly id: string;
+  readonly folder: string | undefined;
   readonly onClose: (() => void) | undefined;
   readonly onCompose: ((id: string) => void) | undefined;
 }) {
@@ -641,6 +650,7 @@ function MailboxMessage({
             <View style={styles.toolbar}>
               <MessageActions
                 id={message.id}
+                folder={folder}
                 onClose={onClose}>
                 <ResponseActions
                   key={`${address}:${message.id}`}
