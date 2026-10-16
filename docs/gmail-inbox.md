@@ -934,8 +934,8 @@ may be shown for the current open but is not saved.
 
 A prefetched body leaving the 30-day/selected set loses protection and becomes
 eligible for the prefetched eviction tier; leaving the set alone does not require
-immediate deletion. A message leaving the cached Inbox removes its saved body,
-including a late download that finishes after the metadata was removed. A failed
+immediate deletion. A message leaving the cached Inbox and every other cached Gmail view
+removes its saved body, including a late download that finishes after the metadata was removed. A failed
 prune is retried at the end of the next successful synchronization, even after a
 relaunch or when no metadata changes remain. A stale synchronization retries
 rather than deleting bodies from a newer list. Pruning,
