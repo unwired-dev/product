@@ -8,7 +8,7 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
-import { draftsOf } from '@private-email/mail-core/drafts';
+import { draftsOf, profileOf } from '@private-email/mail-core/drafts';
 import {
   leavesView,
   quickActions,
@@ -648,10 +648,15 @@ export function Inbox({
         : messageDateSections(inboxRows, now),
     [searching, results, inboxRows, now],
   );
+  // A Draft and its Outbox entry belong to their sender's Mail Profile, so the window lists only
+  // its own Profile's.
+  const owned = ({ connection }: Readonly<{ connection: string }>) =>
+    account === undefined ||
+    profileOf(connection, account.mailboxes) === profile;
   const sections = inboxSections({
-    outbox,
+    outbox: outbox.filter(({ draft }) => owned(draft)),
     canCompose: onCompose !== undefined,
-    drafts,
+    drafts: drafts.filter(owned),
     messages: dated,
     online,
     searching,

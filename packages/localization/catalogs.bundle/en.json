@@ -264,6 +264,7 @@
   },
   "mailAssistance": {
     "title": "Mail Assistance",
+    "profile": "Mail Assistance for {{name}}",
     "description": "Summaries, rewrites, reply suggestions and translations use Apple's on-device models, and run only when you ask. This choice applies to this device and this account only. Signing out turns it off.",
     "on": "On-device assistance is on.",
     "off": "On-device assistance is off.",

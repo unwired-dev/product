@@ -33,7 +33,7 @@ import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
-import { Composer } from '../src/composer.tsx';
+import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
   MailAssistanceContext,
@@ -249,7 +249,7 @@ function App({
               view={view}
             />
             {composing === undefined ? null : (
-              <Composer
+              <DraftComposer
                 id={composing}
                 onClose={() => {
                   setComposing(undefined);
@@ -458,6 +458,47 @@ describe('composing Drafts', () => {
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   }, 15_000);
+
+  it('lists only the window Profile’s Drafts', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    await drafts.create({ id: alex, address: 'alex@example.invalid' });
+    await drafts.create({ id: other, address: 'other@example.invalid' });
+    const view = (profile: string) => (
+      <App
+        drafts={drafts}
+        registration={registration}
+        profile={profile}
+      />
+    );
+    const personal =
+      'Draft. No subject. No recipients. From alex@example.invalid';
+    const work = 'Draft. No subject. No recipients. From other@example.invalid';
+    const app = await render(view('work'));
+    await expect(
+      screen.findByRole('button', { name: work }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: personal })).toBeNull();
+    await app.rerender(view('default'));
+    await expect(
+      screen.findByRole('button', { name: personal }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: work })).toBeNull();
+  });
 
   it('closes an untouched New Message on Close and on Discard', async () => {
     expect.hasAssertions();
@@ -2782,7 +2823,7 @@ function ReaderApp({
             />
           </View>
         ) : (
-          <Composer
+          <DraftComposer
             id={composing}
             onClose={() => {
               setComposing(undefined);

@@ -51,7 +51,7 @@ import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
-import { ReaderMailAssistanceGate } from './mail-assistance.tsx';
+import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
   MailboxScope,
   useComposerNavigation,
@@ -338,7 +338,7 @@ export function MessageDetail({
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      <ReaderMailAssistanceGate profile={profile}>
+      <ProfileMailAssistanceGate profile={profile}>
         {onCompose === undefined ? (
           message
         ) : (
@@ -348,7 +348,7 @@ export function MessageDetail({
             {message}
           </AttachToNewMessage>
         )}
-      </ReaderMailAssistanceGate>
+      </ProfileMailAssistanceGate>
     </MailboxScope>
   );
 }
@@ -981,13 +981,13 @@ export function ThreadView({
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      <ReaderMailAssistanceGate profile={profile}>
+      <ProfileMailAssistanceGate profile={profile}>
         <ThreadMessages
           key={`${mailbox}/${id}`}
           id={id}
           onClose={onClose}
         />
-      </ReaderMailAssistanceGate>
+      </ProfileMailAssistanceGate>
     </MailboxScope>
   );
 }

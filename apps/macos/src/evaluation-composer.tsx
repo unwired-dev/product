@@ -19,6 +19,7 @@ import {
   draftOf,
   entryOf,
   isEmptyDraft,
+  profileOf,
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
@@ -61,6 +62,7 @@ import {
 } from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
+import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
   useComposerNavigation,
   useDraftStore,
@@ -68,6 +70,7 @@ import {
   useOutbox,
 } from './mailbox.tsx';
 import { AssistanceContext } from './message-summary.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
@@ -833,12 +836,20 @@ type ComposerProps = Readonly<{
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other
 // build keeps the current composer.
 export function DraftComposer(props: ComposerProps) {
-  return editorPage === undefined ? (
-    <Composer {...props} />
-  ) : (
-    <EvaluationComposer
-      page={editorPage}
-      {...props}
-    />
+  const draft = draftOf(useDrafts(), props.id);
+  const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.
+  return (
+    <ProfileMailAssistanceGate
+      profile={profileOf(draft?.connection, mailboxes)}>
+      {editorPage === undefined ? (
+        <Composer {...props} />
+      ) : (
+        <EvaluationComposer
+          page={editorPage}
+          {...props}
+        />
+      )}
+    </ProfileMailAssistanceGate>
   );
 }
