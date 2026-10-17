@@ -247,6 +247,22 @@ const wrote = (
   );
 };
 
+// Whether the Profile owns a live connection, one that may still be live, or none.
+const ownership = (
+  state: ProfileState,
+  id: string,
+  epochs: ReadonlyMap<string, string | null>,
+) => {
+  const owned = state.owners.filter((owner) => owner.profile === id);
+  // An owned connection whose descriptor Product Sync no longer lists may still be live.
+  if (owned.some((owner) => !epochs.has(owner.record))) {
+    return 'unknown';
+  }
+  return owned.some((owner) => epochs.get(owner.record) === owner.epoch)
+    ? 'live'
+    : 'empty';
+};
+
 // Mail Profile definitions and connection ownership in End-to-End Encrypted Product Sync. Native
 // code seals each record under an identifier bound to its Profile or connection, so Convex learns
 // neither names nor ownership. Profile writes compare and set; a device that loses applies its
@@ -391,15 +407,35 @@ export function createMailProfileProgram<E>(
     if (!readable) {
       return yield* failWith('unavailable');
     }
-    const epochs = yield* descriptorEpochs;
-    const owned = state.owners.filter((owner) => owner.profile === id);
-    // An owned connection whose descriptor Product Sync no longer lists may still be live.
-    if (owned.some((owner) => !epochs.has(owner.record))) {
-      return yield* failWith('unavailable');
+    const owned = ownership(state, id, yield* descriptorEpochs);
+    if (owned !== 'empty') {
+      return yield* failWith(
+        owned === 'live' ? 'profile-in-use' : 'unavailable',
+      );
     }
-    if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
-      return yield* failWith('profile-in-use');
+  });
+  // A pending removal waits while anything this device reads is unreadable; only this Profile's own
+  // live or unknown ownership cancels it.
+  const pendingRemoval = Effect.fnUntraced(function* (
+    state: ProfileState,
+    id: string,
+    readable: boolean,
+  ) {
+    if (!readable) {
+      return 'retry' as const;
     }
+    return yield* descriptorEpochs.pipe(
+      Effect.map((epochs) =>
+        ownership(state, id, epochs) === 'empty'
+          ? ('publish' as const)
+          : ('cancel' as const),
+      ),
+      Effect.catchIf(
+        (error) =>
+          error instanceof RegistrationRejected && error.code === 'unavailable',
+        () => Effect.succeed('retry' as const),
+      ),
+    );
   });
 
   // Reads every Profile record and publishes the names this device chose. A name another device
@@ -408,20 +444,13 @@ export function createMailProfileProgram<E>(
     const learned = yield* refreshed(yield* known);
     let { state } = learned;
     for (const profile of state.profiles) {
-      const { id, pending, pendingRemoval, version, updatedAt } = profile;
-      const removalBlocked =
-        pendingRemoval === true &&
-        (yield* requireEmpty(state, id, learned.readable).pipe(
-          Effect.as(false),
-          Effect.catchIf(
-            (error) =>
-              error instanceof RegistrationRejected &&
-              (error.code === 'profile-in-use' || error.code === 'unavailable'),
-            () => Effect.succeed(true),
-          ),
-        ));
+      const { id, pending, version, updatedAt } = profile;
+      const removal =
+        profile.pendingRemoval === true
+          ? yield* pendingRemoval(state, id, learned.readable)
+          : undefined;
       // A later move invalidates the empty-Profile removal; retain its ownership instead.
-      if (removalBlocked) {
+      if (removal === 'cancel') {
         const { pendingRemoval: _, ...restored } = profile;
         const next = {
           ...state,
@@ -431,14 +460,17 @@ export function createMailProfileProgram<E>(
         };
         yield* save(state, next);
         state = next;
-      } else if (pending !== undefined || pendingRemoval === true) {
+      } else if (
+        removal !== 'retry' &&
+        (pending !== undefined || removal === 'publish')
+      ) {
         ({ state } = yield* put(state, [
           {
             record: {
               kind: 'profile',
               id,
               version: (version ?? 0) + 1,
-              ...(pendingRemoval === true ? {} : { name: pending }),
+              ...(removal === 'publish' ? {} : { name: pending }),
             },
             expectedUpdatedAt: updatedAt,
           },

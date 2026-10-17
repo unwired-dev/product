@@ -908,6 +908,22 @@ describe('mail profile capability fence', () => {
     });
   });
 
+  it('keeps a fenced removal while unrelated records cannot be read, then removes the Profile', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, put, records, record, id } =
+      await latePublicationAfterRemoval();
+    // Another connection's description that this device cannot open says nothing about this Profile.
+    put(undefined, 'other-subject');
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([]);
+    records().delete(record('other-subject'));
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      version: 3,
+    });
+  });
+
   it('drops a Profile named offline that the fence never let publish', async () => {
     expect.hasAssertions();
     const { store, sync } = await withOlderClient();
