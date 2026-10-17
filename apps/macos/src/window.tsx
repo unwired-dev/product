@@ -16,7 +16,8 @@ import { InboxProvider, ProfileScope, useMailboxes } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate, SettingsGate } from './registration-gate.tsx';
-import { settingsHost, useSettingsRequest } from './settings-window.ts';
+import { settingsHost } from './settings-window-client.ts';
+import { useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
 

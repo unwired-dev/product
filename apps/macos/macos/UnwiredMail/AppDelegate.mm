@@ -19,6 +19,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
+@property(nonatomic, strong) NSNumber *settingsRequestSerial;
 @property(nonatomic) NSUInteger nextWindowNumber;
 @property(nonatomic, copy) NSString *quittingWindow;
 #if UNWIRED_NATIVE_TESTING
@@ -130,6 +131,9 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 - (void)showSettings:(id)sender
 {
   NSWindow *window = self.settingsWindow.window;
+  // A menu invocation keeps an open window's request; a new untargeted window starts fresh.
+  if (window == nil) self.settingsRequestSerial = @0;
+  if ([sender isKindOfClass:NSNumber.class]) self.settingsRequestSerial = sender;
   if (window == nil) {
     window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 900, 720)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
@@ -225,7 +229,10 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   NSWindow *window = notification.object;
   [NSApp removeWindowsItem:window];
   if (window == self.settingsWindow.window) {
+    NSNumber *closedRequestSerial = self.settingsRequestSerial;
     self.settingsWindow = nil;
+    self.settingsRequestSerial = nil;
+    [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredSettingsClosed" object:closedRequestSerial];
     window.contentViewController = nil;
     return;
   }

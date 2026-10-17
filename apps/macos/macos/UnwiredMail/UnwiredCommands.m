@@ -37,7 +37,7 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"windowShouldClose"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
@@ -45,6 +45,8 @@ RCT_EXPORT_MODULE()
       name:UnwiredOpenCommandPalette object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShouldClose:)
       name:UnwiredWindowShouldClose object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsClosed:)
+      name:@"UnwiredSettingsClosed" object:nil];
 }
 
 - (void)stopObserving
@@ -60,6 +62,11 @@ RCT_EXPORT_MODULE()
 - (void)windowShouldClose:(NSNotification *)notification
 {
   [self sendEventWithName:@"windowShouldClose" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)settingsClosed:(NSNotification *)notification
+{
+  [self sendEventWithName:@"settingsClosed" body:notification.object];
 }
 
 // The control that had keyboard focus in each window when its Command Palette opened, which
@@ -120,9 +127,9 @@ RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
 }
 
 // Every Inbox window's Settings entry points open the one Settings window, as Command-, does.
-RCT_EXPORT_METHOD(openSettings)
+RCT_EXPORT_METHOD(openSettings:(nonnull NSNumber *)requestSerial)
 {
-  [NSApp sendAction:NSSelectorFromString(@"showSettings:") to:NSApp.delegate from:nil];
+  [NSApp sendAction:NSSelectorFromString(@"showSettings:") to:NSApp.delegate from:requestSerial];
 }
 
 // The Settings window closes itself once no Inbox can open, as after signing out.

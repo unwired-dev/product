@@ -67,6 +67,7 @@ import {
   closeSettings,
   commandComma,
   inboxFocused,
+  reopenSettingsWhileClosing,
   settingsOpen,
   settingsWindow,
 } from './settings-window.tsx';
@@ -1152,6 +1153,24 @@ describe('product registration', () => {
       kept: 'Email Accounts',
       reopened: 'Account & Devices',
     });
+  });
+
+  it('keeps a replacement Settings destination after the closing root renders it and tears down', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = started(createRegistration(synthetic.vault));
+    await store.restoreOnce();
+    await render(<MacWindows store={store}>{null}</MacWindows>);
+    await act(async () => {
+      openSettings('account-synthetic-product-subject', 'language');
+    });
+    await reopenSettingsWhileClosing(() => {
+      openSettings('account-synthetic-product-subject', 'mailboxes');
+    });
+    expect(
+      settingsWindow().getByRole('header', { name: 'Email Accounts' }),
+    ).toBeVisible();
   });
 
   it("asks AppKit to keep the window's focused control on opening and restore it on closing", async () => {

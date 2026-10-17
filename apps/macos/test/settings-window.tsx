@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { act, screen, within } from '@testing-library/react-native';
 import { useSyncExternalStore } from 'react';
-import { TurboModuleRegistry, View } from 'react-native';
+import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
 import { SettingsWindowRoot } from '../src/window.tsx';
 
@@ -10,6 +10,9 @@ import { SettingsWindowRoot } from '../src/window.tsx';
 // surface, and closeSettings or its close button removes it.
 let shown = false;
 let focused = 0;
+let requestSerial = 0;
+let holdOpen = false;
+let pendingOpen: (() => void) | undefined = undefined;
 const listeners = new Set<() => void>();
 const show = (next: boolean) => {
   shown = next;
@@ -18,10 +21,20 @@ const show = (next: boolean) => {
   }
 };
 const host = {
-  openSettings: () => {
-    show(true);
+  openSettings: (serial?: number) => {
+    const open = () => {
+      requestSerial = serial ?? requestSerial;
+      show(true);
+    };
+    if (holdOpen) {
+      pendingOpen = open;
+    } else {
+      open();
+    }
   },
   closeSettings: () => {
+    DeviceEventEmitter.emit('settingsClosed', requestSerial);
+    requestSerial = 0;
     show(false);
   },
   focusInbox: () => {
@@ -43,9 +56,13 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  host.closeSettings();
   Reflect.set(TurboModuleRegistry, 'get', get);
   shown = false;
   focused = 0;
+  requestSerial = 0;
+  holdOpen = false;
+  pendingOpen = undefined;
 });
 
 // The app's windows: the given Inbox window, and the Settings window while it is open.
@@ -96,7 +113,28 @@ export const commandComma = async () => {
 // The Settings window's close button.
 export const closeSettings = async () => {
   await act(async () => {
-    show(false);
+    host.closeSettings();
     await Promise.resolve();
+  });
+};
+
+// AppKit has closed the old window, but JS can render a new request before its root tears down.
+// The native open and old close notification are deliberately delivered after that teardown.
+export const reopenSettingsWhileClosing = async (reopen: () => void) => {
+  const closedSerial = requestSerial;
+  holdOpen = true;
+  await act(async () => {
+    reopen();
+  });
+  await act(async () => {
+    show(false);
+  });
+  holdOpen = false;
+  await act(async () => {
+    pendingOpen?.();
+    pendingOpen = undefined;
+  });
+  await act(async () => {
+    DeviceEventEmitter.emit('settingsClosed', closedSerial);
   });
 };
