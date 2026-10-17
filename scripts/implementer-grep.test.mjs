@@ -136,6 +136,8 @@ test('rejects tree and blob selectors before they can bypass root exclusions', (
       ['-e', 'needle'],
       ['-neneedle'],
       ['-h', '-e', 'needle'],
+      ['--con', '1', 'needle'],
+      ['--con=1', 'needle'],
       ['-f', '.opencodereview/AGENTS.md'],
     ]) {
       const result = spawnSync(script, [...args, selector], {
@@ -161,6 +163,20 @@ test('preserves pattern operands, option values, and Git no-match status', (t) =
     grep(['-l', '-A', '1', '--threads', '1', 'needle']),
     [...readable].toSorted(),
   );
+  for (const option of [
+    '--con',
+    '--be',
+    '--af',
+    '--th',
+    '--max-d',
+    '--max-c',
+  ]) {
+    for (const args of [[option, '1'], [`${option}=1`]]) {
+      assert.deepEqual(grep([...args, '-l', 'HEAD:docs/architecture']), [
+        'docs/guide.md',
+      ]);
+    }
+  }
   const result = spawnSync(script, ['not-present'], { cwd, encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');

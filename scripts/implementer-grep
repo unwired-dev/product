@@ -25,10 +25,10 @@ for argument do
   fi
   case "$argument" in
     --) separated=true; break ;;
-    --max-depth|--context|--before-context|--after-context|--threads|--max-count)
-      value=true ;;
     --file|--file=*) reject_pattern_file ;;
     --op*|--textc*) reject_external_helper ;;
+    --*=*) ;;
+    --max-d*|--con*|--be*|--af*|--th*|--max-c*) value=true ;;
     --*) ;;
     -?*)
       options=${argument#-}
