@@ -174,7 +174,9 @@ export function MailAssistanceSettings({
         </SettingsBlock>
       ) : null}
       {enabled === undefined ? null : (
-        <MailAssistanceProfileContext value={enabled}>
+        <MailAssistanceProfileContext
+          key={enabled}
+          value={enabled}>
           <AssistanceAvailability
             key={account}
             account={account}

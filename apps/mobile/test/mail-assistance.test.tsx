@@ -311,18 +311,28 @@ describe('account settings availability', () => {
         name: 'Check Apple Intelligence availability',
       }),
     ).toBeVisible();
+    const available =
+      'Apple Intelligence is available for summaries, rewrites and reply suggestions.';
+    await press('Check Apple Intelligence availability');
+    expect(screen.getByText(available)).toBeVisible();
     await switchAssistance(true);
     expect(enablement.getSnapshot()?.profiles).toStrictEqual([
       'work',
       defaultProfile,
     ]);
+    // Enabling Default must not transfer Work's earlier check to Default's lifetime.
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', false);
+    });
+    expect(screen.queryByText(available)).toBeNull();
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', true);
+    });
     expect(
       screen.getByRole('button', { name: 'Summarize this message' }),
     ).toBeVisible();
-    expect(assistance.calls).toStrictEqual([]);
+    expect(assistance.calls).toStrictEqual(['availability']);
     await press('Check Apple Intelligence availability');
-    const available =
-      'Apple Intelligence is available for summaries, rewrites and reply suggestions.';
     expect(screen.getByText(available)).toBeVisible();
     // The check belonged to Default, so its status retires even while Work remains enabled.
     await switchAssistance(false);
