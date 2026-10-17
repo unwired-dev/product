@@ -67,6 +67,8 @@ their contents too, so the implementer searches with
 excludes every source above, plus committed review artifacts under
 `artifacts/review-*`, which hold resolved rule bodies. Whole-commit searches are
 supported; tree/blob selectors are rejected because they bypass root exclusions.
+Pattern files (`-f`/`--file`), pagers (`-O`/`--open-files-in-pager`) and textconv
+helpers are rejected because they can print excluded files. Pass patterns with `-e`.
 Operational guides, coding conventions, vocabulary and product requirements are
 separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing

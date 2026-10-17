@@ -170,15 +170,30 @@ test('protects reviewer-only sources when searching untracked files', (t) => {
   const { cwd, grep } = repository(t);
   writeFileSync(path.join(cwd, 'docs/architecture/untracked.md'), 'needle\n');
   writeFileSync(path.join(cwd, 'docs/untracked.md'), 'needle\n');
+  for (const options of [
+    ['--untracked'],
+    ['--untracked', '--no-exclude-standard'],
+    ['--no-index'],
+  ]) {
+    assert.deepEqual(
+      grep([...options, '-l', 'needle']),
+      [...readable, 'docs/untracked.md'].toSorted(),
+    );
+    assert.deepEqual(grep([...options, '-l', 'needle'], 'docs'), [
+      'guide.md',
+      'untracked.md',
+    ]);
+  }
   assert.deepEqual(
-    grep(['--untracked', '-l', 'needle']),
-    [...readable, 'docs/untracked.md'].toSorted(),
+    grep(['--cached', '-l', 'needle']),
+    [...readable].toSorted(),
   );
 });
 
 test('rejects pattern files, which Git can echo into its output', (t) => {
   const { cwd } = repository(t);
   const file = 'docs/architecture/README.md';
+  writeFileSync(path.join(cwd, file), '[\nreviewer-only pattern content\n');
   for (const args of [
     ['-f', file],
     [`-f${file}`],
@@ -190,5 +205,42 @@ test('rejects pattern files, which Git can echo into its output', (t) => {
     assert.equal(result.status, 2, args.join(' '));
     assert.equal(result.stdout, '');
     assert.match(result.stderr, /pattern files/u);
+    assert.doesNotMatch(result.stderr, /reviewer-only pattern content/u);
   }
+});
+
+test('rejects pagers and textconv helpers that can read excluded files', (t) => {
+  const { cwd, grep } = repository(t);
+  const file = 'docs/architecture/README.md';
+  writeFileSync(path.join(cwd, file), 'reviewer-only helper content\n');
+  writeFileSync(
+    path.join(cwd, '.gitattributes'),
+    'docs/guide.md diff=review\n',
+  );
+  const helper = `cat ${file}`;
+  execFileSync('git', ['config', 'diff.review.textconv', helper], { cwd });
+  for (const args of [
+    ['-O', 'needle'],
+    [`-O${helper}`, 'needle'],
+    [`-lO${helper}`, 'needle'],
+    ['--open-files-in-pager', 'needle'],
+    [`--open-files-in-pager=${helper}`, 'needle'],
+    [`--op=${helper}`, 'needle'],
+    ['--textconv', 'reviewer-only helper content'],
+    ['--textc', 'reviewer-only helper content'],
+  ]) {
+    const result = spawnSync(script, args, {
+      cwd,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_PAGER: helper },
+    });
+    assert.equal(result.status, 2, args.join(' '));
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /external helpers/u);
+  }
+  assert.deepEqual(grep(['--text', '-l', 'needle']), [...readable].toSorted());
+  assert.deepEqual(
+    grep(['--no-textconv', '-l', 'needle']),
+    [...readable].toSorted(),
+  );
 });

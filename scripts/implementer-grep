@@ -10,6 +10,11 @@ reject_pattern_file() {
   exit 2
 }
 
+reject_external_helper() {
+  printf '%s\n' 'implementer-grep: external helpers (-O, --open-files-in-pager, --textconv) can print excluded files.' >&2
+  exit 2
+}
+
 separated=false
 pattern=false
 value=false
@@ -23,6 +28,7 @@ for argument do
     --max-depth|--context|--before-context|--after-context|--threads|--max-count)
       value=true ;;
     --file|--file=*) reject_pattern_file ;;
+    --op*|--textc*) reject_external_helper ;;
     --*) ;;
     -?*)
       options=${argument#-}
@@ -38,7 +44,7 @@ for argument do
           A|B|C|m)
             [ -n "$options" ] || value=true
             break ;;
-          O) break ;;
+          O) reject_external_helper ;;
         esac
       done ;;
     '('|')') ;;
@@ -62,7 +68,7 @@ if [ "$separated" = false ]; then
   set -- "$@" --
 fi
 
-exec git grep "$@" \
+exec git --no-pager grep "$@" \
   ':(top,exclude)docs/architecture' \
   ':(top,exclude)docs/adr' \
   ':(top,exclude).patterns' \
