@@ -4,8 +4,6 @@ import {
   encryptedProductSyncPayloadBodyValidator,
   encryptedProductSyncPayloadListResponseValidator,
   encryptedProductSyncPayloadValidator,
-  mailProfileCapabilityVersion,
-  mailProfilesUpgradeRequiredErrorCode,
   maybeEncryptedProductSyncPayloadValidator,
   productSyncInitializationResponseValidator,
   productSyncPayloadChangedErrorCode,
@@ -27,6 +25,15 @@ import {
   requireRecoveryVerifier,
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
+import {
+  admitMailProfileWrites,
+  enableMailProfiles,
+  enablesEarlierMailProfiles,
+  fencesMailProfiles,
+  isMailProfileRecord,
+  mailProfileCapabilityArgs,
+  requireMailProfileCapability,
+} from './productSyncMailProfiles.js';
 
 export const deviceEncryptionKeyBoundErrorCode = 'DEVICE_ENCRYPTION_KEY_BOUND';
 const encryptedProductSyncPayloadPageSize = 100;
@@ -35,133 +42,6 @@ const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
     throw new Error('Recovery material requires recent authentication');
-  }
-}
-
-// The Mail Profile capability a client presents with each payload call; older clients send none.
-const mailProfileCapabilityArgs = {
-  mailProfileCapability: v.optional(v.number()),
-};
-
-function throwMailProfilesUpgradeRequired(): never {
-  throw new ConvexError({
-    code: mailProfilesUpgradeRequiredErrorCode,
-    message: 'Update Unwired Mail to use Mail Profiles.',
-  });
-}
-
-const capable = (version: number | undefined) =>
-  (version ?? 0) >= mailProfileCapabilityVersion;
-
-// Once an account holds Mail Profile records, a client that cannot keep them apart reads and writes
-// nothing: it would show every Profile's connections in its one window.
-async function requireMailProfileCapability(
-  ctx: QueryCtx | MutationCtx,
-  account: AuthenticatedProductAccount,
-  presented: number | undefined,
-): Promise<void> {
-  if (!capable(presented) && (await mailProfilesEnabled(ctx, account))) {
-    throwMailProfilesUpgradeRequired();
-  }
-}
-
-const isMailProfileRecord = (payloadIdentifier: string) =>
-  payloadIdentifier.startsWith('profile.') ||
-  payloadIdentifier.startsWith('mailbox-profile.');
-
-// An account's first Mail Profile record waits until every Trusted Device declared the capability,
-// so no device still running an older client ever sees one Profile's connections in another's.
-async function fencesMailProfiles(
-  ctx: MutationCtx,
-  account: AuthenticatedProductAccount,
-): Promise<boolean> {
-  if (await mailProfilesEnabled(ctx, account)) {
-    return false;
-  }
-  const devices = ctx.db
-    .query('trustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q.eq('productAccountId', account.productAccountId),
-    );
-  for await (const device of devices) {
-    if (!capable(device.mailProfileCapabilityVersion)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Whether a transaction touches Mail Profile records, which need the writer's capability and, for an
-// account's first, every Trusted Device's.
-async function admitMailProfileWrites(
-  ctx: MutationCtx,
-  account: AuthenticatedProductAccount,
-  {
-    identifiers,
-    presented,
-  }: Readonly<{
-    identifiers: readonly string[];
-    presented: number | undefined;
-  }>,
-): Promise<boolean> {
-  if (!identifiers.some(isMailProfileRecord)) {
-    return false;
-  }
-  if (!capable(presented) || (await fencesMailProfiles(ctx, account))) {
-    throwMailProfilesUpgradeRequired();
-  }
-  return true;
-}
-
-async function mailProfilesEnabled(
-  ctx: QueryCtx | MutationCtx,
-  account: AuthenticatedProductAccount,
-): Promise<boolean> {
-  if (account.mailProfilesEnabledAt !== undefined) {
-    return true;
-  }
-  for (const prefix of ['profile.', 'mailbox-profile.']) {
-    const record = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .gte('payloadIdentifier', prefix)
-          // '/' follows '.', so the range holds exactly the identifiers with this prefix.
-          .lt('payloadIdentifier', `${prefix.slice(0, -1)}/`),
-      )
-      .first();
-    if (record !== null) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Records an earlier release wrote without setting the marker enable the fence too.
-async function enablesEarlierMailProfiles(
-  ctx: MutationCtx,
-  account: AuthenticatedProductAccount,
-): Promise<boolean> {
-  if (
-    account.mailProfilesEnabledAt !== undefined ||
-    !(await mailProfilesEnabled(ctx, account))
-  ) {
-    return false;
-  }
-  await enableMailProfiles(ctx, account);
-  return true;
-}
-
-// From the account's first committed Mail Profile record on, only capable clients sync.
-async function enableMailProfiles(
-  ctx: MutationCtx,
-  account: AuthenticatedProductAccount,
-): Promise<void> {
-  if (account.mailProfilesEnabledAt === undefined) {
-    await ctx.db.patch('productAccounts', account.productAccountId, {
-      mailProfilesEnabledAt: Date.now(),
-    });
   }
 }
 

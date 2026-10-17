@@ -55,7 +55,7 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 #### Schema and deployed clients
 
-- A capability gate such as `productSync.requireMailProfileCapability` relying only
+- A capability gate such as `productSyncMailProfiles.requireMailProfileCapability` relying only
   on an activation marker that new writes set, while earlier releases could store
   the protected records without it. Backfill or detect those account-scoped records
   before admitting incompatible payload calls, including reads before any upgraded

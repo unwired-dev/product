@@ -399,21 +399,6 @@ export function createMailProfileProgram<E>(
     }
   });
 
-  const requireEmpty = Effect.fnUntraced(function* (
-    state: ProfileState,
-    id: string,
-    readable: boolean,
-  ) {
-    if (!readable) {
-      return yield* failWith('unavailable');
-    }
-    const owned = ownership(state, id, yield* descriptorEpochs);
-    if (owned !== 'empty') {
-      return yield* failWith(
-        owned === 'live' ? 'profile-in-use' : 'unavailable',
-      );
-    }
-  });
   // This Profile's live or unknown ownership cancels removal even when unrelated records cannot
   // open. Without that ownership, unreadable records keep removal pending.
   const pendingRemoval = Effect.fnUntraced(function* (
@@ -528,7 +513,12 @@ export function createMailProfileProgram<E>(
     if (profile === undefined || isRemoved(profile)) {
       return;
     }
-    yield* requireEmpty(state, id, readable);
+    const owned = ownership(state, id, yield* descriptorEpochs);
+    if (owned !== 'empty') {
+      return yield* failWith(
+        owned === 'live' ? 'profile-in-use' : 'unavailable',
+      );
+    }
     yield* commit(state, [
       {
         record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },
