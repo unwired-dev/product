@@ -4,6 +4,7 @@ import * as Schema from 'effect/Schema';
 
 import { readingProfile } from '../src/mailboxes.ts';
 import {
+  createRegistration,
   defaultProfile,
   mailboxesOf,
   profilesOf,
@@ -59,6 +60,23 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
     throw new Error('No ownership');
   }
   return ownership;
+};
+// Another device's Profile whose ciphertext this device cannot open.
+const unreadableProfile = (sync: ReturnType<typeof setup>['sync']) => {
+  storeProfile(sync, account, {
+    kind: 'profile',
+    id: 'unrelated',
+    name: 'Other',
+    version: 1,
+  });
+  const unreadable = [...sync.sealedProfiles.entries()].find(
+    ([, { record }]) => record.kind === 'profile' && record.id === 'unrelated',
+  );
+  if (unreadable === undefined) {
+    throw new Error('No unrelated Profile record');
+  }
+  sync.sealedProfiles.delete(unreadable[0]);
+  return unreadable[1].identifier;
 };
 const owners = (snapshot: unknown) =>
   mailboxesOf(decode(snapshot)).map(({ profile }) => profile);
@@ -725,5 +743,219 @@ describe('mail profiles', () => {
       { id: work, name: 'Office' },
       { id: home, name: 'Home', pending: true },
     ]);
+  });
+});
+
+describe('mail profile capability fence', () => {
+  // The account's other Trusted Device, still running a client from before Mail Profiles.
+  const withOlderClient = async () => {
+    const context = await connected();
+    const older: {
+      installation: string;
+      registeredAt: number;
+      epoch: number;
+      mailProfiles?: number;
+    } = {
+      installation: 'older-client',
+      registeredAt: 0,
+      epoch: 1,
+    };
+    context.keysOf().devices.set('device-older-client', older);
+    return { ...context, older, store: createRegistration(context.vault) };
+  };
+
+  it('keeps Profiles unpublished until every Trusted Device can keep them apart, and reports each refusal', async () => {
+    expect.hasAssertions();
+    const { store, older, sync, mailboxId, keysOf } = await withOlderClient();
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+
+    await store.createProfile('Work');
+    expect(store.getSnapshot().profileFailure).toBe('upgrade-required');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
+
+    // Once the other device upgrades, the Profile publishes and the store reports later refusals
+    // by their reason.
+    older.mailProfiles = 1;
+    await store.createProfile('Work');
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    const { id } = profileNamed(store.getSnapshot().snapshot, 'Work');
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work' },
+    ]);
+    await store.moveMailbox(await mailboxId(), id);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([id]);
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBe('profile-in-use');
+    // A returning older build and a newly joined incompatible device do not block undo.
+    older.mailProfiles = 0;
+    keysOf().devices.set('device-new-client', {
+      installation: 'new-client',
+      registeredAt: 0,
+      epoch: 1,
+    });
+    await store.moveMailbox(await mailboxId(), defaultProfile);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([
+      defaultProfile,
+    ]);
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('retains fenced removal through relaunch and a delayed first publication', async () => {
+    expect.hasAssertions();
+    const { flow, vault, keysOf, relaunch, sync } = await connected();
+    const { flow: interrupted, publish } = delayPublication(vault);
+    const { id } = profileNamed(
+      await interrupted.createProfile('Work'),
+      'Work',
+    );
+    const older = { installation: 'older-client', registeredAt: 0, epoch: 1 };
+    keysOf().devices.set('device-older-client', older);
+
+    await flow.removeProfile(id);
+    const reopened = relaunch();
+    expect(listed(await reopened.restore())).toStrictEqual([]);
+    keysOf().devices.delete('device-older-client');
+    await publish();
+    expect(listed(await reopened.refreshPrivateSync())).toStrictEqual([]);
+    expect(listed(await reopened.refreshPrivateSync())).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      version: 2,
+    });
+  });
+
+  it('keeps a raced first publication pending without logging an expected fence as an error', async () => {
+    expect.hasAssertions();
+    const { store, older, sync } = await withOlderClient();
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    older.mailProfiles = 1;
+    sync.beforePut = () => {
+      older.mailProfiles = 0;
+      sync.beforePut = undefined;
+    };
+    await store.createProfile('Work');
+    expect(profileNamed(store.getSnapshot().snapshot, 'Work').pending).toBe(
+      true,
+    );
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  const latePublicationAfterRemoval = async () => {
+    const context = await connected();
+    const { flow, vault, keysOf, sync, connection } = context;
+    const { flow: interrupted, publish } = delayPublication(vault);
+    const { id } = profileNamed(
+      await interrupted.createProfile('Work'),
+      'Work',
+    );
+    keysOf().devices.set('device-older-client', {
+      installation: 'older-client',
+      registeredAt: 0,
+      epoch: 1,
+    });
+    await flow.removeProfile(id);
+    keysOf().devices.delete('device-older-client');
+    await publish();
+    const { epoch } = connection();
+    if (epoch === undefined) {
+      throw new Error('No connection epoch');
+    }
+    // Another device's move also rewrites the delayed Profile in the same transaction.
+    storeProfile(sync, account, {
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+    return { ...context, id, epoch };
+  };
+
+  it('cancels a fenced removal for a live connection despite unrelated unreadable records', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, record, records, mailboxId, put, id, epoch } =
+      await latePublicationAfterRemoval();
+    storeProfile(sync, account, {
+      kind: 'mailbox',
+      record: record(),
+      epoch,
+      profile: id,
+      version: 1,
+    });
+    const unrelated = unreadableProfile(sync);
+    put(undefined, 'other-subject');
+    const reopened = relaunch();
+    const refreshed = await reopened.refreshPrivateSync();
+    expect(owners(refreshed)).toStrictEqual([id]);
+    expect(listed(refreshed)).toStrictEqual([{ id, name: 'Work' }]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+    // The cancelled intent must not delete the Profile when the connection later leaves it.
+    await reopened.moveMailbox(await mailboxId(), defaultProfile);
+    records().delete(unrelated);
+    records().delete(record('other-subject'));
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Work' },
+    ]);
+  });
+
+  it('cancels a fenced removal when a delayed Profile owns an unknown connection', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, id, epoch } = await latePublicationAfterRemoval();
+    storeProfile(sync, account, {
+      kind: 'mailbox',
+      record: 'mailbox.remote-unknown',
+      epoch,
+      profile: id,
+      version: 1,
+    });
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Work' },
+    ]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+  });
+
+  it('keeps a fenced removal while unrelated records cannot be read, then removes the Profile', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, put, records, record, id } =
+      await latePublicationAfterRemoval();
+    // Another connection's description that this device cannot open says nothing about this Profile.
+    put(undefined, 'other-subject');
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([]);
+    records().delete(record('other-subject'));
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      version: 3,
+    });
+  });
+
+  it('drops a Profile named offline that the fence never let publish', async () => {
+    expect.hasAssertions();
+    const { store, sync } = await withOlderClient();
+    sync.offline = true;
+    await store.createProfile('Work');
+    const { id } = profileNamed(store.getSnapshot().snapshot, 'Work');
+    sync.offline = false;
+
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
   });
 });

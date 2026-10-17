@@ -1,3 +1,4 @@
+import { mailProfileCapabilityVersion } from '@private-email/contracts/productSync';
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
 import * as Arr from 'effect/Array';
 import * as Option from 'effect/Option';
@@ -23,6 +24,11 @@ import {
 import { refusal, success, unavailable } from './registration-vault-state.ts';
 
 const isPayload = Schema.is(EncryptedPayload);
+const mailProfilesUpgradeRequired = 'MAIL_PROFILES_UPGRADE_REQUIRED';
+const isMailProfileRecord = (record: string) =>
+  record.startsWith('profile.') || record.startsWith('mailbox-profile.');
+const capable = (version: unknown) =>
+  Predicate.isNumber(version) && version >= mailProfileCapabilityVersion;
 // A Convex refusal with its error code, returned as the function's reply.
 const refused = (code: string): never => {
   throw Object.assign(new Error('Synthetic refusal'), { refusal: code });
@@ -166,6 +172,46 @@ export function createSyntheticSyncHandlers(
       throw unavailable();
     }
     return { sync, entry, trusted };
+  };
+  // As Convex does, an account with Mail Profile records serves payload calls only to clients that
+  // present the capability.
+  const mailProfilesEnabled = (
+    entry: ReturnType<typeof accountKeys>['entry'],
+  ) =>
+    entry.mailProfilesEnabled === true ||
+    [...entry.records.keys()].some(isMailProfileRecord);
+  const payloadAccount = ({
+    call,
+    product,
+  }: Pick<Presented, 'call' | 'product'>) => {
+    const keys = accountKeys(product);
+    if (
+      mailProfilesEnabled(keys.entry) &&
+      !capable(call.args.mailProfileCapability)
+    ) {
+      return refused(mailProfilesUpgradeRequired);
+    }
+    return keys;
+  };
+  // Whether an older client on a Trusted Device keeps the account's first Profile record out.
+  const fenced = (entry: ReturnType<typeof accountKeys>['entry']) =>
+    !mailProfilesEnabled(entry) &&
+    [...entry.devices.values()].some(
+      ({ mailProfiles }) => !capable(mailProfiles),
+    );
+  // Whether a transaction writes Mail Profile records, which need the writer's capability and, for
+  // the account's first, every Trusted Device's.
+  const admitsProfiles = (
+    entry: ReturnType<typeof accountKeys>['entry'],
+    records: readonly string[],
+    presented: unknown,
+  ) => {
+    if (!records.some(isMailProfileRecord)) {
+      return false;
+    }
+    return !capable(presented) || fenced(entry)
+      ? refused(mailProfilesUpgradeRequired)
+      : true;
   };
   // The caller's own Pending Device, unexpired unless it reads its status.
   // fallow-ignore-next-line complexity -- Mirrors Convex's Pending Device proof checks.
@@ -355,7 +401,7 @@ export function createSyntheticSyncHandlers(
       call,
       product,
     }) => {
-      const { sync, entry } = accountKeys(product);
+      const { sync, entry } = payloadAccount({ call, product });
       const options = call.args.paginationOpts;
       const cursor =
         Predicate.hasProperty(options, 'cursor') &&
@@ -385,13 +431,14 @@ export function createSyntheticSyncHandlers(
     },
     // fallow-ignore-next-line complexity -- Mirrors Convex's compare-and-set and epoch refusals.
     'productSync:putEncryptedPayloadIfUnchanged': ({ call, product }) => {
-      const { sync, entry } = accountKeys(product);
+      const { sync, entry } = payloadAccount({ call, product });
       const record = String(call.args.payloadIdentifier);
       const sealed = call.args.encryptedPayload;
       const expected = Predicate.isNumber(call.args.expectedUpdatedAt)
         ? call.args.expectedUpdatedAt
         : undefined;
-      if (!isPayload(sealed)) {
+      // Mail Profile records commit only atomically, as Convex requires.
+      if (!isPayload(sealed) || isMailProfileRecord(record)) {
         return refusal('UNAVAILABLE');
       }
       sync.beforePut?.(record);
@@ -418,7 +465,7 @@ export function createSyntheticSyncHandlers(
     // Every write commits only while each record is still at its expected revision, absent where
     // none is expected; otherwise nothing changes and the stored records are returned.
     'productSync:putEncryptedPayloadsAtomically': ({ call, product }) => {
-      const { sync, entry } = accountKeys(product);
+      const { sync, entry } = payloadAccount({ call, product });
       const writes = Array.isArray(call.args.writes) ? call.args.writes : [];
       const parsed = writes.flatMap((write: unknown) =>
         Predicate.hasProperty(write, 'payloadIdentifier') &&
@@ -448,6 +495,11 @@ export function createSyntheticSyncHandlers(
       ) {
         return refusal('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
       }
+      const writesProfiles = admitsProfiles(
+        entry,
+        parsed.map(({ record }) => record),
+        call.args.mailProfileCapability,
+      );
       const existing = parsed.map(({ record }) => entry.records.get(record));
       if (
         parsed.some(
@@ -469,11 +521,31 @@ export function createSyntheticSyncHandlers(
         entry.records.set(record, stored);
         return stored;
       });
+      if (writesProfiles) {
+        entry.mailProfilesEnabled = true;
+      }
       return success({ committed: true, payloads });
+    },
+    // Records the caller's client capability; fenced while an older client keeps Profiles out.
+    'productSync:declareMailProfileCapability': ({ call, product }) => {
+      const { entry, trusted: caller } = accountKeys(product);
+      const version = call.args.capabilityVersion;
+      if (!Predicate.isNumber(version)) {
+        return refusal('UNAVAILABLE');
+      }
+      if (mailProfilesEnabled(entry) && !capable(version)) {
+        return refusal(mailProfilesUpgradeRequired);
+      }
+      caller.mailProfiles = version;
+      // As Convex does, records an earlier release wrote without the marker enable the fence.
+      if ([...entry.records.keys()].some(isMailProfileRecord)) {
+        entry.mailProfilesEnabled = true;
+      }
+      return success({ fenced: fenced(entry) });
     },
     // The account's recovery envelope; a missing record is null.
     'productSync:getEncryptedPayloadForTrustedDevice': ({ call, product }) => {
-      const { sync, entry } = accountKeys(product);
+      const { sync, entry } = payloadAccount({ call, product });
       const identifier = String(call.args.payloadIdentifier);
       if (identifier !== 'product-account-recovery-v1') {
         return success(entry.records.get(identifier) ?? null);

@@ -133,6 +133,7 @@ export async function requireProductAccountNotDeleted(
 
 export type AuthenticatedProductAccount = Readonly<{
   deviceCredentialEnforcementActivatedAt: number | undefined;
+  mailProfilesEnabledAt: number | undefined;
   productAccountId: Id<'productAccounts'>;
   productSyncKeyEpoch: number | undefined;
   productSyncMaterialInitializedAt: number | undefined;
@@ -253,6 +254,7 @@ export async function requireProductAccount(
   return {
     deviceCredentialEnforcementActivatedAt:
       account.deviceCredentialEnforcementActivatedAt,
+    mailProfilesEnabledAt: account.mailProfilesEnabledAt,
     productAccountId: account._id,
     productSyncKeyEpoch: account.productSyncKeyEpoch,
     productSyncMaterialInitializedAt: account.productSyncMaterialInitializedAt,

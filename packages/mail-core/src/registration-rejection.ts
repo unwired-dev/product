@@ -25,6 +25,8 @@ const CodeSchema = Schema.Literals([
   'profile-changed',
   // A Mail Profile still owns a Mailbox Connection.
   'profile-in-use',
+  // A Trusted Device's older client cannot keep Mail Profiles apart yet; it has to upgrade.
+  'upgrade-required',
   // An IMAP or SMTP server refused the login, or offered no verified TLS.
   'imap-refused',
   'imap-insecure',

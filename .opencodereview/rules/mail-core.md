@@ -544,6 +544,24 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Exercise omission separately from an unreadable listed record. Otherwise
   removal can tombstone a Profile that still owns live mail and project it into
   Default.
+- `mail-profiles.ts.remove` forgetting an unpublished Profile after a capability
+  fence refuses its tombstone. An unanswered first publication can still commit
+  after the fence lifts. Retain durable pending removal, keep it hidden through
+  relaunch and authenticated reconciliation, and publish its tombstone afterwards;
+  otherwise a successful removal resurrects the Profile.
+- `mail-profiles.ts.synchronize` treating pending removal as a tombstone or
+  retrying it without the explicit removal's complete emptiness check. A delayed
+  first publication can gain live or unknown ownership before retry. Cancel that
+  stale intent, restore the Profile and preserve ownership; otherwise it deletes
+  populated state or exposes another Profile's connection through Default.
+  Distinguish that ownership from unrelated unreadable records and transient
+  descriptor-listing failures: those failures alone keep removal pending without
+  publishing until reads recover. Observed live or unknown ownership must still
+  cancel it when unrelated Profile records or mailbox descriptors cannot open.
+  Preserve partial descriptor evidence for this cancellation while requiring
+  complete readability before publication, or it can delete the
+  restored Profile after its connection later leaves. Cancelling on a read
+  failure alone can resurrect the removed Profile after a delayed publication.
 - `mail-profiles.ts.put` or `commit` reporting CAS success from matching
   ciphertext before the stored winner opens under its authenticated envelope
   and record identity. Preserve unknown winners as unavailable for online

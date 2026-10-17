@@ -102,6 +102,17 @@ const imapFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ImapFailureSchema }),
 );
 
+const ProfileFailureSchema = Schema.Literals([
+  'upgrade-required',
+  'profile-in-use',
+  'profile-changed',
+]);
+// Why a Mail Profile change was refused; nothing changed.
+export type ProfileFailure = typeof ProfileFailureSchema.Type | 'failed';
+const profileFailureCode = Schema.decodeUnknownOption(
+  Schema.Struct({ code: ProfileFailureSchema }),
+);
+
 export type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
@@ -112,6 +123,7 @@ export type RegistrationState = Readonly<{
   linkFailure?: LinkFailure;
   // Why an IMAP mailbox could not be added beside others; nothing changed.
   imapFailure?: ImapFailure;
+  profileFailure?: ProfileFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -140,6 +152,18 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   snapshot,
   busy: false,
   failed: false,
+});
+
+// A refused Mail Profile change leaves the snapshot as it was, with the reason.
+const profileRefusal = (
+  snapshot: RegistrationSnapshot,
+  cause: unknown,
+): RegistrationState => ({
+  ...settled(snapshot),
+  profileFailure: Option.match(profileFailureCode(cause), {
+    onNone: () => 'failed' as const,
+    onSome: ({ code }) => code,
+  }),
 });
 
 class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
@@ -184,6 +208,13 @@ class LinkRefused extends Schema.TaggedError<LinkRefused>()('LinkRefused', {
   failure: LinkFailureSchema,
 }) {}
 
+class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
+  'ProfileRefused',
+  {
+    failure: ProfileFailureSchema,
+  },
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -201,6 +232,10 @@ const registrationError = (cause: unknown) => {
   }
   if (isEnrollmentCodeInvalid(cause)) {
     return new EnrollmentCodeInvalid();
+  }
+  const profile = profileFailureCode(cause);
+  if (Option.isSome(profile)) {
+    return new ProfileRefused({ failure: profile.value.code });
   }
   return isRecoveryKeyMismatch(cause)
     ? new RecoveryKeyMismatch()
@@ -291,6 +326,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
       | LinkRefused
+      | ProfileRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -387,6 +423,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 linkFailure: failure,
+              })),
+            ProfileRefused: ({ failure }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                profileFailure: failure,
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -541,13 +582,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
     removeMailbox: (connection: string) =>
       execute(request(native.removeMailbox(connection))),
     createProfile: (name: string) =>
-      execute(request(native.createProfile(name))),
+      execute(request(native.createProfile(name)), profileRefusal),
     renameProfile: (profile: string, name: string) =>
-      execute(request(native.renameProfile(profile, name))),
+      execute(request(native.renameProfile(profile, name)), profileRefusal),
     removeProfile: (profile: string) =>
-      execute(request(native.removeProfile(profile))),
+      execute(request(native.removeProfile(profile)), profileRefusal),
     moveMailbox: (connection: string, profile: string) =>
-      execute(request(native.moveMailbox(connection, profile))),
+      execute(request(native.moveMailbox(connection, profile)), profileRefusal),
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(

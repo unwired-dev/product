@@ -62,6 +62,8 @@ interface TrustedDevice {
   key?: string;
   epoch: number;
   envelope?: { keyEpoch: number; ciphertext: string };
+  // The Mail Profile capability its client declared; an older client declares none.
+  mailProfiles?: number;
 }
 // A Pending Device: its request's keys, a Trusted Device's approval, and the key epoch a matching
 // Recovery Key proof authorized.
@@ -96,6 +98,8 @@ export function createSyntheticProductSyncBackend() {
         // Activated removals with their epochs, and the one whose Recovery Key is current.
         proposals: Map<string, { keyEpoch: number; target: string }>;
         recoveryProposal?: string;
+        // Set by the account's first committed Mail Profile record.
+        mailProfilesEnabled?: true;
       }
     >(),
     // What each recovery envelope seals, for which account, under which Recovery Key.

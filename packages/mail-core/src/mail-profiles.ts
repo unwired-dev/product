@@ -1,7 +1,6 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
-import type { RegistrationRejected } from './registration-rejection.ts';
 import type { StoredPayload } from './registration-replies.ts';
 import type {
   NativeRegistrationVault,
@@ -11,6 +10,7 @@ import type {
 } from './registration-vault.ts';
 
 import { failWith, nativeSteps } from './registration-native.ts';
+import { RegistrationRejected } from './registration-rejection.ts';
 import { EncryptedPayload } from './registration-replies.ts';
 import { defaultProfile, unavailableProfile } from './registration-snapshot.ts';
 import {
@@ -112,8 +112,8 @@ export const profileList = (value: RegistrationRecord) => {
   const state = value.profiles;
   const profiles = (
     state === undefined || state === 'unreadable' ? [] : state.profiles
-  ).flatMap(({ id, name, pending }) => {
-    const shown = pending ?? name;
+  ).flatMap(({ id, name, pending, pendingRemoval }) => {
+    const shown = pendingRemoval === true ? undefined : (pending ?? name);
     return shown === undefined
       ? []
       : [
@@ -134,14 +134,18 @@ const readProfile = (
   { id, name, version }: Extract<ProfileRecord, { kind: 'profile' }>,
   updatedAt: number,
 ): Profile => {
-  const pending =
-    name === undefined || known?.pending === name ? undefined : known?.pending;
+  const stored = { id, version, updatedAt };
+  if (name === undefined) {
+    return stored;
+  }
+  const pending = known?.pending === name ? undefined : known?.pending;
   return {
-    id,
-    ...(name === undefined ? {} : { name }),
-    version,
-    updatedAt,
+    ...stored,
+    name,
     ...(pending === undefined ? {} : { pending }),
+    ...(known?.pendingRemoval === true
+      ? { pendingRemoval: true as const }
+      : {}),
   };
 };
 
@@ -243,6 +247,22 @@ const wrote = (
   );
 };
 
+// Whether the Profile owns a live connection, one that may still be live, or none.
+const ownership = (
+  state: ProfileState,
+  id: string,
+  epochs: ReadonlyMap<string, string | null>,
+) => {
+  const owned = state.owners.filter((owner) => owner.profile === id);
+  // An owned connection whose descriptor Product Sync no longer lists may still be live.
+  if (owned.some((owner) => !epochs.has(owner.record))) {
+    return 'unknown';
+  }
+  return owned.some((owner) => epochs.get(owner.record) === owner.epoch)
+    ? 'live'
+    : 'empty';
+};
+
 // Mail Profile definitions and connection ownership in End-to-End Encrypted Product Sync. Native
 // code seals each record under an identifier bound to its Profile or connection, so Convex learns
 // neither names nor ownership. Profile writes compare and set; a device that loses applies its
@@ -275,8 +295,15 @@ export function createMailProfileProgram<E>(
       Readonly<{ committed: boolean; payloads: readonly Stored[] }>,
       E
     >;
-    // Every mailbox descriptor's epoch by record; null once removed.
-    descriptorEpochs: Effect.Effect<ReadonlyMap<string, string | null>, E>;
+    // Readable mailbox descriptors' epochs by record; null once removed. Unreadable records
+    // prevent publication without discarding evidence that cancels a stale removal.
+    descriptorEpochs: Effect.Effect<
+      Readonly<{
+        epochs: ReadonlyMap<string, string | null>;
+        readable: boolean;
+      }>,
+      E
+    >;
     freshId: Effect.Effect<string>;
   }>,
 ) {
@@ -379,19 +406,63 @@ export function createMailProfileProgram<E>(
     }
   });
 
+  // This Profile's live or unknown ownership cancels removal even when unrelated records cannot
+  // open. Without that ownership, unreadable records keep removal pending.
+  const pendingRemoval = Effect.fnUntraced(function* (
+    state: ProfileState,
+    id: string,
+    readable: boolean,
+  ) {
+    return yield* descriptorEpochs.pipe(
+      Effect.map(({ epochs, readable: descriptorsReadable }) => {
+        if (ownership(state, id, epochs) !== 'empty') {
+          return 'cancel' as const;
+        }
+        return readable && descriptorsReadable
+          ? ('publish' as const)
+          : ('retry' as const);
+      }),
+      Effect.catchIf(
+        (error) =>
+          error instanceof RegistrationRejected && error.code === 'unavailable',
+        () => Effect.succeed('retry' as const),
+      ),
+    );
+  });
+
   // Reads every Profile record and publishes the names this device chose. A name another device
   // overwrote meanwhile is published again on the next pass.
   const synchronize = Effect.gen(function* () {
-    let { state } = yield* refreshed(yield* known);
-    for (const { id, pending, version, updatedAt } of state.profiles) {
-      if (pending !== undefined) {
+    const learned = yield* refreshed(yield* known);
+    let { state } = learned;
+    for (const profile of state.profiles) {
+      const { id, pending, version, updatedAt } = profile;
+      const removal =
+        profile.pendingRemoval === true
+          ? yield* pendingRemoval(state, id, learned.readable)
+          : undefined;
+      // A later move invalidates the empty-Profile removal; retain its ownership instead.
+      if (removal === 'cancel') {
+        const { pendingRemoval: _, ...restored } = profile;
+        const next = {
+          ...state,
+          profiles: state.profiles.map((item) =>
+            item.id === id ? restored : item,
+          ),
+        };
+        yield* save(state, next);
+        state = next;
+      } else if (
+        removal !== 'retry' &&
+        (pending !== undefined || removal === 'publish')
+      ) {
         ({ state } = yield* put(state, [
           {
             record: {
               kind: 'profile',
               id,
               version: (version ?? 0) + 1,
-              name: pending,
+              ...(removal === 'publish' ? {} : { name: pending }),
             },
             expectedUpdatedAt: updatedAt,
           },
@@ -418,7 +489,11 @@ export function createMailProfileProgram<E>(
     const chosen = yield* named(name);
     const state = yield* known;
     const profile = state.profiles.find((item) => item.id === id);
-    if (profile === undefined || isRemoved(profile)) {
+    if (
+      profile === undefined ||
+      isRemoved(profile) ||
+      profile.pendingRemoval === true
+    ) {
       return yield* failWith('unavailable');
     }
     const { pending: _, ...stored } = profile;
@@ -447,21 +522,38 @@ export function createMailProfileProgram<E>(
     if (profile === undefined || isRemoved(profile)) {
       return;
     }
-    const epochs = yield* descriptorEpochs;
-    const owned = state.owners.filter((owner) => owner.profile === id);
-    // An owned connection whose descriptor Product Sync no longer lists may still be live.
-    if (owned.some((owner) => !epochs.has(owner.record))) {
+    const described = yield* descriptorEpochs;
+    if (!described.readable) {
       return yield* failWith('unavailable');
     }
-    if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
-      return yield* failWith('profile-in-use');
+    const owned = ownership(state, id, described.epochs);
+    if (owned !== 'empty') {
+      return yield* failWith(
+        owned === 'live' ? 'profile-in-use' : 'unavailable',
+      );
     }
     yield* commit(state, [
       {
         record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },
         expectedUpdatedAt: profile.updatedAt,
       },
-    ]);
+    ]).pipe(
+      // A delayed first publication can still arrive after the fence lifts. Keep its removal
+      // durable until synchronization can publish the tombstone.
+      Effect.catchIf(
+        (error) =>
+          error instanceof RegistrationRejected &&
+          error.code === 'upgrade-required' &&
+          profile.version === undefined,
+        () =>
+          save(state, {
+            ...state,
+            profiles: state.profiles.map((item) =>
+              item === profile ? { id, pendingRemoval: true } : item,
+            ),
+          }),
+      ),
+    );
   });
 
   // Moves the current incarnation of one of this device's connections to a published Profile, or

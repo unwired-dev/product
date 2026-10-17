@@ -478,6 +478,36 @@ The remaining #758–#759 migrations authorize no new native application subsyst
 
 ## Synchronized Mail Profiles
 
+Issue #1036 adds content-blind client fencing. Each Trusted Device declares its
+capability version; the first atomic `profile.` or `mailbox-profile.` transaction
+checks the complete trusted roster and activates the account fence in that same
+mutation. Afterwards every payload read and write requires the request's capability.
+For records from an earlier release without the activation marker, payload handlers
+check bounded, account-scoped index ranges for either prefix before admitting an
+incompatible request. The next capable declaration persists the marker. Detection
+also bypasses first-publication roster admission, so capable clients can undo an
+existing Profile move before declaring again. The round-4 #1036 OCR panel chose
+immediate enforcement over waiting for a capable sync, 3–0, with
+`claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`, read-only at high reasoning.
+Native Draft transport and shared TypeScript transport both present it. Operational
+delivery claims and wakeups remain account-wide and Profile-blind under #921.
+
+An unpublished Profile removed while the first-record fence is active retains
+`pendingRemoval` in the native registration's opaque Profile-state JSON. Shared
+TypeScript hides that identity immediately, preserves the intent when learning a
+delayed publication, and retries its tombstone after the fence lifts. Confirmed
+tombstones clear the pending intent. Native stores this additive field unchanged,
+so no native Codable shape changes. The #1036 OCR decision panel chose this durable
+intent over accepting resurrection of an empty Profile, 3–0, with
+`claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`, all read-only at high reasoning.
+Retrying that removal uses the same complete ownership and descriptor emptiness
+check as explicit removal. Pending intent is not a confirmed tombstone and cannot
+project ownership into Default. If a delayed publication gains live or unknown
+ownership before retry, cancel the intent and restore the Profile instead of
+deleting populated state. The #1036 thermo-nuclear review panel chose cancellation
+over retaining a hidden Profile and quarantining its connections, 2–1:
+`claude-fable-5-1` and `gpt-6.1-sol` chose cancellation; `gpt-6-astra` chose quarantine.
+
 Issue #920 adds independently updated `profile.` definitions and `mailbox-profile.`
 ownership records without changing the mailbox descriptor format. Native derives
 each opaque identifier with the existing first-epoch HMAC: the Profile identity

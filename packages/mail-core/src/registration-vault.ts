@@ -72,6 +72,8 @@ export const ProfileStateSchema = Schema.Struct({
       updatedAt: Schema.optionalKey(Schema.Finite),
       // A name this device chose that Product Sync does not hold yet.
       pending: Schema.optionalKey(Schema.NonEmptyString),
+      // A fenced removal retained until its tombstone can publish.
+      pendingRemoval: Schema.optionalKey(Schema.Literal(true)),
     }),
   ),
   owners: Schema.Array(

@@ -129,6 +129,12 @@ registration store already offers these operations:
   and reports `profile-changed`. A name for the target chosen on this device stays
   pending and is published afterwards. The connection's identity, authorization,
   cache, Drafts and Outbox stay in place.
+- **Older clients** are fenced out before the first Profile publishes. Creating a Profile
+  is refused with an upgrade-required reason while another Trusted Device runs a client
+  that can't keep Profiles apart. Once Profiles exist, such clients can't use Private
+  Sync until they upgrade; see [Private Sync](private-product-sync.md). The store reports
+  each refused Profile change by its reason: `upgrade-required`, `profile-in-use` or
+  `profile-changed`.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
   and, with `profile-in-use`, while the Profile owns a live connection. Unreadable
   ownership or connection descriptions leave removal unavailable, as does a missing

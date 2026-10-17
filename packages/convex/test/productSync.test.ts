@@ -5,6 +5,10 @@ import type {
   EncryptedProductSyncPayloadPage,
 } from '@private-email/contracts/productSync';
 
+import {
+  mailProfileCapabilityVersion,
+  mailProfilesUpgradeRequiredErrorCode,
+} from '@private-email/contracts/productSync';
 import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
@@ -1564,5 +1568,205 @@ describe('productSync initialization', () => {
         encryptedPayload: recoveryEnvelope,
       }),
     ).rejects.toThrow('Reconnect this Trusted Device to continue.');
+  });
+});
+
+describe('productSync Mail Profile capability fence', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one side of the fence end to end. */
+  const upgradeRequired = {
+    data: { code: mailProfilesUpgradeRequiredErrorCode },
+  };
+  const capability = { mailProfileCapability: mailProfileCapabilityVersion };
+  // A second Trusted Device of the account, running a client that may predate Mail Profiles.
+  async function withSecondDevice() {
+    const first = await connectAppleDevice();
+    const second = await connectTrusted(first.t, first.asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const writeProfile = (
+      trustedDeviceId: Id<'trustedDevices'>,
+      payloadIdentifier: string,
+      presented: Readonly<{ mailProfileCapability?: number }> = capability,
+    ) =>
+      first.asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        ...presented,
+        checks: [],
+        deletes: [],
+        trustedDeviceId,
+        writes: [{ encryptedPayload, payloadIdentifier }],
+      });
+    const declare = (trustedDeviceId: Id<'trustedDevices'>) =>
+      first.asUser.mutation(api.productSync.declareMailProfileCapability, {
+        capabilityVersion: mailProfileCapabilityVersion,
+        trustedDeviceId,
+      });
+    return { ...first, second, writeProfile, declare };
+  }
+
+  it('keeps the first Mail Profile record out until every Trusted Device declared the capability', async () => {
+    expect.hasAssertions();
+    const { asUser, connect, second, writeProfile, declare } =
+      await withSecondDevice();
+
+    await expect(declare(connect.trustedDeviceId)).resolves.toStrictEqual({
+      fenced: true,
+    });
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'profile.work'),
+    ).rejects.toMatchObject(upgradeRequired);
+    // A capable writer still needs the capability itself, and a single write never carries one.
+    await declare(second.trustedDeviceId);
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'profile.work', {}),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        ...capability,
+        encryptedPayload,
+        payloadIdentifier: 'mailbox-profile.gmail',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Mail Profile records require an atomic write');
+    // Until then the older client kept syncing; nothing was stored.
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifierPrefix: 'profile.',
+        paginationOpts: firstPage,
+        trustedDeviceId: second.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ page: [] });
+
+    await expect(declare(connect.trustedDeviceId)).resolves.toStrictEqual({
+      fenced: false,
+    });
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'profile.work'),
+    ).resolves.toMatchObject({ committed: true });
+  });
+
+  it.each(['profile.work', 'mailbox-profile.gmail'])(
+    'fences pre-existing %s before any capable device declares',
+    async (payloadIdentifier) => {
+      expect.hasAssertions();
+      const { t, asUser, connect, second, declare } = await withSecondDevice();
+      // Records an earlier release wrote without enabling the fence.
+      await t.run(async (ctx) => {
+        await ctx.db.insert('encryptedProductSyncPayloads', {
+          encryptedPayload,
+          payloadIdentifier,
+          productAccountId: connect.productAccountId,
+          trustedDeviceId: connect.trustedDeviceId,
+          updatedAt: 1,
+          writtenAt: 1,
+        });
+      });
+      const olderList = () =>
+        asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+          paginationOpts: firstPage,
+          trustedDeviceId: second.trustedDeviceId,
+        });
+
+      await expect(olderList()).rejects.toMatchObject(upgradeRequired);
+      await expect(
+        putPayload(asUser, second.trustedDeviceId, 'mailbox.gmail'),
+      ).rejects.toMatchObject(upgradeRequired);
+      await expect(declare(connect.trustedDeviceId)).resolves.toStrictEqual({
+        fenced: false,
+      });
+      await expect(olderList()).rejects.toMatchObject(upgradeRequired);
+    },
+  );
+
+  it('reads a bounded Trusted Device roster before the first Mail Profile record', async () => {
+    expect.hasAssertions();
+    const { t, connect, writeProfile, declare } = await withSecondDevice();
+    // An oversized roster that earlier backends could leave behind.
+    await t.run(async (ctx) => {
+      // With the two connected devices, one more than the 100 a Product Account may hold.
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `roster-${index}`,
+          lastSeenAt: 1,
+          mailProfileCapabilityVersion,
+          platform: 'ios',
+          productAccountId: connect.productAccountId,
+          registeredAt: 1,
+        });
+      }
+    });
+
+    await expect(declare(connect.trustedDeviceId)).rejects.toThrow(
+      'Trusted Device limit exceeded',
+    );
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'profile.work'),
+    ).rejects.toThrow('Trusted Device limit exceeded');
+  });
+
+  it('refuses every Product Sync payload call without the capability once the account holds Mail Profile records', async () => {
+    expect.hasAssertions();
+    const { t, asUser, connect, second, writeProfile, declare } =
+      await withSecondDevice();
+    await declare(connect.trustedDeviceId);
+    await declare(second.trustedDeviceId);
+    await writeProfile(connect.trustedDeviceId, 'profile.work');
+    // A device that joins later, or returns with an older client, presents no capability.
+    const joined = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
+    const proof = { trustedDeviceId: joined.trustedDeviceId };
+
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        ...proof,
+        paginationOpts: firstPage,
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...proof,
+        payloadIdentifier: 'profile.work',
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        ...proof,
+        payloadIdentifiers: ['profile.work'],
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      putPayload(asUser, second.trustedDeviceId, 'mailbox.gmail'),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      writeProfile(second.trustedDeviceId, 'profile.home', {}),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        ...proof,
+        mailProfileCapability: 0,
+        paginationOpts: firstPage,
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.mutation(api.productSync.declareMailProfileCapability, {
+        ...proof,
+        capabilityVersion: 0,
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+
+    // Upgraded clients keep reading, and undoing a move needs no other device to upgrade first.
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        ...proof,
+        ...capability,
+        payloadIdentifierPrefix: 'profile.',
+        paginationOpts: firstPage,
+      }),
+    ).resolves.toMatchObject({ page: [{ payloadIdentifier: 'profile.work' }] });
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'mailbox-profile.gmail'),
+    ).resolves.toMatchObject({ committed: true });
   });
 });

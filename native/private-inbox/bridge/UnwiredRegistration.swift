@@ -1843,8 +1843,10 @@ extension UnwiredRegistration {
   // Native Draft sync's Product Sync calls; each carries the device proof, and Convex sees only
   // opaque payloads.
   @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
-    func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
-      RegistrationStore.proof(product)
+    // Payload calls also present the Mail Profile capability (`mailProfileCapabilityVersion` in
+    // @private-email/contracts/productSync); Convex refuses calls without it once Profiles exist.
+    func payloadProof(_ product: ProductRegistrationReceipt) -> [String: Any] {
+      RegistrationStore.proof(product).merging(["mailProfileCapability": 1]) { $1 }
     }
     func json(_ payload: EncryptedPayload) throws -> Any {
       try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
@@ -1863,7 +1865,7 @@ extension UnwiredRegistration {
           let page: Page = try await mutation(
             base: base, identity: identity,
             path: "productSync:listEncryptedPayloadsForTrustedDevice",
-            args: proof(product).merging([
+            args: payloadProof(product).merging([
               "payloadIdentifierPrefix": prefix,
               "paginationOpts": ["cursor": cursor, "numItems": 100],
             ]) { $1 },
@@ -1874,7 +1876,7 @@ extension UnwiredRegistration {
         }
       },
       put: { identity, product, identifier, payload, expectedUpdatedAt in
-        var args = proof(product)
+        var args = payloadProof(product)
         args["payloadIdentifier"] = identifier
         args["encryptedPayload"] = try json(payload)
         if let expectedUpdatedAt { args["expectedUpdatedAt"] = expectedUpdatedAt }
@@ -1885,14 +1887,14 @@ extension UnwiredRegistration {
       get: { identity, product, identifier in
         try await optionalResult(
           base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
-          args: proof(product).merging(["payloadIdentifier": identifier]) { $1 },
+          args: payloadProof(product).merging(["payloadIdentifier": identifier]) { $1 },
           function: "query")
       },
       claimDelivery: { identity, product, identifier in
         struct Response: Decodable { let claimed: Bool }
         let response: Response = try await mutation(
           base: base, identity: identity, path: "draftDelivery:claim",
-          args: proof(product).merging(["claimIdentifier": identifier]) { $1 })
+          args: RegistrationStore.proof(product).merging(["claimIdentifier": identifier]) { $1 })
         return response.claimed
       })
   }

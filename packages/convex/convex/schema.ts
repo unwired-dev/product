@@ -7,6 +7,8 @@ export default defineSchema({
     createdAt: v.number(),
     deviceCredentialEnforcementActivatedAt: v.optional(v.number()),
     lastSeenAt: v.number(),
+    // Set by the first committed Mail Profile record; from then on only capable clients sync.
+    mailProfilesEnabledAt: v.optional(v.number()),
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
     // The removal whose activation installed the current Recovery Key; absent after first setup.
@@ -95,6 +97,8 @@ export default defineSchema({
     // The installation's long-lived X25519 key that rotations seal to; bound once, never replaced.
     deviceEncryptionPublicKey: v.optional(v.string()),
     lastSeenAt: v.number(),
+    // The Mail Profile capability the device's client last declared.
+    mailProfileCapabilityVersion: v.optional(v.number()),
     platform: v.string(),
     productAccountId: v.id('productAccounts'),
     // The newest key epoch the device reported adopting.
