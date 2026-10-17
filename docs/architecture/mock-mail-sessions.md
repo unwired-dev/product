@@ -27,10 +27,15 @@ non-secret identity and device fields. Synthetic provider tokens and device
 credentials are constructed and retained natively, and recovery calls expose
 only the public verifier of the native-derived proof to the synthetic backend.
 
-`registration-enrollment` retains its native synthetic trusted device until
-[#960](https://github.com/unwired-dev/product/issues/960), because it seals a live
-HPKE approval. `registration-recovery` uses fixed native-sealed envelopes and a
-verifier for the journey's fixed Recovery Key. Backend records persist through
+`registration-enrollment` uses the TypeScript synthetic trusted device's fixed
+key ring. The mock-only relay reads the requesting device's displayed Enrollment
+Code from its run-scoped Keychain item and passes only that text to the synthetic
+layer, standing in for entry on another device. The layer seals the ring with
+HPKE PSK mode using pure JavaScript `@noble/*` dependencies; production bundles
+omit that code. Native CryptoKit opens the approval and retains the requesting
+device's private keys. The hosted Swift test opens the same byte-exact approval
+that the TypeScript test pins. `registration-recovery` uses that ring's fixed
+native-sealed envelopes and a verifier for the journey's fixed Recovery Key. Backend records persist through
 the relay's run-scoped Keychain item; mailbox mutations retain their original
 launch-only lifetime. Mocked journeys remain separate from real provider and
 native qualification under ADR 0060.

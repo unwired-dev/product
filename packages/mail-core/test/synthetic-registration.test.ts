@@ -12,6 +12,7 @@ import {
   SyntheticGoogle,
   SyntheticScenario,
   answerSyntheticRegistration,
+  sealEnrollment,
 } from '../src/testing/synthetic-registration.ts';
 
 const Message = Schema.fromJsonString(
@@ -51,6 +52,17 @@ const decoded = <S extends Schema.Top & { readonly DecodingServices: never }>(
 ) => Schema.decodeUnknownSync(Schema.fromJsonString(schema))(outcome.reply);
 const identity = { provider: 'google', subject: 'synthetic-product-subject' };
 const deviceKey = 'ZGV2aWNlLWVuY3J5cHRpb24ta2V5';
+// An approval the TypeScript layer sealed, which native CryptoKit opens in the hosted Swift suite
+// (`recoveryAndEnrollmentEnvelopesOpenOnlyForTheirAccountAndRecipient`): Curve25519 keys of 32 bytes of 1 (one-time) and 3 (encryption).
+const approvalVector = {
+  ring: '{"current":1,"keys":[{"version":1,"key":"KnLll/+hFLlv/cYU5tbSeaNGZmbnGjqNLWuv4LcLZe8="}]}',
+  oneTimeKey: 'pOCSkrZRwni5dyxWn1+puxPZBrRqtoyd+dwrRAn4ogk=',
+  deviceKey: 'Xf7dO2vUf2+ijuFdlp1bsOpTd01Ii9r53xxuASSz7yI=',
+  code: 'W65S-JAHG-7NHT-52ZB-74MF-RZQ5-B803-ZRRF-HBCM-CH52-5A1A-PTSC-BF7V-7TB5',
+  encapsulatedKey: 'zo060cy2M+x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk=',
+  ciphertext:
+    'LbIyKdbb6gpUjiVZMVlUiSKdVk9l5bY0nmGvQ+d1yYTIIsN/PxwHn79g+o0Z6DNOVU3+NOeqFUAbyCLfEP3Lmujm0DIuGNxIB2rq3qGgwT3DvcXkJx8ofSXv75v391WKseSvlYSQC9hs',
+};
 const attachment = 'attachment; filename=body.html';
 
 // One launch's relay over the run's state, as the native relay keeps it between launches.
@@ -274,6 +286,31 @@ describe('the synthetic Gmail mailbox answers as Gmail does', () => {
 
 /* oxlint-enable vitest/no-standalone-expect, vitest/require-hook */
 
+describe('the synthetic trusted device approves as CryptoKit seals', () => {
+  it('seals the approval the native suite opens', () => {
+    expect.hasAssertions();
+    const bytes = (base64: string) =>
+      Uint8Array.from(Buffer.from(base64, 'base64'));
+    const sealed = sealEnrollment({
+      ring: approvalVector.ring,
+      keyVersion: 1,
+      recipient: bytes(approvalVector.oneTimeKey),
+      code: approvalVector.code,
+      account: 'synthetic-product-account',
+      device: 'synthetic-pending-installation',
+      deviceKey: approvalVector.deviceKey,
+      ephemeral: new Uint8Array(32).fill(2),
+    });
+    expect({
+      encapsulatedKey: Buffer.from(sealed.encapsulatedKey).toString('base64'),
+      ciphertext: Buffer.from(sealed.ciphertext).toString('base64'),
+    }).toStrictEqual({
+      encapsulatedKey: approvalVector.encapsulatedKey,
+      ciphertext: approvalVector.ciphertext,
+    });
+  });
+});
+
 describe('the synthetic backend keeps its state across launches', () => {
   it('answers sign-in and connection seams with non-secret fields only', async () => {
     expect.hasAssertions();
@@ -468,6 +505,79 @@ describe('the synthetic backend keeps its state across launches', () => {
       },
       { admitted: false },
     ]);
+    await expect(
+      call('productSync:listEncryptedPayloadsForTrustedDevice', {
+        payloadIdentifierPrefix: 'mailbox.',
+      }),
+    ).resolves.toMatchObject({
+      page: [{ payloadIdentifier: 'mailbox.4522f315d883760cd42fe8fd1d8bef94' }],
+    });
+  });
+
+  it('approves a Pending Device with the code it shows and admits only the approved key', async () => {
+    /* oxlint-disable vitest/max-expects -- One enrollment spans request, approval, admission and readback. */
+    expect.hasAssertions();
+    const storage = { state: null };
+    const ask = launch('registration-enrollment', storage);
+    const connected = await ask('convex.connect', {
+      identity,
+      deviceIdentifier: 'installation',
+    });
+    expect(decoded(Receipt, connected)).toStrictEqual({
+      trustedDeviceId: 'synthetic-pending-installation',
+      pending: true,
+    });
+    const product = decoded(Schema.Unknown, connected);
+    const call = async (
+      path: string,
+      args: Readonly<Record<string, unknown>>,
+      relaunched = ask,
+    ) =>
+      decoded(
+        Exchange,
+        await relaunched('convex.call', { path, args, identity, product }),
+      ).body.value;
+    await call('productSyncEnrollment:request', {
+      enrollmentPublicKey: approvalVector.oneTimeKey,
+      deviceEncryptionPublicKey: approvalVector.deviceKey,
+    });
+    await expect(
+      call('productSyncEnrollment:status', {}),
+    ).resolves.toStrictEqual({ state: 'pending' });
+    const approved = await call('productSyncEnrollment:status', {
+      shownEnrollmentCode: approvalVector.code,
+    });
+    expect(approved).toStrictEqual({
+      state: 'approved',
+      approval: {
+        keyVersion: 1,
+        encapsulatedKeyBase64: expect.any(String),
+        ciphertextBase64: expect.any(String),
+      },
+    });
+    // The approval is sealed once and survives a relaunch.
+    await expect(
+      call(
+        'productSyncEnrollment:status',
+        { shownEnrollmentCode: approvalVector.code },
+        launch('registration-enrollment', storage),
+      ),
+    ).resolves.toStrictEqual(approved);
+    await expect(
+      call('productSyncEnrollment:complete', {
+        keyVersion: 1,
+        deviceEncryptionPublicKey: deviceKey,
+      }),
+    ).resolves.toStrictEqual({ admitted: false });
+    await expect(
+      call('productSyncEnrollment:complete', {
+        keyVersion: 1,
+        deviceEncryptionPublicKey: approvalVector.deviceKey,
+      }),
+    ).resolves.toStrictEqual({
+      admitted: true,
+      trustedDeviceId: 'synthetic-device-installation',
+    });
     await expect(
       call('productSync:listEncryptedPayloadsForTrustedDevice', {
         payloadIdentifierPrefix: 'mailbox.',

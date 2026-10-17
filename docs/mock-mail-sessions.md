@@ -54,9 +54,7 @@ The registration journeys use the real native vault, Keychain and encrypted Inbo
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
 layers in `packages/mail-core/src/testing/synthetic-*.ts`, bundled only for that
-build, answer as Google, Apple, Microsoft and Convex would. `registration-enrollment`
-still uses a native synthetic provider, because its trusted device seals a live
-approval with CryptoKit ([#960](https://github.com/unwired-dev/product/issues/960)).
+build, answer as Google, Apple, Microsoft and Convex would.
 The synthetic Google layer also answers the [Gmail Inbox](gmail-inbox.md#deterministic-evidence)'s
 requests from a synthetic mailbox of three Inbox messages over two list pages, one
 label with an archived message, and a trashed message, listing each view as Gmail
@@ -73,8 +71,11 @@ accounts present a Recovery Key and relaunches keep their keys. Like Convex, it
 admits only the device that created an account's keys; any other device waits as a
 Pending Device without Gmail authorization until it is admitted. In
 `registration-enrollment`, a synthetic trusted device already holds the account
-keys and an encrypted mailbox. It approves the app's request with the code read
-from that Keychain, standing in for a person typing it on another device.
+keys and an encrypted mailbox. It approves the app's request with the code the
+relay reads from that Keychain, standing in for a person typing it on another
+device. It seals the approval in TypeScript with pure JavaScript HPKE
+(`@noble/*`, bundled only into Mock Mail Session builds), which the native
+vault opens with CryptoKit.
 In `registration-recovery`, the same synthetic device is lost and never approves.
 The journey types the account's fixed synthetic Recovery Key instead, which the
 backend checks against the account's Recovery Key verifier. Its recovery envelope,

@@ -187,10 +187,9 @@ the Apple-first [`registration-apple`](apple-registration.md#deterministic-evide
 In an explicitly selected build, the real native vault asks a relay compiled only
 with `UNWIRED_REGISTRATION_MOCK`, and the synthetic TypeScript layers in
 `packages/mail-core/src/testing/` answer as Google, Apple, Microsoft and Convex
-would. `registration-enrollment` alone keeps a native synthetic trusted device. Each
-accepts only its fixed scenario and has no network or real credential inputs. Their
-bundles add only those synthetic layers to production JavaScript; the bundle checks
-expect them in every selected registration bundle except `registration-enrollment`. Both native UI probes retain the original Inbox journey
+would. Each accepts only its fixed scenario and has no network or real credential
+inputs. Their bundles add only those synthetic layers to production JavaScript; the
+bundle checks expect them in every selected registration bundle. Both native UI probes retain the original Inbox journey
 and add registration, relaunch into pending setup, alternate mailbox authorization
 and connected relaunch. The existing disposable app/simulator ownership and
 cleanup rules apply; Mac cleanup removes the run's registration Keychain record

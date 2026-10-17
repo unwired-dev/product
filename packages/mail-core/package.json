@@ -55,6 +55,9 @@
     "@csstools/css-parser-algorithms": "catalog:",
     "@csstools/css-tokenizer": "catalog:",
     "@exodus/bytes": "catalog:",
+    "@noble/ciphers": "catalog:",
+    "@noble/curves": "catalog:",
+    "@noble/hashes": "catalog:",
     "@private-email/localization": "workspace:*",
     "effect": "catalog:",
     "parse5": "catalog:"

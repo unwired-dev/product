@@ -20,7 +20,7 @@ import * as Schema from 'effect/Schema';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const macFiles = ['package.json', 'react-native.config.cjs', 'macos/Podfile'];
 
-test('incremental Expo generation removes the retired synthetic credential from production', async () => {
+test('incremental Expo generation removes retired synthetic sources', async () => {
   const mobile = path.join(root, 'apps/mobile');
   const requireMobile = createRequire(path.join(mobile, 'package.json'));
   const { IOSConfig } = requireMobile('expo/config-plugins');
@@ -67,9 +67,12 @@ test('incremental Expo generation removes the retired synthetic credential from 
       }\n`,
     );
     const project = IOSConfig.XcodeUtils.getPbxproj(fixture);
-    const retired = 'PrivateInbox/SyntheticCredential.swift';
+    const retired = [
+      'PrivateInbox/SyntheticCredential.swift',
+      'PrivateInbox/SyntheticRegistration.swift',
+    ];
     const unrelated = 'PrivateInbox/HostOwned.swift';
-    for (const file of [retired, unrelated]) {
+    for (const file of [...retired, unrelated]) {
       project.addSourceFile(file, { target: 'TARGET' }, 'GROUP');
       writeFileSync(path.join(ios, file), '// Previous generated source\n');
     }
@@ -91,8 +94,10 @@ test('incremental Expo generation removes the retired synthetic credential from 
         modRequest: { projectRoot: mobile, platformProjectRoot: ios },
       });
     }
-    assert.equal(existsSync(path.join(ios, retired)), false);
-    assert.doesNotMatch(project.writeSync(), /SyntheticCredential/u);
+    for (const file of retired) {
+      assert.equal(existsSync(path.join(ios, file)), false, file);
+      assert.ok(!project.writeSync().includes(path.basename(file)), file);
+    }
     assert.equal(existsSync(path.join(ios, unrelated)), true);
     assert.ok(project.hasFile(unrelated));
     assert.match(project.writeSync(), /PrivateInboxStore\.swift in Sources/u);
