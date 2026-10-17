@@ -61,9 +61,16 @@ Repository architecture documentation belongs exclusively to the review agent:
   qualification evidence and historical decisions.
 
 The implementer never opens these files, including when a glossary, guide or
-skill links to them or requests reading them. Operational guides, coding
-conventions, vocabulary and product requirements are separate files that the
-implementer can read in full. Keep architecture and design rationale in
+skill links to them or requests reading them. Repository-wide searches print
+their contents too, so the implementer searches with
+`scripts/implementer-grep` (`git grep` arguments, pathspecs after `--`). It
+excludes every source above, plus committed review artifacts under
+`artifacts/review-*`, which hold resolved rule bodies. Whole-commit searches are
+supported; tree/blob selectors are rejected because they bypass root exclusions.
+Pattern files (`-f`/`--file`), pagers (`-O`/`--open-files-in-pager`) and textconv
+helpers are rejected because they can print excluded files. Pass patterns with `-e`.
+Operational guides, coding conventions, vocabulary and product requirements are
+separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing
 files. If a guide still mixes them, delegate its separation to the reviewer
 before reading the architectural content.

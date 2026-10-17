@@ -75,6 +75,13 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Authority and placement
 
+- Implementer repository-search instructions in `AGENTS.md` or
+  `docs/agents/implementation-review.md` using broad `git grep`, `grep -r` or `rg`,
+  or maintaining exclusions by hand instead of requiring
+  `scripts/implementer-grep`. Check that the wrapper protects every reviewer-only
+  source in the reading policy, including resolved review artifacts, while
+  preserving the readable routing guide. Otherwise searches can print protected
+  text into implementer context even when direct reads are prohibited.
 - A design instruction in `AGENTS.md`, `docs/agents/` or another workflow/guide that gives a stale frame priority over a product requirement or sends a conflict already resolved by documented authority to the decision panel. Check `DESIGN.md`'s authority statements and the owning product requirements or feature guides before following the frame or escalating. Preserve design follow-ups for stale frames and escalation for unresolved conflicts, missing states or scope changes; otherwise the workflow can override required behavior, controls or defaults or reopen an accepted decision.
 - Architecture, design rationale or internal implementation mechanisms written into an implementer-facing file (`AGENTS.md`, `README.md`, `docs/*.md`, `docs/agents/`, `docs/product/`, `docs/domain/`). They belong in `docs/architecture/` or an ADR; the implementer-facing file keeps setup, commands, validation, observable behavior and concise boundary-ownership requirements that its implementer must satisfy.
 - A requirement that exists only in a reviewer-only file after the change. The implementer must still be able to read every requirement it has to satisfy.

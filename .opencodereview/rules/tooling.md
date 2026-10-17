@@ -4,6 +4,13 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `scripts/implementer-grep` forwarding an option whose operand or external
+  helper can read reviewer-only content outside the searched pathspecs. Audit
+  Git's accepted short clusters, attached values and long abbreviations as well
+  as ordinary matches: pattern files, pager commands, textconv helpers and
+  tree/blob selectors can disclose excluded text despite correct root exclusions.
+  Verify rejection before Git reads them, and retain ordinary pattern operands.
+
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
   another package in `Package.resolved`. Decode the pins and require the URL and
   revision to match within one entry; otherwise an unrelated pin can satisfy the
