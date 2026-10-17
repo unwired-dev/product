@@ -223,10 +223,21 @@ final class WindowTests: XCTestCase {
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
     let relaunched = app.windows["Inbox 1"]
     XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
+    relaunched.buttons[rowan].click()
     relaunched.buttons["Account"].click()
-    XCTAssertTrue(text("connected on this device", in: relaunched).waitForExistence(timeout: 15))
-    XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
-    XCTAssertFalse(recoveryKey(in: relaunched).exists)
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertTrue(text("connected on this device", in: settings).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Private sync is on", in: settings).exists)
+    XCTAssertFalse(recoveryKey(in: settings).exists)
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertEqual(app.windows.matching(identifier: "settings-window").count, 1)
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(relaunched.buttons[rowan].exists)
+    XCTAssertTrue(
+      relaunched.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
+        .firstMatch.exists)
   }
 
   // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
@@ -258,10 +269,14 @@ final class WindowTests: XCTestCase {
       first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
     first.buttons["Account"].click()
-    first.buttons["Privacy & Data"].click()
-    first.switches["Mail Assistance"].click()
-    XCTAssertTrue(text("On-device assistance is on.", in: first).waitForExistence(timeout: 15))
-    first.buttons["Open Inbox"].click()
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertTrue(settings.buttons["Privacy & Data"].waitForExistence(timeout: 15))
+    settings.buttons["Privacy & Data"].click()
+    settings.switches["Mail Assistance"].click()
+    XCTAssertTrue(text("On-device assistance is on.", in: settings).waitForExistence(timeout: 15))
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
     // The disposable Draft belongs to this run's synthetic Product Account only.
     first.buttons["New Message"].click()
     let body = first.webViews.textViews["Message body"]
@@ -275,6 +290,15 @@ final class WindowTests: XCTestCase {
       NSPredicate(format: "value == %@", "Evaluation paragraph")
     ).firstMatch
     XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    // Settings opens beside an unfinished editor without offering its Save/Delete decision.
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertFalse(first.buttons["Save"].exists)
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertEqual(app.windows.matching(identifier: "settings-window").count, 1)
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(typed.exists)
     // Resize: the page follows a narrower window without reloading or losing its text.
     let before = first.webViews.firstMatch.frame
     let corner = first.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))

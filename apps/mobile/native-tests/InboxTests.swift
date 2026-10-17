@@ -579,6 +579,30 @@ final class InboxTests: XCTestCase {
     body.typeText("Evaluation paragraph")
     let typed = app.webViews.staticTexts["Evaluation paragraph"]
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    // Open Settings through the composer's palette without finishing this Draft.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Open Command Palette"].tap()
+    } else {
+      let heading = app.staticTexts["New Message"].firstMatch
+      XCTAssertTrue(heading.exists)
+      let start = heading.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
+    }
+    XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
+    app.buttons["Account"].tap()
+    XCTAssertTrue(app.buttons["Open Inbox"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["Save Draft"].exists)
+    XCTAssertFalse(typed.exists)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // UIKit pops the Settings screen back to the same still-mounted composer.
+      let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+      edge.press(forDuration: 0.1, thenDragTo:
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+    } else {
+      app.buttons["Open Inbox"].tap()
+    }
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["Open Inbox"].exists)
     let focused = XCTAttachment(screenshot: app.screenshot())
     focused.name = "Evaluation editor typed"
     focused.lifetime = .keepAlways

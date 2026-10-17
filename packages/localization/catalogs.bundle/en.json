@@ -91,7 +91,9 @@
     "showSidebar": "Show Sidebar",
     "hideSidebar": "Hide Sidebar",
     "view": "View",
-    "commands": "Commands…"
+    "commands": "Commands…",
+    "settings": "Settings…",
+    "settingsTitle": "Settings"
   },
   "providers": {
     "google": "Google",

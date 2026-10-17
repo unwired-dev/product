@@ -24,7 +24,11 @@ an explicit update to `apps/macos/scripts/verify-native.ts`.
 AppKit owns stable window identities and menu routing. One React factory and one
 JavaScript mailbox runtime live for the application process. Each window mounts
 its own React root and owns its selected message. Closing a window releases its
-view; opening another starts with no selection. Reading leaves unread flags unchanged. Explicit read/unread actions persist
+view; opening another starts with no selection. AppKit separately owns one
+`settings-window` surface in the same runtime, without counting or guarding it as
+an Inbox window. Its gate retires targeted navigation with its Product Account
+and keeps registration activation and assistance loading alive when every Inbox
+window is closed. Reading leaves unread flags unchanged. Explicit read/unread actions persist
 and update all windows without changing their selections.
 
 ## Build and run

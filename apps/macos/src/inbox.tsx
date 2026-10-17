@@ -239,12 +239,11 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
 }
 
 // An IMAP mailbox says when the server could not be read and keeps its saved mail; a refused
-// password is entered again on the account page.
+// password is entered again in Settings.
 function ImapNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const mailbox = useMailbox();
   const account = use(AccountContext);
-  const leave = useLeaveComposer();
   const colors = usePalette();
   const { t } = useLocalization();
   if (
@@ -255,11 +254,6 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   ) {
     return null;
   }
-  const openAccount = async () => {
-    if (await leave()) {
-      account?.openAccount('mailboxes');
-    }
-  };
   if (state.status === 'authentication') {
     return (
       <Notice
@@ -274,7 +268,7 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
               address: mailbox?.address ?? state.address,
             })}
             onPress={() => {
-              void openAccount();
+              account.openAccount('mailboxes');
             }}
           />
         )}
@@ -686,12 +680,6 @@ export function Inbox({
       onSelect(selection);
     }
   };
-  // The account page replaces the Inbox, so an open composer is left first.
-  const openAccount = async (open: () => void) => {
-    if (await leave()) {
-      open();
-    }
-  };
   const draftState = useDrafts();
   const outbox = useOutboxEntries();
   const drafts = listedDrafts(draftState, onCompose !== undefined);
@@ -892,7 +880,7 @@ export function Inbox({
                 account === undefined
                   ? undefined
                   : () => {
-                      void openAccount(account.openAccount);
+                      account.openAccount();
                     },
             })
           }
@@ -945,11 +933,7 @@ export function Inbox({
                 key={mailbox.id}
                 address={mailbox.address}
                 onRepair={() => {
-                  if (account !== undefined) {
-                    void openAccount(() => {
-                      account.openAccount('mailboxes');
-                    });
-                  }
+                  account?.openAccount('mailboxes');
                 }}
               />
             ) : (

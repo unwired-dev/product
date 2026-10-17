@@ -223,6 +223,16 @@ menu behavior, and language verification.
 
 ## Settings
 
+Settings is one 900×720 AppKit window. The app menu's **Settings…** (Command-,),
+each Inbox window's **Account** button, its Command Palette's Account command and
+IMAP password repairs open it, or bring the open one forward on the destination
+they name. Inbox windows keep their Drafts, mailboxes and selected messages
+beside it. The window has its own Command Palette bar, whose Inbox command
+brings an Inbox window forward, and it closes itself when no Inbox can open,
+such as after sign-out or while storage is locked. Command-, is always enabled,
+so while signed out, and in preview builds without a Product Account, the
+window opens and closes again at once.
+
 Settings' Mail Assistance switch follows the Mac's system accent. Its graphite
 tint from the design remains a native-host deviation for design capture and
 qualification.

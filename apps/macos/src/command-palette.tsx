@@ -54,12 +54,12 @@ import { textStyles, usePalette } from './theme.ts';
 const PaletteContext = createContext<
   Readonly<{
     registry: CommandRegistry;
-    // The window whose Commands… menu item opens this palette.
-    windowId: string;
+    // The AppKit window whose Commands… menu item opens this palette.
+    identifier: string;
   }>
 >({
   registry: createCommandRegistry(),
-  windowId: '',
+  identifier: 'inbox-window-',
 });
 
 // A window's confirmation keeps command entry from taking focus behind its modal background.
@@ -244,8 +244,7 @@ const styles = StyleSheet.create({
 // While mounted, closing this window or quitting first runs `leave`, the composer's own Close,
 // and closes the window only once it allows leaving.
 export function useCloseGuard(leave: () => Promise<boolean>) {
-  const { windowId } = use(PaletteContext);
-  const identifier = `inbox-window-${windowId}`;
+  const { identifier } = use(PaletteContext);
   const leaveNow = useRef(leave);
   useLayoutEffect(() => {
     leaveNow.current = leave;
@@ -289,13 +288,20 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
 // shows the CommandBar.
 export function CommandPaletteProvider({
   windowId,
+  identifier,
   children,
 }: {
   readonly windowId: string;
+  // The AppKit window's identifier, when it is not a numbered Inbox window.
+  readonly identifier?: string;
   readonly children: ReactNode;
 }) {
   const registry = useMemo(() => createCommandRegistry(), []);
-  const value = useMemo(() => ({ registry, windowId }), [registry, windowId]);
+  const window = identifier ?? `inbox-window-${windowId}`;
+  const value = useMemo(
+    () => ({ registry, identifier: window }),
+    [registry, window],
+  );
   return <PaletteContext value={value}>{children}</PaletteContext>;
 }
 
@@ -304,7 +310,7 @@ export function CommandPaletteProvider({
 // belongs to the bar, so it leaves with the screen that shows it, as when the gate replaces the
 // window's screen.
 export function CommandBar() {
-  const { registry, windowId } = use(PaletteContext);
+  const { registry, identifier } = use(PaletteContext);
   const entryBlocked = use(CommandEntryBlockedContext);
   const blocked = useRef(entryBlocked);
   useLayoutEffect(() => {
@@ -314,8 +320,6 @@ export function CommandBar() {
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
   const [opened, setOpened] = useState<readonly Command[]>();
-  // The AppKit window this palette belongs to.
-  const identifier = `inbox-window-${windowId}`;
   // The bar's button, which the open palette replaces, so closing focuses its replacement itself.
   const pill = useRef<View>(null);
   const pillFocused = useRef(false);

@@ -18,6 +18,8 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
+@property(nonatomic, strong) NSWindowController *settingsWindow;
+@property(nonatomic, strong) NSNumber *settingsRequestSerial;
 @property(nonatomic) NSUInteger nextWindowNumber;
 @property(nonatomic, copy) NSString *quittingWindow;
 #if UNWIRED_NATIVE_TESTING
@@ -124,6 +126,44 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [self recordLifecycle:@"window-open"];
 }
 
+// Command-, and every Inbox window's Settings entry points open the one Settings window, or bring
+// it forward.
+- (void)showSettings:(id)sender
+{
+  NSWindow *window = self.settingsWindow.window;
+  // A menu invocation keeps an open window's request; a new untargeted window starts fresh.
+  if (window == nil) self.settingsRequestSerial = @0;
+  if ([sender isKindOfClass:NSNumber.class]) self.settingsRequestSerial = sender;
+  if (window == nil) {
+    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 900, 720)
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    window.title = UnwiredNativeText(@"settingsTitle");
+    window.identifier = @"settings-window";
+    window.accessibilityIdentifier = window.identifier;
+    window.minSize = NSMakeSize(720, 480);
+    window.releasedWhenClosed = NO;
+    window.delegate = self;
+    window.autorecalculatesKeyViewLoop = YES;
+    NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredSettings" initialProperties:@{}];
+    rootView.frame = window.contentView.bounds;
+    NSViewController *content = [NSViewController new];
+    content.view = rootView;
+    window.contentViewController = content;
+    self.settingsWindow = [[NSWindowController alloc] initWithWindow:window];
+    [window center];
+    [self.settingsWindow showWindow:self];
+    [NSApp addWindowsItem:window title:window.title filename:NO];
+  }
+  [window deminiaturize:self];
+  [window makeKeyAndOrderFront:self];
+}
+
+- (void)closeSettings:(id)sender
+{
+  [self.settingsWindow.window performClose:sender];
+}
+
 // Command-P opens the key Inbox window's Command Palette; its JavaScript listens for the window.
 - (void)showCommands:(id)sender
 {
@@ -188,6 +228,14 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 {
   NSWindow *window = notification.object;
   [NSApp removeWindowsItem:window];
+  if (window == self.settingsWindow.window) {
+    NSNumber *closedRequestSerial = self.settingsRequestSerial;
+    self.settingsWindow = nil;
+    self.settingsRequestSerial = nil;
+    [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredSettingsClosed" object:closedRequestSerial];
+    window.contentViewController = nil;
+    return;
+  }
   NSIndexSet *closed = [self.inboxWindows indexesOfObjectsPassingTest:
       ^BOOL(NSWindowController *controller, NSUInteger index, BOOL *stop) {
         return controller.window == window;
@@ -240,6 +288,11 @@ extern "C" NSString *UnwiredGuardedWindow(void);
     window.title = [UnwiredNativeText(@"windowTitle") stringByReplacingOccurrencesOfString:@"{{number}}" withString:number];
     [NSApp addWindowsItem:window title:window.title filename:NO];
   }
+  NSWindow *settings = self.settingsWindow.window;
+  if (settings != nil) {
+    settings.title = UnwiredNativeText(@"settingsTitle");
+    [NSApp addWindowsItem:settings title:settings.title filename:NO];
+  }
 }
 
 - (void)installMenus
@@ -248,6 +301,9 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   NSMenuItem *appItem = [main addItemWithTitle:UnwiredNativeText(@"app") action:nil keyEquivalent:@""];
   NSMenu *app = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"app")];
   appItem.submenu = app;
+  NSMenuItem *settings = [app addItemWithTitle:UnwiredNativeText(@"settings") action:@selector(showSettings:) keyEquivalent:@","];
+  settings.target = self;
+  [app addItem:[NSMenuItem separatorItem]];
   [app addItemWithTitle:UnwiredNativeText(@"hide") action:@selector(hide:) keyEquivalent:@"h"];
   [app addItem:[NSMenuItem separatorItem]];
   [app addItemWithTitle:UnwiredNativeText(@"quit") action:@selector(terminate:) keyEquivalent:@"q"];
