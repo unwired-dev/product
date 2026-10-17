@@ -175,13 +175,18 @@ export function createSyntheticSyncHandlers(
   };
   // As Convex does, an account with Mail Profile records serves payload calls only to clients that
   // present the capability.
+  const mailProfilesEnabled = (
+    entry: ReturnType<typeof accountKeys>['entry'],
+  ) =>
+    entry.mailProfilesEnabled === true ||
+    [...entry.records.keys()].some(isMailProfileRecord);
   const payloadAccount = ({
     call,
     product,
   }: Pick<Presented, 'call' | 'product'>) => {
     const keys = accountKeys(product);
     if (
-      keys.entry.mailProfilesEnabled === true &&
+      mailProfilesEnabled(keys.entry) &&
       !capable(call.args.mailProfileCapability)
     ) {
       return refused(mailProfilesUpgradeRequired);
@@ -190,7 +195,7 @@ export function createSyntheticSyncHandlers(
   };
   // Whether an older client on a Trusted Device keeps the account's first Profile record out.
   const fenced = (entry: ReturnType<typeof accountKeys>['entry']) =>
-    entry.mailProfilesEnabled !== true &&
+    !mailProfilesEnabled(entry) &&
     [...entry.devices.values()].some(
       ({ mailProfiles }) => !capable(mailProfiles),
     );
@@ -528,7 +533,7 @@ export function createSyntheticSyncHandlers(
       if (!Predicate.isNumber(version)) {
         return refusal('UNAVAILABLE');
       }
-      if (entry.mailProfilesEnabled === true && !capable(version)) {
+      if (mailProfilesEnabled(entry) && !capable(version)) {
         return refusal(mailProfilesUpgradeRequired);
       }
       caller.mailProfiles = version;

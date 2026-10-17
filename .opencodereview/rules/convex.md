@@ -55,6 +55,11 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 #### Schema and deployed clients
 
+- A capability gate such as `productSync.requireMailProfileCapability` relying only
+  on an activation marker that new writes set, while earlier releases could store
+  the protected records without it. Backfill or detect those account-scoped records
+  before admitting incompatible payload calls, including reads before any upgraded
+  device declares; otherwise old clients can bypass the fence indefinitely.
 - A field in `convex/schema.ts` removed, made required or retyped while existing documents or deployed clients still use the old shape, with no migration or compatibility path.
 - A function's arguments, return shape or `ConvexError` `code` changed without the matching change in `packages/contracts` and its fixture. Clients decode these codes to choose recovery; a renamed code turns a recoverable state into an unknown failure.
 - A wire validator defined inline in a function when `@private-email/contracts` already owns that shape.

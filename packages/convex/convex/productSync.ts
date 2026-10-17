@@ -55,11 +55,16 @@ const capable = (version: number | undefined) =>
 
 // Once an account holds Mail Profile records, a client that cannot keep them apart reads and writes
 // nothing: it would show every Profile's connections in its one window.
-function requireMailProfileCapability(
+async function requireMailProfileCapability(
+  ctx: QueryCtx | MutationCtx,
   account: AuthenticatedProductAccount,
   presented: number | undefined,
-): void {
-  if (account.mailProfilesEnabledAt !== undefined && !capable(presented)) {
+): Promise<void> {
+  if (
+    !capable(presented) &&
+    (account.mailProfilesEnabledAt !== undefined ||
+      (await holdsMailProfileRecords(ctx, account.productAccountId)))
+  ) {
     throwMailProfilesUpgradeRequired();
   }
 }
@@ -74,7 +79,10 @@ async function fencesMailProfiles(
   ctx: MutationCtx,
   account: AuthenticatedProductAccount,
 ): Promise<boolean> {
-  if (account.mailProfilesEnabledAt !== undefined) {
+  if (
+    account.mailProfilesEnabledAt !== undefined ||
+    (await holdsMailProfileRecords(ctx, account.productAccountId))
+  ) {
     return false;
   }
   const devices = ctx.db
@@ -113,7 +121,7 @@ async function admitMailProfileWrites(
 }
 
 async function holdsMailProfileRecords(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   for (const prefix of ['profile.', 'mailbox-profile.']) {
@@ -175,7 +183,7 @@ export const declareMailProfileCapability = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    requireMailProfileCapability(account, args.capabilityVersion);
+    await requireMailProfileCapability(ctx, account, args.capabilityVersion);
     const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
@@ -327,7 +335,8 @@ export const putEncryptedPayloadIfUnchanged = mutation({
     if (isMailProfileRecord(args.payloadIdentifier)) {
       throw new Error('Mail Profile records require an atomic write');
     }
-    requireMailProfileCapability(
+    await requireMailProfileCapability(
+      ctx,
       await requireAuthenticatedTrustedDevice(
         ctx,
         args.trustedDeviceId,
@@ -711,7 +720,11 @@ export const putEncryptedPayloadsAtomically = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    requireMailProfileCapability(account, args.mailProfileCapability);
+    await requireMailProfileCapability(
+      ctx,
+      account,
+      args.mailProfileCapability,
+    );
     await requireRecoveryEnvelope(ctx, account.productAccountId);
     for (const write of args.writes) {
       requireCurrentProductSyncKeyEpoch(
@@ -912,7 +925,11 @@ export const listEncryptedPayloadsForTrustedDevice = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    requireMailProfileCapability(account, args.mailProfileCapability);
+    await requireMailProfileCapability(
+      ctx,
+      account,
+      args.mailProfileCapability,
+    );
     const { productAccountId } = account;
     return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
@@ -949,7 +966,11 @@ export const getEncryptedPayloadForTrustedDevice = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    requireMailProfileCapability(account, args.mailProfileCapability);
+    await requireMailProfileCapability(
+      ctx,
+      account,
+      args.mailProfileCapability,
+    );
     const { productAccountId } = account;
     return getEncryptedPayloadForProductAccount(
       ctx,
@@ -994,7 +1015,11 @@ export const getEncryptedPayloadsForTrustedDevice = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    requireMailProfileCapability(account, args.mailProfileCapability);
+    await requireMailProfileCapability(
+      ctx,
+      account,
+      args.mailProfileCapability,
+    );
     const { productAccountId } = account;
     if (
       args.payloadIdentifiers.length > encryptedProductSyncAtomicMutationLimit

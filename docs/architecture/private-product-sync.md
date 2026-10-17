@@ -482,6 +482,13 @@ Issue #1036 adds content-blind client fencing. Each Trusted Device declares its
 capability version; the first atomic `profile.` or `mailbox-profile.` transaction
 checks the complete trusted roster and activates the account fence in that same
 mutation. Afterwards every payload read and write requires the request's capability.
+For records from an earlier release without the activation marker, payload handlers
+check bounded, account-scoped index ranges for either prefix before admitting an
+incompatible request. The next capable declaration persists the marker. Detection
+also bypasses first-publication roster admission, so capable clients can undo an
+existing Profile move before declaring again. The round-4 #1036 OCR panel chose
+immediate enforcement over waiting for a capable sync, 3–0, with
+`claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`, read-only at high reasoning.
 Native Draft transport and shared TypeScript transport both present it. Operational
 delivery claims and wakeups remain account-wide and Profile-blind under #921.
 
