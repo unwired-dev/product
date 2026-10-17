@@ -23,6 +23,7 @@ import {
 } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import { MailAssistanceProfileContext } from '../src/mail-assistance-lifetime.ts';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
@@ -374,6 +375,39 @@ describe('the Tiptap evaluation composer', () => {
     ).toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Hello' }] },
+    ]);
+  });
+
+  it('retires a reviewed rewrite on a Profile change without losing the page’s unsaved body', async () => {
+    expect.hasAssertions();
+    const mock = createMockMailSession('open-read-relaunch');
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      registration,
+    );
+    const view = (profile: string) => (
+      <MailAssistanceProfileContext value={profile}>
+        <AssistanceContext value={mock.assistance}>
+          <App drafts={drafts} />
+        </AssistanceContext>
+      </MailAssistanceProfileContext>
+    );
+    const app = await render(view('work'));
+    await press('New Message');
+    const page = simulatedPage();
+    await page.report({});
+    await page.typed('Keep this unsaved body');
+    await press('Writing tools');
+    await press('Rewrite the message body');
+    await screen.findByText(syntheticRewrite);
+    await app.rerender(view('personal'));
+    expect(screen.queryByText(syntheticRewrite)).toBeNull();
+    expect(screen.getByTestId('message-webview')).toBeOnTheScreen();
+    await press('Close', false);
+    await page.report({ frozen: true });
+    await press('Save');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Keep this unsaved body' }] },
     ]);
   });
 

@@ -311,6 +311,18 @@ describe('account settings availability', () => {
       screen.getByRole('button', { name: 'Summarize this message' }),
     ).toBeVisible();
     expect(assistance.calls).toStrictEqual([]);
+    await press('Check Apple Intelligence availability');
+    const available =
+      'Apple Intelligence is available for summaries, rewrites and reply suggestions.';
+    expect(screen.getByText(available)).toBeVisible();
+    // The check belonged to Default, so its status retires even while Work remains enabled.
+    await assist(false);
+    expect(screen.queryByText(available)).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Check Apple Intelligence availability',
+      }),
+    ).toBeVisible();
   });
 
   /* oxlint-enable vitest/max-expects */

@@ -2767,6 +2767,89 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
     expect(asked).toHaveLength(1);
   });
+
+  it.each([
+    { profiles: ['default'], offered: false },
+    { profiles: ['default', 'personal'], offered: true },
+  ])(
+    'applies the sender Profile’s consent and retires its request on a move with destination consent $offered',
+    async ({ profiles, offered }) => {
+      expect.hasAssertions();
+      const owned = (profile: string) => ({
+        ...connected(['alex@example.invalid']),
+        mailboxes: JSON.stringify([
+          {
+            id: alex,
+            address: 'alex@example.invalid',
+            state: 'connected',
+            profile,
+          },
+        ]),
+      });
+      const registration = account(owned('work'));
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        registration,
+      );
+      const { native, asked, cancelled } = scriptedDraftAssistance();
+      const translation: NativeTranslation = {
+        translationLanguages: () => Promise.resolve([]),
+        translate: () => Promise.reject(new Error('unused')),
+        cancel: () => Promise.resolve(null),
+      };
+      const owner = 'synthetic-product-account';
+      const enablement = createMailAssistanceEnablement({
+        mailAssistance: () =>
+          Promise.resolve({
+            owner,
+            profiles,
+          }),
+        setMailAssistance: (account, profiles) =>
+          Promise.resolve({ owner: account, profiles }),
+      });
+      await enablement.load(owner);
+      await render(
+        <MailAssistanceContext value={enablement}>
+          <MailAssistanceGate
+            account={owner}
+            assistance={native}
+            translation={translation}>
+            <App
+              drafts={drafts}
+              registration={registration}
+              profile="work"
+            />
+          </MailAssistanceGate>
+        </MailAssistanceContext>,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'lets meet friday. thanks',
+      );
+      // The Default Profile's consent does not reach a Draft sending from the Work Profile.
+      expect(
+        screen.queryByRole('button', { name: 'Rewrite the message body' }),
+      ).toBeNull();
+      await act(async () => {
+        await enablement.setEnabled(owner, 'work', true);
+      });
+      await press('Rewrite the message body');
+      await screen.findByLabelText('Cancel writing help');
+
+      // A move retires the request even when the destination Profile also permits assistance.
+      await act(async () => {
+        registration.change(owned('personal'));
+      });
+      expect(cancelled).toStrictEqual([asked[0]?.request]);
+      expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+      expect(asked).toHaveLength(1);
+      expect(
+        screen.queryByRole('button', { name: 'Rewrite the message body' }) !==
+          null,
+      ).toBe(offered);
+    },
+  );
   /* oxlint-enable vitest/max-expects */
 });
 

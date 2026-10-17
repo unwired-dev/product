@@ -62,10 +62,9 @@ On-Device Mail Assistance action, **Summarize**, Draft
   with an explicit retry for the failed save. Turning assistance off still closes
   its actions immediately, even when saving fails.
 - Turning it off, in any window, cancels that Profile’s in-flight assistance and
-  forgets its shown previews, including its Privacy & Data availability status
-  once no Profile has it on. A captured Draft request is retired, so turning it on
+  forgets its shown previews, including a Privacy & Data availability check started under that Profile. A captured Draft request is retired, so turning it on
   again does not restart it. A Draft whose connection moves to another Profile
-  likewise retires its request unless that Profile also has it on.
+  always retires its request, even when that Profile also has it on.
 - It is stored only in this device's Keychain, never synchronized or restored to another device.
   A Pending Device, or an account whose sign-out or deletion is under way, has
   none. Sign-out, Product Account deletion and removal of this device by another

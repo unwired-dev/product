@@ -61,7 +61,10 @@ import {
   SaveSheet,
 } from './evaluation-composer-controls.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
+import {
+  MailAssistanceProfileContext,
+  useMailAssistanceLifetime,
+} from './mail-assistance-lifetime.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
   useComposerNavigation,
@@ -165,8 +168,9 @@ function EvaluationEditor({
   }, [rebind, store]);
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
   // its result is applied or the original kept.
+  const profile = use(MailAssistanceProfileContext);
   const [captured, setCaptured] = useState<
-    CapturedDraftText & { readonly id: number }
+    CapturedDraftText & { readonly id: number; readonly profile: string }
   >();
   const captureNow = useRef<typeof captured>(undefined);
   const captureGeneration = useRef(0);
@@ -179,7 +183,7 @@ function EvaluationEditor({
   const translation = use(TranslationContext);
   if (
     captured !== undefined &&
-    retires(captured, draft, { assistance, translation })
+    retires(captured, draft, { assistance, translation, profile })
   ) {
     setCaptured(undefined);
   }
@@ -318,6 +322,7 @@ function EvaluationEditor({
     const next = {
       ...captureDraftText(purpose, authored.current, reported.selection),
       id: captureGeneration.current,
+      profile,
     };
     captureNow.current = next;
     setCaptured(next);
