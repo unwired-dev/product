@@ -242,6 +242,8 @@ ${anchor}`,
     };
     // This fixture moved to the native tests.
     remove('SyntheticCredential.swift');
+    // The synthetic registration backend now lives in TypeScript.
+    remove('SyntheticRegistration.swift');
     const source = privateInboxSource(result.modRequest.projectRoot);
     addSwiftPackages(
       project,
