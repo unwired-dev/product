@@ -1,6 +1,12 @@
 import type { TurboModule } from 'react-native';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { TurboModuleRegistry } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
@@ -49,15 +55,23 @@ export function openSettings(
   settingsHost()?.openSettings();
 }
 
-// The Settings window's requests. Closing it forgets them, so Command-, opens it afresh.
+// The Settings window's requests. Closing it forgets the last one it followed, so Command-,
+// opens it afresh, but keeps a newer request made for the next window.
 export function useSettingsRequest() {
+  const current = useSyncExternalStore(subscribe, latest);
+  const followed = useRef(current);
+  useLayoutEffect(() => {
+    followed.current = current;
+  }, [current]);
   useEffect(
     () => () => {
-      request = {};
+      if (request === followed.current) {
+        request = emptyRequest;
+      }
     },
     [],
   );
-  return useSyncExternalStore(subscribe, latest);
+  return current;
 }
 
 // A request retires with its Product Account, even if that account later returns.
