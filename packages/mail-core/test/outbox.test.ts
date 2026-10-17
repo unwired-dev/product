@@ -736,6 +736,9 @@ describe('sending a Draft through the Outbox', () => {
         await renameDuring(phase, sending, move);
         later(undoSendWindow);
         await sending.outbox.process();
+        expect(sending.mailboxes.getSnapshot()).toMatchObject([
+          { profile: 'work' },
+        ]);
 
         // The move changes neither the queued message nor its claim, which stays this device's.
         expect(gmail.sends).toHaveLength(1);
