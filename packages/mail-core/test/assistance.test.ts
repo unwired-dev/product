@@ -129,11 +129,13 @@ describe('on-device message summaries', () => {
       subject: 'Plans',
       body: expect.stringMatching(/^Please confirm/u),
     });
-    call.answer.resolve('  Confirm the venue by Friday.  ');
+    call.answer.resolve(
+      '  Confirm the "Q4 {venue}" by Friday.\n\nBring a badge.  ',
+    );
     await done;
     expect(summary.getSnapshot(long)).toStrictEqual({
       kind: 'ready',
-      text: 'Confirm the venue by Friday.',
+      text: 'Confirm the "Q4 {venue}" by Friday.\n\nBring a badge.',
       omitted: true,
     });
   });
@@ -235,6 +237,14 @@ describe('on-device message summaries', () => {
       'a malformed summary',
       (answer: PromiseWithResolvers<unknown>) => {
         answer.resolve(42);
+      },
+    ],
+    [
+      'a summary wrapped in its JSON request',
+      (answer: PromiseWithResolvers<unknown>) => {
+        answer.resolve(
+          '{\n  "operation": "summary",\n  "subject": "Plans",\n  "body": "Lunch at noon?"\n}',
+        );
       },
     ],
     [
