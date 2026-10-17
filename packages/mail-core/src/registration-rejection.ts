@@ -2,7 +2,6 @@ import * as Schema from 'effect/Schema';
 
 // Codes native operations and Convex replies end with; host-facing codes are a subset.
 const CodeSchema = Schema.Literals([
-  'busy',
   'cancelled',
   'declined',
   'deleted',
@@ -45,7 +44,6 @@ export const hostCodes: Partial<Record<Code, Code>> = {
 
 // The fixed texts hosts have always received with each code.
 const messages: Partial<Record<Code, string>> = {
-  busy: 'Authorization is already running.',
   cancelled: 'Sign-in was cancelled.',
   'recovery-key-mismatch': 'That does not match the end of your Recovery Key.',
   'enrollment-code-invalid': "That code does not match the new device's code.",

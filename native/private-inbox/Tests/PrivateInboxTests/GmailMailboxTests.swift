@@ -3,7 +3,7 @@ import Testing
 
 @testable import PrivateInbox
 
-@MainActor private final class MailboxPause {
+@MainActor final class MailboxPause {
   private var release: CheckedContinuation<Void, Never>?
   private var entered: CheckedContinuation<Void, Never>?
 
@@ -854,7 +854,7 @@ extension PrivateInboxTests {
   }
 }
 
-@MainActor private final class PurgeProgress {
+@MainActor final class PurgeProgress {
   var finished = false
   private var started = false
   private var entered: CheckedContinuation<Void, Never>?

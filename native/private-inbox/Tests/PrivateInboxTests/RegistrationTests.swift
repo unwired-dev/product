@@ -390,6 +390,45 @@ extension PrivateInboxTests {
     #expect(renewed["trustedDeviceCredential"] == nil)
   }
 
+  // A JavaScript reload starts a new Registration while the previous runtime's native operation is
+  // pending. The bridge's shared gate queues the new runtime's sign-out instead of rejecting it, so
+  // the stale renewal finishes first and cannot restore its identity to the signed-out store.
+  @Test @MainActor func reloadedRuntimeWorkQueuesBehindThePreviousRuntimesPendingOperation()
+    async throws
+  {
+    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
+    defer { try? keys.remove("registration") }
+    let provider = SyntheticGoogleRegistrationProvider()
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: provider,
+      connect: { _, _, _ in
+        ProductRegistrationReceipt(
+          productAccountId: "synthetic-account", trustedDeviceId: "synthetic-device",
+          trustedDeviceCredential: String(repeating: "a", count: 64))
+      })
+    _ = try await store.signIn()
+    let gate = RegistrationOperationGate()
+    let renewal = MailboxPause()
+    provider.beforeRefresh = { await renewal.wait() }
+    let previous = Task {
+      try await gate.perform { try await store.renewIdentity()["matches"] as? Bool }
+    }
+    await renewal.reached()
+    let purging = PurgeProgress()
+    let current = Task {
+      purging.begin()
+      try await gate.perform { try await store.purge(notice: "signed-out") }
+    }
+    await purging.reached()
+    #expect(try #require(try store.load()).accountRemoval == nil)
+    renewal.resume()
+    #expect(try await previous.value == true)
+    try await current.value
+    #expect(store.identity == nil)
+    #expect(try store.registration() == nil)
+  }
+
   // The flow reads these fixed codes; only a known transport failure lets it open the saved Inbox.
   @Test @MainActor func vaultOperationsRejectWithFixedCodesAndReportTransportFailuresAsOffline() {
     for (error, code): (any Error, String) in [

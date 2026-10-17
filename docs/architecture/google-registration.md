@@ -76,9 +76,10 @@ operation per call:
   to adopt after an old-epoch write refusal; mailbox descriptor coordination
   uses the TypeScript call primitive.
 
-The registration rejection codes and texts hosts receive are unchanged. Transient
-transport failures reach the flow as `offline`, which lets a restore open the
-last verified mailbox's saved Inbox; hosts still see them as `unavailable`.
+Native registration rejections carry only their fixed code; the TypeScript flow
+reconstructs the host-facing rejection text. Transient transport failures reach
+the flow as `offline`, which lets a restore open the last verified mailbox's
+saved Inbox; hosts still see them as `unavailable`.
 
 The TypeScript response schemas are checked against the types inferred by the
 `packages/contracts` Convex validators. Native void steps resolve with null and

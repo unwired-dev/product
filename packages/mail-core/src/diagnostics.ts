@@ -8,7 +8,6 @@ import * as SchemaIssue from 'effect/SchemaIssue';
 // Codes the native Private Inbox, Registration and Assistance bridges reject with.
 const nativeCodes = new Set([
   'assistance-disabled',
-  'busy',
   'attachment-missing',
   'cancelled',
   'conflict',
