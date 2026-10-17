@@ -623,8 +623,13 @@ function ComposeButton({
       return;
     }
     creating.current = true;
-    // Leaving and creating resolve rather than reject, so the press always settles here.
-    const id = await navigation.create(store, mailbox);
+    let id: string | undefined = undefined;
+    try {
+      id = await navigation.create(store, mailbox);
+    } catch {
+      // An unexpected rejection, such as a throwing Draft subscriber, keeps New Message usable.
+    }
+    // Not in `finally`: React Compiler cannot compile a finally clause.
     creating.current = false;
     if (mounted.current && id !== undefined) {
       onCompose(id);

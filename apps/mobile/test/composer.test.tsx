@@ -499,6 +499,28 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   });
 
+  it('keeps New Message usable after a Draft subscriber throws', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const unsubscribe = drafts.subscribe(() => {
+      throw new Error('subscriber failed');
+    });
+    await press('New Message');
+    unsubscribe();
+    expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'New Message' })).toBeEnabled();
+    await press('New Message');
+    await expect(screen.findByLabelText('Message body')).resolves.toBeVisible();
+  });
+
   it('closes an untouched New Message on Close and on Discard', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
