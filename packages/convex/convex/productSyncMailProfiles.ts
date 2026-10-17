@@ -7,6 +7,8 @@ import { ConvexError, v } from 'convex/values';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 import type { AuthenticatedProductAccount } from './productAccountAuth.js';
 
+import { trustedDeviceLimitPerProductAccount } from './productAccount.js';
+
 // The Mail Profile capability a client presents with each payload call; older clients send none.
 export const mailProfileCapabilityArgs = {
   mailProfileCapability: v.optional(v.number()),
@@ -52,12 +54,11 @@ export async function fencesMailProfiles(
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', account.productAccountId),
     );
-  for await (const device of devices) {
-    if (!capable(device.mailProfileCapabilityVersion)) {
-      return true;
-    }
+  const roster = await devices.take(trustedDeviceLimitPerProductAccount + 1);
+  if (roster.length > trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
   }
-  return false;
+  return roster.some((device) => !capable(device.mailProfileCapabilityVersion));
 }
 
 // Whether a transaction touches Mail Profile records, which need the writer's capability and, for an

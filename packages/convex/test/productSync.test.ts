@@ -1678,6 +1678,32 @@ describe('productSync Mail Profile capability fence', () => {
     },
   );
 
+  it('reads a bounded Trusted Device roster before the first Mail Profile record', async () => {
+    expect.hasAssertions();
+    const { t, connect, writeProfile, declare } = await withSecondDevice();
+    // An oversized roster that earlier backends could leave behind.
+    await t.run(async (ctx) => {
+      // With the two connected devices, one more than the 100 a Product Account may hold.
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `roster-${index}`,
+          lastSeenAt: 1,
+          mailProfileCapabilityVersion,
+          platform: 'ios',
+          productAccountId: connect.productAccountId,
+          registeredAt: 1,
+        });
+      }
+    });
+
+    await expect(declare(connect.trustedDeviceId)).rejects.toThrow(
+      'Trusted Device limit exceeded',
+    );
+    await expect(
+      writeProfile(connect.trustedDeviceId, 'profile.work'),
+    ).rejects.toThrow('Trusted Device limit exceeded');
+  });
+
   it('refuses every Product Sync payload call without the capability once the account holds Mail Profile records', async () => {
     expect.hasAssertions();
     const { t, asUser, connect, second, writeProfile, declare } =
