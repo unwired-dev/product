@@ -414,22 +414,20 @@ export function createMailProfileProgram<E>(
       );
     }
   });
-  // A pending removal waits while anything this device reads is unreadable; only this Profile's own
-  // live or unknown ownership cancels it.
+  // This Profile's live or unknown ownership cancels removal even when unrelated records cannot
+  // open. Without that ownership, unreadable records keep removal pending.
   const pendingRemoval = Effect.fnUntraced(function* (
     state: ProfileState,
     id: string,
     readable: boolean,
   ) {
-    if (!readable) {
-      return 'retry' as const;
-    }
     return yield* descriptorEpochs.pipe(
-      Effect.map((epochs) =>
-        ownership(state, id, epochs) === 'empty'
-          ? ('publish' as const)
-          : ('cancel' as const),
-      ),
+      Effect.map((epochs) => {
+        if (ownership(state, id, epochs) !== 'empty') {
+          return 'cancel' as const;
+        }
+        return readable ? ('publish' as const) : ('retry' as const);
+      }),
       Effect.catchIf(
         (error) =>
           error instanceof RegistrationRejected && error.code === 'unavailable',

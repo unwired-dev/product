@@ -61,6 +61,23 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
   }
   return ownership;
 };
+// Another device's Profile whose ciphertext this device cannot open.
+const unreadableProfile = (sync: ReturnType<typeof setup>['sync']) => {
+  storeProfile(sync, account, {
+    kind: 'profile',
+    id: 'unrelated',
+    name: 'Other',
+    version: 1,
+  });
+  const unreadable = [...sync.sealedProfiles.entries()].find(
+    ([, { record }]) => record.kind === 'profile' && record.id === 'unrelated',
+  );
+  if (unreadable === undefined) {
+    throw new Error('No unrelated Profile record');
+  }
+  sync.sealedProfiles.delete(unreadable[0]);
+  return unreadable[1].identifier;
+};
 const owners = (snapshot: unknown) =>
   mailboxesOf(decode(snapshot)).map(({ profile }) => profile);
 
@@ -859,9 +876,9 @@ describe('mail profile capability fence', () => {
     return { ...context, id, epoch };
   };
 
-  it('cancels a fenced removal when a delayed Profile gains a live connection', async () => {
+  it('cancels a fenced removal for a live connection despite unrelated unreadable Profile records', async () => {
     expect.hasAssertions();
-    const { relaunch, sync, record, mailboxId, id, epoch } =
+    const { relaunch, sync, record, records, mailboxId, id, epoch } =
       await latePublicationAfterRemoval();
     storeProfile(sync, account, {
       kind: 'mailbox',
@@ -870,6 +887,7 @@ describe('mail profile capability fence', () => {
       profile: id,
       version: 1,
     });
+    const unrelated = unreadableProfile(sync);
     const reopened = relaunch();
     const refreshed = await reopened.refreshPrivateSync();
     expect(owners(refreshed)).toStrictEqual([id]);
@@ -882,6 +900,7 @@ describe('mail profile capability fence', () => {
     });
     // The cancelled intent must not delete the Profile when the connection later leaves it.
     await reopened.moveMailbox(await mailboxId(), defaultProfile);
+    records().delete(unrelated);
     expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
       { id, name: 'Work' },
     ]);

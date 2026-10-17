@@ -555,9 +555,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   stale intent, restore the Profile and preserve ownership; otherwise it deletes
   populated state or exposes another Profile's connection through Default.
   Distinguish that ownership from unrelated unreadable records and transient
-  descriptor-listing failures: keep the removal pending without publishing until
-  those reads recover. Cancelling on either failure can resurrect the removed
-  Profile when its delayed first publication arrives.
+  descriptor-listing failures: those failures alone keep removal pending without
+  publishing until reads recover. Observed live or unknown ownership must still
+  cancel it when unrelated Profile records cannot open, or it can delete the
+  restored Profile after its connection later leaves. Cancelling on a read
+  failure alone can resurrect the removed Profile after a delayed publication.
 - `mail-profiles.ts.put` or `commit` reporting CAS success from matching
   ciphertext before the stored winner opens under its authenticated envelope
   and record identity. Preserve unknown winners as unavailable for online
