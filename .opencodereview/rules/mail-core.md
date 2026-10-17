@@ -549,6 +549,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   after the fence lifts. Retain durable pending removal, keep it hidden through
   relaunch and authenticated reconciliation, and publish its tombstone afterwards;
   otherwise a successful removal resurrects the Profile.
+- `mail-profiles.ts.synchronize` treating pending removal as a tombstone or
+  retrying it without the explicit removal's complete emptiness check. A delayed
+  first publication can gain live or unknown ownership before retry. Cancel that
+  stale intent, restore the Profile and preserve ownership; otherwise it deletes
+  populated state or exposes another Profile's connection through Default.
 - `mail-profiles.ts.put` or `commit` reporting CAS success from matching
   ciphertext before the stored winner opens under its authenticated envelope
   and record identity. Preserve unknown winners as unavailable for online

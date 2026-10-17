@@ -13,3 +13,6 @@ Profile records, it serves Private Sync only to clients that present the capabil
 older builds must upgrade. Creating, renaming, removing or moving into a Profile now
 reports why it was refused: an upgrade is required, the Profile still owns a connection,
 or another device changed it first.
+An unpublished Profile removed while fenced stays removed when its delayed publication
+arrives empty. If it gains live or unknown ownership first, the stale removal is
+cancelled and the Profile returns without moving its connections into Default.

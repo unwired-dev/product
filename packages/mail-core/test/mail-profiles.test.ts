@@ -829,6 +829,85 @@ describe('mail profile capability fence', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  const latePublicationAfterRemoval = async () => {
+    const context = await connected();
+    const { flow, vault, keysOf, sync, connection } = context;
+    const { flow: interrupted, publish } = delayPublication(vault);
+    const { id } = profileNamed(
+      await interrupted.createProfile('Work'),
+      'Work',
+    );
+    keysOf().devices.set('device-older-client', {
+      installation: 'older-client',
+      registeredAt: 0,
+      epoch: 1,
+    });
+    await flow.removeProfile(id);
+    keysOf().devices.delete('device-older-client');
+    await publish();
+    const { epoch } = connection();
+    if (epoch === undefined) {
+      throw new Error('No connection epoch');
+    }
+    // Another device's move also rewrites the delayed Profile in the same transaction.
+    storeProfile(sync, account, {
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+    return { ...context, id, epoch };
+  };
+
+  it('cancels a fenced removal when a delayed Profile gains a live connection', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, record, mailboxId, id, epoch } =
+      await latePublicationAfterRemoval();
+    storeProfile(sync, account, {
+      kind: 'mailbox',
+      record: record(),
+      epoch,
+      profile: id,
+      version: 1,
+    });
+    const reopened = relaunch();
+    const refreshed = await reopened.refreshPrivateSync();
+    expect(owners(refreshed)).toStrictEqual([id]);
+    expect(listed(refreshed)).toStrictEqual([{ id, name: 'Work' }]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+    // The cancelled intent must not delete the Profile when the connection later leaves it.
+    await reopened.moveMailbox(await mailboxId(), defaultProfile);
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Work' },
+    ]);
+  });
+
+  it('cancels a fenced removal when a delayed Profile owns an unknown connection', async () => {
+    expect.hasAssertions();
+    const { relaunch, sync, id, epoch } = await latePublicationAfterRemoval();
+    storeProfile(sync, account, {
+      kind: 'mailbox',
+      record: 'mailbox.remote-unknown',
+      epoch,
+      profile: id,
+      version: 1,
+    });
+    expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Work' },
+    ]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      name: 'Work',
+      version: 2,
+    });
+  });
+
   it('drops a Profile named offline that the fence never let publish', async () => {
     expect.hasAssertions();
     const { store, sync } = await withOlderClient();

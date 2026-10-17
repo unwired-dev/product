@@ -250,6 +250,8 @@ the Profiles themselves:
 - Removing an unpublished Profile while fenced hides it immediately and retains the
   removal on this device through relaunch. When the fence lifts, synchronization
   finishes that removal even if an earlier unanswered publication arrives later.
+  If the late Profile gains live or unknown ownership before removal can finish,
+  the removal is cancelled and the Profile returns with its ownership preserved.
 - From the first such record on, Convex refuses Private Sync payload reads and writes from
   any client that does not present the capability. A device that joins later, returns with
   an older build, or never upgraded gets an upgrade-required refusal until it upgrades.

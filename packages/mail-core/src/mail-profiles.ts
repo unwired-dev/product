@@ -32,8 +32,7 @@ const sameState = Schema.toEquivalence(ProfileStateSchema);
 
 // Product Sync holds the Profile without a name: it was removed.
 const isRemoved = (profile: Profile) =>
-  profile.pendingRemoval === true ||
-  (profile.version !== undefined && profile.name === undefined);
+  profile.version !== undefined && profile.name === undefined;
 
 const stateOf = (value: RegistrationRecord) => {
   const sync = value.productSync;
@@ -384,18 +383,55 @@ export function createMailProfileProgram<E>(
     }
   });
 
+  const requireEmpty = Effect.fnUntraced(function* (
+    state: ProfileState,
+    id: string,
+    readable: boolean,
+  ) {
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    const epochs = yield* descriptorEpochs;
+    const owned = state.owners.filter((owner) => owner.profile === id);
+    // An owned connection whose descriptor Product Sync no longer lists may still be live.
+    if (owned.some((owner) => !epochs.has(owner.record))) {
+      return yield* failWith('unavailable');
+    }
+    if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
+      return yield* failWith('profile-in-use');
+    }
+  });
+
   // Reads every Profile record and publishes the names this device chose. A name another device
   // overwrote meanwhile is published again on the next pass.
   const synchronize = Effect.gen(function* () {
-    let { state } = yield* refreshed(yield* known);
-    for (const {
-      id,
-      pending,
-      pendingRemoval,
-      version,
-      updatedAt,
-    } of state.profiles) {
-      if (pending !== undefined || pendingRemoval === true) {
+    const learned = yield* refreshed(yield* known);
+    let { state } = learned;
+    for (const profile of state.profiles) {
+      const { id, pending, pendingRemoval, version, updatedAt } = profile;
+      const removalBlocked =
+        pendingRemoval === true &&
+        (yield* requireEmpty(state, id, learned.readable).pipe(
+          Effect.as(false),
+          Effect.catchIf(
+            (error) =>
+              error instanceof RegistrationRejected &&
+              (error.code === 'profile-in-use' || error.code === 'unavailable'),
+            () => Effect.succeed(true),
+          ),
+        ));
+      // A later move invalidates the empty-Profile removal; retain its ownership instead.
+      if (removalBlocked) {
+        const { pendingRemoval: _, ...restored } = profile;
+        const next = {
+          ...state,
+          profiles: state.profiles.map((item) =>
+            item.id === id ? restored : item,
+          ),
+        };
+        yield* save(state, next);
+        state = next;
+      } else if (pending !== undefined || pendingRemoval === true) {
         ({ state } = yield* put(state, [
           {
             record: {
@@ -429,7 +465,11 @@ export function createMailProfileProgram<E>(
     const chosen = yield* named(name);
     const state = yield* known;
     const profile = state.profiles.find((item) => item.id === id);
-    if (profile === undefined || isRemoved(profile)) {
+    if (
+      profile === undefined ||
+      isRemoved(profile) ||
+      profile.pendingRemoval === true
+    ) {
       return yield* failWith('unavailable');
     }
     const { pending: _, ...stored } = profile;
@@ -458,15 +498,7 @@ export function createMailProfileProgram<E>(
     if (profile === undefined || isRemoved(profile)) {
       return;
     }
-    const epochs = yield* descriptorEpochs;
-    const owned = state.owners.filter((owner) => owner.profile === id);
-    // An owned connection whose descriptor Product Sync no longer lists may still be live.
-    if (owned.some((owner) => !epochs.has(owner.record))) {
-      return yield* failWith('unavailable');
-    }
-    if (owned.some((owner) => epochs.get(owner.record) === owner.epoch)) {
-      return yield* failWith('profile-in-use');
-    }
+    yield* requireEmpty(state, id, readable);
     yield* commit(state, [
       {
         record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },

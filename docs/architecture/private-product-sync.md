@@ -493,6 +493,13 @@ tombstones clear the pending intent. Native stores this additive field unchanged
 so no native Codable shape changes. The #1036 OCR decision panel chose this durable
 intent over accepting resurrection of an empty Profile, 3–0, with
 `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`, all read-only at high reasoning.
+Retrying that removal uses the same complete ownership and descriptor emptiness
+check as explicit removal. Pending intent is not a confirmed tombstone and cannot
+project ownership into Default. If a delayed publication gains live or unknown
+ownership before retry, cancel the intent and restore the Profile instead of
+deleting populated state. The #1036 thermo-nuclear review panel chose cancellation
+over retaining a hidden Profile and quarantining its connections, 2–1:
+`claude-fable-5-1` and `gpt-6.1-sol` chose cancellation; `gpt-6-astra` chose quarantine.
 
 Issue #920 adds independently updated `profile.` definitions and `mailbox-profile.`
 ownership records without changing the mailbox descriptor format. Native derives
