@@ -60,11 +60,7 @@ async function requireMailProfileCapability(
   account: AuthenticatedProductAccount,
   presented: number | undefined,
 ): Promise<void> {
-  if (
-    !capable(presented) &&
-    (account.mailProfilesEnabledAt !== undefined ||
-      (await holdsMailProfileRecords(ctx, account.productAccountId)))
-  ) {
+  if (!capable(presented) && (await mailProfilesEnabled(ctx, account))) {
     throwMailProfilesUpgradeRequired();
   }
 }
@@ -79,10 +75,7 @@ async function fencesMailProfiles(
   ctx: MutationCtx,
   account: AuthenticatedProductAccount,
 ): Promise<boolean> {
-  if (
-    account.mailProfilesEnabledAt !== undefined ||
-    (await holdsMailProfileRecords(ctx, account.productAccountId))
-  ) {
+  if (await mailProfilesEnabled(ctx, account)) {
     return false;
   }
   const devices = ctx.db
@@ -120,16 +113,19 @@ async function admitMailProfileWrites(
   return true;
 }
 
-async function holdsMailProfileRecords(
+async function mailProfilesEnabled(
   ctx: QueryCtx | MutationCtx,
-  productAccountId: Id<'productAccounts'>,
+  account: AuthenticatedProductAccount,
 ): Promise<boolean> {
+  if (account.mailProfilesEnabledAt !== undefined) {
+    return true;
+  }
   for (const prefix of ['profile.', 'mailbox-profile.']) {
     const record = await ctx.db
       .query('encryptedProductSyncPayloads')
       .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
         q
-          .eq('productAccountId', productAccountId)
+          .eq('productAccountId', account.productAccountId)
           .gte('payloadIdentifier', prefix)
           // '/' follows '.', so the range holds exactly the identifiers with this prefix.
           .lt('payloadIdentifier', `${prefix.slice(0, -1)}/`),
@@ -149,7 +145,7 @@ async function enablesEarlierMailProfiles(
 ): Promise<boolean> {
   if (
     account.mailProfilesEnabledAt !== undefined ||
-    !(await holdsMailProfileRecords(ctx, account.productAccountId))
+    !(await mailProfilesEnabled(ctx, account))
   ) {
     return false;
   }
