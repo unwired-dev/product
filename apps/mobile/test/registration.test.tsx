@@ -2506,11 +2506,24 @@ describe('product registration', () => {
       covered: null,
       kept: 'Unfinished',
     });
+    // UIKit's completed edge-back removes the same presentation and restores its kept Inbox.
+    await fireEvent(screen.getByTestId('settings-screen'), 'dismissed', {
+      nativeEvent: { dismissCount: 1 },
+    });
+    const afterNativeBack = screen.getByLabelText('Draft').props.value;
+    await openAccount();
+    await openSettings('Email Accounts');
     await backToSettings();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
     });
-    expect(screen.getByLabelText('Draft')).toHaveProp('value', 'Unfinished');
+    expect({
+      afterNativeBack,
+      afterReturn: screen.getByLabelText('Draft').props.value,
+    }).toStrictEqual({
+      afterNativeBack: 'Unfinished',
+      afterReturn: 'Unfinished',
+    });
     expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
     // Signing out closes Settings, and signing in again opens the Inbox without it.
     const recoveryKey = String(synthetic.device.productSync.vault?.recoveryKey);

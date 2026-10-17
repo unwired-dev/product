@@ -46,7 +46,7 @@ import {
   remoteContent as deviceRemoteContent,
 } from './registration.ts';
 import { RemoteContentContext } from './remote-content.tsx';
-import { openSettings } from './settings-window.ts';
+import { openSettings, useAccountSettingsRequest } from './settings-window.ts';
 import {
   AccountCard,
   SettingsBlock,
@@ -70,6 +70,48 @@ export const AccountContext = createContext<
     }>
   | undefined
 >(undefined);
+
+function useMailAssistanceAccount(
+  { snapshot, locked }: ReturnType<Registration['getSnapshot']>,
+  mailAssistance: MailAssistanceEnablementStore,
+  preview = false,
+) {
+  // Enablement belongs to an admitted Product Account that is not being removed; it is read again
+  // whenever that changes, or when locked storage may have become readable.
+  const assistanceAccount =
+    snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
+      ? undefined
+      : snapshot.productAccountId;
+  const assistanceScope = JSON.stringify([
+    assistanceAccount,
+    snapshot.kind === 'device-pending',
+    locked === true,
+  ]);
+  useEffect(() => {
+    if (!preview) {
+      void mailAssistance.load(assistanceScope);
+    }
+  }, [preview, mailAssistance, assistanceScope]);
+  return assistanceAccount;
+}
+
+function useRegistrationActivation(store: Registration, preview = false) {
+  useEffect(() => {
+    if (preview) {
+      return;
+    }
+    // The host restored at app start. Like the Inbox, restore on every activation, including after
+    // protected storage unlocks.
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void store.resume();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [preview, store]);
+}
 
 export function RegistrationGate({
   children,
@@ -97,7 +139,7 @@ export function RegistrationGate({
     store.subscribe,
     store.getSnapshot,
   );
-  const { snapshot, busy, locked } = registrationState;
+  const { busy } = registrationState;
   const colors = usePalette();
   const { t } = useLocalization();
   // This window's choice between the account page and a connected Inbox outlasts status updates.
@@ -108,28 +150,17 @@ export function RegistrationGate({
   if (screen.choice !== choice) {
     setChoice(screen.choice);
   }
-  // Enablement belongs to an admitted Product Account that is not being removed; it is read again
-  // whenever that changes, or when locked storage may have become readable.
-  const assistanceAccount =
-    snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
-      ? undefined
-      : snapshot.productAccountId;
-  const assistanceScope = JSON.stringify([
-    assistanceAccount,
-    snapshot.kind === 'device-pending',
-    locked === true,
-  ]);
-  useEffect(() => {
-    if (!preview) {
-      void mailAssistance.load(assistanceScope);
-    }
-  }, [preview, mailAssistance, assistanceScope]);
+  const assistanceAccount = useMailAssistanceAccount(
+    registrationState,
+    mailAssistance,
+    preview,
+  );
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
       openAccount: (destination?: SettingsDestination) => {
         if (choices !== undefined) {
-          openSettings(destination);
+          openSettings(choices.inbox.account, destination);
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -137,21 +168,7 @@ export function RegistrationGate({
     }),
     [store, screen.mailboxes, choices],
   );
-  useEffect(() => {
-    if (preview) {
-      return;
-    }
-    // The host restored at app start. Like the Inbox, restore on every activation, including after
-    // protected storage unlocks.
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        void store.resume();
-      }
-    });
-    return () => {
-      subscription.remove();
-    };
-  }, [preview, store]);
+  useRegistrationActivation(store, preview);
   // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
     return (
@@ -243,6 +260,12 @@ export function SettingsGate({
   const { t } = useLocalization();
   const screen = registrationScreen(t, registrationState, undefined);
   const { snapshot } = registrationState;
+  useRegistrationActivation(store);
+  useMailAssistanceAccount(registrationState, mailAssistance);
+  const scopedRequest = useAccountSettingsRequest(
+    snapshot.kind === 'signed-out' ? undefined : snapshot.productAccountId,
+    request,
+  );
   const open =
     screen.destination !== 'locked' &&
     screen.choices !== undefined &&
@@ -263,7 +286,7 @@ export function SettingsGate({
           key={snapshot.productAccountId}
           assistance={assistance}
           microsoft={microsoft}
-          request={request}
+          request={scopedRequest}
           screen={screen}
           store={store}
           onInbox={onInbox}

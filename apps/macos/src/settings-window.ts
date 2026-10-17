@@ -1,6 +1,6 @@
 import type { TurboModule } from 'react-native';
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { TurboModuleRegistry } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
@@ -18,7 +18,12 @@ export const settingsHost = () =>
   TurboModuleRegistry.get<SettingsHost>('UnwiredCommands');
 
 // The latest request to open Settings; each is a new value, so an open window follows it.
-export type SettingsRequest = Readonly<{ destination?: SettingsDestination }>;
+export type SettingsRequest = Readonly<{
+  account?: string;
+  destination?: SettingsDestination;
+}>;
+
+const emptyRequest: SettingsRequest = {};
 
 let request: SettingsRequest = {};
 const listeners = new Set<() => void>();
@@ -33,8 +38,11 @@ const subscribe = (listener: () => void) => {
 const latest = () => request;
 
 // Opens Settings beside the Inbox, which keeps its Draft, mailbox and selected message.
-export function openSettings(destination?: SettingsDestination) {
-  request = destination === undefined ? {} : { destination };
+export function openSettings(
+  account: string,
+  destination?: SettingsDestination,
+) {
+  request = destination === undefined ? { account } : { account, destination };
   for (const listener of listeners) {
     listener();
   }
@@ -50,4 +58,32 @@ export function useSettingsRequest() {
     [],
   );
   return useSyncExternalStore(subscribe, latest);
+}
+
+// A request retires with its Product Account, even if that account later returns.
+export function useAccountSettingsRequest(
+  account: string | undefined,
+  incoming: SettingsRequest,
+) {
+  const [followed, setFollowed] = useState({
+    account,
+    incoming,
+    current:
+      incoming.account === undefined || incoming.account === account
+        ? incoming
+        : emptyRequest,
+  });
+  let next = followed;
+  if (followed.account !== account || followed.incoming !== incoming) {
+    next = {
+      account,
+      incoming,
+      current:
+        followed.account === account && incoming.account === account
+          ? incoming
+          : emptyRequest,
+    };
+    setFollowed(next);
+  }
+  return next.current;
 }

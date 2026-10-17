@@ -31,6 +31,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenStack, ScreenStackItem } from 'react-native-screens';
 
 import type { SettingsDestination } from './settings.tsx';
 
@@ -201,6 +202,9 @@ export function RegistrationGate({
       <RemoteContentContext value={remoteContent}>
         <MailAssistanceContext value={mailAssistance}>
           <SettingsCover
+            onClose={() => {
+              setSettings(undefined);
+            }}
             settings={
               shownSettings === undefined ? undefined : (
                 <SettingsPage
@@ -273,12 +277,43 @@ export function RegistrationGate({
 // reader, and leaves the accessibility tree to Settings.
 function SettingsCover({
   settings,
+  onClose,
   children,
 }: {
   readonly settings: ReactNode;
+  readonly onClose: () => void;
   readonly children: ReactNode;
 }) {
   const covered = settings !== undefined;
+  if (!settingsColumns) {
+    return (
+      <ScreenStack style={styles.page}>
+        <ScreenStackItem
+          screenId="mail"
+          activityState={2}
+          freezeOnBlur={false}
+          headerConfig={{ hidden: true }}>
+          <View
+            accessibilityElementsHidden={covered}
+            importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+            style={styles.page}>
+            {children}
+          </View>
+        </ScreenStackItem>
+        {covered ? (
+          <ScreenStackItem
+            screenId="settings"
+            testID="settings-screen"
+            activityState={2}
+            headerConfig={{ hidden: true }}
+            gestureEnabled
+            onDismissed={onClose}>
+            {settings}
+          </ScreenStackItem>
+        ) : null}
+      </ScreenStack>
+    );
+  }
   return (
     <>
       <View

@@ -29,9 +29,12 @@ leaving an open composer. On the Mac, Settings is one independent window, which
 the app menu's **Settings…** (Command-,) also opens; opening it again brings that
 window forward on the destination asked for, or where the person left it. Closing
 it leaves every Inbox window as it was, and its Command Palette's Inbox brings an
-Inbox window forward. On iPhone and iPad, Settings covers the Inbox, which stays
-mounted beneath it, and **Open Inbox** returns to it. Sign-out, locked storage,
-pending setup or a different Product Account closes Settings.
+Inbox window forward. On iPhone, Settings pushes onto the native navigation stack;
+edge-back or **Open Inbox** returns to the kept Inbox, reader or composer. iPad
+opens its two-column workspace over that same kept content, with **Open Inbox**
+to return. Sign-out or locked storage closes Settings. On mobile, pending setup
+or a different Product Account closes it too; an open Mac Settings window starts
+the replacement account afresh on Account & Devices.
 
 Choosing **Open Inbox** on the account page can leave already-pending setup for
 later, but different pending setup that appears afterward, including a renewed

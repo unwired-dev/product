@@ -60,6 +60,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import {
   MacWindows,
@@ -2691,8 +2692,9 @@ describe('product registration', () => {
         </RegistrationGate>
       </MacWindows>,
     );
-    await openAccount();
-    await settings('Email Accounts');
+    await act(async () => {
+      openSettings('account-synthetic-product-subject', 'mailboxes');
+    });
     expect(
       screen.getByRole('header', { name: 'Email Accounts' }),
     ).toBeVisible();
@@ -2720,6 +2722,33 @@ describe('product registration', () => {
       recoveryKeyOf(synthetic),
     );
     expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+  });
+
+  it('verifies activation with only Settings open and closes it after account removal', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = started(createRegistration(synthetic.vault));
+    await store.restoreOnce();
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
+    await render(<MacWindows store={store}>{null}</MacWindows>);
+    await commandComma();
+    expect(
+      settingsWindow().getByRole('header', { name: 'Account & Devices' }),
+    ).toBeVisible();
+    await setup.signOut();
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('settings-window')).toBeNull();
+    });
   });
 
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {

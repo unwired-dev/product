@@ -8,7 +8,12 @@ replacement requirements or release qualification.
 ## Stack and boundaries
 
 - Router's explicitly accepted alpha `unstable-split-view` supplies native compact
-  and regular layouts. Route parameters identify the selected message.
+  and regular layouts. Route parameters identify the selected message. The iPhone
+  registration gate owns an outer `react-native-screens` native stack, retaining
+  the split-view mail shell as its first screen and pushing Settings as the second.
+  UIKit's dismissal event retires that Settings request. The mail shell and composer
+  keep their route and mounted state beneath the push; iPad retains the two-column
+  Settings workspace over its mounted shell.
 
 - React Native `StyleSheet` and framework-independent light/dark tokens in
   `packages/mail-core`. System text, accessible buttons, selection state and

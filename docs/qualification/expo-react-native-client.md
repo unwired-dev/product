@@ -9,6 +9,27 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Independent Settings presentation, 2026-10-17
+
+Issue [#911](https://github.com/unwired-dev/product/issues/911) adds the Mac
+Settings window and mobile Settings ownership without finishing an open Draft.
+Reviewer verification passed both full host Jest suites, localization tests,
+lint, formatting, type checks, dependency boundaries, the Fallow new-only gate,
+both production exports and bundle/native-dependency checks, and the Mac Release
+build. The changed Mac and mobile XCTest probes also passed `build-for-testing`.
+Those builds establish compilation, not interaction.
+
+The native journeys now target the separate Mac Settings window and exercise
+repeat Command-comma, close/return and an unfinished editor; the mobile editor
+journey opens Settings through its palette and returns through iPhone edge-back
+or iPad Open Inbox. Execution, Light/Dark captures, focus, VoiceOver, cancellation
+and physical-device qualification remain deferred. This host reports Developer
+Mode disabled for XCTest automation, and Xcode reports CoreSimulator 1171.7.0
+older than its required 1174.9.2 with Simulator device support disabled. The
+pre-existing first-launch process and its authentication prompt were left alone.
+These checks remain required before release; component tests and probe compilation
+do not qualify the native stack transition or real provider behavior.
+
 ## Recovery Key evidence, 2026-10-04
 
 [#601](https://github.com/unwired-dev/product/issues/601) adds explicit recovery
