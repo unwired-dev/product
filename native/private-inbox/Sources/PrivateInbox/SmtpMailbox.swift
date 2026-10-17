@@ -143,24 +143,9 @@ extension RegistrationStore {
       && !address.contains(where: { "<>()[],;:\\\"".contains($0) })
   }
 
-  // The submitted copy leaves out the Bcc field, which only the Sent copy keeps; recipients see no
-  // Bcc recipient. Only the header block before the first empty line is read.
-  nonisolated static func withoutBcc(_ message: Data) -> Data {
-    guard let end = message.range(of: Data("\r\n\r\n".utf8))?.lowerBound else { return message }
-    var dropping = false
-    // A folded line continues the field before it.
-    let head = String(decoding: message[..<end], as: UTF8.self).components(separatedBy: "\r\n")
-      .filter { line in
-        if line.first == " " || line.first == "\t" { return !dropping }
-        dropping = line.lowercased().hasPrefix("bcc:")
-        return !dropping
-      }
-    return Data(head.joined(separator: "\r\n").utf8) + message[end...]
-  }
-
-  // Submits a message TypeScript composed from the connection's address to `recipients`, with each
-  // Draft Asset's verified bytes inserted here. Any failure once its end may have reached the
-  // server is deliveryUnknown; nothing here retries a submission.
+  // Submits a message TypeScript composed, without its Bcc field, from the connection's address to
+  // `recipients`, with each Draft Asset's verified bytes inserted here. Any failure once its end may
+  // have reached the server is deliveryUnknown; nothing here retries a submission.
   func imapSend(
     segments: [Any], recipients: [String], connection id: String, address: String,
     generation: String
@@ -186,9 +171,7 @@ extension RegistrationStore {
       throw PrivateInboxError.mailboxInvalidated
     }
     let (account, password) = try smtpConnection(id)
-    try await smtp.send(
-      account, password: password, from: address, to: recipients,
-      message: Self.withoutBcc(message))
+    try await smtp.send(account, password: password, from: address, to: recipients, message: message)
     return ["accepted": true]
   }
 

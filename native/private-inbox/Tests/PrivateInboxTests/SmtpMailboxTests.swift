@@ -5,8 +5,8 @@ import Testing
 
 extension PrivateInboxTests {
   // SMTP is verified on its own before a connection is added. A submission names the connection's
-  // address and SMTP password, leaves Bcc out of the copy recipients see, and files a Sent copy
-  // that keeps it; stale work and malformed envelopes reach no server.
+  // address and SMTP password and submits the message TypeScript composed unchanged, and files a
+  // Sent copy; stale work and malformed envelopes reach no server.
   @Test @MainActor func imapConnectionSendsThroughSmtpAndFilesItsSentCopy() async throws {
     let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -73,7 +73,7 @@ extension PrivateInboxTests {
     let head =
       "From: alex@example.invalid\r\nTo: Sam <sam@example.invalid>\r\nBcc: Jo\r\n <jo@example.invalid>\r\n"
       + "Subject: Lunch\r\nContent-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n"
-    let body = "--=_sentcopy1\r\nBcc: body text, not a header\r\n--=_sentcopy1--\r\n"
+    let body = "--=_sentcopy1\r\n--=_sentcopy1--\r\n"
     let recipients = ["sam@example.invalid", "jo@example.invalid"]
     let reply = try await store.imapSend(
       segments: [["text": head + body]], recipients: recipients, connection: id,
@@ -85,9 +85,7 @@ extension PrivateInboxTests {
           ControlledSmtp.Submission(
             account: outgoing, password: "smtp-password", from: "alex@example.invalid",
             to: recipients,
-            message: Data(
-              ("From: alex@example.invalid\r\nTo: Sam <sam@example.invalid>\r\nSubject: Lunch\r\n"
-                + "Content-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n" + body).utf8))
+            message: Data((head + body).utf8))
         ])
     // Malformed envelopes and work from another generation reach no server.
     for refused in [[], ["sam@example.invalid\r\nRCPT TO:<x@example.invalid>"], ["<sam@example.invalid>"]]
@@ -112,7 +110,7 @@ extension PrivateInboxTests {
     smtp.failure = nil
     #expect(smtp.submissions().count == 1)
 
-    // The Sent copy keeps Bcc, and filing it again finds it.
+    // Filing the Sent copy again finds it.
     _ = try await store.imapFileSent(
       segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
       address: "alex@example.invalid", generation: generation)

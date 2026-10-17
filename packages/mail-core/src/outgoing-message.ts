@@ -364,8 +364,8 @@ export function outgoingMessage(
     (references.length === 0 ? '' : header('References', references));
   const identity =
     messageId === undefined ? '' : `Message-ID: <${messageId}>${crlf}`;
-  // Gmail, Microsoft and native SMTP delivery deliver to Bcc recipients and remove the header from
-  // what others receive; only the sender's Sent copy keeps it.
+  // Gmail and Microsoft deliver to Bcc recipients and remove the header from what others receive,
+  // and SMTP submits `withoutBcc`; only the sender's Sent copy keeps it.
   const head = `From: ${draft.from}${crlf}${addressList('To', draft.to)}${addressList('Cc', draft.cc)}${addressList('Bcc', draft.bcc)}${unstructured('Subject', draft.subject)}Date: ${dateOf(date)}${crlf}${identity}${threading}MIME-Version: 1.0${crlf}`;
   const segments = [
     { text: head + content.head + crlf },
@@ -387,6 +387,26 @@ const headOf = (segments: readonly MessageSegment[]) => {
   const [first] = segments;
   const head = first !== undefined && 'text' in first ? first.text : '';
   return head.slice(0, head.indexOf(`${crlf}${crlf}`) + crlf.length);
+};
+
+// The copy SMTP submits leaves out the Bcc field and its folded lines, so recipients see no Bcc
+// recipient; only the Sent copy keeps it. Only the header block is read, never the body.
+export const withoutBcc = (
+  segments: readonly MessageSegment[],
+): readonly MessageSegment[] => {
+  const [first, ...rest] = segments;
+  if (first === undefined || !('text' in first)) {
+    return segments;
+  }
+  const head = headOf(segments);
+  return [
+    {
+      text:
+        head.replaceAll(/^Bcc:.*\r\n(?:[ \t].*\r\n)*/gmu, '') +
+        first.text.slice(head.length),
+    },
+    ...rest,
+  ];
 };
 
 // The Message-ID `outgoingMessage` wrote, without angle brackets, which identifies the message's

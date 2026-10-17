@@ -82,7 +82,7 @@ async function imapSender(
       claims: phone.storage.delivery,
     });
   let outbox = open();
-  // A Draft from `mailbox` to Sam, with Jo in Bcc.
+  // A Draft from `mailbox` to Sam, with Jo and Avery in a Bcc field long enough to fold.
   const addressed = async (mailbox = work) => {
     const id = present(await phone.drafts.create(mailbox), 'a new Draft');
     const created = phone.draft(id);
@@ -90,7 +90,13 @@ async function imapSender(
       {
         ...write(created, 'See you there'),
         to: [{ name: 'Sam Lee', address: 'sam@example.invalid' }],
-        bcc: [{ name: 'Jo', address: 'jo@example.invalid' }],
+        bcc: [
+          { name: 'Jo', address: 'jo@example.invalid' },
+          {
+            name: 'Avery Quinn',
+            address: 'avery.quinn@long-department.example.invalid',
+          },
+        ],
         subject: 'Lunch',
       },
       created,
@@ -152,9 +158,8 @@ describe('sending through SMTP and filing Sent copies', () => {
       await sending.outbox.process();
 
       const [submitted, ...others] = sending.servers.home.smtp.accepted;
-      const delivered = await PostalMime.parse(
-        present(submitted, 'a submission').raw,
-      );
+      const { raw } = present(submitted, 'a submission');
+      const delivered = await PostalMime.parse(raw);
       // The copy goes to the folder this server declares Sent, with Bcc and the same identity.
       const copy = await PostalMime.parse(
         await sending.copy('home', 'Sent Items'),
@@ -167,6 +172,8 @@ describe('sending through SMTP and filing Sent copies', () => {
           from: delivered.from?.address,
           to: delivered.to?.map(({ address }) => address),
           bcc: delivered.bcc,
+          // No line of the folded Bcc field reaches recipients.
+          bccLines: /jo@|avery\.quinn@/u.test(raw),
         },
         filed: [
           sending.servers.home.server.changes,
@@ -181,15 +188,23 @@ describe('sending through SMTP and filing Sent copies', () => {
       }).toStrictEqual({
         others: [],
         work: [],
-        recipients: ['sam@example.invalid', 'jo@example.invalid'],
+        recipients: [
+          'sam@example.invalid',
+          'jo@example.invalid',
+          'avery.quinn@long-department.example.invalid',
+        ],
         delivered: {
           from: home.address,
           to: ['sam@example.invalid'],
           bcc: undefined,
+          bccLines: false,
         },
         filed: [['append Sent Items'], []],
         copy: {
-          bcc: ['jo@example.invalid'],
+          bcc: [
+            'jo@example.invalid',
+            'avery.quinn@long-department.example.invalid',
+          ],
           messageId: delivered.messageId,
           text: 'See you there',
         },

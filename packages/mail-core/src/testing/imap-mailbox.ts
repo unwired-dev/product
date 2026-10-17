@@ -219,13 +219,10 @@ export function createSyntheticImap({
       if (failure !== undefined) {
         return rejection(failure);
       }
-      const raw = rawOf(message.segments);
-      const head = raw.slice(0, raw.indexOf('\r\n\r\n'));
-      // Native code leaves the Bcc field, and its folded lines, out of the submitted copy.
-      const submitted =
-        head.replaceAll(/^Bcc:.*\r\n(?:[ \t].*\r\n)*/gmu, '') +
-        raw.slice(head.length);
-      smtp.accepted.push({ raw: submitted, recipients: message.recipients });
+      smtp.accepted.push({
+        raw: rawOf(message.segments),
+        recipients: message.recipients,
+      });
       if (smtp.lost) {
         smtp.lost = false;
         return rejection('delivery-unknown');
