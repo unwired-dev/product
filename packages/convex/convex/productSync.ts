@@ -112,6 +112,43 @@ async function admitMailProfileWrites(
   return true;
 }
 
+async function holdsMailProfileRecords(
+  ctx: MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+): Promise<boolean> {
+  for (const prefix of ['profile.', 'mailbox-profile.']) {
+    const record = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .gte('payloadIdentifier', prefix)
+          // '/' follows '.', so the range holds exactly the identifiers with this prefix.
+          .lt('payloadIdentifier', `${prefix.slice(0, -1)}/`),
+      )
+      .first();
+    if (record !== null) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Records an earlier release wrote without setting the marker enable the fence too.
+async function enablesEarlierMailProfiles(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+): Promise<boolean> {
+  if (
+    account.mailProfilesEnabledAt !== undefined ||
+    !(await holdsMailProfileRecords(ctx, account.productAccountId))
+  ) {
+    return false;
+  }
+  await enableMailProfiles(ctx, account);
+  return true;
+}
+
 // From the account's first committed Mail Profile record on, only capable clients sync.
 async function enableMailProfiles(
   ctx: MutationCtx,
@@ -147,6 +184,9 @@ export const declareMailProfileCapability = mutation({
       await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
         mailProfileCapabilityVersion: args.capabilityVersion,
       });
+    }
+    if (await enablesEarlierMailProfiles(ctx, account)) {
+      return { fenced: false };
     }
     return { fenced: await fencesMailProfiles(ctx, account) };
   },

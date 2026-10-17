@@ -1645,6 +1645,32 @@ describe('productSync Mail Profile capability fence', () => {
     ).resolves.toMatchObject({ committed: true });
   });
 
+  it('fences an account whose Mail Profile records predate the fence once a capable device declares', async () => {
+    expect.hasAssertions();
+    const { t, asUser, connect, second, declare } = await withSecondDevice();
+    // Records an earlier release wrote without enabling the fence.
+    await t.run(async (ctx) => {
+      await ctx.db.insert('encryptedProductSyncPayloads', {
+        encryptedPayload,
+        payloadIdentifier: 'mailbox-profile.gmail',
+        productAccountId: connect.productAccountId,
+        trustedDeviceId: connect.trustedDeviceId,
+        updatedAt: 1,
+        writtenAt: 1,
+      });
+    });
+    const olderList = () =>
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        paginationOpts: firstPage,
+        trustedDeviceId: second.trustedDeviceId,
+      });
+
+    await expect(declare(connect.trustedDeviceId)).resolves.toStrictEqual({
+      fenced: false,
+    });
+    await expect(olderList()).rejects.toMatchObject(upgradeRequired);
+  });
+
   it('refuses every Product Sync payload call without the capability once the account holds Mail Profile records', async () => {
     expect.hasAssertions();
     const { t, asUser, connect, second, writeProfile, declare } =

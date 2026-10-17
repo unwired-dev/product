@@ -532,6 +532,10 @@ export function createSyntheticSyncHandlers(
         return refusal(mailProfilesUpgradeRequired);
       }
       caller.mailProfiles = version;
+      // As Convex does, records an earlier release wrote without the marker enable the fence.
+      if ([...entry.records.keys()].some(isMailProfileRecord)) {
+        entry.mailProfilesEnabled = true;
+      }
       return success({ fenced: fenced(entry) });
     },
     // The account's recovery envelope; a missing record is null.

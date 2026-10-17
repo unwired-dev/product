@@ -255,6 +255,8 @@ the Profiles themselves:
 - From the first such record on, Convex refuses Private Sync payload reads and writes from
   any client that does not present the capability. A device that joins later, returns with
   an older build, or never upgraded gets an upgrade-required refusal until it upgrades.
+- An account that already holds such records from an earlier release is fenced as soon as
+  a capable device next synchronizes.
 
 Every description a device cannot open or decode is read-only. This includes
 newer formats, missing keys and failed authentication. The device neither shows
