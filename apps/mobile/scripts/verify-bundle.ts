@@ -79,18 +79,24 @@ for (const source of sources) {
     `Unexpected platform dependency: ${source}`,
   );
 }
-// Selected scenarios carry their synthetic providers, except enrollment, whose synthetic trusted
-// device still answers natively. Registration JavaScript otherwise stays production, apart from
-// the evaluation editor page below.
+// Selected scenarios carry their synthetic providers. Registration JavaScript otherwise stays
+// production, apart from the evaluation editor page below.
 const scenario: unknown = process.env.UNWIRED_MOCK_SCENARIO;
-const nativeOnly = scenario === 'registration-enrollment';
 const mockSources = sources.filter((source) =>
   source.includes('/mail-core/src/testing/'),
 );
 assert.equal(
   mockSources.length > 0,
-  Boolean(scenario) && !nativeOnly,
+  Boolean(scenario),
   'Mock providers must appear only in explicitly selected test bundles.',
+);
+// The synthetic trusted device's HPKE seal is the only user of these.
+assert.ok(
+  Boolean(scenario) ||
+    !sources.some((source) =>
+      /@noble[/\\](?:curves|ciphers)[/\\]/u.test(source),
+    ),
+  'Test-only cryptography must stay out of production bundles.',
 );
 // Only `registration-draft-editor` bundles carry the Tiptap evaluation page, as one packaged
 // string; Tiptap and ProseMirror never join the native renderer's module graph.

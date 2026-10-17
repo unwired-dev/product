@@ -7,6 +7,7 @@ import * as Base64 from 'effect/encoding/Base64';
 import * as Layer from 'effect/Layer';
 import * as Order from 'effect/Order';
 import * as Predicate from 'effect/Predicate';
+import * as Random from 'effect/Random';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
@@ -18,6 +19,7 @@ import {
   KeyEnvelope,
   StoredPayload,
 } from '../registration-replies.ts';
+import { sealEnrollment } from './enrollment-approval.ts';
 import { SyntheticScenario, refuse, reply } from './synthetic-relay.ts';
 
 const Strings = Schema.Record(Schema.String, Schema.String);
@@ -36,12 +38,24 @@ const State = Schema.Struct({
   ),
   // Delivery claims this device holds, by account; no other device claims in mock sessions.
   claims: Lists,
-  // Open enrollment requests by Pending Device id, with the encryption key they name.
+  // Open enrollment requests by Pending Device id: the one-time key, the encryption key they name
+  // and the synthetic trusted device's approval, once sealed.
   requests: Schema.Record(
     Schema.String,
-    Schema.Struct({ account: Schema.String, deviceKey: Schema.String }),
+    Schema.Struct({
+      account: Schema.String,
+      publicKey: Schema.String,
+      deviceKey: Schema.String,
+      approval: Schema.optionalKey(
+        Schema.Struct({
+          encapsulatedKeyBase64: Schema.String,
+          ciphertextBase64: Schema.String,
+        }),
+      ),
+    }),
   ),
-  // Pending Devices whose Recovery Key proof matched, with the encryption key it named.
+  // Pending Devices whose Recovery Key proof matched or which the trusted device approved, with the
+  // encryption key the proof or approval named.
   recovered: Strings,
   // Device identifiers each account admitted: the one that created its keys, then others.
   admitted: Lists,
@@ -135,10 +149,13 @@ const Activation = Schema.Struct({
   recoveryVerifier: Schema.String,
 });
 
-// The lost trusted device of `registration-recovery`'s account, sealed by native code for the fixed
-// Recovery Key that journey types: its recovery envelope, verifier and one encrypted mailbox.
-const lostDevice = {
+// The other trusted device of the enrollment and recovery scenarios' account, sealed by native code
+// for the fixed Recovery Key the recovery journey types: its recovery envelope, verifier and one
+// encrypted mailbox. In enrollment it approves this device; in recovery it is lost.
+const trustedDevice = {
   account: 'synthetic-product-account',
+  // The key ring the recovery envelope seals, which an approval hands to this device.
+  ring: '{"current":1,"keys":[{"version":1,"key":"KnLll/+hFLlv/cYU5tbSeaNGZmbnGjqNLWuv4LcLZe8="}]}',
   recovery: {
     algorithm: 'AES-GCM-256',
     ciphertextBase64:
@@ -233,18 +250,19 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
       const removable = scenario === 'registration-revocation';
       // Another device already created this account's keys and saved a mailbox with them; in the
       // recovery scenario that device is lost, and the person holds the account's Recovery Key.
+      const approving = scenario === 'registration-enrollment';
       if (
-        scenario === 'registration-recovery' &&
-        state.recovery[lostDevice.account] === undefined
+        (approving || scenario === 'registration-recovery') &&
+        state.recovery[trustedDevice.account] === undefined
       ) {
         yield* changed((next) => {
-          next.recovery[lostDevice.account] = lostDevice.recovery;
-          next.verifiers[lostDevice.account] = lostDevice.verifier;
-          next.admitted[lostDevice.account] = [
+          next.recovery[trustedDevice.account] = trustedDevice.recovery;
+          next.verifiers[trustedDevice.account] = trustedDevice.verifier;
+          next.admitted[trustedDevice.account] = [
             'synthetic-trusted-installation',
           ];
-          next.records[lostDevice.account] = {
-            [lostDevice.mailbox.payloadIdentifier]: lostDevice.mailbox,
+          next.records[trustedDevice.account] = {
+            [trustedDevice.mailbox.payloadIdentifier]: trustedDevice.mailbox,
           };
         });
       }
@@ -508,7 +526,51 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         });
         return yield* success({ initialized });
       });
-      // Admits a Pending Device whose Recovery Key matched, with the key the proof named.
+      // The synthetic trusted device approves a request once this device shows its code, which the
+      // person reads from this screen and types there.
+      const approve = (product: Product, code: unknown) =>
+        update((next) =>
+          Effect.gen(function* () {
+            const id = product.trustedDeviceId;
+            const request = next.requests[id];
+            if (
+              !approving ||
+              request === undefined ||
+              request.approval !== undefined ||
+              !Predicate.isString(code)
+            ) {
+              return request;
+            }
+            const recipient = yield* Effect.fromResult(
+              Base64.decode(request.publicKey),
+            ).pipe(Effect.catch(() => refuse('unavailable')));
+            const ephemeral = yield* Effect.forEach(Arr.range(1, 32), () =>
+              Random.nextIntBetween(0, 255),
+            );
+            const sealed = sealEnrollment({
+              ring: trustedDevice.ring,
+              keyVersion: 1,
+              recipient,
+              code,
+              account: request.account,
+              device: id,
+              deviceKey: request.deviceKey,
+              ephemeral: Uint8Array.from(ephemeral),
+            });
+            const approved = {
+              ...request,
+              approval: {
+                encapsulatedKeyBase64: Base64.encode(sealed.encapsulatedKey),
+                ciphertextBase64: Base64.encode(sealed.ciphertext),
+              },
+            };
+            next.requests[id] = approved;
+            next.recovered[id] = request.deviceKey;
+            return approved;
+          }),
+        );
+      // Admits a Pending Device whose Recovery Key matched or which the trusted device approved,
+      // with the key the proof or approval named.
       const completeEnrollment = Effect.fn(
         'SyntheticConvex.completeEnrollment',
       )(function* ({ args, product }: Presented) {
@@ -611,15 +673,19 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         // Enrollment, recovery, key rotation and removal, which TypeScript sequences. A new
         // request replaces the earlier key.
         'productSyncEnrollment:request': ({ args, product }) => {
-          const { deviceEncryptionPublicKey: deviceKey } = args;
+          const {
+            enrollmentPublicKey: publicKey,
+            deviceEncryptionPublicKey: deviceKey,
+          } = args;
           return product.pending !== true ||
             state.recovery[product.productAccountId] === undefined ||
-            !isBase64(args.enrollmentPublicKey) ||
+            !isBase64(publicKey) ||
             !isBase64(deviceKey)
             ? refuse('unavailable')
             : changed((next) => {
                 next.requests[product.trustedDeviceId] = {
                   account: product.productAccountId,
+                  publicKey,
                   deviceKey,
                 };
                 next.recovered = without(
@@ -630,14 +696,24 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
                 Effect.andThen(success({ expiresAt: 1_788_400_000_000 })),
               );
         },
-        // No synthetic trusted device approves here; that scenario still runs natively.
-        'productSyncEnrollment:status': ({ product }) =>
-          success({
-            state:
-              state.requests[product.trustedDeviceId] === undefined
-                ? 'cancelled'
-                : 'pending',
-          }),
+        // Native relays the code this device shows with each check for approval.
+        'productSyncEnrollment:status': ({ args, product }) =>
+          approve(product, args.shownEnrollmentCode).pipe(
+            Effect.flatMap((request) => {
+              if (request === undefined) {
+                return success({ state: 'cancelled' });
+              }
+              const { approval } = request;
+              return success(
+                approval === undefined
+                  ? { state: 'pending' }
+                  : {
+                      state: 'approved',
+                      approval: { keyVersion: 1, ...approval },
+                    },
+              );
+            }),
+          ),
         'productSyncEnrollment:complete': completeEnrollment,
         'productSyncEnrollment:recover': ({ args, product }) => {
           const envelope = state.recovery[product.productAccountId];

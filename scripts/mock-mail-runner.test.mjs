@@ -264,15 +264,14 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['open-read-relaunch', 'normal'],
     ['categorization-spike', 'sourceFile'],
   ]);
-  // Registration scenarios answer the native vault from the synthetic layers, except enrollment,
-  // whose synthetic trusted device still answers natively.
+  // Registration scenarios answer the native vault from the synthetic layers.
   expectResolutions('@private-email/mail-core/synthetic-registration', 'ios', [
     ['', 'normal'],
     ['open-read-relaunch', 'normal'],
     ['registration-apple', 'sourceFile'],
     ['registration-draft-editor', 'sourceFile'],
     ['registration-thread', 'sourceFile'],
-    ['registration-enrollment', 'normal'],
+    ['registration-enrollment', 'sourceFile'],
   ]);
   const script = seedScript('@private-email/mail-core/inbox-seed', 'ios');
   const invalid = spawnSync(process.execPath, ['-e', script], {

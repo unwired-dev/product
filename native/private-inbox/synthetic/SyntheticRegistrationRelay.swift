@@ -274,11 +274,22 @@
     -> RegistrationStore
   {
     guard let bundle = Bundle.main.bundleIdentifier else { throw RegistrationError.unavailable }
+    let keys = DeviceKeychain(service: bundle + ".google-registration")
     func stored(_ reply: [String: Any]) throws -> StoredPayload? {
       try (reply["stored"]).flatMap { $0 is NSNull ? nil : try decode(StoredPayload.self, $0) }
     }
+    // The code this Pending Device shows, which the synthetic trusted device approves with as the
+    // person would type it there.
+    func shown(_ request: BackendRequest) throws -> [String: Any] {
+      guard request.path == "productSyncEnrollment:status", let product = request.product,
+        let data = try keys.read("product-sync-enrollment." + product.productAccountId),
+        let enrollment = try? JSONDecoder().decode(ProductSyncEnrollment.self, from: data),
+        enrollment.pendingDeviceId == product.trustedDeviceId
+      else { return [:] }
+      return ["shownEnrollmentCode": enrollment.code]
+    }
     return RegistrationStore(
-      keys: DeviceKeychain(service: bundle + ".google-registration"),
+      keys: keys,
       deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: SyntheticGoogleProvider(), apple: SyntheticAppleProvider(),
       microsoft: SyntheticMicrosoftProvider(),
@@ -317,7 +328,8 @@
         try await exchange(
           "convex.call",
           try caller(request.identity, request.product).merging([
-            "endpoint": request.endpoint.rawValue, "path": request.path, "args": arguments(request),
+            "endpoint": request.endpoint.rawValue, "path": request.path,
+            "args": arguments(request).merging(try shown(request)) { $1 },
           ]) { $1 })
       },
       mailCache: mailCache,

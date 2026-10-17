@@ -97,8 +97,13 @@ function NewMessageButton({
     }
     creating.current = true;
     setCreatingShown(true);
-    // Leaving and creating resolve rather than reject, so the press always settles here.
-    const id = await navigation.create(store, sender);
+    let id: string | undefined = undefined;
+    try {
+      id = await navigation.create(store, sender);
+    } catch {
+      // An unexpected rejection, such as a throwing Draft subscriber, keeps New Message usable.
+    }
+    // Not in `finally`: React Compiler cannot compile a finally clause.
     creating.current = false;
     setCreatingShown(false);
     if (id !== undefined) {

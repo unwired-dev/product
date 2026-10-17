@@ -25,6 +25,7 @@ import {
   refuse,
 } from './synthetic-relay.ts';
 
+export { sealEnrollment } from './enrollment-approval.ts';
 export { SyntheticGmailMessages, SyntheticGoogle } from './synthetic-gmail.ts';
 export { SyntheticScenario } from './synthetic-relay.ts';
 

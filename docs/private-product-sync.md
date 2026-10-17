@@ -551,8 +551,10 @@ after relaunch, confirms it, and reads the decrypted mailbox list after another
 relaunch. The packaged `registration-enrollment` journey signs in to an account
 whose keys belong to a synthetic trusted device. It shows the code and checks for
 approval. It then reads that device's mailbox through real HPKE and AES-GCM, while
-Gmail still needs authorization. The synthetic trusted device reads the code from
-the run's Keychain in place of a person typing it. The packaged `registration-recovery`
+Gmail still needs authorization. The synthetic relay reads the code from the
+run's Keychain in place of a person typing it, and the synthetic trusted device
+seals its approval in TypeScript. The hosted suite opens one such approval with
+CryptoKit. The packaged `registration-recovery`
 journey starts from the same account, whose trusted device is lost. It types the
 synthetic account's written Recovery Key and reads the mailbox after relaunch.
 The Mac journey first types a key with one changed character and sees it rejected. These are deterministic application checks, not real Convex or provider

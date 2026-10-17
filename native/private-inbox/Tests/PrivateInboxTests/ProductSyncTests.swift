@@ -229,6 +229,34 @@ extension PrivateInboxTests {
           keyVersion: keyVersion)
       }
     }
+    // The approval Mock Mail Sessions' synthetic trusted device seals in TypeScript opens here
+    // (packages/mail-core/test/synthetic-registration.test.ts pins the same bytes).
+    let synthetic = KeyRingEnvelope.Enrollment(
+      encapsulatedKey: Data(base64Encoded: "zo060cy2M+x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk=")!,
+      ciphertext: Data(
+        base64Encoded:
+          "LbIyKdbb6gpUjiVZMVlUiSKdVk9l5bY0nmGvQ+d1yYTIIsN/PxwHn79g+o0Z6DNOVU3+NOeqFUAbyCLfEP3Lmujm0DIuGNxIB2rq3qGgwT3DvcXkJx8ofSXv75v391WKseSvlYSQC9hs"
+      )!)
+    let opened = try KeyRingEnvelope.openEnrollment(
+      synthetic,
+      with: Curve25519.KeyAgreement.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32)),
+      code: EnrollmentCode(
+        parsing: "W65S-JAHG-7NHT-52ZB-74MF-RZQ5-B803-ZRRF-HBCM-CH52-5A1A-PTSC-BF7V-7TB5"),
+      binding: .init(
+        account: "synthetic-product-account", device: "synthetic-pending-installation",
+        deviceKey: Curve25519.KeyAgreement.PrivateKey(
+          rawRepresentation: Data(repeating: 3, count: 32)
+        ).publicKey),
+      keyVersion: 1)
+    #expect(
+      opened
+        == ProductSyncKeyRing(
+          current: 1,
+          keys: [
+            .init(
+              version: 1,
+              key: Data(base64Encoded: "KnLll/+hFLlv/cYU5tbSeaNGZmbnGjqNLWuv4LcLZe8=")!)
+          ]))
   }
 
   // The native half of enrollment, recovery, key rotation and removal, which TypeScript sequences
