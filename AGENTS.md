@@ -25,7 +25,7 @@ for every implementation, including later implementation fixes.
   `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
   instructions in other repository guides or skills.
-- Search the repository as the implementer with `scripts/implementer-grep.sh`
+- Search the repository as the implementer with `scripts/implementer-grep`
   (`git grep` arguments, pathspecs after `--`), which always excludes those
   sources. Do not use `grep -r`, `rg` or bare `git grep` across the checkout.
 - Invoke the `ponytail` skill before implementing, and follow it and the

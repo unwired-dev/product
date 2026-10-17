@@ -1,0 +1,67 @@
+#!/bin/sh
+# git grep for implementers. Every reviewer-only source listed in
+# docs/agents/implementation-review.md is excluded, whatever pathspecs the caller adds after `--`.
+# Usage: scripts/implementer-grep [git grep options] <pattern> [-- <pathspec>...]
+# Whole commits are supported; tree/blob selectors cannot preserve root exclusions.
+set -eu
+
+separated=false
+pattern=false
+value=false
+for argument do
+  if [ "$value" = true ]; then
+    value=false
+    continue
+  fi
+  case "$argument" in
+    --) separated=true; break ;;
+    --max-depth|--context|--before-context|--after-context|--threads|--max-count)
+      value=true ;;
+    --*) ;;
+    -?*)
+      options=${argument#-}
+      while [ -n "$options" ]; do
+        option=${options%"${options#?}"}
+        options=${options#?}
+        case "$option" in
+          e|f)
+            pattern=true
+            [ -n "$options" ] || value=true
+            break ;;
+          A|B|C|m)
+            [ -n "$options" ] || value=true
+            break ;;
+          O) break ;;
+        esac
+      done ;;
+    '('|')') ;;
+    *)
+      if [ "$pattern" = false ]; then
+        pattern=true
+      else
+        object_type=$(git cat-file -t "$argument" 2>/dev/null) || object_type=
+        if [ "$object_type" = tag ]; then
+          object_type=$(git cat-file -t "${argument}^{}" 2>/dev/null) || object_type=
+        fi
+        case "$object_type" in
+          tree|blob)
+            printf '%s\n' 'implementer-grep: tree and blob selectors bypass root exclusions; use a commit and pathspecs after --.' >&2
+            exit 2 ;;
+        esac
+      fi ;;
+  esac
+done
+if [ "$separated" = false ]; then
+  set -- "$@" --
+fi
+
+exec git grep "$@" \
+  ':(top,exclude)docs/architecture' \
+  ':(top,exclude)docs/adr' \
+  ':(top,exclude).patterns' \
+  ':(top,exclude).opencodereview/rule.json' \
+  ':(top,exclude).opencodereview/rules' \
+  ':(top,exclude)docs/research' \
+  ':(top,exclude)docs/qualification' \
+  ':(top,exclude)docs/archive' \
+  ':(top,exclude)artifacts/review-*'
