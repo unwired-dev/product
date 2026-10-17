@@ -99,16 +99,19 @@ remains escaped content inside its source field.
 The prompt treats the email as untrusted content to describe, never as
 instructions, and asks for at most four sentences covering the topic, requests,
 questions and stated dates or deadlines. Generation uses temperature 0 and at most
-300 response tokens. `@private-email/mail-core/assistance` checks availability
+300 response tokens. The prompt asks for plain prose without JSON or field names:
+without that, the model answered with the request's JSON fields wrapped around the
+summary ([#971](https://github.com/unwired-dev/product/issues/971)).
+`@private-email/mail-core/assistance` checks availability
 before each request, decodes every native result with Schema (summaries up to
-4,000 characters) and fails closed on anything else. Failure logs carry only the
+4,000 characters that are not a serialized JSON object) and fails closed on anything else. Failure logs carry only the
 allow-listed native code or decode path, never mail or summary text.
 
 ## Deterministic evidence
 
 - `packages/mail-core/test/assistance.test.ts` covers the input bound and
-  disclosure, every availability and rejection outcome, malformed, oversized and
-  empty results, log privacy, cancellation with a late result or a pending
+  disclosure, every availability and rejection outcome, malformed, oversized,
+  empty and JSON-wrapped results, log privacy, cancellation with a late result or a pending
   availability check, and results kept only for their own input.
 - `apps/mobile/test/summary.test.tsx` and `apps/macos/test/summary.test.tsx` drive
   the real reader with the real Gmail store and a synthetic Gmail mailbox. They
