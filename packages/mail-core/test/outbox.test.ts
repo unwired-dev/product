@@ -4,7 +4,7 @@ import PostalMime from 'postal-mime';
 import type { Draft } from '../src/drafts.ts';
 import type { Device } from './outbox-fixture.ts';
 
-import { createDrafts } from '../src/drafts.ts';
+import { createDrafts, draftsOf, profileDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import {
@@ -732,6 +732,17 @@ describe('sending a Draft through the Outbox', () => {
             ]),
           });
           await sending.mailboxes.load();
+          const listed = (profile: string) =>
+            profileDrafts({
+              drafts: draftsOf(sending.drafts.getSnapshot()),
+              outbox: sending.outbox.getSnapshot(),
+              account: { mailboxes: sending.mailboxes.getSnapshot() },
+              profile,
+            });
+          expect(listed('default').outbox).toStrictEqual([]);
+          expect(
+            listed('work').outbox.map(({ draft }) => draft.id),
+          ).toStrictEqual([id]);
         };
         await renameDuring(phase, sending, move);
         later(undoSendWindow);

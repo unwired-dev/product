@@ -2,6 +2,7 @@
 '@private-email/macos': patch
 '@private-email/mobile': patch
 '@private-email/localization': patch
+'@private-email/mail-core': patch
 ---
 
 Drafts and Mail Assistance follow the Mail Profile that owns their connection. A Draft's

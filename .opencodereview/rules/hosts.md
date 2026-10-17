@@ -436,7 +436,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   `useMailAssistanceLifetime` against the same explicit reading Profile, including
   revocation and Profile replacement; otherwise Default consent exposes another
   Profile’s mail to assistance or queued input revives a discarded preview.
-  Preserve staged Account settings and Draft consent until their ownership lands.
+  Draft consent follows its sender connection's current Profile, and Settings
+  exposes independent per-Profile choices under ADR 0048's routing amendment.
 
 - `mail-assistance.tsx.MailAssistanceSettings` presenting an Off choice as saved
   after `setEnabled` catches a Keychain rejection. Keep the gate immediately off,
