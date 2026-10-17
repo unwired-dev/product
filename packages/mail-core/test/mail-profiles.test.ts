@@ -876,9 +876,9 @@ describe('mail profile capability fence', () => {
     return { ...context, id, epoch };
   };
 
-  it('cancels a fenced removal for a live connection despite unrelated unreadable Profile records', async () => {
+  it('cancels a fenced removal for a live connection despite unrelated unreadable records', async () => {
     expect.hasAssertions();
-    const { relaunch, sync, record, records, mailboxId, id, epoch } =
+    const { relaunch, sync, record, records, mailboxId, put, id, epoch } =
       await latePublicationAfterRemoval();
     storeProfile(sync, account, {
       kind: 'mailbox',
@@ -888,6 +888,7 @@ describe('mail profile capability fence', () => {
       version: 1,
     });
     const unrelated = unreadableProfile(sync);
+    put(undefined, 'other-subject');
     const reopened = relaunch();
     const refreshed = await reopened.refreshPrivateSync();
     expect(owners(refreshed)).toStrictEqual([id]);
@@ -901,6 +902,7 @@ describe('mail profile capability fence', () => {
     // The cancelled intent must not delete the Profile when the connection later leaves it.
     await reopened.moveMailbox(await mailboxId(), defaultProfile);
     records().delete(unrelated);
+    records().delete(record('other-subject'));
     expect(listed(await relaunch().refreshPrivateSync())).toStrictEqual([
       { id, name: 'Work' },
     ]);

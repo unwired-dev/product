@@ -532,18 +532,20 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     descriptorEpochs: Effect.gen(function* () {
       const stored = yield* descriptors;
       const epochs = new Map<string, string | null>();
+      let readable = true;
       for (const [record, { descriptor }] of stored) {
         if (descriptor === undefined) {
-          return yield* failWith('unavailable');
+          readable = false;
+        } else {
+          epochs.set(
+            record,
+            descriptor.removed === true
+              ? null
+              : (descriptor.epoch ?? legacyEpoch),
+          );
         }
-        epochs.set(
-          record,
-          descriptor.removed === true
-            ? null
-            : (descriptor.epoch ?? legacyEpoch),
-        );
       }
-      return epochs;
+      return { epochs, readable };
     }),
     freshId: freshEpoch,
   });

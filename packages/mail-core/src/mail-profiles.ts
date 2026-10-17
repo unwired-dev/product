@@ -295,8 +295,15 @@ export function createMailProfileProgram<E>(
       Readonly<{ committed: boolean; payloads: readonly Stored[] }>,
       E
     >;
-    // Every mailbox descriptor's epoch by record; null once removed.
-    descriptorEpochs: Effect.Effect<ReadonlyMap<string, string | null>, E>;
+    // Readable mailbox descriptors' epochs by record; null once removed. Unreadable records
+    // prevent publication without discarding evidence that cancels a stale removal.
+    descriptorEpochs: Effect.Effect<
+      Readonly<{
+        epochs: ReadonlyMap<string, string | null>;
+        readable: boolean;
+      }>,
+      E
+    >;
     freshId: Effect.Effect<string>;
   }>,
 ) {
@@ -407,11 +414,13 @@ export function createMailProfileProgram<E>(
     readable: boolean,
   ) {
     return yield* descriptorEpochs.pipe(
-      Effect.map((epochs) => {
+      Effect.map(({ epochs, readable: descriptorsReadable }) => {
         if (ownership(state, id, epochs) !== 'empty') {
           return 'cancel' as const;
         }
-        return readable ? ('publish' as const) : ('retry' as const);
+        return readable && descriptorsReadable
+          ? ('publish' as const)
+          : ('retry' as const);
       }),
       Effect.catchIf(
         (error) =>
@@ -513,7 +522,11 @@ export function createMailProfileProgram<E>(
     if (profile === undefined || isRemoved(profile)) {
       return;
     }
-    const owned = ownership(state, id, yield* descriptorEpochs);
+    const described = yield* descriptorEpochs;
+    if (!described.readable) {
+      return yield* failWith('unavailable');
+    }
+    const owned = ownership(state, id, described.epochs);
     if (owned !== 'empty') {
       return yield* failWith(
         owned === 'live' ? 'profile-in-use' : 'unavailable',

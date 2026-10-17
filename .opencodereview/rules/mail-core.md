@@ -557,7 +557,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Distinguish that ownership from unrelated unreadable records and transient
   descriptor-listing failures: those failures alone keep removal pending without
   publishing until reads recover. Observed live or unknown ownership must still
-  cancel it when unrelated Profile records cannot open, or it can delete the
+  cancel it when unrelated Profile records or mailbox descriptors cannot open.
+  Preserve partial descriptor evidence for this cancellation while requiring
+  complete readability before publication, or it can delete the
   restored Profile after its connection later leaves. Cancelling on a read
   failure alone can resurrect the removed Profile after a delayed publication.
 - `mail-profiles.ts.put` or `commit` reporting CAS success from matching
