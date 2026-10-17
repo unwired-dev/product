@@ -61,7 +61,11 @@ Repository architecture documentation belongs exclusively to the review agent:
   qualification evidence and historical decisions.
 
 The implementer never opens these files, including when a glossary, guide or
-skill links to them or requests reading them. Operational guides, coding
+skill links to them or requests reading them. Repository-wide searches print
+their contents too, so the implementer searches with
+`scripts/implementer-grep.sh` (`git grep` arguments, pathspecs after `--`). It
+excludes every source above, plus committed review artifacts under
+`artifacts/review-*`, which hold resolved rule bodies. Operational guides, coding
 conventions, vocabulary and product requirements are separate files that the
 implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing
