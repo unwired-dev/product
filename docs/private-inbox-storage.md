@@ -101,10 +101,9 @@ No connection, Draft, Outbox or encrypted-record identity, credential or cache
 moves or changes. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile stays unavailable in the apps until
-[#647](https://github.com/unwired-dev/product/issues/647) enables it. Its remaining
-slices are [#921](https://github.com/unwired-dev/product/issues/921), which routes
-the remaining callers, and [#922](https://github.com/unwired-dev/product/issues/922),
-which adds the apps' Profile management and switching.
+[#647](https://github.com/unwired-dev/product/issues/647) enables it. Its last
+slice, [#922](https://github.com/unwired-dev/product/issues/922), adds the apps'
+Profile management and switching.
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -192,16 +191,27 @@ Profile, which every Draft and Outbox entry sending from it shares, and
 
 Storage, Private Sync records, Delivery Owners, Outbox claims and their payloads
 are unchanged. Push wakes carry no content and synchronize every connection. The
-replacement has no recipient suggestions or visible notifications yet. Before another Profile can be created,
-[#921](https://github.com/unwired-dev/product/issues/921) must route the remaining
-backend and native callers by Profile Record Scope:
+replacement has no recipient suggestions or visible notifications yet.
 
-- Convex: `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and `apns.ts`.
-- Native: `PushRoutes.swift` and `DraftSync.swift`.
+[#921](https://github.com/unwired-dev/product/issues/921) routes the remaining
+callers by Profile Record Scope. For Drafts, their files, delivery claims,
+scheduled sends and push routes, the Record Scope is the ownership of the
+connection they belong to, not a separate address: their opaque identifiers stay
+as they are when the connection moves.
 
-These callers require synchronized ownership before they can distinguish Profiles;
-the [architecture companion](architecture/private-inbox-storage.md#drafts-delivery-and-notifications-staging)
-records the staging decision and its rationale.
+- Native `DraftSync.swift` and `PushRoutes.swift` keep synchronizing every
+  Profile's Drafts and routing every connection's wakes, whatever Profile a window
+  shows. Convex `draftDelivery.ts`, `scheduledSend.ts`, `pushRelay.ts` and
+  `apns.ts` keep their account-wide opaque identifiers and learn no Profile.
+- Moving a connection to another Profile keeps its Drafts, their files, the exact
+  queued message and its delivery claim. The device holding the claim still sends
+  it once, and no other device gains a claim.
+- Each window lists only its own Profile's Drafts and Outbox. A connection in the
+  reserved `unavailable` quarantine shows its Drafts and Outbox in no window,
+  while synchronization and delivery continue.
+
+The [architecture companion](architecture/private-inbox-storage.md#drafts-delivery-and-notifications-staging)
+records the rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
 compatibility path through substituted provider and storage boundaries. Deterministic
@@ -218,8 +228,8 @@ account purge removes it with the account's keys.
 
 Reader Mail Assistance uses the reading Profile’s device-local consent, including
 Translation, and cancels retained work when that consent is revoked or the reading
-Profile changes. Account settings and Draft consent retain their staged Default
-Profile paths until #647 supplies their ownership and lifecycle.
+Profile changes. A Draft's assistance uses the consent of the Profile owning its
+sending connection, and Settings offers one switch per Profile.
 
 ## Message body cache
 

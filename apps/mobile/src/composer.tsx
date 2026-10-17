@@ -118,7 +118,10 @@ import {
 } from './design.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
+import {
+  MailAssistanceProfileContext,
+  useMailAssistanceLifetime,
+} from './mail-assistance-lifetime.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -1183,19 +1186,22 @@ function SendRefusalNotice({
   );
 }
 
-// A body or admitted reply-context revision retires the captured input. So does Mail Assistance
-// Enablement turning off, so turning it on again never restarts the request by itself.
+// Profile changes, source edits and disabled assistance retire captured input. Re-enabling
+// assistance never restarts a retired request.
 export const retires = (
-  captured: CapturedDraftText,
+  captured: CapturedDraftText & { readonly profile: string },
   draft: CapturedDraftText['draft'],
   {
     assistance,
     translation,
+    profile,
   }: Readonly<{
     assistance: NativeAssistance | undefined;
     translation: NativeTranslation | undefined;
+    profile: string;
   }>,
 ) =>
+  captured.profile !== profile ||
   !sameDraftAssistanceSource(captured.draft, draft, captured.purpose) ||
   (captured.purpose === 'translate' ? translation : assistance) === undefined;
 
@@ -1390,8 +1396,9 @@ function Editor({
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
   // its result is applied or the original kept.
+  const profile = use(MailAssistanceProfileContext);
   const [captured, setCaptured] = useState<
-    CapturedDraftText & { readonly id: number }
+    CapturedDraftText & { readonly id: number; readonly profile: string }
   >();
   const captureNow = useRef<typeof captured>(undefined);
   const assistanceEnabled = useMailAssistanceLifetime(
@@ -1436,7 +1443,7 @@ function Editor({
   const translation = use(TranslationContext);
   if (
     captured !== undefined &&
-    retires(captured, draft, { assistance, translation })
+    retires(captured, draft, { assistance, translation, profile })
   ) {
     setCaptured(undefined);
   }
@@ -1686,6 +1693,7 @@ function Editor({
     const next = {
       ...captureDraftText(purpose, authored.current, at),
       id: captureGeneration.current,
+      profile,
     };
     captureNow.current = next;
     setCaptured(next);

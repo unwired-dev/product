@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A transition test such as the Profile-move cases in
+  `packages/mail-core/test/outbox.test.ts` checking only downstream delivery or
+  preservation. Assert the transition through the resulting public snapshot as
+  well as its consequences; a helper callback or spy alone proves no state
+  change. Otherwise an untriggered move can leave ordinary delivery passing
+  while the claimed ownership-change regression is untested.
+
 - A native journey locator such as `WindowTests.key(groups:in:)` retaining a
   text pattern after its host changes displayed grouping, whitespace, copy or
   accessibility exposure. Compare every affected locator and caller with the

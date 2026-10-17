@@ -89,6 +89,9 @@ release evidence, independent of these deterministic checks.
 
 ## Drafts, delivery and notifications staging
 
+The following paragraphs record #646 and #645 staging. The #921 outcome below
+supersedes their remaining caller-routing and Account/Draft assistance deferrals.
+
 Issue #646 scopes shared TypeScript services to the decoded connection Profile:
 `sendingMailboxes` requires an explicit Profile; Draft creation validates the
 current sender; sender changes and received-attachment imports stay within the
@@ -136,6 +139,26 @@ The merge integration panel (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`)
 selected reader-specific consent and lifetime checks now, 2–1, over deferring them
 with the Account/Draft paths. This carries #788’s device-local consent into #645’s
 explicit reading scopes without enabling Profile creation or transfer.
+
+### Record routing outcome (#921)
+
+[ADR 0048's connection-bound routing amendment](../adr/0048-separate-encrypted-mail-profile-ownership.md#replacement-connection-bound-routing-amendment--2026-10-17)
+records the unanimous panel choice to retain immutable opaque transport addresses
+and resolve logical ownership through the connection assignment. Native
+`DraftSync` and `PushRoutes`, and Convex's Draft admission, schedule and APNs
+callers remain account-wide; a move neither readdresses a record nor creates a
+new delivery claim. The existing originating-device and uncertain-outcome fences
+remain unchanged. Quarantine changes presentation, not synchronization or delivery.
+
+Both hosts now filter Drafts and Outbox rows by their sender connection's current
+Profile, including hiding quarantined entries. A Draft's assistance gate uses the
+same projected owner, and its captured requests retire on every Profile change.
+Settings renders one device-local consent switch per Profile, preserving the
+Default-only presentation. The panel selected that contract unanimously because
+the Mac Settings window has no presenting Profile. Additional-row design and
+full native/provider lifecycle qualification remain required before #922 exposes
+multiple Profiles. The unlisted-connection fallback described above remains a
+staged limitation; it is not proof of complete transfer/removal isolation.
 
 ## Gmail mailbox cache
 

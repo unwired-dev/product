@@ -8,7 +8,7 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
-import { draftsOf } from '@private-email/mail-core/drafts';
+import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
   quickActions,
@@ -649,9 +649,13 @@ export function Inbox({
     [searching, results, inboxRows, now],
   );
   const sections = inboxSections({
-    outbox,
+    ...profileDrafts({
+      drafts,
+      outbox,
+      account,
+      profile,
+    }),
     canCompose: onCompose !== undefined,
-    drafts,
     messages: dated,
     online,
     searching,

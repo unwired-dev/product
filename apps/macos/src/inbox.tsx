@@ -9,7 +9,7 @@ import type { ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { draftsOf } from '@private-email/mail-core/drafts';
+import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
   quickActions,
@@ -743,9 +743,13 @@ export function Inbox({
     [messages, now],
   );
   const sections = inboxSections({
-    outbox,
+    ...profileDrafts({
+      drafts,
+      outbox,
+      account,
+      profile,
+    }),
     canCompose: onCompose !== undefined,
-    drafts,
     messages: dated,
     online,
     searching: results !== undefined,

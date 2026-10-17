@@ -10,7 +10,10 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
-import { recoveryKeyEntry } from '@private-email/mail-core/registration';
+import {
+  profilesOf,
+  recoveryKeyEntry,
+} from '@private-email/mail-core/registration';
 import { useState, useSyncExternalStore } from 'react';
 import { Text, TextInput, View } from 'react-native';
 
@@ -650,6 +653,7 @@ export function AccountSettings({
           account={snapshot.productAccountId}
           assistance={assistance}
           button={button}
+          profiles={profilesOf(snapshot)}
         />
       ) : null}
       {shows('account') ? (

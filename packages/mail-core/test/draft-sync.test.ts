@@ -927,6 +927,41 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.draft(second).subject).toBe('Second edit');
   });
 
+  it('keeps a Draft under the same record when its connection moves to another Mail Profile', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a new Draft');
+    const created = phone.draft(id);
+    await phone.drafts.update({ ...created, subject: 'Before' }, created);
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    const records = server.identifiers('account-a');
+    expect(records).toStrictEqual([`draft.${id}`]);
+
+    // Moving the connection rewrites only its ownership, never the Draft's record address.
+    const moved = {
+      ...connected('account-a'),
+      mailboxes: JSON.stringify([
+        { ...alex, state: 'connected', profile: 'work' },
+      ]),
+    };
+    phone.change(moved);
+    mac.change(moved);
+    const shown = phone.draft(id);
+    await phone.drafts.update({ ...shown, subject: 'After' }, shown);
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+
+    expect(server.identifiers('account-a')).toStrictEqual(records);
+    expect(mac.list().map((draft) => draft.id)).toStrictEqual([id]);
+    expect(mac.draft(id)).toMatchObject({
+      connection: alex.id,
+      subject: 'After',
+    });
+  });
+
   it('synchronizes once edits pause', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

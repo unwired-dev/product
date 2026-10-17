@@ -19,6 +19,7 @@ import {
   MailAssistanceContext,
   MailAssistanceGate,
   MailAssistanceSettings,
+  ProfileMailAssistanceGate,
 } from '../src/mail-assistance.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -58,11 +59,12 @@ function scriptedAssistance() {
 const body = 'Please confirm the venue by Friday.';
 const message = {};
 
-// The Inbox's reader actions for one already-local message, and the way to the account page.
+// The Inbox's reader actions for one already-local message in the Default Profile, and the way to
+// the account page.
 function Reader() {
   const account = use(AccountContext);
   return (
-    <>
+    <ProfileMailAssistanceGate profile={defaultProfile}>
       <MessageSummary
         source={message}
         id="venue"
@@ -80,7 +82,7 @@ function Reader() {
           account?.openAccount();
         }}
       />
-    </>
+    </ProfileMailAssistanceGate>
   );
 }
 
@@ -166,6 +168,7 @@ describe('account settings availability', () => {
             account="account-synthetic-product-subject"
             assistance={native}
             button={settingsButton}
+            profiles={[]}
           />
         </MailAssistanceContext>,
       );
@@ -249,6 +252,91 @@ describe('account settings availability', () => {
 
   /* oxlint-enable vitest/max-expects */
 
+  /* oxlint-disable vitest/max-expects -- One Settings journey proves each Profile's switch, reader and availability. */
+  it('keeps each Mail Profile’s consent to its own switch', async () => {
+    expect.hasAssertions();
+    const owner = 'synthetic-account';
+    const enablement = createMailAssistanceEnablement({
+      mailAssistance: () => Promise.resolve({ owner, profiles: [] }),
+      setMailAssistance: (account, profiles) =>
+        Promise.resolve({ owner: account, profiles }),
+    });
+    await enablement.load(owner);
+    const assistance = scriptedAssistance();
+    const { translation } = createMockMailSession('open-read-relaunch');
+    await render(
+      <MailAssistanceContext value={enablement}>
+        <MailAssistanceSettings
+          account={owner}
+          assistance={assistance.native}
+          button={settingsButton}
+          profiles={[{ id: 'work', name: 'Work' }]}
+        />
+        <MailAssistanceGate
+          account={owner}
+          assistance={assistance.native}
+          translation={translation}>
+          <Reader />
+        </MailAssistanceGate>
+      </MailAssistanceContext>,
+    );
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('switch', { name: 'Mail Assistance for Work' }),
+        'valueChange',
+        true,
+      );
+    });
+
+    // Work's consent reaches neither the Default Profile's switch nor its reader.
+    expect(enablement.getSnapshot()?.profiles).toStrictEqual(['work']);
+    expect(screen.getByRole('switch', { name: 'Mail Assistance' })).toHaveProp(
+      'value',
+      false,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Summarize this message' }),
+    ).not.toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', {
+        name: 'Check Apple Intelligence availability',
+      }),
+    ).toBeVisible();
+    const available =
+      'Apple Intelligence is available for summaries, rewrites and reply suggestions.';
+    await press('Check Apple Intelligence availability');
+    expect(screen.getByText(available)).toBeVisible();
+    await assist(true);
+    expect(enablement.getSnapshot()?.profiles).toStrictEqual([
+      'work',
+      defaultProfile,
+    ]);
+    // Enabling Default must not transfer Work's earlier check to Default's lifetime.
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', false);
+    });
+    expect(screen.queryByText(available)).toBeNull();
+    await act(async () => {
+      await enablement.setEnabled(owner, 'work', true);
+    });
+    expect(
+      screen.getByRole('button', { name: 'Summarize this message' }),
+    ).toBeVisible();
+    expect(assistance.calls).toStrictEqual(['availability']);
+    await press('Check Apple Intelligence availability');
+    expect(screen.getByText(available)).toBeVisible();
+    // The check belonged to Default, so its status retires even while Work remains enabled.
+    await assist(false);
+    expect(screen.queryByText(available)).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Check Apple Intelligence availability',
+      }),
+    ).toBeVisible();
+  });
+
+  /* oxlint-enable vitest/max-expects */
+
   it('reports an unsaved Off choice and retries it without reopening assistance', async () => {
     expect.hasAssertions();
     const owner = 'synthetic-account';
@@ -272,6 +360,7 @@ describe('account settings availability', () => {
           account={owner}
           assistance={assistance.native}
           button={settingsButton}
+          profiles={[]}
         />
         <MailAssistanceGate
           account={owner}
@@ -331,6 +420,7 @@ describe('account settings availability', () => {
           account={owner}
           assistance={native}
           button={settingsButton}
+          profiles={[]}
         />
       </MailAssistanceContext>
     );
@@ -413,6 +503,7 @@ describe('account settings availability', () => {
               account={owner}
               assistance={native}
               button={settingsButton}
+              profiles={[]}
             />
           </MailAssistanceContext>,
         );
@@ -465,19 +556,21 @@ describe('mail Assistance Enablement on Mac', () => {
           account={owner}
           assistance={assistance}
           translation={translation}>
-          <Profiler
-            id="translation"
-            // Retire enablement after layout setup, before the language-list passive effect.
-            onRender={() => {
-              off = enablement.setEnabled(owner, defaultProfile, false);
-            }}>
-            <DraftTranslation
-              translator={translation}
-              text={body}
-              onApply={() => undefined}
-              onClose={() => undefined}
-            />
-          </Profiler>
+          <ProfileMailAssistanceGate profile={defaultProfile}>
+            <Profiler
+              id="translation"
+              // Retire enablement after layout setup, before the language-list passive effect.
+              onRender={() => {
+                off = enablement.setEnabled(owner, defaultProfile, false);
+              }}>
+              <DraftTranslation
+                translator={translation}
+                text={body}
+                onApply={() => undefined}
+                onClose={() => undefined}
+              />
+            </Profiler>
+          </ProfileMailAssistanceGate>
         </MailAssistanceGate>
       </MailAssistanceContext>,
     );

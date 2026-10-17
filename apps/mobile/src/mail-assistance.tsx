@@ -1,4 +1,5 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { MailProfile } from '@private-email/mail-core/registration';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
@@ -54,7 +55,7 @@ const MailAssistanceEnginesContext = createContext<
   | undefined
 >(undefined);
 
-function useEnabled(account: string | undefined, profile = defaultProfile) {
+function useEnabled(account: string | undefined, profile: string) {
   const store = use(MailAssistanceContext);
   const enablement = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
@@ -63,8 +64,8 @@ function useEnabled(account: string | undefined, profile = defaultProfile) {
   return mailAssistanceEnabled(enablement, account, profile);
 }
 
-// Account settings and Drafts use Default consent until #647 supplies their ownership.
-// Readers below apply their own Profile consent to the retained native engines.
+// The retained native engines. Nothing at this level runs Mail Assistance: readers and Drafts
+// enable them with their own Profile's consent.
 export function MailAssistanceGate({
   account,
   assistance,
@@ -76,24 +77,19 @@ export function MailAssistanceGate({
   readonly translation: NativeTranslation;
   readonly children: ReactNode;
 }) {
-  const enabled = useEnabled(account);
   const engines = useMemo(
     () => ({ account, assistance, translation }),
     [account, assistance, translation],
   );
   return (
     <MailAssistanceEnginesContext value={engines}>
-      <AssistanceContext value={enabled ? assistance : undefined}>
-        <TranslationContext value={enabled ? translation : undefined}>
-          {children}
-        </TranslationContext>
-      </AssistanceContext>
+      {children}
     </MailAssistanceEnginesContext>
   );
 }
 
-// Readers use their window's Profile consent independently of Account settings and Drafts.
-export function ReaderMailAssistanceGate({
+// A reader's window Profile or a Draft's owning Profile applies its own consent.
+export function ProfileMailAssistanceGate({
   profile,
   children,
 }: {
@@ -117,64 +113,59 @@ export function ReaderMailAssistanceGate({
   );
 }
 
-// The account page's opt-in for this device.
+// The account page's opt-in for this device: one switch for each Mail Profile, as each Profile
+// gives its own consent.
 export function MailAssistanceSettings({
   account,
   assistance,
   button,
+  profiles,
 }: {
   readonly account: string;
   readonly assistance: NativeAssistance;
   readonly button: SettingsButton;
+  // The Mail Profiles besides the Default Profile.
+  readonly profiles: readonly MailProfile[];
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const store = use(MailAssistanceContext);
-  const enabled = useEnabled(account);
-  const read = useSyncExternalStore(
+  const enablement = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
-    () => store?.getSnapshot()?.owner === account,
+    () => store?.getSnapshot(),
   );
   const saveState = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
     () => store?.getSaveState() ?? 'idle',
   );
-  if (store === undefined || !read) {
+  if (store === undefined || enablement?.owner !== account) {
     return null;
   }
+  // Availability is checked while any Profile has opted in, within that Profile's consent.
+  const enabled = [defaultProfile, ...profiles.map(({ id }) => id)].find(
+    (profile) => mailAssistanceEnabled(enablement, account, profile),
+  );
   return (
     <SettingsGroup
       title={t('mailAssistance.title')}
       accessory={<OnDeviceMarker label={t('settings.onDevice')} />}
       footer={t('mailAssistance.description')}>
-      <SettingsRow
+      <ProfileSwitch
+        account={account}
+        label={t('mailAssistance.title')}
+        profile={defaultProfile}
+        saveState={saveState}
         title={t('mailAssistance.title')}
-        subtitle={t(
-          (
-            {
-              idle: enabled ? 'mailAssistance.on' : 'mailAssistance.off',
-              saving: 'mailAssistance.saving',
-              failed: 'mailAssistance.saveFailed',
-            } as const
-          )[saveState],
-        )}>
-        <Pressable
-          accessible={false}
-          focusable={false}
-          onPress={() => {
-            void store.setEnabled(account, defaultProfile, !enabled);
-          }}
-          style={{ minHeight: 44, justifyContent: 'center' }}>
-          <Switch
-            accessibilityLabel={t('mailAssistance.title')}
-            onValueChange={(on) => {
-              void store.setEnabled(account, defaultProfile, on);
-            }}
-            trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
-            value={enabled}
-          />
-        </Pressable>
-      </SettingsRow>
+      />
+      {profiles.map(({ id, name }) => (
+        <ProfileSwitch
+          key={id}
+          account={account}
+          label={t('mailAssistance.profile', { name })}
+          profile={id}
+          saveState={saveState}
+          title={name}
+        />
+      ))}
       {saveState === 'failed' ? (
         <SettingsBlock>
           {button(t('mailAssistance.retrySave'), () =>
@@ -182,14 +173,71 @@ export function MailAssistanceSettings({
           )}
         </SettingsBlock>
       ) : null}
-      {enabled ? (
-        <AssistanceAvailability
-          key={account}
-          account={account}
-          assistance={assistance}
-        />
-      ) : null}
+      {enabled === undefined ? null : (
+        <MailAssistanceProfileContext
+          key={enabled}
+          value={enabled}>
+          <AssistanceAvailability
+            key={account}
+            account={account}
+            assistance={assistance}
+          />
+        </MailAssistanceProfileContext>
+      )}
     </SettingsGroup>
+  );
+}
+
+// One Mail Profile's switch; the save state is shared by every Profile's choice.
+function ProfileSwitch({
+  account,
+  label,
+  profile,
+  saveState,
+  title,
+}: {
+  readonly account: string;
+  readonly label: string;
+  readonly profile: string;
+  readonly saveState: 'idle' | 'saving' | 'failed';
+  readonly title: string;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const store = use(MailAssistanceContext);
+  const enabled = useEnabled(account, profile);
+  if (store === undefined) {
+    return null;
+  }
+  return (
+    <SettingsRow
+      title={title}
+      subtitle={t(
+        (
+          {
+            idle: enabled ? 'mailAssistance.on' : 'mailAssistance.off',
+            saving: 'mailAssistance.saving',
+            failed: 'mailAssistance.saveFailed',
+          } as const
+        )[saveState],
+      )}>
+      <Pressable
+        accessible={false}
+        focusable={false}
+        onPress={() => {
+          void store.setEnabled(account, profile, !enabled);
+        }}
+        style={{ minHeight: 44, justifyContent: 'center' }}>
+        <Switch
+          accessibilityLabel={label}
+          onValueChange={(on) => {
+            void store.setEnabled(account, profile, on);
+          }}
+          trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+          value={enabled}
+        />
+      </Pressable>
+    </SettingsRow>
   );
 }
 

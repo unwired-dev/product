@@ -4,7 +4,7 @@ import PostalMime from 'postal-mime';
 import type { Draft } from '../src/drafts.ts';
 import type { Device } from './outbox-fixture.ts';
 
-import { createDrafts } from '../src/drafts.ts';
+import { createDrafts, draftsOf, profileDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import {
@@ -26,7 +26,7 @@ const parseJson = Schema.decodeSync(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
 );
 
-// Places a profile refresh at one controlled external boundary of delivery.
+// Places a mailbox change at one controlled external boundary of delivery.
 async function renameDuring(
   phase: 'queued' | 'claim' | 'handoff',
   sending: Awaited<ReturnType<typeof sender>>,
@@ -707,6 +707,56 @@ describe('sending a Draft through the Outbox', () => {
         const restored = await sending.outbox.undo(id);
         expect(restored).not.toBe(false);
         expect(sending.draft(String(restored)).from).toBe(shown.from);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it.each(['queued', 'claim', 'handoff'] as const)(
+    'sends a message once when its connection moves to another Mail Profile during %s',
+    async (phase) => {
+      expect.hasAssertions();
+      const { server, gmail } = sharedAccount();
+      const sending = await sender(server, gmail, 'phone');
+      try {
+        const id = await addressed(sending);
+        await sending.outbox.send(() => sending.draft(id));
+        const move = async () => {
+          sending.change({
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: JSON.stringify([
+              { ...alex, state: 'connected', profile: 'work' },
+            ]),
+          });
+          await sending.mailboxes.load();
+          const listed = (profile: string) =>
+            profileDrafts({
+              drafts: draftsOf(sending.drafts.getSnapshot()),
+              outbox: sending.outbox.getSnapshot(),
+              account: { mailboxes: sending.mailboxes.getSnapshot() },
+              profile,
+            });
+          expect(listed('default').outbox).toStrictEqual([]);
+          expect(
+            listed('work').outbox.map(({ draft }) => draft.id),
+          ).toStrictEqual([id]);
+        };
+        await renameDuring(phase, sending, move);
+        later(undoSendWindow);
+        await sending.outbox.process();
+        expect(sending.mailboxes.getSnapshot()).toMatchObject([
+          { profile: 'work' },
+        ]);
+
+        // The move changes neither the queued message nor its claim, which stays this device's.
+        expect(gmail.sends).toHaveLength(1);
+        expect([...server.claimsOf(account)]).toStrictEqual([
+          [`draft-delivery.${id}`, 'phone'],
+        ]);
+        expect(sending.drafts.getOutbox()).toStrictEqual([]);
       } finally {
         sending.outbox.dispose();
       }

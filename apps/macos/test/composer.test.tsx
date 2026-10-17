@@ -33,7 +33,7 @@ import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
-import { Composer } from '../src/composer.tsx';
+import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
   MailAssistanceContext,
@@ -249,7 +249,7 @@ function App({
               view={view}
             />
             {composing === undefined ? null : (
-              <Composer
+              <DraftComposer
                 id={composing}
                 onClose={() => {
                   setComposing(undefined);
@@ -458,6 +458,47 @@ describe('composing Drafts', () => {
     await app.rerender(view('unknown'));
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   }, 15_000);
+
+  it('lists only the window Profile’s Drafts', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    await drafts.create({ id: alex, address: 'alex@example.invalid' });
+    await drafts.create({ id: other, address: 'other@example.invalid' });
+    const view = (profile: string) => (
+      <App
+        drafts={drafts}
+        registration={registration}
+        profile={profile}
+      />
+    );
+    const personal =
+      'Draft. No subject. No recipients. From alex@example.invalid';
+    const work = 'Draft. No subject. No recipients. From other@example.invalid';
+    const app = await render(view('work'));
+    await expect(
+      screen.findByRole('button', { name: work }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: personal })).toBeNull();
+    await app.rerender(view('default'));
+    await expect(
+      screen.findByRole('button', { name: personal }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: work })).toBeNull();
+  });
 
   it('closes an untouched New Message on Close and on Discard', async () => {
     expect.hasAssertions();
@@ -2726,6 +2767,89 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
     expect(asked).toHaveLength(1);
   });
+
+  it.each([
+    { profiles: ['default'], offered: false },
+    { profiles: ['default', 'personal'], offered: true },
+  ])(
+    'applies the sender Profile’s consent and retires its request on a move with destination consent $offered',
+    async ({ profiles, offered }) => {
+      expect.hasAssertions();
+      const owned = (profile: string) => ({
+        ...connected(['alex@example.invalid']),
+        mailboxes: JSON.stringify([
+          {
+            id: alex,
+            address: 'alex@example.invalid',
+            state: 'connected',
+            profile,
+          },
+        ]),
+      });
+      const registration = account(owned('work'));
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        registration,
+      );
+      const { native, asked, cancelled } = scriptedDraftAssistance();
+      const translation: NativeTranslation = {
+        translationLanguages: () => Promise.resolve([]),
+        translate: () => Promise.reject(new Error('unused')),
+        cancel: () => Promise.resolve(null),
+      };
+      const owner = 'synthetic-product-account';
+      const enablement = createMailAssistanceEnablement({
+        mailAssistance: () =>
+          Promise.resolve({
+            owner,
+            profiles,
+          }),
+        setMailAssistance: (account, profiles) =>
+          Promise.resolve({ owner: account, profiles }),
+      });
+      await enablement.load(owner);
+      await render(
+        <MailAssistanceContext value={enablement}>
+          <MailAssistanceGate
+            account={owner}
+            assistance={native}
+            translation={translation}>
+            <App
+              drafts={drafts}
+              registration={registration}
+              profile="work"
+            />
+          </MailAssistanceGate>
+        </MailAssistanceContext>,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'lets meet friday. thanks',
+      );
+      // The Default Profile's consent does not reach a Draft sending from the Work Profile.
+      expect(
+        screen.queryByRole('button', { name: 'Rewrite the message body' }),
+      ).toBeNull();
+      await act(async () => {
+        await enablement.setEnabled(owner, 'work', true);
+      });
+      await press('Rewrite the message body');
+      await screen.findByLabelText('Cancel writing help');
+
+      // A move retires the request even when the destination Profile also permits assistance.
+      await act(async () => {
+        registration.change(owned('personal'));
+      });
+      expect(cancelled).toStrictEqual([asked[0]?.request]);
+      expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+      expect(asked).toHaveLength(1);
+      expect(
+        screen.queryByRole('button', { name: 'Rewrite the message body' }) !==
+          null,
+      ).toBe(offered);
+    },
+  );
   /* oxlint-enable vitest/max-expects */
 });
 
@@ -2782,7 +2906,7 @@ function ReaderApp({
             />
           </View>
         ) : (
-          <Composer
+          <DraftComposer
             id={composing}
             onClose={() => {
               setComposing(undefined);

@@ -345,6 +345,31 @@ export const profileOf = (
   mailboxes: ReadonlyArray<Pick<MailboxConnection, 'id' | 'profile'>>,
 ) => mailboxes.find(({ id }) => id === connection)?.profile ?? defaultProfile;
 
+// A window presents only its Profile's Drafts and Outbox; previews have no account mailboxes.
+export function profileDrafts<O extends Readonly<{ draft: Draft }>>({
+  drafts,
+  outbox,
+  account,
+  profile,
+}: Readonly<{
+  drafts: readonly Draft[];
+  outbox: readonly O[];
+  account:
+    | Readonly<{
+        mailboxes: ReadonlyArray<Pick<MailboxConnection, 'id' | 'profile'>>;
+      }>
+    | undefined;
+  profile: string;
+}>) {
+  const owned = ({ connection }: Draft) =>
+    account === undefined ||
+    profileOf(connection, account.mailboxes) === profile;
+  return {
+    drafts: drafts.filter(owned),
+    outbox: outbox.filter(({ draft }) => owned(draft)),
+  };
+}
+
 // The connections a Draft in `profile` may send from: that Mail Profile's connections whose access
 // is usable on this device. A Draft never sends from another Profile's connection; Gmail and
 // Microsoft connections send, and IMAP connections with verified SMTP.

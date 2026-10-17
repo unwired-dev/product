@@ -43,12 +43,13 @@ On-Device Mail Assistance action, **Summarize**, Draft
 
 - It is off by default on every device. While it is off, none of those actions
   appears and nothing reaches Apple's model or Translation.
-- The **Mail Assistance** switch in Settings' **Privacy & Data** turns it on or off for the
-  signed-in Product Account's Mail Profile on this device. Only the
-  [Default Profile](private-inbox-storage.md#mail-profiles) exists, so there is one
-  choice. Readers use their window’s Profile consent, while Account settings and
-  Drafts retain the Default consent path until Profile lifecycle arrives. Turning
-  it on starts none of these explicit actions; each still requires a request.
+- Settings' **Privacy & Data** has one **Mail Assistance** switch for each
+  [Mail Profile](private-inbox-storage.md#mail-profiles) of the signed-in Product
+  Account, turning it on or off for that Profile on this device. The apps have only
+  the Default Profile, so there is one switch. A reader uses its window’s Profile
+  consent and a Draft the consent of the Profile owning its sending connection, so
+  one Profile's choice never enables another. Turning it on starts none of these
+  explicit actions; each still requires a request.
   Separately confirmed post-launch [Mail Commitments](product/mail-commitments.md#automatic-scanning)
   explain automatic scanning in their enablement consent and require renewed
   device/Profile confirmation when earlier consent did not cover that scope.
@@ -61,8 +62,9 @@ On-Device Mail Assistance action, **Summarize**, Draft
   with an explicit retry for the failed save. Turning assistance off still closes
   its actions immediately, even when saving fails.
 - Turning it off, in any window, cancels that Profile’s in-flight assistance and
-  forgets its shown previews, including its Privacy & Data availability status. A captured Draft
-  request is retired, so turning it on again does not restart it.
+  forgets its shown previews, including a Privacy & Data availability check started under that Profile. A captured Draft request is retired, so turning it on
+  again does not restart it. A Draft whose connection moves to another Profile
+  always retires its request, even when that Profile also has it on.
 - It is stored only in this device's Keychain, never synchronized or restored to another device.
   A Pending Device, or an account whose sign-out or deletion is under way, has
   none. Sign-out, Product Account deletion and removal of this device by another
