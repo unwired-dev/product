@@ -75,6 +75,7 @@ import {
   receivedAttachments,
 } from './message-body.ts';
 import { parseMime } from './mime.ts';
+import { withoutBcc } from './outgoing-message.ts';
 import {
   createRemoteContentLoader,
   shownRemote,
@@ -155,8 +156,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{ folder: string; seconds: number }>,
   ) => Promise<unknown>;
-  // Submits the message through the connection's SMTP server to `recipients`, leaving out its Bcc
-  // field. Resolves once SMTP accepted it; rejects with `delivery-unknown` when it may have.
+  // Submits the message as given through the connection's SMTP server to `recipients`. Resolves
+  // once SMTP accepted it; rejects with `delivery-unknown` when it may have.
   readonly imapSend: (
     message: Readonly<{
       segments: OutgoingSend['segments'];
@@ -1839,7 +1840,10 @@ export function createImapInbox(
     }
     return runLogged(
       call(() =>
-        native.imapSend({ segments: message.segments, recipients }, scope),
+        native.imapSend(
+          { segments: withoutBcc(message.segments), recipients },
+          scope,
+        ),
       ).pipe(
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)

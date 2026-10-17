@@ -255,10 +255,10 @@ the server declares with the `\Sent` role; without one, Send refuses with **This
 mailbox's mail server has no Sent folder to keep a copy, so it cannot send.** A message
 waits to send until the connection's folder list has been read.
 
-- Native code inserts the verified file bytes, logs in to SMTP with the connection's
-  SMTP password (or its IMAP one), and submits from the connection's address to the To,
-  Cc and Bcc recipients. The submitted copy leaves out the Bcc field; the message names
-  its own Message-ID.
+- The shared Inbox leaves the Bcc field, with its folded lines, out of the copy it
+  submits; the message names its own Message-ID. Native code inserts the verified file
+  bytes, logs in to SMTP with the connection's SMTP password (or its IMAP one), and
+  submits from the connection's address to the To, Cc and Bcc recipients.
 - A refusal before the server could accept the message keeps it apart from an uncertain
   one. A refused password says **Not sent. The mail server did not accept this
   mailbox's password.**, a server's permanent refusal (including a refused recipient)

@@ -146,10 +146,11 @@ and upgrade existing receive-only connections only after password re-entry and
 SMTP verification, 3–0. These outcomes preserve the originating-device Outbox
 and required atomic Convex admission in ADR 0062 across providers.
 
-The native adapter assembles the frozen MIME segments with verified asset bytes,
-uses the connection address as the SMTP envelope sender, and includes To, Cc and
-Bcc envelope recipients. It removes the Bcc header and continuations only from
-the submitted copy. The Sent copy keeps Bcc and the generated Message-ID.
+The shared Inbox removes the Bcc header and continuations from the frozen MIME
+segments only for submission. The native adapter assembles those segments with
+verified asset bytes, uses the connection address as the SMTP envelope sender,
+and includes To, Cc and Bcc envelope recipients. The Sent copy keeps the original
+segments, including Bcc and the generated Message-ID.
 SwiftMail's submission-phase retry disposition distinguishes definite refusal
 from possible acceptance; unsafe-to-retry errors remain delivery unknown.
 

@@ -101,9 +101,10 @@ native process-termination behavior.
 
 The same admission, originating-device ownership and frozen-message rules apply
 to SMTP. A unique server-declared Sent folder is required before handoff. SMTP
-messages add a Message-ID at admission. The native adapter inserts verified asset
-bytes, uses To/Cc/Bcc as envelope recipients and removes Bcc from the submitted
-copy; the IMAP Sent copy retains it.
+messages add a Message-ID at admission. The shared Inbox leaves Bcc out of the
+submitted segments. The native adapter inserts verified asset bytes and uses
+To/Cc/Bcc as envelope recipients; the IMAP Sent copy retains the original segments
+with Bcc.
 
 A decoded SMTP acceptance is persisted as `filing`. Accepted messages cannot
 return to Drafts; retries only file their Sent copy. An unreadable acceptance

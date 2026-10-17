@@ -39,7 +39,6 @@ const session = (initial, { upgrade, secure }) => {
   let encrypted = secure;
   let user = '';
   let data = false;
-  let message = '';
   let input = '';
   connected += 1;
   sockets.add(initial);
@@ -117,7 +116,6 @@ const session = (initial, { upgrade, secure }) => {
       }
     } else if (command === 'DATA') {
       data = true;
-      message = '';
       write('354 End data with <CR><LF>.<CR><LF>');
     } else if (command === 'RSET') {
       write('250 2.0.0 OK');
@@ -131,7 +129,6 @@ const session = (initial, { upgrade, secure }) => {
   // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
   const finish = () => {
     data = false;
-    assert.ok(!/^Bcc:/imu.test(message), 'Native code removes Bcc');
     if (user === 'drop') {
       operations.add('dropped');
       socket.destroy();
@@ -160,8 +157,6 @@ const session = (initial, { upgrade, secure }) => {
           operations.add('drop-body');
           socket.destroy();
           return;
-        } else {
-          message += `${line}\r\n`;
         }
       }
     });
