@@ -175,3 +175,20 @@ test('protects reviewer-only sources when searching untracked files', (t) => {
     [...readable, 'docs/untracked.md'].toSorted(),
   );
 });
+
+test('rejects pattern files, which Git can echo into its output', (t) => {
+  const { cwd } = repository(t);
+  const file = 'docs/architecture/README.md';
+  for (const args of [
+    ['-f', file],
+    [`-f${file}`],
+    ['-lf', file],
+    ['--file', file],
+    [`--file=${file}`],
+  ]) {
+    const result = spawnSync(script, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 2, args.join(' '));
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /pattern files/u);
+  }
+});

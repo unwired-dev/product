@@ -5,6 +5,11 @@
 # Whole commits are supported; tree/blob selectors cannot preserve root exclusions.
 set -eu
 
+reject_pattern_file() {
+  printf '%s\n' 'implementer-grep: pattern files (-f, --file) can print any file; pass patterns with -e.' >&2
+  exit 2
+}
+
 separated=false
 pattern=false
 value=false
@@ -17,6 +22,7 @@ for argument do
     --) separated=true; break ;;
     --max-depth|--context|--before-context|--after-context|--threads|--max-count)
       value=true ;;
+    --file|--file=*) reject_pattern_file ;;
     --*) ;;
     -?*)
       options=${argument#-}
@@ -24,7 +30,8 @@ for argument do
         option=${options%"${options#?}"}
         options=${options#?}
         case "$option" in
-          e|f)
+          f) reject_pattern_file ;;
+          e)
             pattern=true
             [ -n "$options" ] || value=true
             break ;;
