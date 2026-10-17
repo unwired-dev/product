@@ -32,7 +32,8 @@ const sameState = Schema.toEquivalence(ProfileStateSchema);
 
 // Product Sync holds the Profile without a name: it was removed.
 const isRemoved = (profile: Profile) =>
-  profile.version !== undefined && profile.name === undefined;
+  profile.pendingRemoval === true ||
+  (profile.version !== undefined && profile.name === undefined);
 
 const stateOf = (value: RegistrationRecord) => {
   const sync = value.productSync;
@@ -112,8 +113,8 @@ export const profileList = (value: RegistrationRecord) => {
   const state = value.profiles;
   const profiles = (
     state === undefined || state === 'unreadable' ? [] : state.profiles
-  ).flatMap(({ id, name, pending }) => {
-    const shown = pending ?? name;
+  ).flatMap(({ id, name, pending, pendingRemoval }) => {
+    const shown = pendingRemoval === true ? undefined : (pending ?? name);
     return shown === undefined
       ? []
       : [
@@ -134,14 +135,18 @@ const readProfile = (
   { id, name, version }: Extract<ProfileRecord, { kind: 'profile' }>,
   updatedAt: number,
 ): Profile => {
-  const pending =
-    name === undefined || known?.pending === name ? undefined : known?.pending;
+  const stored = { id, version, updatedAt };
+  if (name === undefined) {
+    return stored;
+  }
+  const pending = known?.pending === name ? undefined : known?.pending;
   return {
-    id,
-    ...(name === undefined ? {} : { name }),
-    version,
-    updatedAt,
+    ...stored,
+    name,
     ...(pending === undefined ? {} : { pending }),
+    ...(known?.pendingRemoval === true
+      ? { pendingRemoval: true as const }
+      : {}),
   };
 };
 
@@ -383,15 +388,21 @@ export function createMailProfileProgram<E>(
   // overwrote meanwhile is published again on the next pass.
   const synchronize = Effect.gen(function* () {
     let { state } = yield* refreshed(yield* known);
-    for (const { id, pending, version, updatedAt } of state.profiles) {
-      if (pending !== undefined) {
+    for (const {
+      id,
+      pending,
+      pendingRemoval,
+      version,
+      updatedAt,
+    } of state.profiles) {
+      if (pending !== undefined || pendingRemoval === true) {
         ({ state } = yield* put(state, [
           {
             record: {
               kind: 'profile',
               id,
               version: (version ?? 0) + 1,
-              name: pending,
+              ...(pendingRemoval === true ? {} : { name: pending }),
             },
             expectedUpdatedAt: updatedAt,
           },
@@ -462,8 +473,8 @@ export function createMailProfileProgram<E>(
         expectedUpdatedAt: profile.updatedAt,
       },
     ]).pipe(
-      // Convex refuses an account's first Profile record while an older client is fenced in, so a
-      // Profile never published has no record there to remove.
+      // A delayed first publication can still arrive after the fence lifts. Keep its removal
+      // durable until synchronization can publish the tombstone.
       Effect.catchIf(
         (error) =>
           error instanceof RegistrationRejected &&
@@ -472,7 +483,9 @@ export function createMailProfileProgram<E>(
         () =>
           save(state, {
             ...state,
-            profiles: state.profiles.filter((item) => item !== profile),
+            profiles: state.profiles.map((item) =>
+              item === profile ? { id, pendingRemoval: true } : item,
+            ),
           }),
       ),
     );

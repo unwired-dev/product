@@ -208,6 +208,13 @@ class LinkRefused extends Schema.TaggedError<LinkRefused>()('LinkRefused', {
   failure: LinkFailureSchema,
 }) {}
 
+class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
+  'ProfileRefused',
+  {
+    failure: ProfileFailureSchema,
+  },
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -225,6 +232,10 @@ const registrationError = (cause: unknown) => {
   }
   if (isEnrollmentCodeInvalid(cause)) {
     return new EnrollmentCodeInvalid();
+  }
+  const profile = profileFailureCode(cause);
+  if (Option.isSome(profile)) {
+    return new ProfileRefused({ failure: profile.value.code });
   }
   return isRecoveryKeyMismatch(cause)
     ? new RecoveryKeyMismatch()
@@ -315,6 +326,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
       | LinkRefused
+      | ProfileRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -411,6 +423,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 linkFailure: failure,
+              })),
+            ProfileRefused: ({ failure }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                profileFailure: failure,
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(

@@ -881,7 +881,10 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       Effect.catchTag('KeyRotationRequired', () => failWith('unavailable')),
       Effect.catchIf(
         ({ code }) => !endsAccess.has(code),
-        ({ code }) => Effect.logError('Product Sync failed:', `code ${code}`),
+        ({ code }) =>
+          code === 'upgrade-required'
+            ? Effect.void
+            : Effect.logError('Product Sync failed:', `code ${code}`),
       ),
     );
   }).pipe(

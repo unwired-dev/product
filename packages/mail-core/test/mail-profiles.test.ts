@@ -749,7 +749,8 @@ describe('mail profile capability fence', () => {
 
   it('keeps Profiles unpublished until every Trusted Device can keep them apart, and reports each refusal', async () => {
     expect.hasAssertions();
-    const { store, older, sync, mailboxId } = await withOlderClient();
+    const { store, older, sync, mailboxId, keysOf } = await withOlderClient();
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
 
     await store.createProfile('Work');
     expect(store.getSnapshot().profileFailure).toBe('upgrade-required');
@@ -769,6 +770,63 @@ describe('mail profile capability fence', () => {
     expect(owners(store.getSnapshot().snapshot)).toStrictEqual([id]);
     await store.removeProfile(id);
     expect(store.getSnapshot().profileFailure).toBe('profile-in-use');
+    // A returning older build and a newly joined incompatible device do not block undo.
+    older.mailProfiles = 0;
+    keysOf().devices.set('device-new-client', {
+      installation: 'new-client',
+      registeredAt: 0,
+      epoch: 1,
+    });
+    await store.moveMailbox(await mailboxId(), defaultProfile);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([
+      defaultProfile,
+    ]);
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('retains fenced removal through relaunch and a delayed first publication', async () => {
+    expect.hasAssertions();
+    const { flow, vault, keysOf, relaunch, sync } = await connected();
+    const { flow: interrupted, publish } = delayPublication(vault);
+    const { id } = profileNamed(
+      await interrupted.createProfile('Work'),
+      'Work',
+    );
+    const older = { installation: 'older-client', registeredAt: 0, epoch: 1 };
+    keysOf().devices.set('device-older-client', older);
+
+    await flow.removeProfile(id);
+    const reopened = relaunch();
+    expect(listed(await reopened.restore())).toStrictEqual([]);
+    keysOf().devices.delete('device-older-client');
+    await publish();
+    expect(listed(await reopened.refreshPrivateSync())).toStrictEqual([]);
+    expect(listed(await reopened.refreshPrivateSync())).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      version: 2,
+    });
+  });
+
+  it('keeps a raced first publication pending without logging an expected fence as an error', async () => {
+    expect.hasAssertions();
+    const { store, older, sync } = await withOlderClient();
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    older.mailProfiles = 1;
+    sync.beforePut = () => {
+      older.mailProfiles = 0;
+      sync.beforePut = undefined;
+    };
+    await store.createProfile('Work');
+    expect(profileNamed(store.getSnapshot().snapshot, 'Work').pending).toBe(
+      true,
+    );
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it('drops a Profile named offline that the fence never let publish', async () => {

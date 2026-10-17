@@ -1681,6 +1681,16 @@ describe('productSync Mail Profile capability fence', () => {
       putPayload(asUser, second.trustedDeviceId, 'mailbox.gmail'),
     ).rejects.toMatchObject(upgradeRequired);
     await expect(
+      writeProfile(second.trustedDeviceId, 'profile.home', {}),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        ...proof,
+        mailProfileCapability: 0,
+        paginationOpts: firstPage,
+      }),
+    ).rejects.toMatchObject(upgradeRequired);
+    await expect(
       asUser.mutation(api.productSync.declareMailProfileCapability, {
         ...proof,
         capabilityVersion: 0,

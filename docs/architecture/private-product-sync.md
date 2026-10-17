@@ -478,6 +478,22 @@ The remaining #758–#759 migrations authorize no new native application subsyst
 
 ## Synchronized Mail Profiles
 
+Issue #1036 adds content-blind client fencing. Each Trusted Device declares its
+capability version; the first atomic `profile.` or `mailbox-profile.` transaction
+checks the complete trusted roster and activates the account fence in that same
+mutation. Afterwards every payload read and write requires the request's capability.
+Native Draft transport and shared TypeScript transport both present it. Operational
+delivery claims and wakeups remain account-wide and Profile-blind under #921.
+
+An unpublished Profile removed while the first-record fence is active retains
+`pendingRemoval` in the native registration's opaque Profile-state JSON. Shared
+TypeScript hides that identity immediately, preserves the intent when learning a
+delayed publication, and retries its tombstone after the fence lifts. Confirmed
+tombstones clear the pending intent. Native stores this additive field unchanged,
+so no native Codable shape changes. The #1036 OCR decision panel chose this durable
+intent over accepting resurrection of an empty Profile, 3–0, with
+`claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`, all read-only at high reasoning.
+
 Issue #920 adds independently updated `profile.` definitions and `mailbox-profile.`
 ownership records without changing the mailbox descriptor format. Native derives
 each opaque identifier with the existing first-epoch HMAC: the Profile identity

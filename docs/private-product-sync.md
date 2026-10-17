@@ -247,6 +247,9 @@ the Profiles themselves:
   account's first one commits only when every Trusted Device has declared the capability. Until then, creating
   a Profile reports that an upgrade is required. A Profile named offline stays on this
   device, where it can be renamed or removed.
+- Removing an unpublished Profile while fenced hides it immediately and retains the
+  removal on this device through relaunch. When the fence lifts, synchronization
+  finishes that removal even if an earlier unanswered publication arrives later.
 - From the first such record on, Convex refuses Private Sync payload reads and writes from
   any client that does not present the capability. A device that joins later, returns with
   an older build, or never upgraded gets an upgrade-required refusal until it upgrades.

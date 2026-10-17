@@ -544,6 +544,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Exercise omission separately from an unreadable listed record. Otherwise
   removal can tombstone a Profile that still owns live mail and project it into
   Default.
+- `mail-profiles.ts.remove` forgetting an unpublished Profile after a capability
+  fence refuses its tombstone. An unanswered first publication can still commit
+  after the fence lifts. Retain durable pending removal, keep it hidden through
+  relaunch and authenticated reconciliation, and publish its tombstone afterwards;
+  otherwise a successful removal resurrects the Profile.
 - `mail-profiles.ts.put` or `commit` reporting CAS success from matching
   ciphertext before the stored winner opens under its authenticated envelope
   and record identity. Preserve unknown winners as unavailable for online
