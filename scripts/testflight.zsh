@@ -126,7 +126,7 @@ upload() {
     exit 1
   fi
   /usr/bin/strings -a "$executable" > "$artifacts/$host-native-strings.log" 2>&1 || report "$artifacts/$host-native-strings.log"
-  if /usr/bin/grep -E 'UNWIRED_LIFECYCLE_PATH|MockGoogleRegistrationProvider|MockAppleRegistrationProvider|MockProductSyncBackend' "$artifacts/$host-native-strings.log" >/dev/null; then
+  if /usr/bin/grep -E 'UNWIRED_LIFECYCLE_PATH|UnwiredSyntheticRegistration|SyntheticGoogleProvider' "$artifacts/$host-native-strings.log" >/dev/null; then
     print -u2 "Refusing to upload $host: native test paths"
     exit 1
   fi

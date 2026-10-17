@@ -134,15 +134,7 @@ final class UnwiredRegistration: NSObject {
   @MainActor private func store() async throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
     #if UNWIRED_REGISTRATION_MOCK
-      guard let bundle = Bundle.main.bundleIdentifier,
-        let scenario = Bundle.main.object(forInfoDictionaryKey: "UnwiredMockScenario") as? String
-      else { throw RegistrationError.unavailable }
-      // Only enrollment's approval, sealed by a synthetic trusted device, still needs the Swift fake.
-      let mailCache = try await Self.launchMailCache()
-      let store =
-        scenario == "registration-enrollment"
-        ? try mockRegistrationStore(bundle: bundle, scenario: scenario, mailCache: mailCache)
-        : try syntheticRegistrationStore(mailCache: mailCache)
+      let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
       Self.sharedStore = store
       return store
     #else

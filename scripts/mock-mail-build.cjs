@@ -16,12 +16,9 @@ if (scenario && !Schema.is(Schema.Literals(build))(scenario)) {
 const testing = (source) =>
   path.resolve(__dirname, `../packages/mail-core/src/testing/${source}.ts`);
 // Registration scenarios keep production JavaScript apart from the synthetic layers that answer
-// the native vault's provider and backend requests, and the evaluation editor page. Enrollment's
-// synthetic trusted device still answers natively.
+// the native vault's provider and backend requests, and the evaluation editor page.
 const seeded = scenario && !scenario.startsWith('registration-');
-const relayed =
-  scenario?.startsWith('registration-') &&
-  scenario !== 'registration-enrollment';
+const relayed = scenario?.startsWith('registration-');
 const substitutes = {
   ...(seeded && {
     '@private-email/mail-core/registration-mode': testing('registration-mode'),
