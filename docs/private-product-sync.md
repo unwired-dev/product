@@ -237,6 +237,20 @@ Profile names nor which Profile owns a connection. Older clients never list thes
 prefixes, so they can neither rewrite nor corrupt them. Mailbox descriptions keep
 their unchanged format.
 
+Older clients can't keep Profiles apart either: they would show every Profile's
+connections in their only window. Convex fences them out without learning anything about
+the Profiles themselves:
+
+- Each client presents its Mail Profile capability with every Private Sync payload call,
+  and each Trusted Device declares it on every synchronization.
+- `profile.` and `mailbox-profile.` records commit only through atomic writes, and an
+  account's first one commits only when every Trusted Device has declared the capability. Until then, creating
+  a Profile reports that an upgrade is required. A Profile named offline stays on this
+  device, where it can be renamed or removed.
+- From the first such record on, Convex refuses Private Sync payload reads and writes from
+  any client that does not present the capability. A device that joins later, returns with
+  an older build, or never upgraded gets an upgrade-required refusal until it upgrades.
+
 Every description a device cannot open or decode is read-only. This includes
 newer formats, missing keys and failed authentication. The device neither shows
 nor replaces it, and an unreadable description cannot acknowledge a removal.

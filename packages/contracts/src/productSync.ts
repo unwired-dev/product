@@ -8,6 +8,13 @@ export const productSyncPayloadChangedErrorCode =
 // The write was sealed under an earlier key epoch; the device adopts the newest ring and reseals.
 export const productSyncKeyRotationRequiredErrorCode =
   'PRODUCT_SYNC_KEY_ROTATION_REQUIRED';
+// The Mail Profile behavior a client implements. A client presents it with every Product Sync
+// payload call, and Convex keeps any lower or missing version out of an account with Profiles.
+export const mailProfileCapabilityVersion = 1;
+// A device of the account lacks the Mail Profile capability: either this request's client, or,
+// before the account's first Profile record, any Trusted Device. It must upgrade.
+export const mailProfilesUpgradeRequiredErrorCode =
+  'MAIL_PROFILES_UPGRADE_REQUIRED';
 
 export const encryptedProductSyncPayloadBodyValidator = v.object({
   algorithm: v.literal('AES-GCM-256'),

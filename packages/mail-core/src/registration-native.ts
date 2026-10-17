@@ -1,3 +1,4 @@
+import { mailProfilesUpgradeRequiredErrorCode } from '@private-email/contracts/productSync';
 import * as Effect from 'effect/Effect';
 import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
@@ -26,6 +27,7 @@ export const backendCodes: Readonly<Record<string, Code>> = {
   PENDING_DEVICE_UNAVAILABLE: 'pending-device-unavailable',
   TRUSTED_DEVICE_REVOKED: 'revoked',
   PRODUCT_ACCOUNT_DELETED: 'deleted',
+  [mailProfilesUpgradeRequiredErrorCode]: 'upgrade-required',
 };
 export const backendCode = (code: string | undefined) =>
   (code !== undefined && Object.hasOwn(backendCodes, code)

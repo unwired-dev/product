@@ -1,3 +1,4 @@
+import { mailProfileCapabilityVersion } from '@private-email/contracts/productSync';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
@@ -348,7 +349,10 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
     {
       endpoint: 'query',
       path: 'productSync:getEncryptedPayloadForTrustedDevice',
-      args: { payloadIdentifier: recoveryRecord },
+      args: {
+        payloadIdentifier: recoveryRecord,
+        mailProfileCapability: mailProfileCapabilityVersion,
+      },
       session: true,
       device: true,
     },

@@ -102,6 +102,17 @@ const imapFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ImapFailureSchema }),
 );
 
+const ProfileFailureSchema = Schema.Literals([
+  'upgrade-required',
+  'profile-in-use',
+  'profile-changed',
+]);
+// Why a Mail Profile change was refused; nothing changed.
+export type ProfileFailure = typeof ProfileFailureSchema.Type | 'failed';
+const profileFailureCode = Schema.decodeUnknownOption(
+  Schema.Struct({ code: ProfileFailureSchema }),
+);
+
 export type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
@@ -112,6 +123,7 @@ export type RegistrationState = Readonly<{
   linkFailure?: LinkFailure;
   // Why an IMAP mailbox could not be added beside others; nothing changed.
   imapFailure?: ImapFailure;
+  profileFailure?: ProfileFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -140,6 +152,18 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   snapshot,
   busy: false,
   failed: false,
+});
+
+// A refused Mail Profile change leaves the snapshot as it was, with the reason.
+const profileRefusal = (
+  snapshot: RegistrationSnapshot,
+  cause: unknown,
+): RegistrationState => ({
+  ...settled(snapshot),
+  profileFailure: Option.match(profileFailureCode(cause), {
+    onNone: () => 'failed' as const,
+    onSome: ({ code }) => code,
+  }),
 });
 
 class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
@@ -541,13 +565,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
     removeMailbox: (connection: string) =>
       execute(request(native.removeMailbox(connection))),
     createProfile: (name: string) =>
-      execute(request(native.createProfile(name))),
+      execute(request(native.createProfile(name)), profileRefusal),
     renameProfile: (profile: string, name: string) =>
-      execute(request(native.renameProfile(profile, name))),
+      execute(request(native.renameProfile(profile, name)), profileRefusal),
     removeProfile: (profile: string) =>
-      execute(request(native.removeProfile(profile))),
+      execute(request(native.removeProfile(profile)), profileRefusal),
     moveMailbox: (connection: string, profile: string) =>
-      execute(request(native.moveMailbox(connection, profile))),
+      execute(request(native.moveMailbox(connection, profile)), profileRefusal),
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(

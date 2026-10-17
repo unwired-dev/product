@@ -4,6 +4,7 @@ import * as Schema from 'effect/Schema';
 
 import { readingProfile } from '../src/mailboxes.ts';
 import {
+  createRegistration,
   defaultProfile,
   mailboxesOf,
   profilesOf,
@@ -725,5 +726,62 @@ describe('mail profiles', () => {
       { id: work, name: 'Office' },
       { id: home, name: 'Home', pending: true },
     ]);
+  });
+});
+
+describe('mail profile capability fence', () => {
+  // The account's other Trusted Device, still running a client from before Mail Profiles.
+  const withOlderClient = async () => {
+    const context = await connected();
+    const older: {
+      installation: string;
+      registeredAt: number;
+      epoch: number;
+      mailProfiles?: number;
+    } = {
+      installation: 'older-client',
+      registeredAt: 0,
+      epoch: 1,
+    };
+    context.keysOf().devices.set('device-older-client', older);
+    return { ...context, older, store: createRegistration(context.vault) };
+  };
+
+  it('keeps Profiles unpublished until every Trusted Device can keep them apart, and reports each refusal', async () => {
+    expect.hasAssertions();
+    const { store, older, sync, mailboxId } = await withOlderClient();
+
+    await store.createProfile('Work');
+    expect(store.getSnapshot().profileFailure).toBe('upgrade-required');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
+
+    // Once the other device upgrades, the Profile publishes and the store reports later refusals
+    // by their reason.
+    older.mailProfiles = 1;
+    await store.createProfile('Work');
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    const { id } = profileNamed(store.getSnapshot().snapshot, 'Work');
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work' },
+    ]);
+    await store.moveMailbox(await mailboxId(), id);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([id]);
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBe('profile-in-use');
+  });
+
+  it('drops a Profile named offline that the fence never let publish', async () => {
+    expect.hasAssertions();
+    const { store, sync } = await withOlderClient();
+    sync.offline = true;
+    await store.createProfile('Work');
+    const { id } = profileNamed(store.getSnapshot().snapshot, 'Work');
+    sync.offline = false;
+
+    await store.removeProfile(id);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(storedProfiles(sync, account)).toStrictEqual([]);
   });
 });

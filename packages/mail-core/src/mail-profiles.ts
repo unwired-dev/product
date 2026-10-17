@@ -1,7 +1,6 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
-import type { RegistrationRejected } from './registration-rejection.ts';
 import type { StoredPayload } from './registration-replies.ts';
 import type {
   NativeRegistrationVault,
@@ -11,6 +10,7 @@ import type {
 } from './registration-vault.ts';
 
 import { failWith, nativeSteps } from './registration-native.ts';
+import { RegistrationRejected } from './registration-rejection.ts';
 import { EncryptedPayload } from './registration-replies.ts';
 import { defaultProfile, unavailableProfile } from './registration-snapshot.ts';
 import {
@@ -461,7 +461,21 @@ export function createMailProfileProgram<E>(
         record: { kind: 'profile', id, version: (profile.version ?? 0) + 1 },
         expectedUpdatedAt: profile.updatedAt,
       },
-    ]);
+    ]).pipe(
+      // Convex refuses an account's first Profile record while an older client is fenced in, so a
+      // Profile never published has no record there to remove.
+      Effect.catchIf(
+        (error) =>
+          error instanceof RegistrationRejected &&
+          error.code === 'upgrade-required' &&
+          profile.version === undefined,
+        () =>
+          save(state, {
+            ...state,
+            profiles: state.profiles.filter((item) => item !== profile),
+          }),
+      ),
+    );
   });
 
   // Moves the current incarnation of one of this device's connections to a published Profile, or

@@ -1,4 +1,7 @@
-import { productSyncKeyRotationRequiredErrorCode } from '@private-email/contracts/productSync';
+import {
+  mailProfileCapabilityVersion,
+  productSyncKeyRotationRequiredErrorCode,
+} from '@private-email/contracts/productSync';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Order from 'effect/Order';
@@ -38,6 +41,8 @@ import {
   StoredPayloadPage,
 } from './registration-replies.ts';
 import { MailboxDescriptorSchema } from './registration-vault.ts';
+
+const MailProfileFence = Schema.Struct({ fenced: Schema.Boolean });
 
 // The epoch every device gives a descriptor written before epochs, so their upgrades agree.
 const legacyEpoch = 'legacy';
@@ -380,6 +385,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
           args: {
             payloadIdentifierPrefix: prefix,
             paginationOpts: { cursor, numItems: pageSize },
+            mailProfileCapability: mailProfileCapabilityVersion,
           },
           session: true,
           device: true,
@@ -428,7 +434,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     const reply = yield* convexReply({
       endpoint: 'mutation',
       path,
-      args,
+      args: { ...args, mailProfileCapability: mailProfileCapabilityVersion },
       session: true,
       device: true,
     });
@@ -541,6 +547,18 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     }),
     freshId: freshEpoch,
   });
+  // Declares this client's Mail Profile capability: true while an older client on another Trusted
+  // Device keeps the account's first Profile unpublished.
+  const fenced = convex(
+    {
+      endpoint: 'mutation',
+      path: 'productSync:declareMailProfileCapability',
+      args: { capabilityVersion: mailProfileCapabilityVersion },
+      session: true,
+      device: true,
+    },
+    MailProfileFence,
+  ).pipe(Effect.map(({ fenced: refused }) => refused));
   // A Profile write sealed at an epoch a removal overtook is sealed again after adopting it.
   const rotating = <A>(
     operation: () => Effect.Effect<
@@ -846,7 +864,9 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       ),
     );
     yield* devices.refreshDevices;
-    yield* rotating(() => profiles.synchronize);
+    if (!(yield* fenced)) {
+      yield* rotating(() => profiles.synchronize);
+    }
   });
 
   // Synchronizes with this process's verified Product Sign-In. Product Sync stays pending on
@@ -871,7 +891,17 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
   return {
     synchronize,
     ...devices,
-    createProfile: profiles.create,
+    // Refused while an older client is fenced in; offline, the Profile waits to publish.
+    createProfile: (name: string) =>
+      fenced.pipe(
+        Effect.catchIf(
+          ({ code }) => code === 'offline',
+          () => Effect.succeed(false),
+        ),
+        Effect.flatMap((refused) =>
+          refused ? failWith('upgrade-required') : profiles.create(name),
+        ),
+      ),
     renameProfile: profiles.rename,
     removeProfile: (id: string) => rotating(() => profiles.remove(id)),
     moveMailbox: (

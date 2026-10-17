@@ -4,6 +4,8 @@ import {
   encryptedProductSyncPayloadBodyValidator,
   encryptedProductSyncPayloadListResponseValidator,
   encryptedProductSyncPayloadValidator,
+  mailProfileCapabilityVersion,
+  mailProfilesUpgradeRequiredErrorCode,
   maybeEncryptedProductSyncPayloadValidator,
   productSyncInitializationResponseValidator,
   productSyncPayloadChangedErrorCode,
@@ -35,6 +37,121 @@ function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
     throw new Error('Recovery material requires recent authentication');
   }
 }
+
+// The Mail Profile capability a client presents with each payload call; older clients send none.
+const mailProfileCapabilityArgs = {
+  mailProfileCapability: v.optional(v.number()),
+};
+
+function throwMailProfilesUpgradeRequired(): never {
+  throw new ConvexError({
+    code: mailProfilesUpgradeRequiredErrorCode,
+    message: 'Update Unwired Mail to use Mail Profiles.',
+  });
+}
+
+const capable = (version: number | undefined) =>
+  (version ?? 0) >= mailProfileCapabilityVersion;
+
+// Once an account holds Mail Profile records, a client that cannot keep them apart reads and writes
+// nothing: it would show every Profile's connections in its one window.
+function requireMailProfileCapability(
+  account: AuthenticatedProductAccount,
+  presented: number | undefined,
+): void {
+  if (account.mailProfilesEnabledAt !== undefined && !capable(presented)) {
+    throwMailProfilesUpgradeRequired();
+  }
+}
+
+const isMailProfileRecord = (payloadIdentifier: string) =>
+  payloadIdentifier.startsWith('profile.') ||
+  payloadIdentifier.startsWith('mailbox-profile.');
+
+// An account's first Mail Profile record waits until every Trusted Device declared the capability,
+// so no device still running an older client ever sees one Profile's connections in another's.
+async function fencesMailProfiles(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+): Promise<boolean> {
+  if (account.mailProfilesEnabledAt !== undefined) {
+    return false;
+  }
+  const devices = ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q.eq('productAccountId', account.productAccountId),
+    );
+  for await (const device of devices) {
+    if (!capable(device.mailProfileCapabilityVersion)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Whether a transaction touches Mail Profile records, which need the writer's capability and, for an
+// account's first, every Trusted Device's.
+async function admitMailProfileWrites(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+  {
+    identifiers,
+    presented,
+  }: Readonly<{
+    identifiers: readonly string[];
+    presented: number | undefined;
+  }>,
+): Promise<boolean> {
+  if (!identifiers.some(isMailProfileRecord)) {
+    return false;
+  }
+  if (!capable(presented) || (await fencesMailProfiles(ctx, account))) {
+    throwMailProfilesUpgradeRequired();
+  }
+  return true;
+}
+
+// From the account's first committed Mail Profile record on, only capable clients sync.
+async function enableMailProfiles(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+): Promise<void> {
+  if (account.mailProfilesEnabledAt === undefined) {
+    await ctx.db.patch('productAccounts', account.productAccountId, {
+      mailProfilesEnabledAt: Date.now(),
+    });
+  }
+}
+
+// Records the capability of this device's client; true while an account without Mail Profile
+// records still has a Trusted Device that has not declared it, which keeps Profiles unpublished.
+export const declareMailProfileCapability = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    capabilityVersion: v.number(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    requireMailProfileCapability(account, args.capabilityVersion);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
+    if (device.mailProfileCapabilityVersion !== args.capabilityVersion) {
+      await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
+        mailProfileCapabilityVersion: args.capabilityVersion,
+      });
+    }
+    return { fenced: await fencesMailProfiles(ctx, account) };
+  },
+  returns: v.object({ fenced: v.boolean() }),
+});
 
 function serializePayload(
   payload: Readonly<Doc<'encryptedProductSyncPayloads'>>,
@@ -158,13 +275,26 @@ async function updatePayload(
 export const putEncryptedPayloadIfUnchanged = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
+    ...mailProfileCapabilityArgs,
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { mailProfileCapability, ...args }) => {
     requireUnreservedPayloadIdentifier(args.payloadIdentifier);
+    // Mail Profile records commit only atomically, where the capability fence applies.
+    if (isMailProfileRecord(args.payloadIdentifier)) {
+      throw new Error('Mail Profile records require an atomic write');
+    }
+    requireMailProfileCapability(
+      await requireAuthenticatedTrustedDevice(
+        ctx,
+        args.trustedDeviceId,
+        args.trustedDeviceCredential,
+      ),
+      mailProfileCapability,
+    );
     return writeEncryptedPayloadIfUnchanged(ctx, args);
   },
   returns: encryptedProductSyncPayloadValidator,
@@ -528,6 +658,7 @@ async function writeAtomicPayloads(
 export const putEncryptedPayloadsAtomically = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
+    ...mailProfileCapabilityArgs,
     checks: v.array(encryptedPayloadRevisionValidator),
     deletes: v.array(encryptedPayloadRevisionValidator),
     trustedDeviceId: v.id('trustedDevices'),
@@ -540,6 +671,7 @@ export const putEncryptedPayloadsAtomically = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    requireMailProfileCapability(account, args.mailProfileCapability);
     await requireRecoveryEnvelope(ctx, account.productAccountId);
     for (const write of args.writes) {
       requireCurrentProductSyncKeyEpoch(
@@ -547,6 +679,10 @@ export const putEncryptedPayloadsAtomically = mutation({
         write.encryptedPayload.keyVersion,
       );
     }
+    const writesMailProfiles = await admitMailProfileWrites(ctx, account, {
+      identifiers,
+      presented: args.mailProfileCapability,
+    });
     const { existingByIdentifier, existingPayloads } = await findAtomicPayloads(
       ctx,
       account.productAccountId,
@@ -566,6 +702,9 @@ export const putEncryptedPayloadsAtomically = mutation({
       existingByIdentifier,
       productAccountId: account.productAccountId,
     });
+    if (writesMailProfiles) {
+      await enableMailProfiles(ctx, account);
+    }
     return { committed: true, payloads: writtenPayloads };
   },
   returns: v.object({
@@ -722,16 +861,19 @@ const encryptedPayloadListArgs = {
 
 export const listEncryptedPayloadsForTrustedDevice = query({
   args: {
+    ...mailProfileCapabilityArgs,
     ...encryptedPayloadListArgs,
     ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    requireMailProfileCapability(account, args.mailProfileCapability);
+    const { productAccountId } = account;
     return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
@@ -756,16 +898,19 @@ async function getEncryptedPayloadForProductAccount(
 
 export const getEncryptedPayloadForTrustedDevice = query({
   args: {
+    ...mailProfileCapabilityArgs,
     ...trustedDeviceCredentialArgs,
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    requireMailProfileCapability(account, args.mailProfileCapability);
+    const { productAccountId } = account;
     return getEncryptedPayloadForProductAccount(
       ctx,
       productAccountId,
@@ -798,16 +943,19 @@ async function getEncryptedPayloadsForProductAccount(
 
 export const getEncryptedPayloadsForTrustedDevice = query({
   args: {
+    ...mailProfileCapabilityArgs,
     ...trustedDeviceCredentialArgs,
     payloadIdentifiers: v.array(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    requireMailProfileCapability(account, args.mailProfileCapability);
+    const { productAccountId } = account;
     if (
       args.payloadIdentifiers.length > encryptedProductSyncAtomicMutationLimit
     ) {
