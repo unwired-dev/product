@@ -333,7 +333,7 @@ describe('profile-scoped mobile routes', () => {
     showMail(defaultProfile);
     route.setParams({});
     const insets = { top: 59, bottom: 34, left: 0, right: 0 };
-    let inboxRevealRequest: Readonly<{ account: string }> | undefined = undefined;
+    let revealRequest: Readonly<{ account: string }> | undefined = undefined;
     const view = () => (
       <SafeAreaProvider
         initialMetrics={{
@@ -343,7 +343,7 @@ describe('profile-scoped mobile routes', () => {
         <AccountContext
           value={{
             mailboxes: [connection],
-            inboxRevealRequest,
+            inboxRevealRequest: revealRequest,
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
@@ -522,7 +522,7 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       const retainedRoute = route.params();
       split.shown.length = 0;
-      inboxRevealRequest = { account: 'synthetic-product-account' };
+      revealRequest = { account: 'synthetic-product-account' };
       await app.rerender(view());
       expect({ route: route.params(), columns: split.shown }).toStrictEqual({
         route: retainedRoute,
