@@ -77,7 +77,10 @@ describe('application-owned Outbox execution', () => {
           }),
         );
         const draft = present(draftOf(host.drafts.getSnapshot(), id));
-        const addressed = { ...draft, to: [{ address: 'sam@example.invalid' }] };
+        const addressed = {
+          ...draft,
+          to: [{ address: 'sam@example.invalid' }],
+        };
         await host.drafts.update(addressed, draft);
         const current = present(draftOf(host.drafts.getSnapshot(), id));
         await expect(host.outbox.send(() => current)).resolves.toBeUndefined();

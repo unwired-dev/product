@@ -193,8 +193,8 @@ describe('headless Gmail freshness', () => {
         jest.useFakeTimers();
         const initial = AppState.currentState;
         AppState.currentState = 'active';
-        const listenersBefore = jest.mocked(AppState.addEventListener).mock.calls
-          .length;
+        const { length: listenersBefore } =
+          jest.mocked(AppState.addEventListener).mock.calls;
         const { pollGmailWhileActive } = jest.requireActual<{
           readonly pollGmailWhileActive: typeof PollGmailWhileActive;
         }>('../src/freshness.ts');

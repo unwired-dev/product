@@ -158,7 +158,9 @@ describe('outbox execution opportunities', () => {
         } else {
           phone.outbox.pause();
         }
-        const resuming = resumeEarly ? phone.outbox.resume() : Promise.resolve();
+        const resuming = resumeEarly
+          ? phone.outbox.resume()
+          : Promise.resolve();
         release.resolve(undefined);
         await processing;
         await resuming;

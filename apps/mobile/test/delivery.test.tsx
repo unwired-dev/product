@@ -78,7 +78,10 @@ describe('application-owned Outbox execution', () => {
           }),
         );
         const draft = present(draftOf(host.drafts.getSnapshot(), id));
-        const addressed = { ...draft, to: [{ address: 'sam@example.invalid' }] };
+        const addressed = {
+          ...draft,
+          to: [{ address: 'sam@example.invalid' }],
+        };
         await host.drafts.update(addressed, draft);
         const current = present(draftOf(host.drafts.getSnapshot(), id));
         await expect(host.outbox.send(() => current)).resolves.toBeUndefined();
@@ -87,7 +90,9 @@ describe('application-owned Outbox execution', () => {
         expect(gmail.sends).toHaveLength(0);
         change('inactive');
         await host.outbox.process();
-        expect(host.drafts.getOutbox()).toMatchObject([{ id, state: 'waiting' }]);
+        expect(host.drafts.getOutbox()).toMatchObject([
+          { id, state: 'waiting' },
+        ]);
         change('active');
         await host.outbox.process();
         expect(gmail.sends).toHaveLength(1);
