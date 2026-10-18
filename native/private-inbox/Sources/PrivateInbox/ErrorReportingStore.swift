@@ -325,20 +325,6 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     }
   }
 
-  nonisolated static func site(_ base: URL, path: String) throws -> URL {
-    guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
-      components.scheme == "https", let host = components.host, components.user == nil,
-      components.password == nil, components.query == nil, components.fragment == nil,
-      host.hasSuffix(".convex.cloud") || host.hasSuffix(".convex.site")
-    else { throw ReportingError.unavailable }
-    if host.hasSuffix(".convex.cloud") {
-      components.host = String(host.dropLast(".convex.cloud".count)) + ".convex.site"
-    }
-    components.path = path
-    guard let url = components.url else { throw ReportingError.unavailable }
-    return url
-  }
-
   func request(operation: String, body: String, generation: Int) async throws -> [String: Any] {
     guard ["enable", "capture", "revoke", "delete", "status"].contains(operation),
       body.utf8.count <= 1_048_576, let base
@@ -371,7 +357,10 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     payload["installationId"] = value.installationId
     payload["credential"] = value.credential
     payload["generation"] = generation
-    var request = URLRequest(url: try Self.site(base, path: "/api/error-reporting/" + operation))
+    guard let url = ConvexURL.site(base, path: "/api/error-reporting/" + operation) else {
+      throw ReportingError.unavailable
+    }
+    var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.timeoutInterval = 10

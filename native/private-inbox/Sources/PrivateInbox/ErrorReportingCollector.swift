@@ -104,7 +104,7 @@ private final class ReportingBlockedProtocol: URLProtocol, @unchecked Sendable {
       .appendingPathComponent(identifier).appendingPathComponent(
         "ErrorReporting", isDirectory: true)
     let base = (bundle.object(forInfoDictionaryKey: "UnwiredConvexURL") as? String)
-      .flatMap(URL.init(string:)).flatMap { try? ErrorReportingStore.site($0, path: "/") }
+      .flatMap(URL.init(string:)).flatMap { ConvexURL.site($0, path: "/") }
     let qualification =
       bundle.object(forInfoDictionaryKey: "UnwiredErrorReportingQualification") as? Bool == true
     #if DEBUG

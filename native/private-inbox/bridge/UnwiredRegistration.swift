@@ -196,7 +196,8 @@ final class UnwiredRegistration: NSObject {
 
   // The deployment's HTTP actions live on its .convex.site host.
   private static func site(_ base: URL, path: String) throws -> URL {
-    try ErrorReportingStore.site(base, path: path)
+    guard let url = ConvexURL.site(base, path: path) else { throw RegistrationError.unavailable }
+    return url
   }
 
   // The deployment's Convex HTTP API for functions, or one of its HTTP action routes. The same
