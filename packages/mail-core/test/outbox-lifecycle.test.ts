@@ -60,47 +60,51 @@ describe('outbox execution opportunities', () => {
       expect.hasAssertions();
       const { server, gmail } = sharedAccount();
       const phone = await sender(server, gmail, 'phone');
-      const id = await addressed(phone);
-      await phone.outbox.send(() => phone.draft(id));
-      vi.setSystemTime(Date.now() + undoSendWindow);
-      if (state === 'unknown') {
-        gmail.failSend({ lost: true });
-        const submit = gmail.native.gmailSend;
-        gmail.native.gmailSend = async (...args) => {
-          try {
-            return await submit(...args);
-          } finally {
-            phone.outbox.pause();
-          }
-        };
-        await phone.outbox.process();
-        gmail.native.gmailSend = submit;
-      } else {
-        phone.outbox.pause();
-      }
-      phone.outbox.dispose();
-      phone.storage.relaunch();
-      const drafts = createDrafts(phone.storage.native, phone.registration);
-      await drafts.load();
-      expect(drafts.getOutbox()).toMatchObject([
-        { id, state: state === 'queued' ? 'waiting' : 'unknown' },
-      ]);
-      const mailboxes = createMailboxes(
-        syntheticConnections({ [alex.id]: gmail }),
-        phone.registration,
-      );
-      const recovered = createOutbox({
-        drafts,
-        mailboxes,
-        registration: phone.registration,
-        claims: phone.storage.delivery,
-      });
       try {
-        await recovered.process();
-        expect(gmail.sends).toHaveLength(1);
-        expect(drafts.getOutbox()).toStrictEqual([]);
+        const id = await addressed(phone);
+        await phone.outbox.send(() => phone.draft(id));
+        vi.setSystemTime(Date.now() + undoSendWindow);
+        if (state === 'unknown') {
+          gmail.failSend({ lost: true });
+          const submit = gmail.native.gmailSend;
+          gmail.native.gmailSend = async (...args) => {
+            try {
+              return await submit(...args);
+            } finally {
+              phone.outbox.pause();
+            }
+          };
+          await phone.outbox.process();
+          gmail.native.gmailSend = submit;
+        } else {
+          phone.outbox.pause();
+        }
+        phone.outbox.dispose();
+        phone.storage.relaunch();
+        const drafts = createDrafts(phone.storage.native, phone.registration);
+        await drafts.load();
+        expect(drafts.getOutbox()).toMatchObject([
+          { id, state: state === 'queued' ? 'waiting' : 'unknown' },
+        ]);
+        const mailboxes = createMailboxes(
+          syntheticConnections({ [alex.id]: gmail }),
+          phone.registration,
+        );
+        const recovered = createOutbox({
+          drafts,
+          mailboxes,
+          registration: phone.registration,
+          claims: phone.storage.delivery,
+        });
+        try {
+          await recovered.process();
+          expect(gmail.sends).toHaveLength(1);
+          expect(drafts.getOutbox()).toStrictEqual([]);
+        } finally {
+          recovered.dispose();
+        }
       } finally {
-        recovered.dispose();
+        phone.outbox.dispose();
       }
     },
   );
