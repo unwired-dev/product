@@ -243,8 +243,8 @@ describe('product registration', () => {
   it('restores a connected Inbox without flashing Welcome or forcing lost-key recovery', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
-    synthetic.device.productSync.deviceKey = false;
-    synthetic.device.productSync.deviceKeyName = undefined;
+    // Private-data keys are missing; this installation's device key still proves its admission.
+    synthetic.device.productSync.vault = undefined;
     const vault = synthetic.relaunch();
     const restored = Promise.withResolvers<undefined>();
     const store = createRegistration({
@@ -276,9 +276,13 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Account & Devices' }),
-    ).toBeNull();
+    expect({
+      snapshot: store.getSnapshot().snapshot,
+      account: screen.queryByRole('header', { name: 'Account & Devices' }),
+    }).toMatchObject({
+      snapshot: { kind: 'connected', privateSync: 'enrollment-needed' },
+      account: null,
+    });
     await openAccount();
     await openSettings('Account & Devices');
     await expect(
