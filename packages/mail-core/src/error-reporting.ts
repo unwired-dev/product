@@ -168,7 +168,7 @@ function frames(error: unknown) {
       ),
   ]
     .slice(0, 64)
-    .reverse()
+    .toReversed()
     .map((match) => ({
       kind: 'javascript' as const,
       line: Number(match[1]),
