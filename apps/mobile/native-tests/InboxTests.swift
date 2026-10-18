@@ -410,6 +410,7 @@ final class InboxTests: XCTestCase {
         }
       }
       XCUIDevice.shared.orientation = .portrait
+      waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
       verifyInboxViewport(app)
       waitUntil(listReady)
       // The reported black screen begins when opening the list, before selecting a message.
@@ -478,6 +479,7 @@ final class InboxTests: XCTestCase {
           NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
         ).firstMatch.tap()
         waitUntil { rowan.isHittable }
+        verifyInboxViewport(app)
         XCTAssertFalse(sender.exists)
       } else if attempt < 3 {
         // Selecting the same iPad row keeps its reader, so relaunch before the next opening.
