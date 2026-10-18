@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+/* oxlint-disable vitest/no-conditional-in-test -- Table cases exercise distinct removal protocols against the same no-takeover invariant. */
+
 import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
@@ -108,30 +110,79 @@ describe('claiming a Draft for delivery', () => {
     ).rejects.toThrow('Authentication required');
   });
 
-  it('refuses a revoked Trusted Device', async () => {
-    expect.assertions(1);
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(identity('apple-user-001'));
-    const phone = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert('revokedTrustedDevices', {
+  it.each(['sign-out', 'revocation'] as const)(
+    'retains a content-free claim against takeover after %s',
+    async (removal) => {
+      expect.hasAssertions();
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(identity('apple-user-001'));
+      const phone = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
-        productAccountId: phone.productAccountId,
-        productSyncKeyEpoch: 1,
-        revokedAt: Date.now(),
-        trustedDeviceId: phone.trustedDeviceId,
+        platform: 'ios',
+        supportsDeviceCredentials: true,
       });
-      await ctx.db.delete('trustedDevices', phone.trustedDeviceId);
-    });
-
-    await expect(
-      asUser.mutation(api.draftDelivery.claim, {
+      const mac = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+        supportsDeviceCredentials: true,
+      });
+      await asUser.mutation(api.draftDelivery.claim, {
         claimIdentifier,
         trustedDeviceId: phone.trustedDeviceId,
-      }),
-    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
-  });
+        trustedDeviceCredential: phone.trustedDeviceCredential,
+      });
+      // oxlint-disable-next-line unicorn/prefer-ternary -- Keep the two removal operations readable.
+      if (removal === 'sign-out') {
+        await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+          deviceIdentifier: 'device-001',
+          trustedDeviceId: phone.trustedDeviceId,
+          trustedDeviceCredential: phone.trustedDeviceCredential,
+        });
+      } else {
+        await t.run(async (ctx) => {
+          await ctx.db.insert('revokedTrustedDevices', {
+            deviceIdentifier: 'device-001',
+            productAccountId: phone.productAccountId,
+            productSyncKeyEpoch: 1,
+            revokedAt: Date.now(),
+            trustedDeviceId: phone.trustedDeviceId,
+          });
+          await ctx.db.delete('trustedDevices', phone.trustedDeviceId);
+        });
+      }
+
+      await expect(
+        asUser.mutation(api.draftDelivery.claim, {
+          claimIdentifier,
+          trustedDeviceId: phone.trustedDeviceId,
+          trustedDeviceCredential: phone.trustedDeviceCredential,
+        }),
+      ).rejects.toThrow(
+        removal === 'sign-out'
+          ? 'Trusted device required'
+          : 'TRUSTED_DEVICE_REVOKED',
+      );
+      await expect(
+        asUser.mutation(api.draftDelivery.claim, {
+          claimIdentifier,
+          trustedDeviceId: mac.trustedDeviceId,
+          trustedDeviceCredential: mac.trustedDeviceCredential,
+        }),
+      ).resolves.toStrictEqual({ claimed: false });
+      const claims = await t.run((ctx) =>
+        ctx.db.query('draftDeliveryClaims').collect(),
+      );
+      expect(claims).toMatchObject([
+        { claimIdentifier, trustedDeviceId: phone.trustedDeviceId },
+      ]);
+      expect(Object.keys(claims.at(0) ?? {}).toSorted()).toStrictEqual([
+        '_creationTime',
+        '_id',
+        'claimIdentifier',
+        'claimedAt',
+        'productAccountId',
+        'trustedDeviceId',
+      ]);
+    },
+  );
 });

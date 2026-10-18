@@ -213,6 +213,17 @@ extension RegistrationStore {
     }
     let status: Int
     let data: Data
+    if sending {
+      let product = try mailboxAccount(id)
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        try await purge()
+        throw RegistrationError.revoked
+      }
+      _ = try mailboxAccount(id)
+      guard current() else { throw PrivateInboxError.mailboxInvalidated }
+      guard deliveryAllowed() else { throw RegistrationError.unavailable }
+    }
     do {
       (status, data) = try await microsoft.graph(
         identity, url: url, method: method, body: body, contentType: contentType)
@@ -381,6 +392,17 @@ extension RegistrationStore {
     }
     let status: Int
     let data: Data
+    if sending {
+      let product = try mailboxAccount(id)
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        try await purge()
+        throw RegistrationError.revoked
+      }
+      _ = try mailboxAccount(id)
+      guard current() else { throw PrivateInboxError.mailboxInvalidated }
+      guard deliveryAllowed() else { throw RegistrationError.unavailable }
+    }
     do {
       (status, data) = try await provider.gmail(
         identity, url: url, body: body, contentType: contentType)

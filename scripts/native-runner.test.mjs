@@ -175,3 +175,95 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
     }
   });
 }
+
+for (const [count, code, expectedExit, expectedAttempts] of [
+  [55, 0, 0, 1],
+  [56, 0, 0, 1],
+  [0, 0, 1, 2],
+  [56, 65, 1, 1],
+]) {
+  test(`private Inbox runner: ${count} completed tests, xcodebuild exit ${code}`, (t) => {
+    mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+    const directory = mkdtempSync(
+      path.join(root, 'scratchpad/private-inbox-runner-'),
+    );
+    t.after(() => {
+      const servers = path.join(directory, 'servers');
+      if (existsSync(servers)) {
+        for (const pid of readFileSync(servers, 'utf8').trim().split('\n')) {
+          try {
+            process.kill(Number(pid), 'SIGTERM');
+          } catch {
+            /* Already stopped by the runner. */
+          }
+        }
+      }
+      rmSync(directory, { recursive: true, force: true });
+    });
+    const integration = path.join(
+      directory,
+      'native/private-inbox/integration',
+    );
+    const bin = path.join(directory, 'bin');
+    const home = path.join(directory, 'home');
+    for (const entry of [integration, bin, home]) {
+      mkdirSync(entry, { recursive: true });
+    }
+    cpSync(
+      path.join(root, 'native/private-inbox/integration/test.zsh'),
+      path.join(integration, 'test.zsh'),
+    );
+    const stub = `#!${process.execPath}
+import fs from 'node:fs';
+import path from 'node:path';
+const base = ${JSON.stringify(directory)};
+const command = path.basename(process.argv[1]);
+const args = process.argv.slice(2);
+if (command === 'df') console.log('Filesystem Blocks Used Available Capacity Mounted\\ndisk 99999999 0 99999999 0% /');
+if (command === 'xcrun' && args[1] === 'create') console.log('owned-' + Date.now());
+if (command === 'xcodebuild') {
+  fs.appendFileSync(path.join(base, 'attempts'), 'test\\n');
+  console.log('Test run with ${count} tests in 4 suites passed after 1 second.');
+  process.exit(${code});
+}
+if (command === 'node') {
+  const directory = args[1];
+  const smtp = args[0].endsWith('smtp-server.mjs');
+  fs.appendFileSync(path.join(base, 'servers'), process.pid + '\\n');
+  if (!smtp) fs.writeFileSync(path.join(directory, 'ca.pem'), 'synthetic');
+  fs.writeFileSync(path.join(directory, smtp ? 'smtp-ports' : 'port'), smtp ? '1234,1235,1236' : '1233');
+  process.on('SIGTERM', () => {
+    fs.writeFileSync(path.join(directory, smtp ? 'smtp-result.json' : 'result.json'), '{}');
+    process.exit(0);
+  });
+  setInterval(() => {}, 1000);
+}
+`;
+    for (const command of ['df', 'ruby', 'node', 'xcrun', 'xcodebuild']) {
+      writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
+    }
+    const result = spawnSync(
+      'zsh',
+      ['-f', '-o', 'nobgnice', path.join(integration, 'test.zsh'), 'ios'],
+      {
+        cwd: directory,
+        env: {
+          ...process.env,
+          HOME: home,
+          ZDOTDIR: home,
+          PATH: `${bin}:${process.env.PATH}`,
+          RUBY: path.join(bin, 'ruby'),
+        },
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+    assert.equal(
+      readFileSync(path.join(directory, 'attempts'), 'utf8').trim().split('\n')
+        .length,
+      expectedAttempts,
+    );
+  });
+}

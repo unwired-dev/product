@@ -148,6 +148,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A shell-runner fixture that replaces an interpreter through `PATH` but inherits
+  an explicit interpreter override such as `RUBY`. Set the runner's actual
+  override to the test-owned stub too; otherwise CI can invoke a real interpreter
+  before reaching the behavior the fixture claims to test.
+
 - A shell contract in `scripts/testflight.test.mjs` supplying a minimal child
   environment without a test-owned `HOME`, or letting host shell initialization
   replace its stub-only `PATH`. Keep the home and startup guards consistent with

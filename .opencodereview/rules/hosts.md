@@ -4,6 +4,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### The host stays thin
 
+- Application-entry `delivery.ts` skipping the Outbox lifecycle owner behind
+  `previewInbox` or another build-mode guard while `createHost` starts it paused.
+  Every eligible registered session needs the same application-owned execution,
+  including synthetic sessions. Trace entry restoration and lifecycle wiring
+  together, and keep tests' connected-account setup distinct from packaged
+  preview builds without a Product Account; otherwise eligible delivery stays
+  paused or a synthetic journey claims startup behavior it never exercised.
+
 - A visible selection serialized differently by actions that share it, such as
   `categorization-spike-page.tsx` sending the golden six Category IDs for Classify
   but a prefix count for Benchmark. Trace each applicable action through request

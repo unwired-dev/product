@@ -305,8 +305,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   As `RegistrationStore.gmail` does, require a current credential-only
   `deviceRevoked` proof before provider renewal, reject an unavailable or absent
   proof, purge positive revocation, and recheck ownership after suspension.
-  Otherwise queued writes can reach the provider while device trust is unknown
-  or after remote revocation. Cache reads retain their separate offline policy.
+  For Gmail and Graph sends, retain that pre-renewal proof as well as the fresh
+  post-renewal proof immediately before handoff; replacing the first with the
+  second still renews provider access for an already-revoked device. Exercise
+  already-revoked sends with zero credential refreshes and revocation during
+  refresh with zero submissions. Otherwise queued writes can reach the provider
+  while device trust is unknown or after remote revocation. Cache reads retain
+  their separate offline policy.
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation. `UnwiredRegistration.syncDrafts` must likewise preserve both revoked and deleted account rejections through `rejectMailbox`; registration restore retains the deletion notice. Mapping deletion to ordinary unavailability leaves shared Draft state open after native account purge.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
@@ -569,6 +574,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 #### Tests in the same change
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
+
+- `integration/test.zsh` accepting a completed Swift Testing run only at a fixed
+  historical test count. Require successful `xcodebuild` completion and a
+  positive completed test total, retaining empty-run and failure rejection.
+  Verify that adding a test still completes without retry; otherwise a passing
+  suite runs again against stateful protocol fixtures and falsely trips their
+  duplicate-delivery guards.
 
 - A native protocol/API signature change or merge accepted with compilation evidence that omits a consumer target. Inventory every caller and conformer, including integration probes and runner-only sources outside the Swift package and app targets, and map each to the command that compiles it. For `GoogleRegistrationProvider.gmail`, include `integration/SyntheticMetadataTests.swift` through `native/private-inbox/integration/metadata.zsh`; `swift build --build-tests` and a Sources-plus-bridge typecheck do not compile that probe. Run the affected compilation commands or report them as deferred; a caller search identifies coverage but is not compilation evidence. Otherwise a locally passing merge can leave the dedicated integration script or hosted native runner unable to compile. This checks validation scope, not compiler diagnostics already owned by tooling.
 - Changed storage, key or registration behavior with no Swift test in `native/private-inbox/Tests` or the on-device suite in `native/private-inbox/integration`. Package tests do not prove real Keychain or file-protection behavior on a device; say which evidence exists and which is deferred.

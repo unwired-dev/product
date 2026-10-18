@@ -4,7 +4,11 @@ import PostalMime from 'postal-mime';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
-import { sendingMailboxes, sendingStateOf } from '../src/drafts.ts';
+import {
+  createDrafts,
+  sendingMailboxes,
+  sendingStateOf,
+} from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import { mailboxesOf } from '../src/registration.ts';
@@ -250,6 +254,51 @@ describe('sending through SMTP and filing Sent copies', () => {
         submissions: 1,
         changes: ['append Sent'],
       });
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('recovers a durable Sent copy with a fresh unopened mailbox without resubmitting', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    try {
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      sending.servers.work.server.loseReply = true;
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'filing' },
+      ]);
+      sending.outbox.dispose();
+      sending.storage.relaunch();
+      const drafts = createDrafts(sending.storage.native, sending.registration);
+      await drafts.load();
+      const mailboxes = createMailboxes(
+        syntheticConnections({}, { [work.id]: sending.servers.work.native }),
+        sending.registration,
+      );
+      const recovered = createOutbox({
+        drafts,
+        mailboxes,
+        registration: sending.registration,
+        claims: sending.storage.delivery,
+      });
+      try {
+        await recovered.process();
+        expect({
+          outbox: drafts.getOutbox(),
+          submissions: sending.servers.work.smtp.accepted.length,
+          changes: sending.servers.work.server.changes,
+        }).toStrictEqual({
+          outbox: [],
+          submissions: 1,
+          changes: ['append Sent'],
+        });
+      } finally {
+        recovered.dispose();
+      }
     } finally {
       sending.outbox.dispose();
     }

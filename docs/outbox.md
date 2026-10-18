@@ -15,8 +15,34 @@ where IMAP and Microsoft wording differs only by provider. A handoff whose outco
 refusal, such as a rate limit, is tried again.
 [#616](https://github.com/unwired-dev/product/issues/616) recovers interrupted sends
 after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sending
-with the app in the background or with Mac windows closed is
+with Mac windows closed and pausing within mobile execution limits is
 [#618](https://github.com/unwired-dev/product/issues/618).
+
+## Application execution
+
+The application owns Outbox processing independently of any Inbox screen or Mac
+window. On Mac, closing the last window leaves queued work running. Explicit
+Quit stops execution with the process; reopening recovers this device's durable
+Outbox, including its original Undo Send deadlines and confirmed claims.
+
+On iPhone and iPad, new delivery starts only while the application is active.
+Leaving the foreground pauses timers and fences work awaiting a claim, a storage
+write or refreshed native credentials. Returning retries due work; it does not
+restart an Undo Send Window. Background Inbox refreshes and push wakes do not
+grant permission to send. Delivery does not promise mobile background execution.
+
+[Mock Mail Session](mock-mail-sessions.md) builds use the same lifecycle and Undo
+Send Window with their synthetic providers.
+
+A provider request already started settles through the existing outcome rules.
+Suspension, termination, sign-out, connection removal or device revocation cannot
+turn an uncertain handoff into permission to submit again. Native submission
+revalidates account, connection and current device trust before renewing Gmail or
+Graph credentials and again before handoff, then checks execution permission.
+Removal hides or purges private local data under the account and connection
+policies; the backend retains only the content-free
+delivery claim needed to refuse takeover, until Product Account deletion removes
+it.
 
 ## Sending
 
@@ -168,6 +194,18 @@ cover:
   sending on the next pass;
 - each refusal at Send.
 
+`outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,
+durable handoff writes, disposal and in-flight outcomes, and authority loss from
+sign-out, connection removal and device revocation before and after submission.
+The host `delivery.test.tsx` journeys run application entry wiring with real shared
+stores and synthetic native storage, Gmail and claims, without mounting an Inbox.
+They prove mobile foreground gating and Mac processing with no mounted windows.
+Cold shared-store journeys reopen Draft storage with fresh, unloaded mailbox
+stores and recover queued handoffs, unknown outcomes and accepted SMTP Sent
+copies without another submission.
+These are deterministic integration checks, separate from native lifecycle and
+real-provider qualification.
+
 `imap-send.test.ts` runs the same Outbox through SMTP and Sent filing, as
 [IMAP mailboxes](imap-mailboxes.md#validate) lists.
 `microsoft-send.test.ts` runs it through Graph and Sent Items, as
@@ -177,7 +215,8 @@ cover:
 exact message size, and the HTML and plain-text block structure.
 
 `packages/convex/test/draftDelivery.test.ts` covers concurrent claims, repeating
-a held claim, other accounts, malformed identifiers and revoked devices. The account
+a held claim, other accounts, malformed identifiers and revoked devices, including
+sign-out retaining a content-free claim that prevents another device taking over. The account
 deletion test removes claims.
 
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
@@ -195,6 +234,10 @@ The hosted iOS 27 suite adds `OutboxTests`:
 - refusal of non-ASCII text, malformed segments, moved or damaged bytes, and a
   stale mailbox generation before any request;
 - a returned Gmail refusal, and an unknown outcome once a request started;
+- losing native execution permission or device trust during credential refresh,
+  before any handoff;
+- already-revoked Gmail and Graph sends purging local registration without
+  refreshing credentials;
 - opaque claim identifiers held by one device.
 
 Deferred before release:

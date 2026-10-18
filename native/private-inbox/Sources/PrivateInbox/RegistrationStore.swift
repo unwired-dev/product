@@ -1,5 +1,9 @@
 import Foundation
 
+#if os(iOS)
+  import UIKit
+#endif
+
 enum RegistrationError: Error {
   case cancelled, declined, gmailUnavailable, invalidIdentity, unavailable
   // Linking: the identity belongs to another Product Account, or a sign-in is no longer recent.
@@ -364,6 +368,14 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var mailboxAuthorization: (grant: MailboxGrant, receipt: GmailRegistrationReceipt?)?
   // Wake hints waiting for JavaScript; removing a route drops its own.
   var wakes = PushWakes.shared
+  // Rechecked after asynchronous credentials/trust work, immediately before provider handoff.
+  var deliveryAllowed: @MainActor () -> Bool = {
+    #if os(iOS)
+      UIApplication.shared.applicationState == .active
+    #else
+      true
+    #endif
+  }
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,

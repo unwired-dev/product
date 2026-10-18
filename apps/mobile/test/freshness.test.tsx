@@ -1,4 +1,10 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+
 import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createSyntheticDrafts,
+  createSyntheticProductSync,
+} from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -22,6 +28,7 @@ import type {
 import type {
   freshness as HostFreshness,
   gmailMailboxes as HostMailboxes,
+  outbox as HostOutbox,
 } from '../src/registration.ts';
 
 // Substitute the native scheduler and app registration: no React views mount on this launch.
@@ -37,6 +44,9 @@ jest.mock('expo-background-task', () => ({
   registerTaskAsync: jest.fn(),
 }));
 
+const ownerOf = (snapshot: RegistrationSnapshot) =>
+  'productAccountId' in snapshot ? snapshot.productAccountId : undefined;
+
 describe('headless Gmail freshness', () => {
   /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
   it('restores mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
@@ -45,6 +55,10 @@ describe('headless Gmail freshness', () => {
     const flow = createRegistration(vault);
     await flow.register('google');
     await flow.addMailbox();
+    const { snapshot } = flow.getSnapshot();
+    const storage = createSyntheticDrafts(() => ownerOf(snapshot), {
+      server: createSyntheticProductSync(),
+    });
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
     const id = syntheticMailboxes['alex@example.invalid'];
@@ -55,6 +69,9 @@ describe('headless Gmail freshness', () => {
     const native = {
       getConstants: () => ({}),
       ...vault,
+      ...storage.native,
+      ...storage.sync,
+      ...storage.delivery,
       ...syntheticConnections({ [id]: gmail }),
       nextWake: jest
         .fn<Promise<unknown>, []>()
@@ -72,182 +89,190 @@ describe('headless Gmail freshness', () => {
       .mockReturnValue(native);
     const output = jest.spyOn(console, 'error').mockReturnValue(undefined);
     try {
-      // The entry must define the task without requiring or rendering _layout.
-      jest.requireActual('../index.js');
-      const definition = jest
-        .mocked(defineTask)
-        .mock.calls.find(
-          ([name]) => name === 'dev.unwired.mail.gmail-freshness',
-        );
-      expect(definition).toBeDefined();
-      const execute = definition?.[1];
-      await expect(
-        execute?.({
-          data: undefined,
-          error: null,
-          executionInfo: {
-            taskName: 'dev.unwired.mail.gmail-freshness',
-            eventId: 'synthetic-event',
-          },
-        }),
-      ).resolves.toBe(BackgroundTaskResult.Success);
-
-      const { gmailMailboxes } = jest.requireActual<{
-        readonly gmailMailboxes: typeof HostMailboxes;
+      const { outbox } = jest.requireActual<{
+        readonly outbox: typeof HostOutbox;
       }>('../src/registration.ts');
-      const state = gmailMailboxes.getSnapshot()[0]?.state;
-      expect(state).toMatchObject({
-        kind: 'ready',
-        messages: [
-          expect.objectContaining({ subject: 'Arrived while terminated' }),
-        ],
-      });
-
-      // A push wake that launched the app synchronizes its routed mailbox and completes once.
-      const pushed = gmail.deliver({ subject: 'Pushed while suspended' });
-      pushedWake.resolve({
-        id: 'wake-1',
-        hint: { provider: 'gmail', routeId: 'route-alex', historyId: '42' },
-      });
-      await waitFor(() => {
-        expect(completeWake).toHaveBeenCalledWith('wake-1', 'synchronized');
-      });
-      expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
-        kind: 'ready',
-        messages: expect.arrayContaining([
-          expect.objectContaining({ id: pushed }),
-        ]),
-      });
-      // The host replaced this reader; nothing more is followed.
-      replaced.resolve(null);
-
-      const { scheduleGmailFreshness } = jest.requireActual<{
-        readonly scheduleGmailFreshness: typeof ScheduleGmailFreshness;
-      }>('../src/freshness.ts');
-      jest
-        .mocked(getStatusAsync)
-        .mockResolvedValue(BackgroundTaskStatus.Restricted);
-      await scheduleGmailFreshness();
-      expect(registerTaskAsync).not.toHaveBeenCalled();
-      jest
-        .mocked(getStatusAsync)
-        .mockResolvedValue(BackgroundTaskStatus.Available);
-      jest
-        .mocked(registerTaskAsync)
-        .mockRejectedValueOnce(new Error('private payload'));
-      await expect(scheduleGmailFreshness()).resolves.toBeUndefined();
-      expect(output.mock.calls).toStrictEqual([
-        ['Gmail background task registration failed'],
-      ]);
-      await scheduleGmailFreshness();
-      expect(registerTaskAsync).toHaveBeenLastCalledWith(
-        'dev.unwired.mail.gmail-freshness',
-        { minimumInterval: 15 },
-      );
-
-      // A failed opportunity reports failure without handing TaskManager the raw rejection.
-      const { freshness } = jest.requireActual<{
-        readonly freshness: typeof HostFreshness;
-      }>('../src/registration.ts');
-      const failedRefresh = jest
-        .spyOn(freshness, 'refresh')
-        .mockRejectedValueOnce(new Error('private payload'));
-      await expect(
-        execute?.({
-          data: undefined,
-          error: null,
-          executionInfo: {
-            taskName: 'dev.unwired.mail.gmail-freshness',
-            eventId: 'synthetic-failure',
-          },
-        }),
-      ).resolves.toBe(BackgroundTaskResult.Failed);
-      expect(output.mock.calls).toStrictEqual([
-        ['Gmail background task registration failed'],
-        ['Gmail background refresh failed'],
-      ]);
-      failedRefresh.mockRestore();
-
-      // No AppState transition is needed when the UI starts already active.
-      jest.useFakeTimers();
-      const initial = AppState.currentState;
-      AppState.currentState = 'active';
-      const listenersBefore = jest.mocked(AppState.addEventListener).mock.calls
-        .length;
-      const { pollGmailWhileActive } = jest.requireActual<{
-        readonly pollGmailWhileActive: typeof PollGmailWhileActive;
-      }>('../src/freshness.ts');
-      const change = (state: 'active' | 'background') => {
-        for (const [, listener] of jest
-          .mocked(AppState.addEventListener)
-          .mock.calls.slice(listenersBefore)) {
-          listener(state);
-        }
-      };
-      const stop = pollGmailWhileActive();
       try {
-        const first = gmail.deliver({
-          subject: 'Arrived while Inbox stayed open',
-        });
-        await jest.advanceTimersByTimeAsync(5 * 60_000 - 1);
-        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+        // The entry must define the task without requiring or rendering _layout.
+        jest.requireActual('../index.js');
+        const definition = jest
+          .mocked(defineTask)
+          .mock.calls.find(
+            ([name]) => name === 'dev.unwired.mail.gmail-freshness',
+          );
+        expect(definition).toBeDefined();
+        const execute = definition?.[1];
+        await expect(
+          execute?.({
+            data: undefined,
+            error: null,
+            executionInfo: {
+              taskName: 'dev.unwired.mail.gmail-freshness',
+              eventId: 'synthetic-event',
+            },
+          }),
+        ).resolves.toBe(BackgroundTaskResult.Success);
+
+        const { gmailMailboxes } = jest.requireActual<{
+          readonly gmailMailboxes: typeof HostMailboxes;
+        }>('../src/registration.ts');
+        const state = gmailMailboxes.getSnapshot()[0]?.state;
+        expect(state).toMatchObject({
           kind: 'ready',
-          messages: expect.not.arrayContaining([
-            expect.objectContaining({ id: first }),
-          ]),
+          messages: [
+            expect.objectContaining({ subject: 'Arrived while terminated' }),
+          ],
         });
-        await jest.advanceTimersByTimeAsync(1);
+
+        // A push wake that launched the app synchronizes its routed mailbox and completes once.
+        const pushed = gmail.deliver({ subject: 'Pushed while suspended' });
+        pushedWake.resolve({
+          id: 'wake-1',
+          hint: { provider: 'gmail', routeId: 'route-alex', historyId: '42' },
+        });
+        await waitFor(() => {
+          expect(completeWake).toHaveBeenCalledWith('wake-1', 'synchronized');
+        });
         expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
           kind: 'ready',
           messages: expect.arrayContaining([
-            expect.objectContaining({ id: first }),
+            expect.objectContaining({ id: pushed }),
           ]),
         });
-        // Repeated active reports must not create another timer.
-        change('active');
-        const second = gmail.deliver({ subject: 'Next active poll' });
-        await jest.advanceTimersByTimeAsync(5 * 60_000);
-        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
-          kind: 'ready',
-          messages: expect.arrayContaining([
-            expect.objectContaining({ id: second }),
-          ]),
-        });
-        change('background');
-        const background = gmail.deliver({
-          subject: 'Wait for another opportunity',
-        });
-        await jest.advanceTimersByTimeAsync(30 * 60_000);
-        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
-          kind: 'ready',
-          messages: expect.not.arrayContaining([
-            expect.objectContaining({ id: background }),
-          ]),
-        });
-        change('active');
-        await jest.advanceTimersByTimeAsync(5 * 60_000);
-        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
-          kind: 'ready',
-          messages: expect.arrayContaining([
-            expect.objectContaining({ id: background }),
-          ]),
-        });
-        stop();
-        const disposed = gmail.deliver({
-          subject: 'Stopped poll cannot restart',
-        });
-        change('active');
-        await jest.advanceTimersByTimeAsync(5 * 60_000);
-        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
-          kind: 'ready',
-          messages: expect.not.arrayContaining([
-            expect.objectContaining({ id: disposed }),
-          ]),
-        });
+        // The host replaced this reader; nothing more is followed.
+        replaced.resolve(null);
+
+        const { scheduleGmailFreshness } = jest.requireActual<{
+          readonly scheduleGmailFreshness: typeof ScheduleGmailFreshness;
+        }>('../src/freshness.ts');
+        jest
+          .mocked(getStatusAsync)
+          .mockResolvedValue(BackgroundTaskStatus.Restricted);
+        await scheduleGmailFreshness();
+        expect(registerTaskAsync).not.toHaveBeenCalled();
+        jest
+          .mocked(getStatusAsync)
+          .mockResolvedValue(BackgroundTaskStatus.Available);
+        jest
+          .mocked(registerTaskAsync)
+          .mockRejectedValueOnce(new Error('private payload'));
+        await expect(scheduleGmailFreshness()).resolves.toBeUndefined();
+        expect(output.mock.calls).toStrictEqual([
+          ['Gmail background task registration failed'],
+        ]);
+        await scheduleGmailFreshness();
+        expect(registerTaskAsync).toHaveBeenLastCalledWith(
+          'dev.unwired.mail.gmail-freshness',
+          { minimumInterval: 15 },
+        );
+
+        // A failed opportunity reports failure without handing TaskManager the raw rejection.
+        const { freshness } = jest.requireActual<{
+          readonly freshness: typeof HostFreshness;
+        }>('../src/registration.ts');
+        const failedRefresh = jest
+          .spyOn(freshness, 'refresh')
+          .mockRejectedValueOnce(new Error('private payload'));
+        await expect(
+          execute?.({
+            data: undefined,
+            error: null,
+            executionInfo: {
+              taskName: 'dev.unwired.mail.gmail-freshness',
+              eventId: 'synthetic-failure',
+            },
+          }),
+        ).resolves.toBe(BackgroundTaskResult.Failed);
+        expect(output.mock.calls).toStrictEqual([
+          ['Gmail background task registration failed'],
+          ['Gmail background refresh failed'],
+        ]);
+        failedRefresh.mockRestore();
+
+        // No AppState transition is needed when the UI starts already active.
+        jest.useFakeTimers();
+        const initial = AppState.currentState;
+        AppState.currentState = 'active';
+        const { length: listenersBefore } = jest.mocked(
+          AppState.addEventListener,
+        ).mock.calls;
+        const { pollGmailWhileActive } = jest.requireActual<{
+          readonly pollGmailWhileActive: typeof PollGmailWhileActive;
+        }>('../src/freshness.ts');
+        const change = (state: 'active' | 'background') => {
+          for (const [, listener] of jest
+            .mocked(AppState.addEventListener)
+            .mock.calls.slice(listenersBefore)) {
+            listener(state);
+          }
+        };
+        const stop = pollGmailWhileActive();
+        try {
+          const first = gmail.deliver({
+            subject: 'Arrived while Inbox stayed open',
+          });
+          await jest.advanceTimersByTimeAsync(5 * 60_000 - 1);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.not.arrayContaining([
+              expect.objectContaining({ id: first }),
+            ]),
+          });
+          await jest.advanceTimersByTimeAsync(1);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.arrayContaining([
+              expect.objectContaining({ id: first }),
+            ]),
+          });
+          // Repeated active reports must not create another timer.
+          change('active');
+          const second = gmail.deliver({ subject: 'Next active poll' });
+          await jest.advanceTimersByTimeAsync(5 * 60_000);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.arrayContaining([
+              expect.objectContaining({ id: second }),
+            ]),
+          });
+          change('background');
+          const background = gmail.deliver({
+            subject: 'Wait for another opportunity',
+          });
+          await jest.advanceTimersByTimeAsync(30 * 60_000);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.not.arrayContaining([
+              expect.objectContaining({ id: background }),
+            ]),
+          });
+          change('active');
+          await jest.advanceTimersByTimeAsync(5 * 60_000);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.arrayContaining([
+              expect.objectContaining({ id: background }),
+            ]),
+          });
+          stop();
+          const disposed = gmail.deliver({
+            subject: 'Stopped poll cannot restart',
+          });
+          change('active');
+          await jest.advanceTimersByTimeAsync(5 * 60_000);
+          expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+            kind: 'ready',
+            messages: expect.not.arrayContaining([
+              expect.objectContaining({ id: disposed }),
+            ]),
+          });
+        } finally {
+          stop();
+          AppState.currentState = initial;
+          jest.useRealTimers();
+        }
       } finally {
-        stop();
-        AppState.currentState = initial;
-        jest.useRealTimers();
+        outbox.dispose();
       }
     } finally {
       bridge.mockRestore();
