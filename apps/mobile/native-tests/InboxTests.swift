@@ -434,6 +434,21 @@ final class InboxTests: XCTestCase {
         list.lifetime = .keepAlways
         add(list)
       }
+    } else {
+      let account = app.buttons["Account"]
+      if !account.waitForExistence(timeout: 5) || !account.isHittable {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+      XCTAssertTrue(account.waitForExistence(timeout: 10))
+      account.tap()
+      XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
+      XCTAssertTrue(app.buttons["Sign out of this device"].exists)
+      let accountDetails = XCTAttachment(screenshot: app.screenshot())
+      accountDetails.name = "iPad Account opens its default details"
+      accountDetails.lifetime = .keepAlways
+      add(accountDetails)
+      app.buttons["Open Inbox"].tap()
+      waitUntil(visibleMessage)
     }
     for attempt in 1...3 {
       let messages = app.scrollViews.containing(

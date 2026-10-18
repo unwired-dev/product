@@ -311,13 +311,15 @@ Welcome waits until native account restoration settles. A connected or cached
 mailbox opens Inbox while optional Recovery Key entry for private product data
 waits in Settings. New-account key confirmation, device admission, active device
 removal, protected-storage locks and unfinished sign-out or deletion keep their
-existing gates. Opening Account from Mailboxes opens the Settings destination
-list; its detail Back button and edge swipe both return to that list.
+existing gates. On iPhone, opening Account from Mailboxes opens the Settings
+destination list; its detail Back button and edge swipe both return to that list.
+On iPad, Account opens Account & Devices in the existing two-column workspace.
 
 The registered iPhone journey checks cold launch, cancelled and completed Back,
 full-viewport Mailboxes, Settings button/gesture parity and repeated HTML reader
-openings. Static/component checks do not establish native animation or physical
-device qualification.
+openings. The registered iPad journey checks the default Account details before
+selecting any Settings destination. Static/component checks do not establish
+native animation or physical device qualification.
 
 ## Interface language
 

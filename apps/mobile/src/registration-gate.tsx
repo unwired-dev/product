@@ -372,7 +372,7 @@ function SettingsPage({
     SettingsDestination | undefined
   >(() => {
     if (request !== undefined) {
-      return request.destination;
+      return request.destination ?? (settingsColumns ? 'account' : undefined);
     }
     if (screen.setupPending) {
       return 'account';
