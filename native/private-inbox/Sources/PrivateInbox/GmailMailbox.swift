@@ -182,7 +182,7 @@ extension RegistrationStore {
         && (try? connectedMailbox(id))?.1.account == mailbox.account
     }
     // A write requires current device trust; the offline cache preflight cannot authorize it.
-    if body != nil {
+    if body != nil && !sending {
       let product = try mailboxAccount(id)
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {
@@ -213,6 +213,17 @@ extension RegistrationStore {
     }
     let status: Int
     let data: Data
+    if sending {
+      let product = try mailboxAccount(id)
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        try await purge()
+        throw RegistrationError.revoked
+      }
+      _ = try mailboxAccount(id)
+      guard current() else { throw PrivateInboxError.mailboxInvalidated }
+      guard deliveryAllowed() else { throw RegistrationError.unavailable }
+    }
     do {
       (status, data) = try await microsoft.graph(
         identity, url: url, method: method, body: body, contentType: contentType)
@@ -348,7 +359,7 @@ extension RegistrationStore {
     }
     // A mutation requires a current Trusted Device proof. Offline cache reads may use the
     // permissive preflight, but a failed proof must never authorize a provider write.
-    if body != nil {
+    if body != nil && !sending {
       let product = try mailboxAccount(id)
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {
@@ -381,6 +392,17 @@ extension RegistrationStore {
     }
     let status: Int
     let data: Data
+    if sending {
+      let product = try mailboxAccount(id)
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        try await purge()
+        throw RegistrationError.revoked
+      }
+      _ = try mailboxAccount(id)
+      guard current() else { throw PrivateInboxError.mailboxInvalidated }
+      guard deliveryAllowed() else { throw RegistrationError.unavailable }
+    }
     do {
       (status, data) = try await provider.gmail(
         identity, url: url, body: body, contentType: contentType)

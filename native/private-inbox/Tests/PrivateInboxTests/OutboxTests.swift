@@ -43,6 +43,19 @@ struct OutboxTests {
       ["text": head], ["asset": ["id": "assetabc123", "digest": digest]], ["text": "\r\n--=_b--"],
     ]
     google.gmailRequests = []
+    // The app lost its execution opportunity while credentials were being refreshed. Nothing
+    // reached Gmail, and returning to the foreground permits the same admitted intent later.
+    var executionAllowed = true
+    store.deliveryAllowed = { executionAllowed }
+    google.beforeRefresh = { executionAllowed = false }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.gmailSend(
+        segments: segments, threadId: nil, connection: connection, address: google.address,
+        generation: generation)
+    }
+    #expect(google.gmailRequests.isEmpty)
+    google.beforeRefresh = nil
+    executionAllowed = true
 
     let sent = try await store.gmailSend(
       segments: segments, threadId: "thread7", connection: connection, address: google.address,
@@ -134,6 +147,17 @@ struct OutboxTests {
       #expect(GmailTransport.failure(URLError(code)) is GmailRequestInterrupted)
     }
     #expect(GmailTransport.failure(URLError(.cancelled)) is CancellationError)
+    // A trust change during credential refresh must be observed before a new provider handoff.
+    let device = try #require(try store.load()?.product?.trustedDeviceId)
+    let beforeRevocation = google.gmailRequests.count
+    google.gmailFailure = nil
+    google.beforeRefresh = { backend.revoked.insert(device) }
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.gmailSend(
+        segments: segments, threadId: nil, connection: connection, address: google.address,
+        generation: generation)
+    }
+    #expect(google.gmailRequests.count == beforeRevocation)
   }
 
   @Test @MainActor func deliveryClaimsNameNoDraftAndAreHeldByOneTrustedDevice() async throws {

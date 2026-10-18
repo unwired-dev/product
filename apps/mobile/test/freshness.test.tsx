@@ -1,4 +1,10 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+
 import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createSyntheticDrafts,
+  createSyntheticProductSync,
+} from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -37,6 +43,9 @@ jest.mock('expo-background-task', () => ({
   registerTaskAsync: jest.fn(),
 }));
 
+const ownerOf = (snapshot: RegistrationSnapshot) =>
+  'productAccountId' in snapshot ? snapshot.productAccountId : undefined;
+
 describe('headless Gmail freshness', () => {
   /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
   it('restores mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
@@ -45,6 +54,10 @@ describe('headless Gmail freshness', () => {
     const flow = createRegistration(vault);
     await flow.register('google');
     await flow.addMailbox();
+    const { snapshot } = flow.getSnapshot();
+    const storage = createSyntheticDrafts(() => ownerOf(snapshot), {
+      server: createSyntheticProductSync(),
+    });
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
     const id = syntheticMailboxes['alex@example.invalid'];
@@ -55,6 +68,9 @@ describe('headless Gmail freshness', () => {
     const native = {
       getConstants: () => ({}),
       ...vault,
+      ...storage.native,
+      ...storage.sync,
+      ...storage.delivery,
       ...syntheticConnections({ [id]: gmail }),
       nextWake: jest
         .fn<Promise<unknown>, []>()

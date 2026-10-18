@@ -280,7 +280,7 @@ export function createOutbox({
     | 'subscribe'
   >;
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
-  registration: Pick<Registration, 'getSnapshot'>;
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
@@ -295,6 +295,20 @@ export function createOutbox({
   const checking = new Map<string, boolean>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
+  let paused = false;
+  // A pause fences work already awaiting a claim or storage, even if execution resumes meanwhile.
+  let execution = 0;
+  const running = () => !disposed && !paused;
+  const executing = (started: number, account: string | undefined) =>
+    running() && started === execution && ownerOf(registration) === account;
+  let owner = ownerOf(registration);
+  const unsubscribeRegistration = registration.subscribe(() => {
+    const next = ownerOf(registration);
+    if (owner !== next) {
+      owner = next;
+      execution += 1;
+    }
+  });
   // The person's Check Again of each unknown message, shared by every window reading this Outbox.
   const asked = new Map<string, CheckRequest>();
   const listeners = new Set<() => void>();
@@ -424,7 +438,11 @@ export function createOutbox({
   };
 
   // Resolves true only once storage holds this device's confirmed claim on a queued message.
-  const holdClaim = async (account: string, entry: OutboxEntry) => {
+  const holdClaim = async (
+    account: string,
+    entry: OutboxEntry,
+    current: () => boolean,
+  ) => {
     const { id } = entry;
     if (entry.claim === 'held') {
       return true;
@@ -437,6 +455,9 @@ export function createOutbox({
         step('queued', (each) => ({ ...each, claim: 'requested' })),
       ))
     ) {
+      return false;
+    }
+    if (!current()) {
       return false;
     }
     const claimed = await claim(account, id);
@@ -483,15 +504,38 @@ export function createOutbox({
     return true;
   };
 
+  // Invokes the current provider with the frozen message and its original envelope.
+  const submit = async (entry: OutboxEntry): Promise<SendOutcome> => {
+    const mailbox = connectionOf(entry.draft.connection);
+    if (mailbox === undefined) {
+      return { kind: 'queued', problem: 'offline' };
+    }
+    const { to, cc, bcc } = entry.draft;
+    return mailbox.provider === 'imap'
+      ? mailbox.inbox.send(
+          entry.message,
+          [...to, ...cc, ...bcc].map(({ address }) => address),
+        )
+      : mailbox.inbox.send(entry.message);
+  };
+
   // Hands a claimed message to Gmail once, after its durable handoff.
-  const handOff = async (id: string) => {
+  const handOff = async (id: string, current: () => boolean) => {
+    const account = ownerOf(registration);
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
-      each.state === 'queued' && each.claim === 'held'
+      current() && each.state === 'queued' && each.claim === 'held'
         ? withState(each, 'sending')
         : undefined,
     );
     if (!handed) {
+      return;
+    }
+    // No provider request started. Keep the held claim retryable when execution ended mid-write.
+    if (!current()) {
+      if (account === ownerOf(registration)) {
+        await keep(id, { kind: 'queued', problem: 'offline' });
+      }
       return;
     }
     const sending = entryOf(id);
@@ -499,7 +543,6 @@ export function createOutbox({
       await keep(id, { kind: 'queued', problem: 'offline' });
       return;
     }
-    const mailbox = connectionOf(sending.draft.connection);
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
     const problem = handoffCheck(sending.draft);
     if (problem !== undefined) {
@@ -509,18 +552,10 @@ export function createOutbox({
       });
       return;
     }
-    let outcome: SendOutcome = { kind: 'queued', problem: 'offline' };
-    if (mailbox !== undefined) {
-      const { to, cc, bcc } = sending.draft;
-      outcome =
-        mailbox.provider === 'imap'
-          ? await mailbox.inbox.send(
-              sending.message,
-              [...to, ...cc, ...bcc].map(({ address }) => address),
-            )
-          : await mailbox.inbox.send(sending.message);
+    const outcome = await submit(sending);
+    if (account === ownerOf(registration)) {
+      await keep(id, outcome);
     }
-    await keep(id, outcome);
   };
 
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
@@ -631,7 +666,11 @@ export function createOutbox({
   };
 
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
-  const sendQueued = async (account: string, entry: OutboxEntry) => {
+  const sendQueued = async (
+    account: string,
+    entry: OutboxEntry,
+    current: () => boolean,
+  ) => {
     const check = handoffCheck(entry.draft);
     if (check === 'wait') {
       return;
@@ -643,10 +682,10 @@ export function createOutbox({
       );
       return;
     }
-    if (await holdClaim(account, entry)) {
-      await handOff(entry.id);
+    if ((await holdClaim(account, entry, current)) && current()) {
+      await handOff(entry.id, current);
       const accepted = entryOf(entry.id);
-      if (accepted?.state === 'filing') {
+      if (current() && accepted?.state === 'filing') {
         await file(accepted);
       }
     }
@@ -656,20 +695,31 @@ export function createOutbox({
   const advance = async (id: string) => {
     const account = ownerOf(registration);
     const waiting = entryOf(id);
+    const started = execution;
+    const current = () => executing(started, account);
     if (account === undefined || waiting === undefined) {
       return;
     }
     if (await resave(waiting)) {
       return;
     }
-    if (!(await release(waiting))) {
+    if (!(await release(waiting)) || !current()) {
       return;
     }
     const entry = entryOf(id);
-    if (entry?.state === 'filing') {
-      await file(entry);
-    } else if (entry?.state === 'queued') {
-      await sendQueued(account, entry);
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other durable states never permit automatic delivery.
+    switch (entry?.state) {
+      case 'filing': {
+        await file(entry);
+        break;
+      }
+      case 'queued': {
+        await sendQueued(account, entry, current);
+        break;
+      }
+      default: {
+        break;
+      }
     }
   };
 
@@ -677,7 +727,7 @@ export function createOutbox({
   const plan = (due: () => void) => {
     timer?.abort();
     timer = undefined;
-    if (disposed) {
+    if (!running()) {
       return;
     }
     const now = Date.now();
@@ -697,7 +747,7 @@ export function createOutbox({
             ),
             { signal: pending.signal },
           );
-          if (!pending.signal.aborted && !disposed) {
+          if (!pending.signal.aborted && running()) {
             timer = undefined;
             due();
           }
@@ -743,24 +793,31 @@ export function createOutbox({
   // Passes run one at a time; a request during one runs another after it.
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
+  // A single Sent lookup owns its deduplication markers until the provider settles.
+  const checkSent = async (id: string) => {
+    if (!running()) {
+      return;
+    }
+    checks.delete(id);
+    checking.set(id, false);
+    try {
+      await reconcile(id);
+    } finally {
+      const refreshed = checking.get(id) === true;
+      checking.delete(id);
+      if (refreshed && !queuedChecks.has(id) && !disposed) {
+        checkUnknown(false);
+      }
+    }
+  };
   const pass = async () => {
     for (const id of checks) {
-      checks.delete(id);
-      checking.set(id, false);
-      try {
-        await reconcile(id);
-      } finally {
-        const refreshed = checking.get(id) === true;
-        checking.delete(id);
-        if (refreshed && !queuedChecks.has(id) && !disposed) {
-          checkUnknown(false);
-        }
-      }
+      await checkSent(id);
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
       const { id } = entry;
-      if (dueAt(entry) <= now) {
+      if (running() && dueAt(entry) <= now) {
         retryAt.delete(id);
         await advance(id);
         const pending = entryOf(id);
@@ -771,12 +828,15 @@ export function createOutbox({
     }
   };
   const process = async () => {
+    if (!running()) {
+      return;
+    }
     requested = true;
     passing ??= (async () => {
       try {
         while (requested) {
           requested = false;
-          if (!disposed) {
+          if (running()) {
             await pass();
           }
         }
@@ -944,7 +1004,21 @@ export function createOutbox({
       }
       return current === undefined;
     },
-    // Tries every due message now and checks every unknown one, as when the app becomes active.
+    // Ends this execution opportunity without cancelling a request already handed to its provider.
+    pause: () => {
+      paused = true;
+      execution += 1;
+      timer?.abort();
+      timer = undefined;
+    },
+    // A fresh foreground/application opportunity retries due work without changing Send deadlines.
+    resume: async () => {
+      paused = false;
+      retryAt.clear();
+      checkUnknown(true);
+      await process();
+    },
+    // Tries every due message now and checks every unknown one within the current opportunity.
     process: async () => {
       retryAt.clear();
       checkUnknown(true);
@@ -955,6 +1029,7 @@ export function createOutbox({
       timer?.abort();
       unsubscribe();
       unsubscribeMailboxes();
+      unsubscribeRegistration();
       unrecorded.clear();
       checks.clear();
       queuedChecks.clear();

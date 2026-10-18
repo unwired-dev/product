@@ -171,6 +171,8 @@ extension RegistrationStore {
       throw PrivateInboxError.mailboxInvalidated
     }
     let (account, password) = try smtpConnection(id)
+    _ = try mailboxAccount(id)
+    guard deliveryAllowed() else { throw RegistrationError.unavailable }
     try await smtp.send(account, password: password, from: address, to: recipients, message: message)
     return ["accepted": true]
   }
