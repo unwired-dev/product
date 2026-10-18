@@ -4,4 +4,4 @@
 '@private-email/mail-core': patch
 ---
 
-Remove the duplicate iPhone reader More menu, restore swipe-back navigation with guarded Draft closing, and enable native interactive Liquid Glass controls while keeping the Mac sidebar passive. Keep the iPhone Inbox mounted outside the native Settings navigation stack when opening or closing Settings.
+Remove the duplicate iPhone reader More menu, restore swipe-back navigation with guarded Draft closing, and enable native interactive Liquid Glass controls while keeping the Mac sidebar passive. Keep the iPhone Inbox mounted outside the native Settings navigation stack when opening or closing Settings. Reveal the retained mail destination when Open Inbox closes Account settings, preserving native Back and active reader or Draft state.

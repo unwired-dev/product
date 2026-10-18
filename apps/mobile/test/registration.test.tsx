@@ -31,7 +31,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { Animated, AppState, Pressable, Text, TextInput } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -2494,9 +2494,14 @@ describe('product registration', () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
+    const revealed = jest.fn();
     // Stands in for the Inbox's own state, such as an unfinished Draft.
     function Draft() {
       const [text, setText] = useState('');
+      const request = useContext(AccountContext)?.inboxRevealRequest;
+      useEffect(() => {
+        revealed(request);
+      }, [request]);
       return (
         <TextInput
           accessibilityLabel="Draft"
@@ -2535,6 +2540,7 @@ describe('product registration', () => {
       nativeEvent: { dismissCount: 1 },
     });
     const afterNativeBack = screen.getByLabelText('Draft').props.value;
+    const afterNativeBackRequest = revealed.mock.calls.at(-1)?.[0];
     await openAccount();
     await openSettings('Email Accounts');
     await backToSettings();
@@ -2543,10 +2549,14 @@ describe('product registration', () => {
     });
     expect({
       afterNativeBack,
+      afterNativeBackRequest,
       afterReturn: screen.getByLabelText('Draft').props.value,
+      afterReturnRequest: revealed.mock.calls.at(-1)?.[0],
     }).toStrictEqual({
       afterNativeBack: 'Unfinished',
+      afterNativeBackRequest: undefined,
       afterReturn: 'Unfinished',
+      afterReturnRequest: expect.anything(),
     });
     expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
     // Signing out closes Settings, and signing in again opens the Inbox without it.
@@ -2563,7 +2573,10 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Open Inbox' })).toBeNull();
+    expect({
+      openInbox: screen.queryByRole('button', { name: 'Open Inbox' }),
+      revealRequest: revealed.mock.calls.at(-1)?.[0],
+    }).toStrictEqual({ openInbox: null, revealRequest: undefined });
   });
 
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {

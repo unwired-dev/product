@@ -161,8 +161,10 @@ Native CI runs both the Light-mode preview Inbox and the Dark-mode registered-ac
 Thread journey on iPhone and iPad. The latter cold-launches into the message list.
 On iPhone it checks Mailboxes → All inboxes and Mailboxes → Account → Open Inbox,
 requiring a tappable message row and Back control and a visible Inbox heading,
-with screenshots after both transitions. It then repeatedly opens a Gmail HTML
-message through the production account/Settings container on both device classes
+with screenshots after both transitions. Explicit Open Inbox reveals the retained
+mail destination; dismissing Settings with native Back preserves the prior column.
+An active reader or Draft retains its route and editor state. It then repeatedly
+opens a Gmail HTML message through the production account/Settings container on both device classes
 before checking the older-message Thread deep link. These remain synthetic
 provider journeys; they do not qualify a physical-device TestFlight session.
 

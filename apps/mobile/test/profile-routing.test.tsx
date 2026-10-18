@@ -331,6 +331,7 @@ describe('profile-scoped mobile routes', () => {
     showMail(defaultProfile);
     route.setParams({});
     const insets = { top: 59, bottom: 34, left: 0, right: 0 };
+    let inboxRevealRequest: Readonly<{ account: string }> | undefined;
     const view = () => (
       <SafeAreaProvider
         initialMetrics={{
@@ -340,6 +341,7 @@ describe('profile-scoped mobile routes', () => {
         <AccountContext
           value={{
             mailboxes: [connection],
+            inboxRevealRequest,
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
@@ -516,6 +518,19 @@ describe('profile-scoped mobile routes', () => {
       await fireEvent.changeText(screen.getByLabelText('To'), 'unfinished');
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
+      const retainedRoute = route.params();
+      split.shown.length = 0;
+      inboxRevealRequest = { account: 'synthetic-product-account' };
+      await app.rerender(view());
+      expect({ route: route.params(), columns: split.shown }).toStrictEqual({
+        route: retainedRoute,
+        columns: ['secondary'],
+      });
+      expect(screen.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'Keep this draft.',
+      );
+      expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
       await fireEvent.press(screen.getByRole('button', { name: 'Collapse' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Text style' }));
       // A landscape phone can be wide while UIKit still collapses its split view.
@@ -797,6 +812,63 @@ describe('profile-scoped mobile routes', () => {
       ).toBeNull();
       expect(
         screen.getByLabelText('Search senders and subjects'),
+      ).toBeVisible();
+    },
+  );
+
+  it.each([
+    { name: 'list', reader: false, column: 'supplementary' },
+    { name: 'reader', reader: true, column: 'secondary' },
+  ])(
+    'reveals the retained Work $name for each Open Inbox request',
+    async ({ reader, column }) => {
+      expect.hasAssertions();
+      const id = showMail('work');
+      const params = reader
+        ? { profileId: 'work', mailbox: 'garden', id }
+        : { profileId: 'work' };
+      route.setParams(params);
+      const view = (inboxRevealRequest?: Readonly<{ account: string }>) => (
+        <AccountContext
+          value={{
+            mailboxes: [],
+            inboxRevealRequest,
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+          }}>
+          <RootLayout />
+        </AccountContext>
+      );
+      const app = await render(view());
+      if (reader) {
+        await screen.findByText('Synthetic garden body.');
+      } else {
+        await screen.findByRole('button', { name: /Garden plan/u });
+        await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
+      }
+      split.shown.length = 0;
+      const request = { account: 'synthetic-product-account' };
+      await app.rerender(view(request));
+      const first = [...split.shown];
+      await app.rerender(view(request));
+      const repeated = [...split.shown];
+      await app.rerender(view({ ...request }));
+      expect({
+        first,
+        repeated,
+        latest: split.shown,
+        params: route.params(),
+      }).toStrictEqual({
+        first: [column],
+        repeated: [column],
+        latest: [column, column],
+        params,
+      });
+      expect(
+        reader
+          ? screen.getByText('Synthetic garden body.')
+          : screen.getByRole('button', { name: /Garden plan/u }),
       ).toBeVisible();
     },
   );

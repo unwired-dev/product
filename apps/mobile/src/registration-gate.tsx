@@ -72,6 +72,7 @@ export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
+      inboxRevealRequest?: InboxRevealRequest | undefined;
       // Settings opens on the given destination, such as Email Accounts for a password.
       openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
@@ -86,6 +87,8 @@ type SettingsRequest = Readonly<{
   account: string;
   destination: SettingsDestination | undefined;
 }>;
+
+type InboxRevealRequest = Readonly<{ account: string }>;
 
 // Settings stays open only over the Inbox of the Product Account it opened for, so sign-out,
 // locking, pending setup or another Product Account closes it.
@@ -132,6 +135,8 @@ export function RegistrationGate({
   // Settings, which the connected Inbox opens over itself for one Product Account, and the
   // destination last asked for.
   const [settings, setSettings] = useState<SettingsRequest>();
+  const [inboxRevealRequest, setInboxRevealRequest] =
+    useState<InboxRevealRequest>();
   const screen = registrationScreen(t, registrationState, choice);
   const { choices } = screen;
   // A choice the shared rule no longer applies is forgotten, so an earlier snapshot cannot revive it.
@@ -142,6 +147,14 @@ export function RegistrationGate({
   const shownSettings = coveringSettings(settings, screen);
   if (shownSettings !== settings) {
     setSettings(shownSettings);
+  }
+  const shownInboxRevealRequest =
+    screen.destination === 'inbox' &&
+    inboxRevealRequest?.account === choices?.inbox.account
+      ? inboxRevealRequest
+      : undefined;
+  if (shownInboxRevealRequest !== inboxRevealRequest) {
+    setInboxRevealRequest(shownInboxRevealRequest);
   }
   // Enablement belongs to an admitted Product Account that is not being removed; it is read again
   // whenever that changes, or when locked storage may have become readable.
@@ -162,6 +175,7 @@ export function RegistrationGate({
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
+      inboxRevealRequest: shownInboxRevealRequest,
       openAccount: (destination?: SettingsDestination) => {
         if (choices !== undefined) {
           // A field beneath Settings keeps its text but not the keyboard.
@@ -172,7 +186,7 @@ export function RegistrationGate({
       authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
     }),
-    [store, screen.mailboxes, choices],
+    [store, screen.mailboxes, choices, shownInboxRevealRequest],
   );
   useEffect(() => {
     if (preview) {
@@ -217,6 +231,7 @@ export function RegistrationGate({
                   store={store}
                   onInbox={() => {
                     setSettings(undefined);
+                    setInboxRevealRequest({ account: shownSettings.account });
                   }}
                 />
               )

@@ -6,7 +6,14 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  use,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Keyboard,
   Platform,
@@ -35,7 +42,7 @@ import {
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
-import { RegistrationGate } from '../src/registration-gate.tsx';
+import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
@@ -66,6 +73,7 @@ pollGmailWhileActive();
 // Presentation choices live below ProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
+  const inboxRevealRequest = use(AccountContext)?.inboxRevealRequest;
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
@@ -149,11 +157,11 @@ function MailShell() {
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
 
-  // A collapsed split view keeps showing a column until told otherwise, so leaving the reader or
-  // composer returns to the message list.
+  // Open Inbox also reveals the retained column when Settings closes, without
+  // leaving an active reader or Draft.
   useEffect(() => {
     splitView.current?.show(detail ? 'secondary' : 'supplementary');
-  }, [detail]);
+  }, [detail, inboxRevealRequest]);
 
   function selectMessage(selection: Selection) {
     reader.current = {
