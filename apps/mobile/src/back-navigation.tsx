@@ -52,25 +52,25 @@ export function BackNavigation({
   ...props
 }: ViewProps & { readonly onBack?: (() => void) | undefined }) {
   const colors = usePalette();
-  const nativeBack = use(NativeBackContext);
+  const nativeBackRef = use(NativeBackContext);
   useLayoutEffect(() => {
-    if (nativeBack === undefined || onBack === undefined) {
+    if (nativeBackRef === undefined || onBack === undefined) {
       return;
     }
-    nativeBack.current = onBack;
+    nativeBackRef.current = onBack;
     return () => {
-      if (nativeBack.current === onBack) {
-        nativeBack.current = undefined;
+      if (nativeBackRef.current === onBack) {
+        nativeBackRef.current = undefined;
       }
     };
-  }, [nativeBack, onBack]);
+  }, [nativeBackRef, onBack]);
   const style = [
     styles.fill,
     { backgroundColor: colors.surfaceContent },
     props.style,
   ];
   if (
-    nativeBack !== undefined ||
+    nativeBackRef !== undefined ||
     Platform.OS !== 'ios' ||
     Platform.isPad ||
     onBack === undefined

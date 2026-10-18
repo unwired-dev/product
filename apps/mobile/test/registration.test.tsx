@@ -246,7 +246,7 @@ describe('product registration', () => {
     synthetic.device.productSync.deviceKey = false;
     synthetic.device.productSync.deviceKeyName = undefined;
     const vault = synthetic.relaunch();
-    const restored = Promise.withResolvers<void>();
+    const restored = Promise.withResolvers<undefined>();
     const store = createRegistration({
       ...vault,
       registration: async () => {
@@ -271,7 +271,7 @@ describe('product registration', () => {
       restoring: expect.anything(),
     });
     await act(async () => {
-      restored.resolve();
+      restored.resolve(undefined);
     });
     await expect(
       screen.findByRole('button', { name: 'Account' }),

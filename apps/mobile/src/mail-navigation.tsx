@@ -49,10 +49,10 @@ function PhoneMailNavigation({
   topColumnForCollapsing,
   testID,
 }: Props) {
-  const [column, show] = useState<Parameters<SplitHostCommands['show']>[0]>(
-    topColumnForCollapsing ?? 'supplementary',
-  );
-  useImperativeHandle(ref, () => ({ show }), []);
+  const [column, setColumn] = useState<
+    Parameters<SplitHostCommands['show']>[0]
+  >(topColumnForCollapsing ?? 'supplementary');
+  useImperativeHandle(ref, () => ({ show: setColumn }), []);
   const { id } = useGlobalSearchParams<{ id?: string }>();
   const colors = usePalette();
   const page = [fill.page, { backgroundColor: colors.surfaceContent }];

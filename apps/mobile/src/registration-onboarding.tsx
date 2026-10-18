@@ -42,7 +42,8 @@ export function SignedOutPage({
   const colors = usePalette();
   const [welcomed, setWelcomed] = useState(false);
   const notice = snapshot.kind === 'signed-out' ? snapshot.notice : undefined;
-  if (notice === undefined && !welcomed && busy) {
+  const showSignIn = welcomed || notice !== undefined;
+  if (!showSignIn && busy) {
     return (
       <View style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
         <ActivityIndicator accessibilityLabel={t('registration.connecting')} />
@@ -119,7 +120,7 @@ export function SignedOutPage({
             {welcome}
           </BackScreen>
         ) : null}
-        {welcomed || notice !== undefined ? (
+        {showSignIn ? (
           <BackScreen
             screenId="sign-in"
             activityState={2}
@@ -131,7 +132,7 @@ export function SignedOutPage({
       </ScreenStack>
     );
   }
-  return notice === undefined && !welcomed ? welcome : signIn;
+  return showSignIn ? signIn : welcome;
 }
 
 // The first mailbox: each provider opens its authorization, or its IMAP form in place.

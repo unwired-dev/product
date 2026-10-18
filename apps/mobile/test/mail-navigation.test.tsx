@@ -44,29 +44,31 @@ function Mail() {
   );
 }
 
-it('keeps Mailboxes beneath Inbox and uses its Back action after a native pop', async () => {
-  expect.hasAssertions();
-  await render(<Mail />);
-  expect({
-    inbox: screen.getByText('Inbox messages'),
-    visibleMailboxes: screen.queryByText('Mailboxes'),
-    retainedMailboxes: screen.getByText('Mailboxes', {
-      includeHiddenElements: true,
-    }),
-  }).toMatchObject({
-    inbox: expect.anything(),
-    visibleMailboxes: null,
-    retainedMailboxes: expect.anything(),
-  });
-  await act(async () => {
-    await fireEvent(screen.getByTestId('inbox-screen'), 'dismissed', {
-      nativeEvent: { dismissCount: 1 },
+describe('phone mail navigation', () => {
+  it('keeps Mailboxes beneath Inbox and uses its Back action after a native pop', async () => {
+    expect.hasAssertions();
+    await render(<Mail />);
+    expect({
+      inbox: screen.getByText('Inbox messages'),
+      visibleMailboxes: screen.queryByText('Mailboxes'),
+      retainedMailboxes: screen.getByText('Mailboxes', {
+        includeHiddenElements: true,
+      }),
+    }).toMatchObject({
+      inbox: expect.anything(),
+      visibleMailboxes: null,
+      retainedMailboxes: expect.anything(),
     });
+    await act(async () => {
+      await fireEvent(screen.getByTestId('inbox-screen'), 'dismissed', {
+        nativeEvent: { dismissCount: 1 },
+      });
+    });
+    expect({
+      mailboxes: screen.getByText('Mailboxes'),
+      inbox: screen.queryByText('Inbox messages'),
+    }).toMatchObject({ mailboxes: expect.anything(), inbox: null });
+    await fireEvent.press(screen.getByRole('button', { name: 'All inboxes' }));
+    expect(screen.getByText('Inbox messages')).toBeVisible();
   });
-  expect({
-    mailboxes: screen.getByText('Mailboxes'),
-    inbox: screen.queryByText('Inbox messages'),
-  }).toMatchObject({ mailboxes: expect.anything(), inbox: null });
-  await fireEvent.press(screen.getByRole('button', { name: 'All inboxes' }));
-  expect(screen.getByText('Inbox messages')).toBeVisible();
 });

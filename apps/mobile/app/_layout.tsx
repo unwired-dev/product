@@ -202,7 +202,7 @@ function MailShell() {
     splitView.current?.show('secondary');
   }
 
-  const composer =
+  const renderComposer = () =>
     draft === undefined ? null : (
       <View
         testID="composer-overlay"
@@ -311,7 +311,7 @@ function MailShell() {
               preferredSplitBehavior="tile"
               primaryBackgroundStyle="sidebar"
               topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}
-              composer={phone ? composer : null}
+              composer={phone ? renderComposer() : null}
               primary={
                 <Mailboxes
                   view={view}
@@ -394,7 +394,7 @@ function MailShell() {
             />
           ) : null}
         </WindowBarContext>
-        {phone ? null : composer}
+        {phone ? null : renderComposer()}
       </View>
     </CommandPaletteProvider>
   );

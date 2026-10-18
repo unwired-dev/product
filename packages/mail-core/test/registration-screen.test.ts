@@ -66,6 +66,7 @@ describe('registration screen', () => {
   it.each(['connected', 'cached'] as const)(
     'opens a %s mailbox while optional private-data recovery waits',
     (kind) => {
+      expect.hasAssertions();
       const snapshot: RegistrationSnapshot = {
         kind,
         productAccountId: 'product-account',
