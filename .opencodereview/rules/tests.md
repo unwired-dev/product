@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native Inbox readiness check such as `InboxTests.threadJourney` requiring
+  one older fixture row to be hittable before the journey can scroll to it.
+  Require a visible seeded message for list readiness after entry and relaunch,
+  then reveal the intended reader target with bounded user scrolling and assert
+  its hittability before tapping. Otherwise newer fixture messages can abort a
+  working Inbox before the intended navigation and reader regressions run.
+
 - A choice-dependent Draft persistence journey such as
   `apps/mobile/test/evaluation-composer.test.tsx` checking storage only after
   explicit Save. Reload through a fresh Draft store after cancelling the save

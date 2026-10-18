@@ -415,7 +415,7 @@ final class InboxTests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(rowan.waitForExistence(timeout: 20))
-        XCTAssertTrue(rowan.isHittable)
+        waitUntil(visibleMessage)
         XCTAssertFalse(sender.exists)
       }
     }
