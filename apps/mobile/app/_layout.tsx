@@ -230,11 +230,7 @@ function MailShell() {
               <SplitView.Column>
                 <BackNavigation
                   testID="inbox-back-navigation"
-                  onBack={
-                    regular
-                      ? undefined
-                      : () => splitView.current?.show('primary')
-                  }>
+                  onBack={() => splitView.current?.show('primary')}>
                   <Inbox
                     composing={draft}
                     onClose={() => {
