@@ -650,7 +650,9 @@ describe('profile-scoped mobile routes', () => {
     async ({ body, command }) => {
       expect.hasAssertions();
       ok(Platform.OS === 'ios', 'Expected the iOS test platform');
-      const platform = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(true);
+      const platform = jest
+        .spyOn(Platform, 'isPad', 'get')
+        .mockReturnValue(true);
       split.shown.length = 0;
       const dimensions = jest
         .spyOn(
@@ -914,12 +916,14 @@ describe('profile-scoped mobile routes', () => {
     async ({ width, height }) => {
       expect.hasAssertions();
       ok(Platform.OS === 'ios', 'Expected the iOS test platform');
-      const platform = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(false);
+      const platform = jest
+        .spyOn(Platform, 'isPad', 'get')
+        .mockReturnValue(false);
       const dimensions = jest
         .spyOn(
-          jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
-            'react-native',
-          ),
+          jest.requireActual<{
+            useWindowDimensions: typeof useWindowDimensions;
+          }>('react-native'),
           'useWindowDimensions',
         )
         .mockReturnValue({ width, height, scale: 3, fontScale: 1 });

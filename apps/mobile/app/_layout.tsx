@@ -40,8 +40,8 @@ import {
   WindowBarHost,
 } from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MailNavigation } from '../src/mail-navigation.tsx';
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { start } from '../src/registration.ts';
