@@ -236,7 +236,11 @@ export function RegistrationGate({
               account={assistanceAccount}
               assistance={assistance}
               translation={translation}>
-              <AccountContext value={actions}>{children}</AccountContext>
+              <AccountContext
+                key={choices?.inbox.account}
+                value={actions}>
+                {children}
+              </AccountContext>
             </MailAssistanceGate>
           </SettingsCover>
         </MailAssistanceContext>

@@ -710,7 +710,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   can leave controls beneath the right-hand cutout.
 
 - `MailNavigation` popping its conditional Inbox screen together with the owner
-  of search, filters, online results or folder retention. Trace both button and
+  of search, filters, online results or folder retention. Retire that presentation
+  with its Product Account or Profile. Trace both button and
   native Back through the state owner and scroll-offset restoration; returning
   through Mailboxes must preserve the same presentation. Check the pinned native
   screen's dismissal and Fabric move contracts before keeping or reordering keyed

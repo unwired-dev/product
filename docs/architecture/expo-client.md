@@ -11,7 +11,8 @@ replacement requirements or release qualification.
   native compact and regular layouts. Route parameters identify the selected
   message. On iPhone, `MailNavigation` uses `react-native-screens` with a retained
   Mailboxes screen, a conditional Inbox screen, then one keyed native screen per
-  routed reader descriptor. The phone Inbox presentation owner stays above that stack so its
+  routed reader descriptor. The phone Inbox presentation owner stays above that stack, below
+  keyed Product Account and Profile owners, so its
   search, filters, online-search store and folder retention survive a native pop.
   Both Back paths capture its scroll offset before removing native content; a new
   Inbox screen restores that offset. iPad keeps the Inbox owner inside its column

@@ -2509,6 +2509,40 @@ describe('product registration', () => {
     );
   });
 
+  it('clears Inbox search when foreground verification replaces a connected Product Account', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Search senders and subjects'),
+      'previous account search',
+    );
+    expect(screen.getByLabelText('Search senders and subjects')).toHaveProp(
+      'value',
+      'previous account search',
+    );
+    const replacement = createRegistration(synthetic.relaunch());
+    await replacement.restore();
+    await replacement.signOut();
+    await replacement.register('apple');
+    await replacement.addMailbox();
+    await confirmRecoveryKey(replacement);
+    await act(async () => {
+      await store.resume();
+    });
+    await expect(
+      screen.findByLabelText('Search senders and subjects'),
+    ).resolves.toHaveProp('value', '');
+    expect(screen.queryByRole('button', { name: 'Close Search' })).toBeNull();
+  });
+
   it("closes open Settings for the replacement Product Account's pending setup", async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
