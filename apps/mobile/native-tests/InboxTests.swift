@@ -370,6 +370,13 @@ final class InboxTests: XCTestCase {
         ).firstMatch.tap()
         waitUntil { rowan.isHittable }
         XCTAssertFalse(sender.exists)
+      } else if attempt < 3 {
+        // Selecting the same iPad row keeps its reader, so relaunch before the next opening.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+        XCTAssertTrue(rowan.isHittable)
+        XCTAssertFalse(sender.exists)
       }
     }
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
