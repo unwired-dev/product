@@ -384,8 +384,10 @@ describe('mac window selection with the shared mock mailbox', () => {
     const sidebar = glassOf(
       await app.findByRole('button', { name: 'All inboxes' }),
     );
-    expect(sidebar).toHaveProp('interactive', false);
-    expect(sidebar).toHaveProp('cornerRadius', radius.window);
+    expect(sidebar.props).toMatchObject({
+      interactive: false,
+      cornerRadius: radius.window,
+    });
     expect(sidebar).toHaveStyle({
       width: 236,
       margin: spacing.s,
