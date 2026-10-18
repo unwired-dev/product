@@ -439,7 +439,11 @@ export function createOutbox({
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
-  const file = async (entry: OutboxEntry) => {
+  const file = async (entry: OutboxEntry, current: () => boolean) => {
+    await openSender(entry.draft);
+    if (!current()) {
+      return;
+    }
     const mailbox = connectionOf(entry.draft.connection);
     const boundary = boundaryOf(entry.message.segments);
     const sending = sendingStateOf(
@@ -576,7 +580,7 @@ export function createOutbox({
       await handOff(entry.id, current);
       const accepted = entryOf(entry.id);
       if (current() && accepted?.state === 'filing') {
-        await file(accepted);
+        await file(accepted, current);
       }
     }
   };
@@ -600,10 +604,7 @@ export function createOutbox({
     // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other durable states never permit automatic delivery.
     switch (entry?.state) {
       case 'filing': {
-        await openSender(entry.draft);
-        if (current()) {
-          await file(entry);
-        }
+        await file(entry, current);
         break;
       }
       case 'queued': {
