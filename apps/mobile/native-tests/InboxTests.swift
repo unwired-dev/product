@@ -352,12 +352,14 @@ final class InboxTests: XCTestCase {
       ).allElementsBoundByIndex.contains { $0.isHittable }
     }
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    if UIDevice.current.userInterfaceIdiom == .phone { verifyInboxViewport(app) }
     waitUntil(visibleMessage)
     // Unlike the preview journey, this opens through the production account/Settings container.
     // A completed account must cold-launch on its message list, with no extra Account action.
     app.terminate()
     app.launch()
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    if UIDevice.current.userInterfaceIdiom == .phone { verifyInboxViewport(app) }
     waitUntil(visibleMessage)
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
@@ -403,10 +405,12 @@ final class InboxTests: XCTestCase {
         add(safeLandscape)
         if destination == "Mailboxes" {
           app.buttons["All inboxes"].tap()
+          verifyInboxViewport(app)
           waitUntil(listReady)
         }
       }
       XCUIDevice.shared.orientation = .portrait
+      verifyInboxViewport(app)
       waitUntil(listReady)
       // The reported black screen begins when opening the list, before selecting a message.
       for destination in ["All inboxes", "Account"] {
@@ -1295,9 +1299,17 @@ final class InboxTests: XCTestCase {
     add(recovered)
   }
 
+  // Native screen frames can fill the window while their React content is still squeezed.
+  private func verifyInboxViewport(_ app: XCUIApplication) {
+    let content = app.otherElements["inbox-back-navigation"].firstMatch
+    XCTAssertTrue(content.waitForExistence(timeout: 10))
+    waitUntil { content.frame == app.windows.firstMatch.frame }
+  }
+
   // On iPhone, Back and the Inbox heading share one row in place of the native navigation bar.
   private func verifyCompactInboxHeader(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    verifyInboxViewport(app)
     let back = app.buttons["Back to Mailboxes"]
     XCTAssertTrue(back.waitForExistence(timeout: 10))
     let title = app.staticTexts["Inbox"].firstMatch

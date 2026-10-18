@@ -32,6 +32,7 @@ export function BackScreen({
     <NativeBackContext value={back}>
       <ScreenStackItem
         {...props}
+        style={[StyleSheet.absoluteFill, props.style]}
         onDismissed={(event) => {
           back.current?.();
           onDismissed?.(event);
