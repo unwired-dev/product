@@ -63,6 +63,36 @@ const connectedAccount = async () => {
 };
 
 describe('registration screen', () => {
+  it.each(['connected', 'cached'] as const)(
+    'opens a %s mailbox while optional private-data recovery waits',
+    (kind) => {
+      const snapshot: RegistrationSnapshot = {
+        kind,
+        productAccountId: 'product-account',
+        signInProvider: 'apple',
+        mailboxes: connectedTo('alex@example.invalid'),
+        privateSync: 'enrollment-needed',
+      };
+      const restored = registrationScreen(
+        english,
+        { snapshot, busy: false, failed: false },
+        undefined,
+      );
+      expect(restored).toMatchObject({
+        destination: 'inbox',
+        setupPending: true,
+        privateSync: { offersRecovery: true },
+      });
+      expect(
+        registrationScreen(
+          english,
+          { snapshot, busy: false, failed: false, locked: true },
+          undefined,
+        ).destination,
+      ).toBe('locked');
+    },
+  );
+
   it('keeps each window on its own choice between the account page and the Inbox', async () => {
     expect.hasAssertions();
     const { store } = await connectedAccount();

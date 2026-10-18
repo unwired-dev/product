@@ -309,6 +309,7 @@ export function Mailboxes({
   };
   return (
     <SafeAreaView
+      testID="mailboxes-content"
       edges={{ top: true, bottom: true, left: true }}
       style={[
         styles.fill,

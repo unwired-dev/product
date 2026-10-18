@@ -35,11 +35,17 @@ describe('iPhone back navigation', () => {
       screen.getByRole('button', { name: 'Privacy & Data' }),
     );
     expect(screen.getByText('Retained settings')).toBeVisible();
-    await fireEvent(screen.getByTestId('settings-back-navigation'), 'back');
+    await fireEvent(screen.getByTestId('settings-detail-screen'), 'dismissed', {
+      nativeEvent: { dismissCount: 1 },
+    });
     expect(screen.queryByText('Retained settings')).toBeNull();
     await fireEvent.press(
       screen.getByRole('button', { name: 'Privacy & Data' }),
     );
     expect(screen.getByText('Retained settings')).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Back to Settings' }),
+    );
+    expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
   });
 });

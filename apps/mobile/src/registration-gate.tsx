@@ -31,12 +31,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenStack, ScreenStackItem } from 'react-native-screens';
+import { ScreenStack } from 'react-native-screens';
 
 import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
+import { BackScreen } from './back-navigation.tsx';
 import { Button, Glass, Notice, SFSymbol } from './design.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -297,39 +298,30 @@ function SettingsCover({
   const covered = settings !== undefined;
   if (!settingsColumns) {
     return (
-      <View style={styles.page}>
-        <View
-          accessibilityElementsHidden={covered}
-          importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
-          style={styles.page}>
-          {children}
-        </View>
-        <ScreenStack
-          accessibilityElementsHidden={!covered}
-          importantForAccessibility={covered ? 'auto' : 'no-hide-descendants'}
-          pointerEvents={covered ? 'auto' : 'none'}
-          nativeContainerStyle={{ backgroundColor: 'transparent' }}
-          style={StyleSheet.absoluteFill}>
-          {/* The split view stays outside the Settings navigation controller. */}
-          <ScreenStackItem
-            screenId="mail"
+      <ScreenStack style={styles.page}>
+        <BackScreen
+          screenId="mail"
+          activityState={2}
+          headerConfig={{ hidden: true }}>
+          <View
+            accessibilityElementsHidden={covered}
+            importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+            style={styles.page}>
+            {children}
+          </View>
+        </BackScreen>
+        {covered ? (
+          <BackScreen
+            screenId="settings"
+            testID="settings-screen"
             activityState={2}
-            style={{ backgroundColor: 'transparent' }}
             headerConfig={{ hidden: true }}
-          />
-          {covered ? (
-            <ScreenStackItem
-              screenId="settings"
-              testID="settings-screen"
-              activityState={2}
-              headerConfig={{ hidden: true }}
-              gestureEnabled
-              onDismissed={onClose}>
-              {settings}
-            </ScreenStackItem>
-          ) : null}
-        </ScreenStack>
-      </View>
+            gestureEnabled
+            onDismissed={onClose}>
+            {settings}
+          </BackScreen>
+        ) : null}
+      </ScreenStack>
     );
   }
   return (
@@ -379,7 +371,7 @@ function SettingsPage({
   const [destination, setDestination] = useState<
     SettingsDestination | undefined
   >(() => {
-    if (request?.destination !== undefined) {
+    if (request !== undefined) {
       return request.destination;
     }
     if (screen.setupPending) {

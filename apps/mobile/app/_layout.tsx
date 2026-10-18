@@ -5,7 +5,6 @@ import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
-import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
 import {
   use,
@@ -42,6 +41,7 @@ import {
 } from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
+import { MailNavigation } from '../src/mail-navigation.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { start } from '../src/registration.ts';
@@ -204,6 +204,80 @@ function MailShell() {
     splitView.current?.show('secondary');
   }
 
+  const composer =
+    draft === undefined ? null : (
+      <View
+        testID="composer-overlay"
+        accessibilityViewIsModal={!regular || expanded}
+        style={
+          regular && !expanded
+            ? [
+                styles.overlay,
+                {
+                  left: Math.max(0, width - readerWidth) + spacing.m,
+                  bottom: spacing.m + height - available,
+                  height: Math.min(
+                    Math.max(0, available - insets.top - 2 * spacing.m),
+                    Math.min(720, Math.max(420, available * 0.7)),
+                  ),
+                  borderColor: colors.separator,
+                  boxShadow: colors.menuShadow,
+                },
+              ]
+            : [
+                StyleSheet.absoluteFill,
+                {
+                  paddingTop: insets.top,
+                  paddingBottom: insets.bottom,
+                  paddingLeft: insets.left,
+                  paddingRight: insets.right,
+                  backgroundColor: colors.surfaceContent,
+                },
+              ]
+        }>
+        <ComposerLayoutContext value={composerLayout}>
+          <DraftComposer
+            id={draft}
+            expanded={expanded}
+            onExpand={
+              regular
+                ? () => {
+                    setExpanded((current) => !current);
+                  }
+                : undefined
+            }
+            onClose={() => {
+              setExpanded(false);
+              composing.current = undefined;
+              const latest = reader.current;
+              if (latest.id === undefined || latest.mailbox === undefined) {
+                router.replace({
+                  pathname: '/',
+                  params: { profileId: latest.profile },
+                });
+              } else {
+                router.replace({
+                  pathname: '/message/[id]',
+                  params: {
+                    id: latest.id,
+                    mailbox: latest.mailbox,
+                    ...(latest.folder === undefined
+                      ? {}
+                      : { folder: latest.folder }),
+                    profileId: latest.profile,
+                  },
+                });
+              }
+            }}
+            onRebind={(copy) => {
+              composing.current = copy;
+              router.setParams({ draft: copy });
+            }}
+          />
+        </ComposerLayoutContext>
+      </View>
+    );
+
   return (
     <CommandPaletteProvider>
       <MailDestination
@@ -219,7 +293,7 @@ function MailShell() {
         style={styles.fill}>
         <WindowBarContext value={regular ? windowBar : undefined}>
           <ReaderPaneWidthContext value={setReaderWidth}>
-            <SplitView
+            <MailNavigation
               ref={splitView}
               testID="mail-split"
               columnMetrics={{
@@ -238,8 +312,9 @@ function MailShell() {
               preferredDisplayMode="automatic"
               preferredSplitBehavior="tile"
               primaryBackgroundStyle="sidebar"
-              topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
-              <SplitView.Column>
+              topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}
+              composer={phone ? composer : null}
+              primary={
                 <Mailboxes
                   view={view}
                   onView={(next) => {
@@ -248,8 +323,8 @@ function MailShell() {
                     splitView.current?.show('supplementary');
                   }}
                 />
-              </SplitView.Column>
-              <SplitView.Column>
+              }
+              supplementary={
                 <BackNavigation
                   testID="inbox-back-navigation"
                   onBack={() => splitView.current?.show('primary')}>
@@ -308,8 +383,8 @@ function MailShell() {
                     view={view}
                   />
                 </BackNavigation>
-              </SplitView.Column>
-            </SplitView>
+              }
+            />
           </ReaderPaneWidthContext>
           {regular ? (
             <WindowBarHost
@@ -321,78 +396,7 @@ function MailShell() {
             />
           ) : null}
         </WindowBarContext>
-        {draft === undefined ? null : (
-          <View
-            testID="composer-overlay"
-            accessibilityViewIsModal={!regular || expanded}
-            style={
-              regular && !expanded
-                ? [
-                    styles.overlay,
-                    {
-                      left: Math.max(0, width - readerWidth) + spacing.m,
-                      bottom: spacing.m + height - available,
-                      height: Math.min(
-                        Math.max(0, available - insets.top - 2 * spacing.m),
-                        Math.min(720, Math.max(420, available * 0.7)),
-                      ),
-                      borderColor: colors.separator,
-                      boxShadow: colors.menuShadow,
-                    },
-                  ]
-                : [
-                    StyleSheet.absoluteFill,
-                    {
-                      paddingTop: insets.top,
-                      paddingBottom: insets.bottom,
-                      paddingLeft: insets.left,
-                      paddingRight: insets.right,
-                      backgroundColor: colors.surfaceContent,
-                    },
-                  ]
-            }>
-            <ComposerLayoutContext value={composerLayout}>
-              <DraftComposer
-                id={draft}
-                expanded={expanded}
-                onExpand={
-                  regular
-                    ? () => {
-                        setExpanded((current) => !current);
-                      }
-                    : undefined
-                }
-                onClose={() => {
-                  setExpanded(false);
-                  composing.current = undefined;
-                  const latest = reader.current;
-                  if (latest.id === undefined || latest.mailbox === undefined) {
-                    router.replace({
-                      pathname: '/',
-                      params: { profileId: latest.profile },
-                    });
-                  } else {
-                    router.replace({
-                      pathname: '/message/[id]',
-                      params: {
-                        id: latest.id,
-                        mailbox: latest.mailbox,
-                        ...(latest.folder === undefined
-                          ? {}
-                          : { folder: latest.folder }),
-                        profileId: latest.profile,
-                      },
-                    });
-                  }
-                }}
-                onRebind={(copy) => {
-                  composing.current = copy;
-                  router.setParams({ draft: copy });
-                }}
-              />
-            </ComposerLayoutContext>
-          </View>
-        )}
+        {phone ? null : composer}
       </View>
     </CommandPaletteProvider>
   );

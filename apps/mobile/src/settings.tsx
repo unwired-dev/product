@@ -12,8 +12,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ScreenStack } from 'react-native-screens';
+
 import { AccountHeader } from './account-page.tsx';
-import { BackNavigation } from './back-navigation.tsx';
+
+import { BackNavigation, BackScreen } from './back-navigation.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -386,32 +389,14 @@ export function SettingsWorkspace({
       </View>
     );
   }
-  if (destination !== undefined) {
-    return (
-      <BackNavigation
-        testID="settings-back-navigation"
-        onBack={() => {
-          onDestination(undefined);
-        }}>
-        <AccountHeader
-          title={t(`settings.destinations.${destination}`)}
-          onBack={() => {
-            onDestination(undefined);
-          }}
-          accessory={accessory}
-        />
-        {content}
-      </BackNavigation>
-    );
-  }
-  return (
+  const list = (
     <View style={styles.page}>
       <AccountHeader
         title={t('settings.title')}
         accessory={accessory}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {children}
+        {destination === undefined ? children : null}
         <Pressable
           accessibilityLabel={t('settings.destinations.account')}
           accessibilityRole="button"
@@ -466,6 +451,41 @@ export function SettingsWorkspace({
         ))}
       </ScrollView>
     </View>
+  );
+  return (
+    <ScreenStack style={styles.page}>
+      <BackScreen
+        screenId="settings-list"
+        testID="settings-list-screen"
+        activityState={2}
+        accessibilityElementsHidden={destination !== undefined}
+        headerConfig={{ hidden: true }}>
+        {list}
+      </BackScreen>
+      {destination === undefined ? null : (
+        <BackScreen
+          screenId="settings-detail"
+          testID="settings-detail-screen"
+          activityState={2}
+          headerConfig={{ hidden: true }}
+          gestureEnabled>
+          <BackNavigation
+            testID="settings-back-navigation"
+            onBack={() => {
+              onDestination(undefined);
+            }}>
+            <AccountHeader
+              title={t(`settings.destinations.${destination}`)}
+              onBack={() => {
+                onDestination(undefined);
+              }}
+              accessory={accessory}
+            />
+            {content}
+          </BackNavigation>
+        </BackScreen>
+      )}
+    </ScreenStack>
   );
 }
 

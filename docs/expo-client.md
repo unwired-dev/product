@@ -298,6 +298,26 @@ names separately:
 A failed build skips all journey jobs, and GitHub accepts skipped required
 checks, so requiring only the journeys would not enforce successful builds.
 
+## iPhone navigation and launch
+
+On iPhone, Mailboxes, Inbox and routed readers use a native screen stack. The
+preceding destination stays underneath the interactive Back gesture. Settings
+and Sign In also retain their preceding native screen. Compose uses the same
+stack but asks its existing Close action before dismissal, preserving Save Draft
+and cancellation. iPad keeps the split view.
+
+Welcome waits until native account restoration settles. A connected or cached
+mailbox opens Inbox while optional Recovery Key entry for private product data
+waits in Settings. New-account key confirmation, device admission, active device
+removal, protected-storage locks and unfinished sign-out or deletion keep their
+existing gates. Opening Account from Mailboxes opens the Settings destination
+list; its detail Back button and edge swipe both return to that list.
+
+The registered iPhone journey checks cold launch, cancelled and completed Back,
+full-viewport Mailboxes, Settings button/gesture parity and repeated HTML reader
+openings. Static/component checks do not establish native animation or physical
+device qualification.
+
 ## Interface language
 
 The Inbox, the welcome page and Settings' **Language** offer System default and a saved English

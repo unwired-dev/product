@@ -977,9 +977,18 @@ const inboxSetup = (snapshot: RegistrationSnapshot) => {
     .join(' ');
 };
 
-// Launch lands on the Inbox unless account setup needs the person first.
-export const opensInbox = (snapshot: RegistrationSnapshot) =>
-  canOpenInbox(snapshot) && inboxSetup(snapshot) === '';
+// Existing mail can open while private-data recovery waits; new setup still needs attention.
+export const opensInbox = (snapshot: RegistrationSnapshot) => {
+  const setup = inboxSetup(snapshot);
+  return (
+    canOpenInbox(snapshot) &&
+    (setup === '' ||
+      (snapshot.kind !== 'signed-out' &&
+        offersRecovery(snapshot.privateSync) &&
+        setup === snapshot.privateSync &&
+        snapshot.revocationRecoveryKey === undefined))
+  );
+};
 
 // The person's choice between the account page and a connected Inbox, made for one Product Account
 // with the setup that was pending then.
@@ -1017,7 +1026,7 @@ function inboxLanding(
   let destination: InboxChoice['destination'] = 'account';
   if (valid) {
     ({ destination } = choice);
-  } else if (account !== undefined && setup === '') {
+  } else if (account !== undefined && opensInbox(snapshot)) {
     destination = 'inbox';
   }
   return { account, setup, valid, destination } as const;

@@ -5,9 +5,12 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
-import { useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, Text } from 'react-native';
+import { ScreenStack } from 'react-native-screens';
 
+import { useState, useSyncExternalStore } from 'react';
+import { ActivityIndicator, Platform, Text, View } from 'react-native';
+
+import { BackScreen } from './back-navigation.tsx';
 import { Button } from './design.tsx';
 import { ImapForm } from './imap-setup.tsx';
 import { LanguageSelector } from './language-selector.tsx';
@@ -40,18 +43,23 @@ export function SignedOutPage({
   const colors = usePalette();
   const [welcomed, setWelcomed] = useState(false);
   const notice = snapshot.kind === 'signed-out' ? snapshot.notice : undefined;
-  if (notice === undefined && !welcomed) {
+  if (notice === undefined && !welcomed && busy) {
     return (
-      <Welcome
-        onContinue={() => {
-          setWelcomed(true);
-        }}
-      />
+      <View style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
+        <ActivityIndicator accessibilityLabel={t('registration.connecting')} />
+      </View>
     );
   }
+  const welcome = (
+    <Welcome
+      onContinue={() => {
+        setWelcomed(true);
+      }}
+    />
+  );
   const copy = notice === undefined ? undefined : screen.copy;
   const { actions } = screen;
-  return (
+  const signIn = (
     <SignIn
       title={copy?.title ?? t('onboarding.signIn.title')}
       description={copy?.description ?? t('onboarding.signIn.description')}
@@ -100,6 +108,31 @@ export function SignedOutPage({
       <LanguageSelector />
     </SignIn>
   );
+  if (Platform.OS === 'ios' && !Platform.isPad) {
+    return (
+      <ScreenStack style={styles.page}>
+        {notice === undefined ? (
+          <BackScreen
+            screenId="welcome"
+            activityState={2}
+            accessibilityElementsHidden={welcomed}
+            headerConfig={{ hidden: true }}>
+            {welcome}
+          </BackScreen>
+        ) : null}
+        {welcomed || notice !== undefined ? (
+          <BackScreen
+            screenId="sign-in"
+            activityState={2}
+            headerConfig={{ hidden: true }}
+            gestureEnabled={notice === undefined}>
+            {signIn}
+          </BackScreen>
+        ) : null}
+      </ScreenStack>
+    );
+  }
+  return notice === undefined && !welcomed ? welcome : signIn;
 }
 
 // The first mailbox: each provider opens its authorization, or its IMAP form in place.

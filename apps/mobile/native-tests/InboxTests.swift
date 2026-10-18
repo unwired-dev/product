@@ -367,6 +367,21 @@ final class InboxTests: XCTestCase {
           && app.windows.firstMatch.frame.contains(title.frame)
       }
       waitUntil(listReady)
+      let mailboxes = app.otherElements["mailboxes-content"].firstMatch
+      swipeBack(app, commit: false)
+      XCTAssertFalse(app.buttons["All inboxes"].waitForExistence(timeout: 3))
+      XCTAssertTrue(listReady())
+      swipeBack(app)
+      waitUntil { app.buttons["All inboxes"].isHittable }
+      let viewport = app.windows.firstMatch.frame
+      XCTAssertEqual(mailboxes.frame.width, viewport.width, accuracy: 1)
+      XCTAssertEqual(mailboxes.frame.height, viewport.height, accuracy: 1)
+      let fullScreenMailboxes = XCTAttachment(screenshot: app.screenshot())
+      fullScreenMailboxes.name = "Dark full-screen Mailboxes after native Back"
+      fullScreenMailboxes.lifetime = .keepAlways
+      add(fullScreenMailboxes)
+      app.buttons["All inboxes"].tap()
+      waitUntil(listReady)
       // The reported black screen begins when opening the list, before selecting a message.
       for destination in ["All inboxes", "Account"] {
         back.tap()
@@ -374,6 +389,15 @@ final class InboxTests: XCTestCase {
         waitUntil { entry.isHittable }
         entry.tap()
         if destination == "Account" {
+          let settings = app.staticTexts["Settings"].firstMatch
+          XCTAssertTrue(settings.waitForExistence(timeout: 10))
+          app.buttons["Account & Devices"].tap()
+          XCTAssertTrue(app.buttons["Back to Settings"].waitForExistence(timeout: 10))
+          app.buttons["Back to Settings"].tap()
+          XCTAssertTrue(settings.waitForExistence(timeout: 10))
+          app.buttons["Account & Devices"].tap()
+          swipeBack(app)
+          XCTAssertTrue(settings.waitForExistence(timeout: 10))
           let openInbox = app.buttons["Open Inbox"]
           waitUntil { openInbox.isHittable }
           openInbox.tap()

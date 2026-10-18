@@ -62,7 +62,7 @@ jest.mock(
     ).default,
 );
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Substitute the native split host; mount its actual secondary route.
-jest.mock('expo-router/unstable-split-view', () => {
+jest.mock('../src/mail-navigation.tsx', () => {
   const { createElement } = jest.requireActual<{
     createElement: typeof ReactCreateElement;
   }>('react');
@@ -88,12 +88,16 @@ jest.mock('expo-router/unstable-split-view', () => {
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
   const rendered = jest.fn();
-  function SplitView({
-    children,
+  function MailNavigation({
+    primary,
+    supplementary,
+    composer,
     testID,
     ref,
   }: {
-    readonly children: ReactNode;
+    readonly primary: ReactNode;
+    readonly supplementary: ReactNode;
+    readonly composer: ReactNode;
     readonly testID?: string;
     readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
   }) {
@@ -109,10 +113,20 @@ jest.mock('expo-router/unstable-split-view', () => {
     if (draft !== undefined) {
       detail = Compose;
     }
-    return createElement(View, { testID }, children, createElement(detail));
+    return createElement(
+      View,
+      { testID },
+      primary,
+      supplementary,
+      createElement(detail),
+      composer,
+    );
   }
-  SplitView.Column = View;
-  return { SplitView, shown, renderCount: () => rendered.mock.calls.length };
+  return {
+    MailNavigation,
+    shown,
+    renderCount: () => rendered.mock.calls.length,
+  };
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
@@ -191,7 +205,7 @@ const route = jest.requireMock<{
   router: typeof ExpoRouter;
 }>('expo-router');
 const split = jest.requireMock<{ shown: string[]; renderCount: () => number }>(
-  'expo-router/unstable-split-view',
+  '../src/mail-navigation.tsx',
 );
 
 function showMail(profile: string) {

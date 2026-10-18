@@ -240,6 +240,56 @@ function contextMenuOf(element: ReturnType<typeof screen.getByText>) {
 }
 
 describe('product registration', () => {
+  it('restores a connected Inbox without flashing Welcome or forcing lost-key recovery', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    synthetic.device.productSync.deviceKey = false;
+    synthetic.device.productSync.deviceKeyName = undefined;
+    const vault = synthetic.relaunch();
+    const restored = Promise.withResolvers<void>();
+    const store = createRegistration({
+      ...vault,
+      registration: async () => {
+        await restored.promise;
+        return vault.registration();
+      },
+    });
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    expect({
+      welcome: screen.queryByText('Your mail,\non your devices.'),
+      continue: screen.queryByRole('button', { name: 'Continue' }),
+      restoring: screen.getByLabelText(english('registration.connecting')),
+    }).toMatchObject({
+      welcome: null,
+      continue: null,
+      restoring: expect.anything(),
+    });
+    await act(async () => {
+      restored.resolve();
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Account & Devices' }),
+    ).toBeNull();
+    await openAccount();
+    await openSettings('Account & Devices');
+    await expect(
+      screen.findByRole('header', { name: 'Use your Recovery Key' }),
+    ).resolves.toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Back to Settings' }),
+    );
+    expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
+  });
+
   it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
