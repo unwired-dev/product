@@ -9,22 +9,40 @@ import {
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
+import { Glass, NavigationChrome, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
-// The Inbox's title and status line.
+// The Inbox's title and status line, centered between Back and its balancing space on iPhone.
 export function HeadingTitle({
   title,
   subtitle,
+  onBack,
 }: {
   readonly title: string;
   readonly subtitle: string;
+  readonly onBack?: (() => void) | undefined;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const header = usePaletteHeader();
   return (
     <View style={styles.heading}>
+      {onBack === undefined ? null : (
+        <Pressable
+          accessibilityLabel={t('mailboxes.back')}
+          accessibilityRole="button"
+          onPress={onBack}
+          style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
+          <Glass cornerRadius={22} />
+          <SFSymbol
+            name="chevron.left"
+            size={17}
+            color={colors.textPrimary}
+          />
+        </Pressable>
+      )}
       <View style={styles.headingText}>
         <Text
           accessibilityRole="header"
@@ -42,6 +60,7 @@ export function HeadingTitle({
           </Text>
         </View>
       </View>
+      {onBack === undefined ? null : <View style={styles.back} />}
     </View>
   );
 }
@@ -99,6 +118,7 @@ export function InboxHeading({
   detail,
   account,
   onClose,
+  onBack,
   onLeave,
   onSearch,
 }: {
@@ -109,6 +129,8 @@ export function InboxHeading({
   readonly detail: boolean;
   readonly account: Readonly<{ openAccount: () => void }> | undefined;
   readonly onClose: (() => void) | undefined;
+  // Present while the Inbox replaces the native navigation bar with its own Back.
+  readonly onBack: (() => void) | undefined;
   readonly onLeave: () => Promise<boolean>;
   // Opens search; absent until the Inbox can search.
   readonly onSearch: (() => void) | undefined;
@@ -150,6 +172,7 @@ export function InboxHeading({
           })
         }
       />
+      {onBack === undefined ? null : <NavigationChrome />}
       <View {...header.swipe}>
         <CommandInput style={styles.commands} />
         {children}

@@ -95,7 +95,7 @@ final class InboxTests: XCTestCase {
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      app.buttons["Back to Mailboxes"].tap()
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
@@ -550,7 +550,7 @@ final class InboxTests: XCTestCase {
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      app.buttons["Back to Mailboxes"].tap()
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
@@ -1016,6 +1016,7 @@ final class InboxTests: XCTestCase {
   private func inboxJourney(_ app: XCUIApplication) {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
+    verifyCompactInboxHeader(app)
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
@@ -1068,6 +1069,7 @@ final class InboxTests: XCTestCase {
       let back = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")).firstMatch
       XCTAssertTrue(back.exists)
       back.tap()
+      verifyCompactInboxHeader(app)
     }
     XCTAssertTrue(oliver.isHittable)
     XCTAssertTrue(oliver.label.hasPrefix("Unread."))
@@ -1091,6 +1093,18 @@ final class InboxTests: XCTestCase {
     recovered.name = "Read state after relaunch"
     recovered.lifetime = .keepAlways
     add(recovered)
+  }
+
+  // On iPhone, Back and the Inbox heading share one row in place of the native navigation bar.
+  private func verifyCompactInboxHeader(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let back = app.buttons["Back to Mailboxes"]
+    XCTAssertTrue(back.waitForExistence(timeout: 10))
+    let title = app.staticTexts["Inbox"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertLessThan(title.frame.minY, back.frame.maxY)
+    XCTAssertGreaterThan(title.frame.maxY, back.frame.minY)
+    XCTAssertFalse(app.navigationBars.firstMatch.exists)
   }
 
   private func verifyLanguagePreference(in app: XCUIApplication) {
