@@ -192,6 +192,9 @@ Sign-out and account removal withdraw consent before clearing account data.
 Deletion preserves the credential through those operations, polls verified
 remote completion and keeps reporting off. Re-enabling after completed deletion
 creates a new reporting identity; the deleted identity cannot be reopened.
+A deletion request remains pending across interruption or a purge failure, with
+reporting off on relaunch. A storage failure still turns reporting off and cannot
+be reported as completed deletion.
 
 The wire inventory is defined by the contracts' errorReportingSchema entry point:
 
@@ -207,6 +210,8 @@ The wire inventory is defined by the contracts' errorReportingSchema entry point
 JavaScript stacks retain the innermost 64 matching bundle frames and send them
 with the outermost retained call first and the throw site last, following
 [PostHog wire order](https://github.com/PostHog/posthog-go/blob/main/error_tracking_stack_trace.go).
+Native stacks retain the final 64 admitted frames in the pinned SDK's existing
+wire order, so long stacks retain the crash site without forwarding SDK text.
 
 Unknown messages are omitted rather than attempting to scrub arbitrary text.
 JS global exceptions and exceptions surfaced through React Native's explicit

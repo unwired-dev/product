@@ -90,7 +90,7 @@ private final class ReportingBlockedProtocol: URLProtocol, @unchecked Sendable {
     return ReportingReport(
       id: UUID().uuidString.lowercased(),
       createdAt: (timestamp.timeIntervalSince1970 * 1000).rounded(.down),
-      code: "native-crash", name: name, message: message, frames: Array(frames.prefix(64)),
+      code: "native-crash", name: name, message: message, frames: Array(frames.suffix(64)),
       causes: [], breadcrumbs: [])
   }
 }

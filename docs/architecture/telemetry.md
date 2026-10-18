@@ -35,11 +35,17 @@ separate file marker survives locked-Keychain or interrupted account cleanup;
 restart retries withdrawal until acknowledgement. An installation that never opted
 in does not send a capability merely to withdraw reporting.
 
-Deletion publishes its pending intent before awaiting withdrawal, so another window
-cannot re-enable reporting during that wait. A refused older save clears its queue
-without erasing deletion intent. The installation credential survives
-account purge. Only verified remote completion permits a later explicit enable,
-which rotates the reporting identity.
+Deletion closes collection and publishes its pending intent synchronously, then
+persists the empty document before crossing the withdrawal bridge, refreshing
+the decoded native generation after a refused save. Status retries wait for
+native withdrawal acknowledgement. Native save closes the collector and purges
+its queues; a pending document also gates native startup and advances the
+consent generation on reopen. Withdrawal still runs if saving fails. A purge
+failure after persistence cannot erase the pending intent, and refreshes or old
+acknowledgements cannot replace it during consent changes. A refused older save
+clears its queue without erasing deletion intent. The installation credential
+survives account purge. Only verified remote completion permits a later explicit
+enable, which rotates the reporting identity.
 
 Receiver mutations authenticate capability digests and serialize consent changes.
 A delivery lease precedes each external vendor request; deletion waits for every
@@ -62,6 +68,8 @@ keeps this narrow budget separate from app consent and adds no limiter dependenc
 Sentry Cocoa 9.30.2 supplies only a local collector, not a second receiving service.
 Its custom `Options.urlSession` blocks every SDK request before a socket, including
 close's flush. `beforeSend` extracts the approved projection then returns nil.
+The pinned converter supplies outermost-first wire frames; projection retains
+the final 64 admitted frames in that order, including the crash site.
 Revocation closes the SDK and removes its complete application-owned raw cache
 and native projection queue. The production qualification flag defaults false.
 

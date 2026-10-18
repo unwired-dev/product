@@ -240,7 +240,7 @@ export function createErrorReporting(
   };
   const save = Effect.fn('ErrorReporting.save')(function* () {
     if (state === undefined) {
-      return;
+      return false;
     }
     const { generation } = state;
     const encoded = yield* encodeDocument(document);
@@ -255,6 +255,7 @@ export function createErrorReporting(
       collecting = false;
       document.queue = [];
     }
+    return accepted.saved;
   });
   const request = Effect.fn('ErrorReporting.request')(function* (
     operation: Parameters<NativeErrorReporting['errorReportingRequest']>[0],
@@ -271,6 +272,7 @@ export function createErrorReporting(
   const deletionAllowed = (expected: number) =>
     !disposed &&
     expected === revision &&
+    !consentPending &&
     !collecting &&
     deleting(document.deletion);
   const deletion = Effect.fn('ErrorReporting.delete')(function* () {
@@ -384,7 +386,7 @@ export function createErrorReporting(
       Effect.flatMap(decodeState),
       Effect.option,
     );
-    if (expected !== revision || disposed) {
+    if (expected !== revision || disposed || consentPending) {
       return;
     }
     if (Option.isNone(result)) {
@@ -449,6 +451,32 @@ export function createErrorReporting(
     publish();
     const renew = enabled && document.deletion === 'complete';
     const { generation } = state;
+    if (!enabled && deleting(document.deletion)) {
+      // Native withdrawal must carry durable deletion intent through interruption.
+      await runLogged(
+        Effect.gen(function* () {
+          while (expected === revision && !disposed) {
+            if (yield* save()) {
+              return;
+            }
+            const latest = yield* call(() => native.errorReportingRead()).pipe(
+              Effect.flatMap(decodeState),
+            );
+            if (
+              expected !== revision ||
+              !latest.available ||
+              latest.generation <= (state?.generation ?? -1)
+            ) {
+              return;
+            }
+            state = latest;
+          }
+        }).pipe(Effect.ignore),
+      );
+      if (expected !== revision && !disposed) {
+        return;
+      }
+    }
     // Revocation reaches native before waiting for an in-flight network action.
     const consent = call(() =>
       native.errorReportingConsent(enabled, renew, generation),
@@ -483,10 +511,18 @@ export function createErrorReporting(
       return;
     }
     document = { version: 1, queue: [], deletion: 'pending' };
-    await setEnabled(false);
+    const withdrawal = setEnabled(false);
+    const expected = revision;
+    await withdrawal;
+    if (expected !== revision || disposed) {
+      return;
+    }
     publish();
     await guarded(
       Effect.gen(function* () {
+        if (expected !== revision || disposed) {
+          return;
+        }
         yield* save();
         yield* deletion();
       }),

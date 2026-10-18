@@ -42,7 +42,7 @@ export function reportingFixture(
         ...state,
         enabled,
         generation: state.generation + 1,
-        document: enabled ? state.document : null,
+        document: renewIdentity ? null : state.document,
       };
       if (renewIdentity) {
         complete = false;
@@ -62,8 +62,8 @@ export function reportingFixture(
       generation: number,
     ) => {
       if (
-        (operation === 'capture' || operation === 'enable') &&
-        (!state.enabled || generation !== state.generation)
+        generation !== state.generation ||
+        ((operation === 'capture' || operation === 'enable') && !state.enabled)
       ) {
         throw new Error('stale');
       }

@@ -4,6 +4,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Error reporting lifecycle
 
+- `ErrorReportingStore.save` or `load` allowing a durably pending deletion to
+  collect before the shared withdrawal bridge completes. Treat that document as
+  a collection gate, purge both queues, and fence stale generations on reopen
+  before starting the collector. Preserve intent when purge rejects after the
+  generation commits; otherwise termination can resume collection or lose deletion.
+- `SentryReportingCollector.project` truncating SDK wire-ordered frames from the
+  front. Check the pinned converter's order and retain the innermost 64 without
+  reversing again. Verify distinct SDK frames beyond the limit in serialized
+  order, including the crash site; otherwise truncation removes diagnostic and
+  grouping evidence even though a count-only projection test passes.
+
 - `ErrorReportingStore.read` treating a transient unreadable Keychain as durable
   withdrawal. Stop/cancel collection and fail closed during the failure, then
   recover stored consent without advancing its generation after a successful

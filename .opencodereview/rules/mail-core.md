@@ -24,6 +24,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   intent. Close re-enablement synchronously before native/network waits, including
   a second Mac window; otherwise a delayed revoke allows fresh collection during
   deletion. Preserve that intent when an older save is refused after withdrawal.
+  Persist the empty pending document before crossing the withdrawal bridge,
+  preserve it during consent-pending refreshes, and still withdraw if saving
+  fails. If a prior native transition committed before its acknowledgement, refresh
+  the decoded generation and retry a refused intent save without restoring consent.
+  Keep status retries from completing deletion before native withdrawal is
+  acknowledged.
+  Verify interruption and generation-commit-then-purge rejection through
+  reopen; publishing alone loses the remote deletion request after termination.
   Distinguish known offline failures from retryable server/invalid-response
   failures instead of presenting every retry as offline.
 - `host.ts.observe` treating resolved provider HTTP failures or a Convex

@@ -187,6 +187,74 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
   }
 
+  @Test func pendingDeletionClosesNativeCollectionBeforeWithdrawalAndSurvivesRelaunch() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    let enabled = try store.consent(enabled: true, renewIdentity: false)
+    let generation = try #require(enabled["generation"] as? Int)
+    collector.deliver(report(), from: 0)
+    try FileManager.default.createDirectory(at: store.cache, withIntermediateDirectories: true)
+    try Data("synthetic raw report".utf8).write(to: store.cache.appendingPathComponent("raw.json"))
+    let pending = try ReportingDocument(deletion: "pending").encoded()
+    #expect(try store.save(generation: generation, document: pending))
+    #expect(!collector.active)
+    #expect(!FileManager.default.fileExists(atPath: store.cache.path))
+    let reopenedCollector = ReportingTestCollector()
+    let reopened = self.store(memory, directory: directory, collector: reopenedCollector)
+    let off = reopened.read()
+    #expect(off["enabled"] as? Bool == false)
+    #expect((off["generation"] as? Int ?? 0) > generation)
+    #expect(reopenedCollector.callbacks.isEmpty)
+    let document = ReportingDocument.decode(off["document"] as? String, now: date)
+    #expect(document.deletion == "pending" && document.queue.isEmpty)
+    collector.deliver(report(), from: 0)
+    #expect((try reopened.takeNative()["reports"] as? [Any])?.isEmpty == true)
+    #expect(
+      try store.save(generation: generation, document: ReportingDocument().encoded()) == false)
+    #expect(throws: ReportingError.stale) {
+      try reopened.consent(
+        enabled: true, renewIdentity: false, expectedGeneration: generation)
+    }
+  }
+
+  @Test func deletionIntentSurvivesCommittedWithdrawalWhenRawCachePurgeFails() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    defer {
+      try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: store.cache.path)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let enabled = try store.consent(enabled: true, renewIdentity: false)
+    let generation = try #require(enabled["generation"] as? Int)
+    collector.deliver(report(), from: 0)
+    try FileManager.default.createDirectory(at: store.cache, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: store.cache.path)
+    #expect(throws: (any Error).self) {
+      try store.save(generation: generation, document: ReportingDocument(deletion: "pending").encoded())
+    }
+    #expect(!collector.active)
+    #expect(throws: ReportingError.unavailable) {
+      try store.consent(enabled: false, renewIdentity: false)
+    }
+    let data = try #require(memory.data)
+    let persisted = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(persisted["enabled"] as? Bool == false)
+    #expect((persisted["generation"] as? Int ?? 0) > generation)
+    try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: store.cache.path)
+    let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
+    let off = reopened.read()
+    let document = ReportingDocument.decode(off["document"] as? String, now: date)
+    #expect(off["enabled"] as? Bool == false)
+    #expect(document.deletion == "pending" && document.queue.isEmpty)
+    #expect((try reopened.takeNative()["reports"] as? [Any])?.isEmpty == true)
+    #expect(!FileManager.default.fileExists(atPath: store.cache.path))
+  }
+
   @Test func staleEnableCannotRestoreCollectionAfterWithdrawal() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -307,13 +375,16 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     event.timestamp = date
     let exception = Exception(
       value: "secret-mailbox@example.invalid", type: "PrivateUserTextException")
-    let frame = Frame()
-    frame.instructionAddress = "0x1234"
-    frame.imageAddress = "0x1000"
-    frame.fileName = "/Users/private/mailbox.eml"
-    frame.function = "credential-containing-function"
+    let frames = (0..<100).map { index in
+      let frame = Frame()
+      frame.instructionAddress = "0x" + String(0x1000 + index, radix: 16)
+      frame.imageAddress = "0x1000"
+      frame.fileName = "/Users/private/mailbox.eml"
+      frame.function = "credential-containing-function"
+      return frame
+    }
     exception.stacktrace = SentryStacktrace(
-      frames: Array(repeating: frame, count: 100), registers: [:])
+      frames: frames, registers: ["private-register": "secret-register-value"])
     event.exceptions = [exception]
     let image = DebugMeta()
     image.debugID = UUID().uuidString
@@ -322,8 +393,14 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     let projection = try #require(SentryReportingCollector.project(event, now: date))
     #expect(projection.name == "NativeCrash" && projection.message == nil)
     #expect(projection.frames.count == 64)
-    let text = String(decoding: try JSONEncoder().encode(projection), as: UTF8.self)
+    let encoded = try JSONEncoder().encode(projection)
+    let serialized = try JSONDecoder().decode(ReportingReport.self, from: encoded)
+    let expected = (36..<100).map { "0x" + String(0x1000 + $0, radix: 16) }
+    #expect(serialized.frames.compactMap(\.address) == expected)
+    #expect(serialized.frames.last?.address == "0x1063")
+    let text = String(decoding: encoded, as: UTF8.self)
     #expect(!text.contains("mailbox") && !text.contains("credential") && !text.contains("/Users"))
+    #expect(!text.contains("register"))
     event.timestamp = date.addingTimeInterval(-86_401)
     #expect(SentryReportingCollector.project(event, now: date) == nil)
   }

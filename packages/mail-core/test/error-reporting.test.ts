@@ -241,6 +241,201 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
+  it('persists empty deletion intent before the withdrawal bridge and resumes after interruption', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const saving = Promise.withResolvers<undefined>();
+    const saved = Promise.withResolvers<undefined>();
+    const original = host.native.errorReportingConsent;
+    const originalSave = host.native.errorReportingSave;
+    let store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      host.offline(true);
+      store.capture(new TypeError('Invalid time value'));
+      await store.refresh();
+      expect(host.state().document).toContain('"id"');
+      host.native.errorReportingConsent = async (...args) => {
+        entered.resolve(undefined);
+        await release.promise;
+        return original(...args);
+      };
+      vi.spyOn(host.native, 'errorReportingSave').mockImplementationOnce(
+        async (...args) => {
+          saving.resolve(undefined);
+          await saved.promise;
+          return originalSave(...args);
+        },
+      );
+      const deleting = store.deleteReports();
+      await saving.promise;
+      await store.refresh();
+      await store.retryDeletion();
+      expect(store.getSnapshot()).toStrictEqual({
+        kind: 'deleting',
+        phase: 'pending',
+      });
+      saved.resolve(undefined);
+      await entered.promise;
+      expect(host.state().document).toBe(
+        '{"version":1,"queue":[],"deletion":"pending"}',
+      );
+      await store.refresh();
+      store.capture(new Error('late callback'));
+      await store.setEnabled(true);
+      expect(store.getSnapshot()).toStrictEqual({
+        kind: 'deleting',
+        phase: 'pending',
+      });
+      store.dispose();
+      release.resolve(undefined);
+      await deleting;
+      expect(host.state().enabled).toBe(false);
+      expect(host.state().document).toContain('"deletion":"pending"');
+      store = createErrorReporting(host.native);
+      await store.load();
+      expect(store.getSnapshot()).toStrictEqual({
+        kind: 'deleting',
+        phase: 'offline',
+      });
+      host.offline(false);
+      host.complete();
+      await store.retryDeletion();
+      expect(store.getSnapshot()).toMatchObject({
+        enabled: false,
+        deletion: 'complete',
+      });
+      expect(
+        host.requests.filter((request) => request.operation === 'capture'),
+      ).toStrictEqual([]);
+    } finally {
+      saved.resolve(undefined);
+      release.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('retains deletion across an enable that committed before its acknowledgement returned', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const committed = Promise.withResolvers<undefined>();
+    const releaseEnable = Promise.withResolvers<undefined>();
+    const withdrawing = Promise.withResolvers<undefined>();
+    const releaseWithdrawal = Promise.withResolvers<undefined>();
+    const original = host.native.errorReportingConsent;
+    let store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      vi.spyOn(host.native, 'errorReportingConsent')
+        .mockImplementationOnce(async (...args) => {
+          const enabled = await original(...args);
+          committed.resolve(undefined);
+          await releaseEnable.promise;
+          return enabled;
+        })
+        .mockImplementationOnce(async (...args) => {
+          withdrawing.resolve(undefined);
+          await releaseWithdrawal.promise;
+          return original(...args);
+        });
+      const enabling = store.setEnabled(true);
+      await committed.promise;
+      const deleting = store.deleteReports();
+      await withdrawing.promise;
+      expect(host.state().document).toBe(
+        '{"version":1,"queue":[],"deletion":"pending"}',
+      );
+      store.dispose();
+      releaseWithdrawal.resolve(undefined);
+      releaseEnable.resolve(undefined);
+      await Promise.all([enabling, deleting]);
+      store = createErrorReporting(host.native);
+      host.complete();
+      await store.load();
+      expect(store.getSnapshot()).toMatchObject({
+        enabled: false,
+        deletion: 'complete',
+      });
+    } finally {
+      releaseWithdrawal.resolve(undefined);
+      releaseEnable.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('resumes durable deletion when native commits withdrawal but rejects its purge acknowledgement', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const original = host.native.errorReportingConsent;
+    let store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      const { generation } = host.state();
+      vi.spyOn(host.native, 'errorReportingConsent').mockImplementationOnce(
+        async (...args) => {
+          await original(...args);
+          throw new Error('synthetic native purge failure');
+        },
+      );
+      await store.deleteReports();
+      expect(host.state().generation).toBeGreaterThan(generation);
+      expect(host.state().enabled).toBe(false);
+      expect(host.state().document).toBe(
+        '{"version":1,"queue":[],"deletion":"pending"}',
+      );
+      expect(store.getSnapshot()).toMatchObject({ kind: 'deleting' });
+      expect(
+        host.requests.filter((request) => request.operation === 'delete'),
+      ).toStrictEqual([]);
+      store.dispose();
+      store = createErrorReporting(host.native);
+      host.complete();
+      await store.load();
+      expect(store.getSnapshot()).toMatchObject({
+        enabled: false,
+        deletion: 'complete',
+      });
+      expect(host.requests.at(-1)).toMatchObject({
+        operation: 'delete',
+        generation: host.state().generation,
+      });
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('still withdraws when deletion intent cannot be saved and never claims completion', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      vi.spyOn(host.native, 'errorReportingSave').mockRejectedValue(
+        new Error('synthetic protected-storage failure'),
+      );
+      host.complete();
+      await store.deleteReports();
+      store.capture(new Error('late callback'));
+      expect(host.state().enabled).toBe(false);
+      expect(store.getSnapshot()).toStrictEqual({
+        kind: 'deleting',
+        phase: 'pending',
+      });
+      expect(
+        host.requests.filter((request) =>
+          ['delete', 'capture'].includes(request.operation),
+        ),
+      ).toStrictEqual([]);
+    } finally {
+      store.dispose();
+    }
+  });
+
   it('keeps server deletion failures retryable without describing them as offline', async () => {
     expect.hasAssertions();
     const host = fixture();
