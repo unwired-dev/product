@@ -26,7 +26,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
-import { BackNavigation } from '../src/back-navigation.tsx';
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
@@ -39,7 +38,6 @@ import {
   WindowBarContext,
   WindowBarHost,
 } from '../src/inbox-bar.tsx';
-import { Inbox } from '../src/inbox.tsx';
 import { MailNavigation } from '../src/mail-navigation.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
@@ -322,66 +320,56 @@ function MailShell() {
                   }}
                 />
               }
-              supplementary={
-                <BackNavigation
-                  testID="inbox-back-navigation"
-                  onBack={() => splitView.current?.show('primary')}>
-                  <Inbox
-                    composing={draft}
-                    onClose={() => {
-                      reader.current = {
-                        id: undefined,
-                        mailbox: undefined,
-                        folder: undefined,
-                        profile: shownProfile,
-                      };
-                      const open = regular ? composing.current : undefined;
-                      router.replace({
-                        pathname: open === undefined ? '/' : '/compose/[draft]',
-                        params: {
-                          ...(open === undefined ? {} : { draft: open }),
-                          profileId: shownProfile,
-                        },
-                      });
-                      // On iPhone the list returns over the reader, or over Mailboxes for the palette.
-                      splitView.current?.show('supplementary');
-                    }}
-                    onBack={
-                      phone
-                        ? () => {
-                            splitView.current?.show('primary');
-                          }
-                        : undefined
+              inbox={{
+                composing: draft,
+                onClose: () => {
+                  reader.current = {
+                    id: undefined,
+                    mailbox: undefined,
+                    folder: undefined,
+                    profile: shownProfile,
+                  };
+                  const open = regular ? composing.current : undefined;
+                  router.replace({
+                    pathname: open === undefined ? '/' : '/compose/[draft]',
+                    params: {
+                      ...(open === undefined ? {} : { draft: open }),
+                      profileId: shownProfile,
+                    },
+                  });
+                  // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+                  splitView.current?.show('supplementary');
+                },
+                onBack: phone
+                  ? () => {
+                      splitView.current?.show('primary');
                     }
-                    onCompose={compose}
-                    onSelect={selectMessage}
-                    onSelectBehindComposer={
-                      regular && draft !== undefined
-                        ? (selection) => {
-                            // A message chosen in the Inbox clears the previous one's view.
-                            const next = {
-                              ...selection,
-                              folder: selection.folder,
-                            };
-                            reader.current = { ...reader.current, ...next };
-                            router.setParams(next);
-                          }
-                        : undefined
-                    }
-                    onView={setView}
-                    selected={
-                      id === undefined || mailbox === undefined
-                        ? undefined
-                        : {
-                            mailbox,
-                            id,
-                            ...(folder === undefined ? {} : { folder }),
-                          }
-                    }
-                    view={view}
-                  />
-                </BackNavigation>
-              }
+                  : undefined,
+                onCompose: compose,
+                onSelect: selectMessage,
+                onSelectBehindComposer:
+                  regular && draft !== undefined
+                    ? (selection) => {
+                        // A message chosen in the Inbox clears the previous one's view.
+                        const next = {
+                          ...selection,
+                          folder: selection.folder,
+                        };
+                        reader.current = { ...reader.current, ...next };
+                        router.setParams(next);
+                      }
+                    : undefined,
+                onView: setView,
+                selected:
+                  id === undefined || mailbox === undefined
+                    ? undefined
+                    : {
+                        mailbox,
+                        id,
+                        ...(folder === undefined ? {} : { folder }),
+                      },
+                view,
+              }}
             />
           </ReaderPaneWidthContext>
           {regular ? (

@@ -9,9 +9,13 @@ replacement requirements or release qualification.
 
 - iPad retains Router's explicitly accepted alpha `unstable-split-view` for
   native compact and regular layouts. Route parameters identify the selected
-  message. On iPhone, `MailNavigation` uses `react-native-screens` with retained
-  Mailboxes and Inbox screens, then one keyed native screen per routed reader
-  descriptor.
+  message. On iPhone, `MailNavigation` uses `react-native-screens` with a retained
+  Mailboxes screen, a conditional Inbox screen, then one keyed native screen per
+  routed reader descriptor. The phone Inbox presentation owner stays above that stack so its
+  search, filters, online-search store and folder retention survive a native pop.
+  Both Back paths capture its scroll offset before removing native content; a new
+  Inbox screen restores that offset. iPad keeps the Inbox owner inside its column
+  so its updates do not render the split owner and recreate the reader Slot.
   Native dismissal invokes that destination's existing Back action to reconcile
   route history. Compose prevents native dismissal and delegates the attempted
   Back to its guarded Close action before removing its screen.

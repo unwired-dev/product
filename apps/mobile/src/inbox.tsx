@@ -28,6 +28,7 @@ import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import type { InboxLayout } from './inbox-presentation.ts';
 import type { RowAction } from './inbox-rows.tsx';
 import type { useGmailSearch } from './mailbox.tsx';
 import type { InboxMailbox } from './private-storage.ts';
@@ -42,6 +43,7 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
+import { useInboxPresentation } from './inbox-presentation.ts';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import {
   InboxBar,
@@ -94,6 +96,8 @@ export type Selection = Readonly<{
 }>;
 
 interface InboxProps {
+  // The phone keeps this presentation owner mounted while its native content is popped.
+  readonly children?: InboxLayout;
   readonly selected: Selection | undefined;
   readonly onSelect: (selection: Selection) => void;
   // A collapsed overlay keeps editing while the reader's selection changes beneath it.
@@ -553,6 +557,7 @@ function InboxFooter({
 }
 
 export function Inbox({
+  children,
   selected,
   onSelect,
   onSelectBehindComposer,
@@ -584,6 +589,7 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
+  const presentation = useInboxPresentation({ onBack, children });
   const insets = useSafeAreaInsets();
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
@@ -760,7 +766,7 @@ export function Inbox({
       </Text>
     </View>
   );
-  return (
+  const content = (
     // The floating bar rises above the software keyboard while its search field is in use. The safe
     // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it. The surface
     // fills those margins too, behind the status bar and home indicator.
@@ -777,12 +783,12 @@ export function Inbox({
             account={account}
             detail={selected !== undefined || composing !== undefined}
             onClose={onClose}
-            onBack={onBack}
+            onBack={presentation.back}
             onLeave={leave}
             onSearch={ready ? searchState.open : undefined}>
             <SearchHeading search={searchState}>
               <HeadingTitle
-                onBack={onBack}
+                onBack={presentation.back}
                 title={title}
                 subtitle={t('inbox.subtitleLabel', {
                   scope: scopeName,
@@ -833,6 +839,8 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
+            contentOffset={presentation.contentOffset}
+            onScroll={presentation.onScroll}
             contentContainerStyle={styles.list}
             sections={sections}
             stickySectionHeadersEnabled={false}
@@ -978,4 +986,5 @@ export function Inbox({
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
+  return presentation.render(content);
 }

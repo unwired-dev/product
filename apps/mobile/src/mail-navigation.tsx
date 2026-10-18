@@ -7,36 +7,46 @@ import { useImperativeHandle, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
 import { ScreenStack } from 'react-native-screens';
 
-import { BackScreen } from './back-navigation.tsx';
+import { BackNavigation, BackScreen } from './back-navigation.tsx';
+import { Inbox } from './inbox.tsx';
 import { usePalette } from './theme.ts';
 
 type Props = Omit<ComponentProps<typeof SplitView>, 'children'> & {
   readonly primary: ReactNode;
-  readonly supplementary: ReactNode;
+  readonly inbox: ComponentProps<typeof Inbox>;
   readonly composer: ReactNode;
 };
 const fill = StyleSheet.create({ page: { flex: 1 } });
 
-export function MailNavigation({
-  primary,
-  supplementary,
-  composer,
-  ...props
-}: Props) {
+export function MailNavigation({ primary, inbox, composer, ...props }: Props) {
   if (Platform.OS === 'ios' && !Platform.isPad) {
     return (
-      <PhoneMailNavigation
-        {...props}
-        primary={primary}
-        supplementary={supplementary}
-        composer={composer}
-      />
+      <Inbox {...inbox}>
+        {(content, onBack) => (
+          <PhoneMailNavigation
+            {...props}
+            primary={primary}
+            supplementary={
+              <BackNavigation
+                testID="inbox-back-navigation"
+                onBack={onBack}>
+                {content}
+              </BackNavigation>
+            }
+            composer={composer}
+          />
+        )}
+      </Inbox>
     );
   }
   return (
     <SplitView {...props}>
       <SplitView.Column>{primary}</SplitView.Column>
-      <SplitView.Column>{supplementary}</SplitView.Column>
+      <SplitView.Column>
+        <BackNavigation testID="inbox-back-navigation">
+          <Inbox {...inbox} />
+        </BackNavigation>
+      </SplitView.Column>
     </SplitView>
   );
 }
@@ -48,7 +58,7 @@ function PhoneMailNavigation({
   ref,
   topColumnForCollapsing,
   testID,
-}: Props) {
+}: Omit<Props, 'inbox'> & { readonly supplementary: ReactNode }) {
   const [column, setColumn] = useState<
     Parameters<SplitHostCommands['show']>[0]
   >(topColumnForCollapsing ?? 'supplementary');

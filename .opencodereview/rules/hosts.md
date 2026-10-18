@@ -709,6 +709,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   `SafeAreaView` defaults omitted edges to false, so a leading-column edge list
   can leave controls beneath the right-hand cutout.
 
+- `MailNavigation` popping its conditional Inbox screen together with the owner
+  of search, filters, online results or folder retention. Trace both button and
+  native Back through the state owner and scroll-offset restoration; returning
+  through Mailboxes must preserve the same presentation. Check the pinned native
+  screen's dismissal and Fabric move contracts before keeping or reordering keyed
+  screens: a removed controller may be filtered out, or a moved visible controller
+  may retain only a snapshot. Keep iPad Inbox updates inside its split column so
+  state retention does not recreate the reader Slot. Require observable retained
+  search/filter state and native scrolled-row evidence, labelled separately from
+  a component scroll-offset bridge assertion.
+
 - Mobile `app/_layout.tsx.MailShell` subscribing to unrelated Account updates or
   updating composer keyboard geometry while no composer is open. Trace the
   installed split view's screen lifetime: its render-local Slot wrapper can

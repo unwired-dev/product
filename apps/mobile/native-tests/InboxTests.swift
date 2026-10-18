@@ -439,6 +439,30 @@ final class InboxTests: XCTestCase {
         list.lifetime = .keepAlways
         add(list)
       }
+      // Mailboxes must return to the same scrolled list, not a fresh initial viewport.
+      let messages = app.scrollViews.containing(
+        .button, identifier: "Unread. Rowan Hale. Garden plans for spring"
+      ).firstMatch
+      let initialRowY = rowan.frame.minY
+      messages.swipeUp(velocity: .slow)
+      waitUntil { rowan.isHittable && abs(rowan.frame.minY - initialRowY) > 1 }
+      let retainedRowY = rowan.frame.minY
+      back.tap()
+      waitUntil { app.buttons["All inboxes"].isHittable }
+      app.buttons["All inboxes"].tap()
+      verifyInboxViewport(app)
+      waitUntil { rowan.isHittable && abs(rowan.frame.minY - retainedRowY) <= 1 }
+      XCTAssertEqual(rowan.frame.minY, retainedRowY, accuracy: 1)
+      let search = app.textFields["Search senders and subjects"]
+      search.tap()
+      search.typeText("Rowan")
+      waitUntil { app.buttons["Close Search"].isHittable && rowan.isHittable }
+      swipeBack(app)
+      waitUntil { app.buttons["All inboxes"].isHittable }
+      app.buttons["All inboxes"].tap()
+      waitUntil { search.value as? String == "Rowan" && rowan.isHittable }
+      XCTAssertTrue(app.buttons["Close Search"].isHittable)
+      app.buttons["Close Search"].tap()
     } else {
       let account = app.buttons["Account"]
       if !account.waitForExistence(timeout: 5) || !account.isHittable {

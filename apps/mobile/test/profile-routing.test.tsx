@@ -2,6 +2,7 @@ import { ok } from 'node:assert/strict';
 
 import type { router as ExpoRouter } from 'expo-router';
 import type {
+  ComponentProps,
   createElement as ReactCreateElement,
   ReactNode,
   Ref,
@@ -88,15 +89,20 @@ jest.mock('../src/mail-navigation.tsx', () => {
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
   const rendered = jest.fn();
+  const { Inbox } =
+    jest.requireActual<typeof import('../src/inbox.tsx')>('../src/inbox.tsx');
+  const { BackNavigation } = jest.requireActual<
+    typeof import('../src/back-navigation.tsx')
+  >('../src/back-navigation.tsx');
   function MailNavigation({
     primary,
-    supplementary,
+    inbox,
     composer,
     testID,
     ref,
   }: {
     readonly primary: ReactNode;
-    readonly supplementary: ReactNode;
+    readonly inbox: ComponentProps<typeof Inbox>;
     readonly composer: ReactNode;
     readonly testID?: string;
     readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
@@ -117,7 +123,11 @@ jest.mock('../src/mail-navigation.tsx', () => {
       View,
       { testID },
       primary,
-      supplementary,
+      createElement(
+        BackNavigation,
+        { testID: 'inbox-back-navigation', onBack: inbox.onBack },
+        createElement(Inbox, inbox),
+      ),
       createElement(detail),
       composer,
     );
