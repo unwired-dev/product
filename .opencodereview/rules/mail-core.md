@@ -33,6 +33,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   serialized work and discard replies after a consent revision changes. A stale
   retry callback must not delete a renewed identity or bypass withdrawal.
 
+- `error-reporting.ts.frames` forwarding JavaScript throw-site-first order into
+  PostHog. Retain the innermost 64 admitted frames before reversing them to
+  outermost-retained-first wire order, and trace the receiver for any further
+  reordering. Verify the serialized public capture with a multi-frame stack
+  beyond the retention limit; otherwise grouping can select the wrong call site
+  or truncation can discard the throw site.
+
 #### Shared runtime compatibility
 
 - Shared modules, including `testing/synthetic-convex.ts`, using Node-supported
