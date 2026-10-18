@@ -352,6 +352,32 @@ final class InboxTests: XCTestCase {
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
     XCTAssertTrue(rowan.isHittable)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      let title = app.staticTexts["Inbox"].firstMatch
+      let listReady = {
+        rowan.isHittable && back.isHittable && title.exists && !title.frame.isEmpty
+          && app.windows.firstMatch.frame.contains(title.frame)
+      }
+      waitUntil(listReady)
+      // The reported black screen begins when opening the list, before selecting a message.
+      for destination in ["All inboxes", "Account"] {
+        back.tap()
+        let entry = app.buttons[destination]
+        waitUntil { entry.isHittable }
+        entry.tap()
+        if destination == "Account" {
+          let openInbox = app.buttons["Open Inbox"]
+          waitUntil { openInbox.isHittable }
+          openInbox.tap()
+        }
+        waitUntil(listReady)
+        let list = XCTAttachment(screenshot: app.screenshot())
+        list.name = "Dark Inbox list after Mailboxes, \(destination)"
+        list.lifetime = .keepAlways
+        add(list)
+      }
+    }
     for attempt in 1...3 {
       rowan.tap()
       let sender = app.staticTexts["rowan@example.invalid"].firstMatch

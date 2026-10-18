@@ -158,9 +158,12 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 ## Validate
 
 Native CI runs both the Light-mode preview Inbox and the Dark-mode registered-account
-Thread journey on iPhone and iPad. The latter cold-launches into the message list
-and repeatedly opens a Gmail HTML message through the production account/Settings
-container before checking the older-message Thread deep link. These remain synthetic
+Thread journey on iPhone and iPad. The latter cold-launches into the message list.
+On iPhone it checks Mailboxes → All inboxes and Mailboxes → Account → Open Inbox,
+requiring a tappable message row and Back control and a visible Inbox heading,
+with screenshots after both transitions. It then repeatedly opens a Gmail HTML
+message through the production account/Settings container on both device classes
+before checking the older-message Thread deep link. These remain synthetic
 provider journeys; they do not qualify a physical-device TestFlight session.
 
 All workspace checks, including the locally retained legacy harness, run from the root:
@@ -253,8 +256,9 @@ which dominates the duration, is not paid serially:
   the same `test-native.zsh` runner used locally by `pnpm test:native`. These jobs
   need no JavaScript installation. The `open-read-relaunch` journey covers the
   Light preview Inbox; `registration-thread` covers the Dark registered Inbox,
-  HTML message opening and Thread navigation through the production registration
-  gate and Settings cover, including cold relaunch.
+  including iPhone Mailboxes/Account return paths, HTML message opening and Thread
+  navigation through the production registration gate and Settings cover, plus
+  cold relaunch.
 - `Expo native storage checks` runs the runner's failure-handling contract, the
   [private storage checks](private-inbox-storage.md#verification) and ordinary
   project generation with a cleared scenario, independently of the build.
