@@ -2,14 +2,13 @@ import type { ComponentProps, ReactNode, RefObject } from 'react';
 import type { ViewProps } from 'react-native';
 
 import { createContext, use, useLayoutEffect, useRef } from 'react';
-import { ScreenStackItem } from 'react-native-screens';
-
 import {
   Platform,
   requireNativeComponent,
   StyleSheet,
   View,
 } from 'react-native';
+import { ScreenStackItem } from 'react-native-screens';
 
 import { usePalette } from './theme.ts';
 

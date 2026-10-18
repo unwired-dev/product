@@ -11,11 +11,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 import { ScreenStack } from 'react-native-screens';
 
 import { AccountHeader } from './account-page.tsx';
-
 import { BackNavigation, BackScreen } from './back-navigation.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';

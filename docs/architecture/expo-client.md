@@ -7,15 +7,19 @@ replacement requirements or release qualification.
 
 ## Stack and boundaries
 
-- Router's explicitly accepted alpha `unstable-split-view` supplies native compact
-  and regular layouts. Route parameters identify the selected message. The iPhone
-  registration gate retains the split-view mail shell outside its sibling
-  `react-native-screens` native stack. A transparent empty root screen anchors
-  the stack, which pushes Settings as its second screen and accepts input only
-  while Settings is open.
-  UIKit's dismissal event retires that Settings request. The mail shell and composer
-  keep their route and mounted state beneath the push; iPad retains the two-column
-  Settings workspace over its mounted shell.
+- iPad retains Router's explicitly accepted alpha `unstable-split-view` for
+  native compact and regular layouts. Route parameters identify the selected
+  message. On iPhone, `MailNavigation` uses `react-native-screens` with retained
+  Mailboxes and Inbox screens, then one keyed native screen per routed reader
+  descriptor.
+  Native dismissal invokes that destination's existing Back action to reconcile
+  route history. Compose prevents native dismissal and delegates the attempted
+  Back to its guarded Close action before removing its screen.
+  The iPhone registration gate contains that mail stack as the real root of a
+  second native stack, with Settings above it. Settings retains its destination
+  list below its detail in a nested native stack; its Back button and completed
+  native pop both clear the destination. iPad retains the two-column Settings
+  workspace over its mounted split-view shell.
   Explicit Open Inbox publishes an ephemeral Product-Account-scoped reveal request
   through the Account context. A leaf below the current Profile consumes it and
   selects the retained list or active detail without rendering the split owner;

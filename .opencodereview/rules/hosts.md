@@ -681,6 +681,16 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   replaced or removed. The Jest router mock commits synchronously and cannot
   show this ordering; a passing routing test is not evidence.
 
+- `mail-navigation.tsx` or `registration-gate.tsx.SettingsCover` simulating a
+  native Back destination with an empty screen or translating only the current
+  React view. Trace the actual native screen children, retained Router descriptors
+  and completed-pop callback together, including nested Settings details and
+  guarded Draft closure. A cancelled gesture must preserve the current route;
+  a completed pop must update its owning route or destination exactly once.
+  Check full-window Mailboxes and the preceding screen during native interaction;
+  a component callback or a blank native root can pass while the person swipes
+  over an empty or clipped destination.
+
 - Mobile `app/_layout.tsx.MailShell` subscribing to unrelated Account updates or
   updating composer keyboard geometry while no composer is open. Trace the
   installed split view's screen lifetime: its render-local Slot wrapper can

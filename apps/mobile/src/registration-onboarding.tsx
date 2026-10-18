@@ -5,10 +5,9 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
-import { ScreenStack } from 'react-native-screens';
-
 import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Platform, Text, View } from 'react-native';
+import { ScreenStack } from 'react-native-screens';
 
 import { BackScreen } from './back-navigation.tsx';
 import { Button } from './design.tsx';
