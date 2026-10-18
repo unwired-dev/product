@@ -11,6 +11,7 @@ import {
   ReportingMetadataSchema,
   ReportingNameSchema,
 } from '@private-email/contracts/errorReportingSchema';
+import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
@@ -160,20 +161,19 @@ function frames(error: unknown) {
   ) {
     return [];
   }
-  return [
-    ...error.stack
-      .slice(0, 32_768)
-      .matchAll(
-        /(?:index(?:\.ios|\.macos)?\.bundle|main\.jsbundle|[a-f0-9-]{8,}\.hbc|app:\/\/\/(?:index\.bundle|(?:ios|macos)\/[\d.]+\/[\d.]+\/index\.bundle)):(?<line>\d{1,8}):(?<column>\d{1,8})(?:\)|\s|$)/gu,
-      ),
-  ]
-    .slice(0, 64)
-    .toReversed()
-    .map((match) => ({
-      kind: 'javascript' as const,
-      line: Number(match[1]),
-      column: Number(match[2]),
-    }));
+  return Arr.reverse(
+    [
+      ...error.stack
+        .slice(0, 32_768)
+        .matchAll(
+          /(?:index(?:\.ios|\.macos)?\.bundle|main\.jsbundle|[a-f0-9-]{8,}\.hbc|app:\/\/\/(?:index\.bundle|(?:ios|macos)\/[\d.]+\/[\d.]+\/index\.bundle)):(?<line>\d{1,8}):(?<column>\d{1,8})(?:\)|\s|$)/gu,
+        ),
+    ].slice(0, 64),
+  ).map((match) => ({
+    kind: 'javascript' as const,
+    line: Number(match[1]),
+    column: Number(match[2]),
+  }));
 }
 function exceptionCauses(error: unknown) {
   const causes: Array<ReturnType<typeof exception>> = [];
