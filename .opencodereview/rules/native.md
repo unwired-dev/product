@@ -6,9 +6,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 - `ErrorReportingStore.save` or `load` allowing a durably pending deletion to
   collect before the shared withdrawal bridge completes. Treat that document as
-  a collection gate, purge both queues, and fence stale generations on reopen
-  before starting the collector. Preserve intent when purge rejects after the
-  generation commits; otherwise termination can resume collection or lose deletion.
+  a collection gate and purge both queues. Atomically disable and advance the
+  generation on the first pending save even when already off, reject pending
+  enables, and fence older idle saves as well as enables before withdrawal or
+  reopen. Otherwise queued old work can restore collection or erase the intent.
+  Preserve intent when purge rejects after the generation commits; otherwise
+  termination can resume collection or lose deletion.
 - `SentryReportingCollector.project` truncating SDK wire-ordered frames from the
   front. Check the pinned converter's order and retain the innermost 64 without
   reversing again. Verify distinct SDK frames beyond the limit in serialized

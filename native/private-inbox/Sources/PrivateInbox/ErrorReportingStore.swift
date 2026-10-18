@@ -213,6 +213,9 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
       throw ReportingError.stale
     }
     var document = ReportingDocument.decode(value.document, now: now())
+    if enabled && ["pending", "offline", "failed"].contains(document.deletion) {
+      throw ReportingError.disabled
+    }
     if renewIdentity {
       guard enabled, !value.enabled, document.deletion == "complete" else {
         throw ReportingError.invalid
@@ -252,6 +255,13 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     else { return false }
     let pendingDeletion = ["pending", "offline", "failed"].contains(decoded.deletion)
     if pendingDeletion {
+      if !["pending", "offline", "failed"].contains(
+        ReportingDocument.decode(value.document, now: now()).deletion)
+      {
+        try advance(&value)
+      }
+      value.enabled = false
+      value.revocationPending = value.revocationPending || value.everEnabled
       decoded.queue = []
       value.native = []
     }

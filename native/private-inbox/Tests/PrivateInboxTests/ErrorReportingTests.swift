@@ -220,6 +220,35 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     }
   }
 
+  @Test func pendingDeletionWhileAlreadyOffFencesQueuedEnablesAndSaves() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    let generation = try #require(store.read()["generation"] as? Int)
+    let pending = try ReportingDocument(deletion: "pending").encoded()
+    #expect(try store.save(generation: generation, document: pending))
+    #expect(throws: ReportingError.stale) {
+      try store.consent(enabled: true, renewIdentity: false, expectedGeneration: generation)
+    }
+    #expect(
+      try store.save(generation: generation, document: ReportingDocument().encoded()) == false)
+    let off = store.read()
+    let current = try #require(off["generation"] as? Int)
+    #expect(current > generation)
+    #expect(try store.save(generation: current, document: pending))
+    #expect(store.read()["generation"] as? Int == current)
+    #expect(throws: ReportingError.disabled) {
+      try store.consent(enabled: true, renewIdentity: false, expectedGeneration: current)
+    }
+    #expect(off["enabled"] as? Bool == false)
+    #expect(collector.callbacks.isEmpty)
+    let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
+    let document = ReportingDocument.decode(reopened.read()["document"] as? String, now: date)
+    #expect(document.deletion == "pending" && document.queue.isEmpty)
+  }
+
   @Test func deletionIntentSurvivesCommittedWithdrawalWhenRawCachePurgeFails() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let memory = ReportingMemory()

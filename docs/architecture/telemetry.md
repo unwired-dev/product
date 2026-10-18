@@ -38,10 +38,12 @@ in does not send a capability merely to withdraw reporting.
 Deletion closes collection and publishes its pending intent synchronously, then
 persists the empty document before crossing the withdrawal bridge, refreshing
 the decoded native generation after a refused save. Status retries wait for
-native withdrawal acknowledgement. Native save closes the collector and purges
-its queues; a pending document also gates native startup and advances the
-consent generation on reopen. Withdrawal still runs if saving fails. A purge
-failure after persistence cannot erase the pending intent, and refreshes or old
+native withdrawal acknowledgement. Native save atomically disables consent and
+advances its generation when deletion first becomes pending, even if already off,
+then closes the collector and purges its queues. Pending deletion refuses enables,
+fences older saves and gates native startup. Reopen also fences older persisted
+enabled state. Withdrawal still runs if saving fails. A purge failure after
+persistence cannot erase the pending intent, and refreshes or old
 acknowledgements cannot replace it during consent changes. A refused older save
 clears its queue without erasing deletion intent. The installation credential
 survives account purge. Only verified remote completion permits a later explicit
