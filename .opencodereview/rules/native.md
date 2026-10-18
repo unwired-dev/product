@@ -565,6 +565,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
 
+- `integration/test.zsh` accepting a completed Swift Testing run only at a fixed
+  historical test count. Require successful `xcodebuild` completion and a
+  positive completed test total, retaining empty-run and failure rejection.
+  Verify that adding a test still completes without retry; otherwise a passing
+  suite runs again against stateful protocol fixtures and falsely trips their
+  duplicate-delivery guards.
+
 - A native protocol/API signature change or merge accepted with compilation evidence that omits a consumer target. Inventory every caller and conformer, including integration probes and runner-only sources outside the Swift package and app targets, and map each to the command that compiles it. For `GoogleRegistrationProvider.gmail`, include `integration/SyntheticMetadataTests.swift` through `native/private-inbox/integration/metadata.zsh`; `swift build --build-tests` and a Sources-plus-bridge typecheck do not compile that probe. Run the affected compilation commands or report them as deferred; a caller search identifies coverage but is not compilation evidence. Otherwise a locally passing merge can leave the dedicated integration script or hosted native runner unable to compile. This checks validation scope, not compiler diagnostics already owned by tooling.
 - Changed storage, key or registration behavior with no Swift test in `native/private-inbox/Tests` or the on-device suite in `native/private-inbox/integration`. Package tests do not prove real Keychain or file-protection behavior on a device; say which evidence exists and which is deferred.
 
