@@ -2,6 +2,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
+#### UIKit gesture precedence
+
+- Before changing `UnwiredBackNavigationView` failure precedence, trace the
+  receiving recognizer, the other recognizer and the desired waiting direction
+  against Apple's [UIGestureRecognizerDelegate overview example](https://developer.apple.com/documentation/uikit/uigesturerecognizerdelegate).
+  Its screen-edge example returns true from `shouldBeRequiredToFailBy` so other
+  recognizers wait for the edge recognizer. Inferring the inverse from the passive
+  method name can make scrolling win the Back gesture. Preserve nested destination
+  priority and qualify actual arbitration separately with native interaction.
+
 #### Bundled localization resources
 
 - `UnwiredLanguagePreferences.catalog` relying on a Debug assertion before using

@@ -7,9 +7,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A choice-dependent Draft persistence journey such as
   `apps/mobile/test/evaluation-composer.test.tsx` checking storage only after
   explicit Save. Reload through a fresh Draft store after cancelling the save
-  question and before a later Save, and assert that the authored edit is absent;
-  then verify it persists after Save. Otherwise premature persistence and
-  choice-dependent persistence produce the same final body and both pass.
+  question and before a later Save. Require successful loading and the same
+  created Draft's identity before asserting that the authored edit is absent,
+  then verify it persists on that Draft after Save. An empty or failed store
+  must not satisfy a negated body assertion. Otherwise premature persistence,
+  lost Drafts and choice-dependent persistence can all pass the same journey.
 
 - A layout regression journey such as `InboxTests.verifyCompactInboxHeader`
   checking only the title against Back when the reported header also includes a
