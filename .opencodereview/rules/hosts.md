@@ -944,7 +944,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 - `organize.tsx.Toolbar` removing More on iPhone while `ResponseActions` cannot
   render Reply because its body, sender or Draft storage is unavailable. Trace
-  every removed action through the native reader context menu, including Spam;
+  every removed action through the native reader context menu, including Report spam;
   retain the existing action without enabling an unavailable response or adding
   another overflow button. Otherwise an organizing-capable reader loses an
   action when its response prerequisites are absent.
