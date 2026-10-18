@@ -2,8 +2,8 @@
 
 Status: accepted requirements from the 2026-10-12 interview, recorded in
 [issue #913](https://github.com/unwired-dev/product/issues/913). This document
-does not establish an installed SDK, a provisioned service, passing native
-qualification, or an enabled telemetry feature. Integration is separate work.
+does not establish a provisioned service or passing release qualification.
+The implementation below remains subject to the explicit rollout checks.
 The approved error-reporting implementation slice is tracked in
 [issue #1049](https://github.com/unwired-dev/product/issues/1049), following the
 2026-10-18 interview below. Product analytics remains separate future work.
@@ -167,7 +167,144 @@ Implementation must demonstrate the following on the maintained host versions:
 7. Telemetry outages, offline operation and exhausted free quotas do not block
    mail workflows. Test data is distinguishable from production measurements.
 
-No integration or native qualification was performed as part of this decision.
-SDK selection, the event inventory, deletion flow, consent-control design and
-failure-coverage checks remain implementation work under the repository's normal
-design and review workflow.
+The original provider decision performed no integration. Issue #1049 adds the
+implementation below; protected vendor and signed-device checks remain required
+before release. Partial local feasibility evidence does not qualify all hosts.
+
+## Error-reporting implementation
+
+Welcome exposes Privacy & Data before sign-in. Settings exposes the same
+installation-local reporting switch and a separate Delete my error reports action.
+Reporting defaults off, including upgrades. Product Analytics Consent is not
+implemented by this slice. The approved iPhone, iPad and Mac Light/Dark states
+are [iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-138848),
+[iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-54772) and
+[Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-133080).
+
+The shared store owns consent, safe projection, the bounded queue and deletion
+state. The native host owns an independent Keychain installation UUID and
+256-bit deletion credential, generation checks, native collection and purge.
+Neither identity nor credential is exposed to screens or linked to Product
+Accounts. Revocation cancels native capture requests and preserves a durable
+withdrawal marker until the receiver acknowledges it; restart retries cleanup.
+Sign-out and account removal withdraw consent before clearing account data.
+Deletion preserves the credential through those operations, polls verified
+remote completion and keeps reporting off. Re-enabling after completed deletion
+creates a new reporting identity; the deleted identity cannot be reopened.
+
+The wire inventory is defined by the contracts' errorReportingSchema entry point:
+
+| Field                    | Permitted value                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Report identity and time | Random report UUID, creation timestamp; no mail or account identity                                                   |
+| Failure                  | Predefined code and exception name; only exact approved constant messages                                             |
+| Stack                    | JavaScript bundle line/column, or native instruction address, image address and UUID; no paths, URLs or function text |
+| Causes                   | Up to eight safe exception names and approved messages                                                                |
+| Breadcrumbs              | Last 50 predefined navigation/operation stages, optional bounded elapsed milliseconds and HTTP status                 |
+| Build                    | Platform, numeric app version, build and OS version, production/TestFlight/qualification channel                      |
+
+Unknown messages are omitted rather than attempting to scrub arbitrary text.
+JS global exceptions and exceptions surfaced through React Native's explicit
+exception path, plus classified sign-in, sync and send transport failures, use
+the same projection. Release Hermes promise-rejection coverage remains a
+qualification check: no additional tracker is enabled until its consent and
+purge behavior is demonstrated. Expected offline and
+cancelled operations are excluded. No console dumps, attachments, user text,
+autocapture, session replay or independent breadcrumb upload is enabled. Queues
+are bounded and reports expire after 24 hours. Loss of diagnostics is acceptable;
+reporting failure must not change a mail operation's result.
+
+The receiver exposes fixed POST /api/error-reporting/{enable,capture,revoke,delete,status}
+capability endpoints on the existing Convex HTTP site. It rejects unknown fields,
+invalid credentials, stale generations, oversized batches and expired reports.
+Credentials are hashed at rest. In-flight delivery leases fence remote deletion;
+the durable deletion worker waits for deliveries and verifies vendor completion,
+including when the app closes. An absent PostHog profile or an accepted deletion
+request alone is not completion. A hard-killed delivery whose lease cannot be
+settled deliberately leaves deletion pending for operator investigation.
+
+Selected rejected or timed-out APNs service operations report fixed identity-free
+backend health fields, independently of app consent. Other backend failures,
+termination and Convex log coverage remain partial. App-originated failures
+always require installation consent.
+
+### Configuration and rollout
+
+Configure POSTHOG_PROJECT_KEY, POSTHOG_PROJECT_ID and POSTHOG_PERSON_API_KEY
+only in the Convex deployment. Restrict the personal key to this project and
+person read/write access. The receiver fixes ingestion to eu.i.posthog.com and
+administration to eu.posthog.com. No vendor key or deletion authority belongs in
+an app bundle. Missing backend configuration fails closed. Provision only the
+free EU project without a card or automatic paid overages, and verify free-limit
+behavior before release.
+
+Both hosts use their existing UNWIRED_CONVEX_URL. Normal debug and mock builds
+are disconnected. For an explicit local qualification build, set
+UNWIRED_ERROR_REPORTING_QUALIFICATION=1 and
+UNWIRED_ERROR_REPORTING_CHANNEL=qualification when generating the host. Release
+and TestFlight use their corresponding channel and the same default-off consent.
+UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED defaults to 0; keep it there until the
+per-platform checks in #1050 pass. No Sentry service DSN is configured.
+
+Sentry Cocoa 9.30.2 is used solely as a disconnected local native collector:
+a custom session blocks every SDK request, and beforeSend extracts an approved
+projection then returns nil. Only the application receiver can forward it to
+PostHog. Revocation closes the collector and purges its application-owned raw
+cache and projection queue. PostHog Swift's stock native collector failed the
+local opt-out/relaunch probe and is not integrated.
+
+Local macOS 27 probes exercised fresh-off, opt-in, pending-report purge,
+revoke/crash and off/on relaunch without resurrection using the disconnected
+collector. This is feasibility evidence only. Signed iPhone, iPad and Mac app
+crashes, complete consent races, native-to-receiver forwarding, source-map and
+native-symbol readability, 24-hour expiry, live PostHog deletion and quota
+behavior remain protected release checks under #1050. A vendor login was not
+available in this implementation session; deterministic receiver tests do not
+stand in for those checks.
+
+### Release symbols
+
+Both maintained hosts ship Hermes. Prepare artifacts from the same signed archive,
+using its final bytecode and composed Hermes map, its executable and its matching
+dSYM. Plain Metro maps are refused. This command performs local checks only:
+
+```sh
+node scripts/reporting-artifacts.mjs --platform ios --version 1.0.0 \
+  --build 202610181230 --bundle /archive/App.app/main.jsbundle \
+  --map /same-build/composed.map --binary /archive/App.app/App \
+  --dsym /archive/App.app.dSYM --output /new/reporting-ios-202610181230
+```
+
+Use `--platform macos` and the Mac executable under Contents/MacOS for Mac.
+The output manifest records hashes, release coordinates, native UUIDs and exact
+EU upload argument arrays. Its canonical app:///<platform>/<version>/<build>/index.bundle
+is the chunk_id on both the map and the receiver's Hermes frames. Do not reuse
+release coordinates for different bytecode. The artifact check confirms the map
+format and native UUID match; actual JS mapping against that bytecode remains a
+protected release check. The tool never invokes vendor commands automatically.
+
+Use PostHog CLI 0.18.10 from revision
+e519ba6304903b31e5e3d74c6d1a5fe9a96c745e. Published CLI binaries contain their
+own telemetry, so build the pinned source in Release with POSTHOG_API_TOKEN absent
+and a fresh target directory. This source-vetted recipe has not been executed in
+the implementation session:
+
+```sh
+cli_source=$(mktemp -d)/posthog
+git clone --filter=blob:none --sparse --no-checkout https://github.com/PostHog/posthog.git "$cli_source"
+git -C "$cli_source" sparse-checkout set cli
+git -C "$cli_source" checkout --detach e519ba6304903b31e5e3d74c6d1a5fe9a96c745e
+env -u POSTHOG_API_TOKEN CARGO_TARGET_DIR="$cli_source/cli-target" \
+  cargo build --release --locked --manifest-path "$cli_source/cli/Cargo.toml"
+"$cli_source/cli-target/release/posthog-cli" --version
+```
+
+The pinned [build script](https://github.com/PostHog/posthog/blob/e519ba6304903b31e5e3d74c6d1a5fe9a96c745e/cli/build.rs)
+and [invocation context](https://github.com/PostHog/posthog/blob/e519ba6304903b31e5e3d74c6d1a5fe9a96c745e/cli/src/invocation_context.rs)
+control that separate CLI telemetry. Verify version 0.18.10, then use that binary
+for the manifest's upload commands. Supply POSTHOG_CLI_API_KEY with
+error_tracking:write access, POSTHOG_CLI_PROJECT_ID and
+POSTHOG_CLI_HOST=https://eu.posthog.com only in the protected upload environment.
+Keep these credentials out of app bundles. Do not force replacement of a
+conflicting release's symbols. Confirm a synthetic JS error and native crash
+resolve to the expected source before rollout.

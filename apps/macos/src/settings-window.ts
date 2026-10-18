@@ -9,7 +9,7 @@ import {
 
 // The latest request to open Settings; each is a new value, so an open window follows it.
 export type SettingsRequest = Readonly<{
-  account?: string;
+  account?: string | undefined;
   destination?: SettingsDestination;
 }>;
 
@@ -30,7 +30,7 @@ const latest = () => request;
 
 // Opens Settings beside the Inbox, which keeps its Draft, mailbox and selected message.
 export function openSettings(
-  account: string,
+  account: string | undefined,
   destination?: SettingsDestination,
 ) {
   observeSettingsClose((closedSerial) => {

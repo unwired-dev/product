@@ -15,6 +15,10 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 + (void)receiveRemoteNotification:(NSDictionary *)payload complete:(void (^)(NSString *))complete;
 @end
 
+@protocol UnwiredErrorReporting
++ (void)start;
+@end
+
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
@@ -33,6 +37,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+  [(Class<UnwiredErrorReporting>)NSClassFromString(@"UnwiredErrorReporting") start];
   [[NSAppleEventManager sharedAppleEventManager] setEventHandler:self
       andSelector:@selector(handleGoogleURL:reply:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
   self.dependencyProvider = [RCTAppDependencyProvider new];

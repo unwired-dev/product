@@ -98,7 +98,13 @@ const styles = StyleSheet.create({
 });
 
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
-export function Welcome({ onContinue }: { readonly onContinue: () => void }) {
+export function Welcome({
+  onContinue,
+  onPrivacy,
+}: {
+  readonly onContinue: () => void;
+  readonly onPrivacy?: () => void;
+}) {
   const colors = usePalette();
   const { t } = useLocalization();
   const ink = { color: colors.brandOnDeep };
@@ -141,6 +147,22 @@ export function Welcome({ onContinue }: { readonly onContinue: () => void }) {
             onPress={onContinue}
           />
         </View>
+        {onPrivacy === undefined ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.destinations.privacy')}
+            onPress={onPrivacy}
+            focusable
+            style={{
+              minHeight: 44,
+              justifyContent: 'center',
+              alignSelf: 'flex-start',
+            }}>
+            <Text style={[textStyles.body, ink]}>
+              {t('settings.destinations.privacy')}
+            </Text>
+          </Pressable>
+        )}
       </View>
     </ScrollView>
   );

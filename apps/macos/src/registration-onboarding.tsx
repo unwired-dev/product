@@ -22,6 +22,7 @@ import {
   Welcome,
 } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
+import { openSettings } from './settings-window.ts';
 import { usePalette } from './theme.ts';
 
 // Before a Product Account: Welcome, then Sign In. A notice about a removed device or account
@@ -44,6 +45,9 @@ export function SignedOutPage({
   if (notice === undefined && !welcomed) {
     return (
       <Welcome
+        onPrivacy={() => {
+          openSettings(undefined, 'errorReporting');
+        }}
         onContinue={() => {
           setWelcomed(true);
         }}
@@ -91,6 +95,12 @@ export function SignedOutPage({
           }}
         />
       ) : null}
+      <Button
+        label={t('settings.destinations.privacy')}
+        onPress={() => {
+          openSettings(undefined, 'errorReporting');
+        }}
+      />
       <LanguageSelector />
     </SignIn>
   );

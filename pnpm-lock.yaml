@@ -576,6 +576,9 @@ importers:
       convex:
         specifier: 'catalog:'
         version: 1.46.0(react@19.2.3)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0
     devDependencies:
       '@rajzik/tsconfig':
         specifier: 'catalog:'
@@ -739,6 +742,9 @@ importers:
       '@noble/hashes':
         specifier: 'catalog:'
         version: 2.4.0
+      '@private-email/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@private-email/localization':
         specifier: workspace:*
         version: link:../localization
@@ -752,9 +758,6 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@edge-runtime/vm@5.0.0)(@types/node@24.19.1)(happy-dom@20.14.5)(jsdom@20.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(terser@5.51.2)(yaml@2.9.1)))
-      '@private-email/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       '@rajzik/tsconfig':
         specifier: 'catalog:'
         version: 4.0.4

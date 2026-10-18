@@ -1,5 +1,6 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
+import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type {
   InboxChoice,
   MailboxConnection,
@@ -15,6 +16,7 @@ import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   Fragment,
   createContext,
+  useContext,
   useEffect,
   useMemo,
   useState,
@@ -38,6 +40,11 @@ import type { SettingsDestination } from './settings.tsx';
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
 import { Button, Glass, Notice, SFSymbol } from './design.tsx';
+import {
+  ErrorReportingContext,
+  ErrorReportingDestination,
+  ErrorReportingSettings,
+} from './error-reporting.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -50,6 +57,7 @@ import { TrustCard } from './onboarding.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
+  errorReporting as deviceErrorReporting,
   microsoftMail,
   registration,
   remoteContent as deviceRemoteContent,
@@ -98,7 +106,7 @@ const coveringSettings = (
     ? settings
     : undefined;
 
-export function RegistrationGate({
+function RegistrationGateContent({
   children,
   store = registration,
   microsoft = microsoftMail(),
@@ -120,6 +128,7 @@ export function RegistrationGate({
   readonly assistance?: NativeAssistance;
   readonly translation?: NativeTranslation;
 }) {
+  const reporting = useContext(ErrorReportingContext);
   const registrationState = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -183,12 +192,13 @@ export function RegistrationGate({
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void store.resume();
+        void reporting.refresh();
       }
     });
     return () => {
       subscription.remove();
     };
-  }, [preview, store]);
+  }, [preview, store, reporting]);
   // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
     return (
@@ -335,6 +345,16 @@ function SettingsCover({
 
 // Settings, one destination at a time: over the connected Inbox, or as its account page while
 // account setup waits.
+function reportingDetail(destination: SettingsDestination | undefined): {
+  readonly destination: SettingsDestination | undefined;
+  readonly detail: ReactNode;
+} {
+  if (!settingsColumns && destination === 'errorReporting') {
+    return { destination: 'privacy', detail: <ErrorReportingSettings /> };
+  }
+  return { destination, detail: undefined };
+}
+
 function SettingsPage({
   assistance,
   microsoft,
@@ -377,6 +397,8 @@ function SettingsPage({
       setDestination(request.destination);
     }
   }
+  const { destination: selectedDestination, detail } =
+    reportingDetail(destination);
   const { copy, actions, identity } = screen;
   if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
@@ -387,8 +409,9 @@ function SettingsPage({
     <AccountPage onInbox={onInbox}>
       <SettingsWorkspace
         account={name}
-        destination={destination}
+        destination={selectedDestination}
         onDestination={setDestination}
+        detail={detail}
         accessory={
           <>
             {busy ? (
@@ -454,11 +477,15 @@ function SettingsPage({
           </>
         ) : null}
         {destination === 'language' ? <LanguageSelector /> : null}
-        {actions.settings && destination !== undefined ? (
+        <ErrorReportingDestination
+          destination={selectedDestination}
+          onDestination={setDestination}
+        />
+        {actions.settings && selectedDestination !== undefined ? (
           <AccountSettings
             assistance={assistance}
             button={button}
-            destination={destination}
+            destination={selectedDestination}
             microsoft={microsoft}
             screen={screen}
             store={store}
@@ -620,5 +647,18 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
+  );
+}
+
+export function RegistrationGate({
+  errorReporting = deviceErrorReporting,
+  ...props
+}: Parameters<typeof RegistrationGateContent>[0] & {
+  readonly errorReporting?: ErrorReporting;
+}) {
+  return (
+    <ErrorReportingContext.Provider value={errorReporting}>
+      <RegistrationGateContent {...props} />
+    </ErrorReportingContext.Provider>
   );
 }

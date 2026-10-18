@@ -135,6 +135,7 @@ final class UnwiredRegistration: NSObject {
     if let store = Self.sharedStore { return store }
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
+      store.stopErrorReporting = { ErrorReportingRuntime.shared.disableForAccountRemoval() }
       Self.sharedStore = store
       return store
     #else
@@ -175,6 +176,7 @@ final class UnwiredRegistration: NSObject {
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
             previous: previous)
         })
+      store.stopErrorReporting = { ErrorReportingRuntime.shared.disableForAccountRemoval() }
       Self.sharedStore = store
       return store
     #endif
@@ -194,13 +196,7 @@ final class UnwiredRegistration: NSObject {
 
   // The deployment's HTTP actions live on its .convex.site host.
   private static func site(_ base: URL, path: String) throws -> URL {
-    guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
-      let host = components.host, host.hasSuffix(".convex.cloud")
-    else { throw RegistrationError.unavailable }
-    components.host = String(host.dropLast(".convex.cloud".count)) + ".convex.site"
-    components.path = path
-    guard let url = components.url else { throw RegistrationError.unavailable }
-    return url
+    try ErrorReportingStore.site(base, path: path)
   }
 
   // The deployment's Convex HTTP API for functions, or one of its HTTP action routes. The same

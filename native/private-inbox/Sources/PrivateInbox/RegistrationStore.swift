@@ -367,6 +367,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // The latest mailbox authorization, and its verified receipt, until a connection stores it.
   var mailboxAuthorization: (grant: MailboxGrant, receipt: GmailRegistrationReceipt?)?
   // Wake hints waiting for JavaScript; removing a route drops its own.
+  var stopErrorReporting: @MainActor () -> Void = {}
   var wakes = PushWakes.shared
   // Rechecked after asynchronous credentials/trust work, immediately before provider handoff.
   var deliveryAllowed: @MainActor () -> Bool = {
@@ -855,6 +856,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) async throws {
+    stopErrorReporting()
     forgetMailboxAccess()
     session = nil
     identity = nil

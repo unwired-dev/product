@@ -175,7 +175,8 @@
       "account": "Account & Devices",
       "mailboxes": "Email Accounts",
       "language": "Language",
-      "privacy": "Privacy & Data"
+      "privacy": "Privacy & Data",
+      "errorReporting": "Error Reporting"
     },
     "productAccount": "Product Account",
     "mailboxConnections": "Mailbox Connections",
@@ -1053,5 +1054,36 @@
     "quickLook": "Quick Look",
     "share": "Share…",
     "copyAddress": "Copy Address"
+  },
+  "errorReporting": {
+    "title": "Error Reporting",
+    "share": "Share error reports",
+    "off": "Off by default. Only for this installation, without linking your account or other devices.",
+    "on": "On for this installation. Turning it off stops reporting and clears reports waiting to send.",
+    "signedOut": "Available without signing in or after account removal. Reports are not linked to an account or another device.",
+    "whatIsShared": "What is shared",
+    "sharedDetails": "App errors or crashes, with safe error details and recent app steps. Steps are sent only with a report.\n\nMail content, addresses, mailbox identifiers, credentials and text you type are excluded. Unsafe details are omitted.\n\nShared reports are stored in the EU. Offline reports expire after 24 hours.",
+    "uploaded": "Your uploaded reports",
+    "delete": "Delete my error reports",
+    "deleteExplanation": "Deleting turns reporting off, clears unsent reports and removes this installation’s uploaded reports. You can enable reporting again afterward.",
+    "confirmTitle": "Delete your error reports?",
+    "confirmMessage": "This turns reporting off, clears unsent reports and deletes uploaded reports from this installation. You can turn reporting on again later.",
+    "confirmDelete": "Delete Reports",
+    "pendingTitle": "Deletion requested",
+    "pendingDescription": "We’re waiting for confirmation that your uploaded reports were deleted. Reporting stays off.",
+    "pendingAction": "Check deletion status",
+    "offlineTitle": "You’re offline",
+    "offlineDescription": "Reporting is off and unsent reports are cleared. Connect to request deletion of your uploaded reports.",
+    "offlineAction": "Retry deletion",
+    "failedTitle": "Couldn’t confirm deletion",
+    "failedDescription": "Reporting stays off. Your request may still be processing. Retry to check its status.",
+    "completeTitle": "Your error reports were deleted",
+    "completeDescription": "Deletion is verified for this installation. Reporting is off. You can turn it on again whenever you choose.",
+    "missing": "After a reinstall or cleared app data, this installation can’t delete earlier reports. Signing in won’t restore access.",
+    "unavailable": "Error reporting is unavailable. Try again when device storage is accessible.",
+    "loading": "Loading error reporting…",
+    "saving": "Saving error reporting…",
+    "backToWelcome": "Back to Welcome",
+    "failedAction": "Retry"
   }
 }

@@ -6,9 +6,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./health": "./src/health.ts",
+    "./errorReporting": "./src/errorReporting.ts",
     "./productAccount": "./src/productAccount.ts",
     "./productSync": "./src/productSync.ts",
-    "./pushRelay": "./src/pushRelay.ts"
+    "./pushRelay": "./src/pushRelay.ts",
+    "./errorReportingSchema": "./src/errorReportingSchema.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -16,7 +18,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "convex": "catalog:"
+    "convex": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@rajzik/tsconfig": "catalog:",

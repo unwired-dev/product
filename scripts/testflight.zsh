@@ -7,6 +7,7 @@ if [[ "${UNWIRED_TESTFLIGHT_ENV_LOADED:-}" != 1 ]]; then
 fi
 # The API key is read from its file, never inherited by project build phases.
 unset UNWIRED_TESTFLIGHT_ENV_LOADED ASC_PRIVATE_KEY
+export UNWIRED_ERROR_REPORTING_CHANNEL=testflight
 platform=${1:-}
 if [[ "$platform" != ios && "$platform" != macos && "$platform" != both ]]; then
   print -u2 'Usage: scripts/testflight.zsh ios|macos|both'

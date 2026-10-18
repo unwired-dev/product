@@ -1,5 +1,6 @@
 import type { NativeMailAssistance } from '@private-email/mail-core/assistance-enablement';
 import type { NativePreferences } from '@private-email/mail-core/commands';
+import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
 import type { NativeHostModule } from '@private-email/mail-core/host';
 import type { TurboModule } from 'react-native';
 
@@ -14,6 +15,8 @@ interface RegistrationModule
     NativeHostModule,
     NativeMailAssistance,
     NativePreferences {}
+
+interface ReportingModule extends TurboModule, NativeErrorReporting {}
 
 // The host's only lookup of its native module, on first use.
 export const native = () =>
@@ -62,6 +65,9 @@ export const {
   wakes,
   freshness,
   remoteContent,
+  errorReporting,
   start,
   followWakes,
-} = createHost(native);
+} = createHost(native, () =>
+  TurboModuleRegistry.getEnforcing<ReportingModule>('UnwiredErrorReporting'),
+);

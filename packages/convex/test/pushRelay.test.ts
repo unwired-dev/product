@@ -3768,16 +3768,23 @@ describe('gmail push relay', () => {
       await vi.waitUntil(() => apnsMock.requests.length > 0);
       await vi.advanceTimersByTimeAsync(0);
       await failedDelivery;
+      const healthJobs = await t.run((ctx) =>
+        ctx.db.system.query('_scheduled_functions').collect(),
+      );
       const retainedWakeups = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
+        healthJobs: healthJobs
+          .filter((job) => job.name === 'errorReporting:captureServiceHealth')
+          .map((job) => job.args),
         attemptCount: retainedWakeups[0]!.attemptCount,
         requestCount: apnsMock.requests.length,
         retainedWakeupCount: retainedWakeups.length,
         retryWasRescheduled:
           retainedWakeups[0]!.scheduledAt > pendingWakeups[0]!.scheduledAt,
       }).toStrictEqual({
+        healthJobs: [[{}]],
         attemptCount: 1,
         requestCount: 1,
         retainedWakeupCount: 1,

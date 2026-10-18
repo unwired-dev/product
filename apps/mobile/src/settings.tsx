@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenStack, ScreenStackItem } from 'react-native-screens';
 
 import { AccountHeader } from './account-page.tsx';
 import { Glass, SFSymbol } from './design.tsx';
@@ -22,7 +23,8 @@ export type SettingsDestination =
   | 'account'
   | 'mailboxes'
   | 'language'
-  | 'privacy';
+  | 'privacy'
+  | 'errorReporting';
 
 // The groups below the account item, in the design's order.
 const sections = [
@@ -291,7 +293,9 @@ export function SettingsWorkspace({
   destination,
   onDestination,
   accessory,
+  onWelcome,
   children,
+  detail,
 }: {
   // The Product Account the account item names.
   readonly account: string;
@@ -301,8 +305,10 @@ export function SettingsWorkspace({
   ) => void;
   // Shown in the header, such as an activity indicator and the way back to the Inbox.
   readonly accessory?: ReactNode;
+  readonly onWelcome?: () => void;
   // The selected destination's groups.
   readonly children: ReactNode;
+  readonly detail?: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -317,67 +323,92 @@ export function SettingsWorkspace({
         <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
           <Glass cornerRadius={21} />
           <ScrollView contentContainerStyle={styles.sidebarList}>
-            <Pressable
-              accessibilityLabel={t('settings.destinations.account')}
-              accessibilityRole="button"
-              accessibilityState={{ selected: selected === 'account' }}
-              onPress={() => {
-                onDestination('account');
-              }}
-              style={({ pressed }) => [
-                styles.account,
-                (selected === 'account' || pressed) && {
-                  backgroundColor: colors.accentSelectionSubtle,
-                },
-              ]}>
-              <AccountMonogram
-                name={account}
-                size={37}
-              />
-              <View style={styles.grow}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    type.title,
-                    { fontWeight: '600', color: colors.textPrimary },
+            {onWelcome === undefined ? (
+              <>
+                <Pressable
+                  accessibilityLabel={t('settings.destinations.account')}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selected === 'account' }}
+                  onPress={() => {
+                    onDestination('account');
+                  }}
+                  style={({ pressed }) => [
+                    styles.account,
+                    (selected === 'account' || pressed) && {
+                      backgroundColor: colors.accentSelectionSubtle,
+                    },
                   ]}>
-                  {account}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[type.detail, { color: colors.textSecondary }]}>
-                  {t('settings.destinations.account')}
-                </Text>
-              </View>
-            </Pressable>
-            {sections.map((section) => (
-              <Fragment key={section.title}>
-                <Text
-                  accessibilityRole="header"
-                  style={[
-                    styles.sectionHeader,
-                    { color: colors.textSecondary },
-                  ]}>
-                  {t(`settings.sections.${section.title}`)}
-                </Text>
-                {section.items.map((item) => (
-                  <SidebarItem
-                    key={item.id}
-                    icon={item.icon}
-                    label={t(`settings.destinations.${item.id}`)}
-                    selected={selected === item.id}
-                    onPress={() => {
-                      onDestination(item.id);
-                    }}
+                  <AccountMonogram
+                    name={account}
+                    size={37}
                   />
+                  <View style={styles.grow}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        type.title,
+                        { fontWeight: '600', color: colors.textPrimary },
+                      ]}>
+                      {account}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[type.detail, { color: colors.textSecondary }]}>
+                      {t('settings.destinations.account')}
+                    </Text>
+                  </View>
+                </Pressable>
+                {sections.map((section) => (
+                  <Fragment key={section.title}>
+                    <Text
+                      accessibilityRole="header"
+                      style={[
+                        styles.sectionHeader,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {t(`settings.sections.${section.title}`)}
+                    </Text>
+                    {section.items.map((item) => (
+                      <SidebarItem
+                        key={item.id}
+                        icon={item.icon}
+                        label={t(`settings.destinations.${item.id}`)}
+                        selected={
+                          selected === item.id ||
+                          (selected === 'errorReporting' &&
+                            item.id === 'privacy')
+                        }
+                        onPress={() => {
+                          onDestination(item.id);
+                        }}
+                      />
+                    ))}
+                  </Fragment>
                 ))}
-              </Fragment>
-            ))}
+              </>
+            ) : (
+              <>
+                <SidebarItem
+                  icon="chevron.left"
+                  label={t('errorReporting.backToWelcome')}
+                  selected={false}
+                  onPress={onWelcome}
+                />
+                <SidebarItem
+                  icon="hand.raised"
+                  label={t('settings.destinations.privacy')}
+                  selected
+                  onPress={() => undefined}
+                />
+              </>
+            )}
           </ScrollView>
         </View>
         <View style={styles.grow}>
           <AccountHeader
-            title={t(`settings.destinations.${selected}`)}
+            title={t(
+              `settings.destinations.${onWelcome === undefined ? selected : 'privacy'}`,
+            )}
             accessory={accessory}
           />
           {content}
@@ -386,17 +417,70 @@ export function SettingsWorkspace({
     );
   }
   if (destination !== undefined) {
-    return (
+    const page = (
       <View style={styles.page}>
         <AccountHeader
-          title={t(`settings.destinations.${destination}`)}
+          title={t(
+            `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
+          )}
           onBack={() => {
-            onDestination(undefined);
+            if (onWelcome === undefined) {
+              onDestination(
+                destination === 'errorReporting' ? 'privacy' : undefined,
+              );
+            } else {
+              onWelcome();
+            }
           }}
           accessory={accessory}
         />
         {content}
       </View>
+    );
+    if (destination !== 'privacy') {
+      return page;
+    }
+    return (
+      <ScreenStack style={styles.page}>
+        <ScreenStackItem
+          screenId="privacy-settings"
+          activityState={2}
+          freezeOnBlur={false}
+          headerConfig={{ hidden: true }}>
+          <View
+            style={styles.page}
+            accessibilityElementsHidden={detail !== undefined}
+            importantForAccessibility={
+              detail === undefined ? 'auto' : 'no-hide-descendants'
+            }>
+            {page}
+          </View>
+        </ScreenStackItem>
+        {detail === undefined ? null : (
+          <ScreenStackItem
+            screenId="error-reporting"
+            testID="error-reporting-detail"
+            activityState={2}
+            headerConfig={{ hidden: true }}
+            gestureEnabled
+            onDismissed={() => {
+              onDestination('privacy');
+            }}>
+            <View style={styles.page}>
+              <AccountHeader
+                title={t('errorReporting.title')}
+                onBack={() => {
+                  onDestination('privacy');
+                }}
+                accessory={accessory}
+              />
+              <ScrollView contentContainerStyle={styles.content}>
+                {detail}
+              </ScrollView>
+            </View>
+          </ScreenStackItem>
+        )}
+      </ScreenStack>
     );
   }
   return (

@@ -40,6 +40,37 @@ private func holdsNothing(_ keys: DeviceKeychain, account: String) throws -> Boo
 }
 
 extension PrivateInboxTests {
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_KEYCHAIN_TESTS"] == "1", "Requires an entitled native Keychain host.")) @MainActor
+  func accountPurgePreservesIndependentReportingDeletionCredential() async throws {
+    let service = "dev.unwired.reporting-removal.tests.\(UUID().uuidString)"
+    let accountKeys = DeviceKeychain(service: service + ".account")
+    let reportingKeys = DeviceKeychain(service: service + ".reporting")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? accountKeys.remove("registration")
+      try? reportingKeys.remove("installation")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let reporting = ErrorReportingStore(persistence: ReportingPersistence(keys: reportingKeys),
+      directory: directory, base: URL(string: "https://synthetic.convex.cloud")!, available: true,
+      nativeQualified: false,
+      metadata: ReportingMetadata(platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification"),
+      collector: SentryReportingCollector(cache: directory.appendingPathComponent("collector")))
+    _ = try reporting.consent(enabled: true, renewIdentity: false)
+    let beforeData = try #require(try reportingKeys.read("installation"))
+    let before = try #require(try JSONSerialization.jsonObject(with: beforeData) as? [String: Any])
+    let store = SyntheticProductSyncBackend().store(keys: accountKeys, google: SyntheticGoogleRegistrationProvider())
+    store.stopErrorReporting = { _ = try? reporting.consent(enabled: false, renewIdentity: false) }
+    _ = try await store.signIn()
+    try await store.purge(notice: "signed-out")
+    let afterData = try #require(try reportingKeys.read("installation"))
+    let after = try #require(try JSONSerialization.jsonObject(with: afterData) as? [String: Any])
+    #expect(after["enabled"] as? Bool == false)
+    #expect(after["installationId"] as? String == before["installationId"] as? String)
+    #expect(after["credential"] as? String == before["credential"] as? String)
+    #expect(try accountKeys.read("registration") == nil)
+  }
+
   @Test(arguments: ["signed-out", "deleted", "revoked"]) @MainActor
   func purgingKeepsNothingOfTheProductAccount(_ notice: String) async throws {
     let keys = removalDevice()
