@@ -11,6 +11,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Reporting consent and failure observation
 
+- `host.ts` withdrawing reporting around `prepareSignOut` before that preflight
+  permits removal. A refused Recovery Key preflight leaves the account active;
+  preserve consent and queued reports until actual removal starts, while retaining
+  native/host withdrawal at recorded removal, session end and purge.
+- `error-reporting.ts.flush` enabling the receiver on every empty poll or Settings
+  refresh. Merge native reports, expire/persist the queue and recheck its current
+  generation/revision before networking; only queued delivery needs an enable.
+  Otherwise idle installations consume quota and battery without reporting errors.
+
 - `error-reporting.ts.deleteReports` waiting for withdrawal before publishing deletion
   intent. Close re-enablement synchronously before native/network waits, including
   a second Mac window; otherwise a delayed revoke allows fresh collection during

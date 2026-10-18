@@ -3771,6 +3771,9 @@ describe('gmail push relay', () => {
       const healthJobs = await t.run((ctx) =>
         ctx.db.system.query('_scheduled_functions').collect(),
       );
+      const healthBudget = await t.run((ctx) =>
+        ctx.db.query('errorReportingServiceHealth').unique(),
+      );
       const retainedWakeups = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
@@ -3808,6 +3811,11 @@ describe('gmail push relay', () => {
       const timedOutWakeup = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').unique(),
       );
+      expect(
+        await t.run((ctx) =>
+          ctx.db.query('errorReportingServiceHealth').unique(),
+        ),
+      ).toStrictEqual(healthBudget);
 
       const previousScheduledAt = timedOutWakeup!.scheduledAt;
       await t.run(async (ctx) => {

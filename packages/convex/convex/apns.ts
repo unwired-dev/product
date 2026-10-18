@@ -324,7 +324,7 @@ const handleDeliveryResult = Effect.fnUntraced(function* (
     sendFailureDiagnostic(result.failure),
   );
   yield* call(() =>
-    ctx.scheduler.runAfter(0, internal.errorReporting.captureServiceHealth, {}),
+    ctx.runMutation(internal.errorReportingState.scheduleServiceHealth, {}),
   ).pipe(Effect.ignore);
   if (recipient === undefined || !isStaleTokenFailure(result.failure)) {
     return;

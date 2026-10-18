@@ -100,6 +100,7 @@ const version = Schema.String.check(
   Schema.isPattern(/^[0-9]{1,8}(?:\.[0-9]{1,8}){0,3}$/u),
 );
 export const ReportingMetadataSchema = Schema.Struct({
+  appNamespace: Schema.Literal('dev.unwired.mail'),
   platform: Schema.Literals(['ios', 'macos', 'backend']),
   appVersion: version,
   build: Schema.String.check(Schema.isPattern(/^[0-9]{1,18}$/u)),

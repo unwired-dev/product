@@ -1,4 +1,5 @@
 const metadata = {
+  appNamespace: 'dev.unwired.mail',
   platform: 'ios',
   appVersion: '1.0',
   build: '202610181234',

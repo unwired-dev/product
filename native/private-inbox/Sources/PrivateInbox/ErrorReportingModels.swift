@@ -108,6 +108,7 @@ struct ReportingDocument: Codable {
 }
 
 struct ReportingMetadata: Codable, Equatable, Sendable {
+  let appNamespace: String
   let platform: String
   let appVersion: String
   let build: String

@@ -129,7 +129,7 @@ private final class ReportingBlockedProtocol: URLProtocol, @unchecked Sendable {
       nativeQualified: bundle.object(forInfoDictionaryKey: "UnwiredNativeErrorReportingQualified")
         as? Bool == true,
       metadata: ReportingMetadata(
-        platform: platform,
+        appNamespace: identifier, platform: platform,
         appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
           ?? "0",
         build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",

@@ -186,7 +186,7 @@ export function createHost(
     saveSignInProviders: (providers) => native().saveSignInProviders(providers),
     recordRemoval: (operation) =>
       withdrawReporting(() => native().recordRemoval(operation)),
-    prepareSignOut: () => withdrawReporting(() => native().prepareSignOut()),
+    prepareSignOut: () => native().prepareSignOut(),
     endSession: () => withdrawReporting(() => native().endSession()),
     purge: (notice) => withdrawReporting(() => native().purge(notice)),
     call: (request) =>

@@ -363,7 +363,7 @@ export function createErrorReporting(
       ...recentReports(nativeReports.reports, now),
     ].slice(-32);
     yield* save();
-    if (!stillCollecting(expected)) {
+    if (!stillCollecting(expected) || document.queue.length === 0) {
       return;
     }
     const enabled = yield* request('enable');

@@ -10,6 +10,7 @@ const identity = {
   generation: 1,
 };
 const metadata = {
+  appNamespace: 'dev.unwired.mail',
   platform: 'ios',
   appVersion: '1.0.0',
   build: '1',
@@ -249,6 +250,9 @@ describe('anonymous error reporting HTTP capability', () => {
     );
     expect(outbound[0]).toContain('"platform":"hermes"');
     expect(outbound[0]).toContain('Cannot convert undefined value to object');
+    expect(outbound[0]).toContain('"$app_namespace":"dev.unwired.mail"');
+    expect(outbound[0]).toContain('"$app_version":"1.0.0"');
+    expect(outbound[0]).toContain('"$app_build":"1"');
     expect(outbound[0]).toContain('$geoip_disable');
     expect(outbound[0]).not.toContain(identity.credential);
     expect(outbound[0]).not.toContain('private');
@@ -353,6 +357,38 @@ describe('anonymous error reporting HTTP capability', () => {
         metadata: { ...metadata, appVersion: 'private@example.com' },
       }),
     ).resolves.toBe(400);
+    await expect(
+      status(t, 'capture', {
+        reports: [report()],
+        metadata: { ...metadata, appNamespace: 'dev.unwired.other' },
+      }),
+    ).resolves.toBe(400);
+  });
+
+  it('bounds concurrent service-health scheduling and admits the next interval', async () => {
+    expect.hasAssertions();
+    configure();
+    vi.useFakeTimers();
+    const outbound: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(captureProvider(outbound)));
+    const t = createReportingTest(modules);
+    await Promise.all(
+      Array.from({ length: 25 }, () => t.scheduleServiceHealth()),
+    );
+    await t.backend.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(outbound).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_599_999);
+    await t.scheduleServiceHealth();
+    await t.backend.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(outbound).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await t.scheduleServiceHealth();
+    await t.backend.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(outbound).toHaveLength(2);
+    const budget = await t.backend.run((ctx) =>
+      ctx.db.query('errorReportingServiceHealth').collect(),
+    );
+    expect(budget).toMatchObject([{ scheduledAt: Date.now() }]);
   });
 
   it('sends selected backend service health without any installation consent or identity', async () => {

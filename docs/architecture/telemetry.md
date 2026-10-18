@@ -14,8 +14,8 @@ lifetime. This follows ADR 0067's native custody boundary. Host views consume th
 store; native credentials never cross the bridge.
 
 The `contracts/errorReportingSchema` entry point contains only declarative Effect
-wire schemas shared by the receiver and client. Its Convex-validator counterpart
-is a separate entry point. The [ADR 0065 amendment](../adr/0065-scope-effect-adoption.md#declarative-wire-schemas-in-contracts)
+wire schemas shared by the receiver and client. A separate type-only entry point
+derives its public reporting types from those schemas without runtime imports. The [ADR 0065 amendment](../adr/0065-scope-effect-adoption.md#declarative-wire-schemas-in-contracts)
 permits this dependency without introducing application logic into contracts.
 
 `host.ts` observes native failures without replacing their result. It decodes only
@@ -46,6 +46,16 @@ A delivery lease precedes each external vendor request; deletion waits for every
 lease before checking the vendor. The durable worker polls person deletion status
 and verifies the profile's absence only after a completed, verified deletion record.
 A hard-killed request with an unsettled lease remains pending for operator review.
+
+## Backend health budget
+
+The existing reporting-state module owns one identity-free durable timestamp. Its
+mutation atomically admits and schedules at most one APNs health attempt per hour
+across concurrent actions and restarts. Failed attempts consume that interval.
+The APNs edge ignores admission failure so diagnostics cannot change delivery or
+stale-token cleanup. No account, recipient or installation key enters this state.
+The [quota implementation decision](https://github.com/unwired-dev/product/issues/1049#issuecomment-6254596975)
+keeps this narrow budget separate from app consent and adds no limiter dependency.
 
 ## Disconnected native collector
 

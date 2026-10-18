@@ -81,6 +81,15 @@ shared-store ownership. Its Mac-only request and presentation state may remain i
 non-React `categorization-spike-client.ts` adapter. This exception adds no shared
 product behavior or production adoption. See `docs/architecture/macos-client.md`.
 
+#### Exception forwarding
+
+- Both `index.js` hooks capturing the same synchronous global-to-ExceptionsManager
+  forwarding twice. Check primitive values as well as objects, preserve saved
+  handlers and their fatal flag, and clear any forwarding guard when a handler
+  throws. Trace the installed RN classic and always-available paths plus Expo
+  wrappers before removing a hook; otherwise statistics double-count primitives
+  or direct-runtime global exceptions disappear.
+
 #### React correctness
 
 - `evaluation-composer.tsx` treating the latest page-state revision as proof that

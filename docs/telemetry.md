@@ -202,7 +202,7 @@ The wire inventory is defined by the contracts' errorReportingSchema entry point
 | Stack                    | JavaScript bundle line/column, or native instruction address, image address and UUID; no paths, URLs or function text |
 | Causes                   | Up to eight safe exception names and approved messages                                                                |
 | Breadcrumbs              | Last 50 predefined navigation/operation stages, optional bounded elapsed milliseconds and HTTP status                 |
-| Build                    | Platform, numeric app version, build and OS version, production/TestFlight/qualification channel                      |
+| Build                    | Fixed public app namespace `dev.unwired.mail`, platform, numeric app version, build and OS version, production/TestFlight/qualification channel |
 
 JavaScript stacks retain the innermost 64 matching bundle frames and send them
 with the outermost retained call first and the throw site last, following
@@ -233,7 +233,11 @@ request alone is not completion. An interrupted delivery whose outcome cannot be
 settled leaves deletion pending for operator investigation.
 
 Selected rejected or timed-out APNs service operations report fixed identity-free
-backend health fields, independently of app consent. Other backend failures,
+backend health fields, independently of app consent. Atomic durable admission
+permits the first failure immediately, then at most one health attempt per hour
+across the deployment before scheduling a vendor action. Failed attempts consume
+the same interval. This samples outage health with at most 744 attempts in a
+31-day month; it does not reserve or qualify the project's free quota. Other backend failures,
 termination and Convex log coverage remain partial. App-originated failures
 always require installation consent.
 
@@ -286,7 +290,12 @@ node scripts/reporting-artifacts.mjs --platform ios --version 1.0.0 \
 Use `--platform macos` and the Mac executable under Contents/MacOS for Mac.
 The output manifest records hashes, release coordinates, native UUIDs and exact
 EU upload argument arrays. Its canonical app:///<platform>/<version>/<build>/index.bundle
-is the chunk_id on both the map and the receiver's Hermes frames. Do not reuse
+is the chunk_id on both the map and the receiver's Hermes frames. The archive's
+CFBundleIdentifier must be the approved public namespace `dev.unwired.mail`. It
+becomes `--release-name` and the receiver's `$app_namespace`; the archive version
+and build become `--release-version` / `$app_version` and `--build` / `$app_build`.
+Both Hermes and dSYM upload commands use those same coordinates. Unknown app
+namespaces are refused rather than forwarded as arbitrary metadata. Do not reuse
 release coordinates for different bytecode. The artifact check confirms the map
 format and native UUID match; actual JS mapping against that bytecode remains a
 protected release check. The tool never invokes vendor commands automatically.

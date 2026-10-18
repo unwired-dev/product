@@ -39,6 +39,15 @@ private func holdsNothing(_ keys: DeviceKeychain, account: String) throws -> Boo
     && keys.read("mail-assistance." + account) == nil
 }
 
+private final class ReportingRemovalOfflineProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+  }
+  override func stopLoading() {}
+}
+
 extension PrivateInboxTests {
   @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_KEYCHAIN_TESTS"] == "1", "Requires an entitled native Keychain host.")) @MainActor
   func accountPurgePreservesIndependentReportingDeletionCredential() async throws {
@@ -51,16 +60,21 @@ extension PrivateInboxTests {
       try? reportingKeys.remove("installation")
       try? FileManager.default.removeItem(at: directory)
     }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ReportingRemovalOfflineProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
     let reporting = ErrorReportingStore(persistence: ReportingPersistence(keys: reportingKeys),
       directory: directory, base: URL(string: "https://synthetic.convex.cloud")!, available: true,
       nativeQualified: false,
-      metadata: ReportingMetadata(platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification"),
-      collector: SentryReportingCollector(cache: directory.appendingPathComponent("collector")))
+      metadata: ReportingMetadata(appNamespace: "dev.unwired.mail", platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification"),
+      collector: SentryReportingCollector(cache: directory.appendingPathComponent("collector")),
+      session: session)
     _ = try reporting.consent(enabled: true, renewIdentity: false)
     let beforeData = try #require(try reportingKeys.read("installation"))
     let before = try #require(try JSONSerialization.jsonObject(with: beforeData) as? [String: Any])
     let store = SyntheticProductSyncBackend().store(keys: accountKeys, google: SyntheticGoogleRegistrationProvider())
-    store.stopErrorReporting = { _ = try? reporting.consent(enabled: false, renewIdentity: false) }
+    store.stopErrorReporting = { reporting.disableForAccountRemoval() }
     _ = try await store.signIn()
     try await store.purge(notice: "signed-out")
     let afterData = try #require(try reportingKeys.read("installation"))

@@ -196,6 +196,57 @@ describe('the host assembly', () => {
     }
   });
 
+  it('preserves reporting through refused sign-out preflight and withdraws at recorded removal', async () => {
+    expect.hasAssertions();
+    const reporting = reportingFixture();
+    const { host, native } = syntheticHost(reporting.native);
+    const removalConsent: boolean[] = [];
+    const recordRemoval = native.recordRemoval;
+    vi.spyOn(native, 'recordRemoval').mockImplementation(async (operation) => {
+      removalConsent.push(reporting.state().enabled);
+      return recordRemoval(operation);
+    });
+    const preflight = vi
+      .spyOn(native, 'prepareSignOut')
+      .mockResolvedValue(false);
+    try {
+      await host.registration.register('google');
+      await host.registration.addMailbox();
+      await host.errorReporting.load();
+      await host.errorReporting.setEnabled(true);
+      reporting.offline(true);
+      host.errorReporting.capture(new TypeError('Invalid time value'));
+      await host.errorReporting.refresh();
+      const queued = reporting.state().document;
+      expect(queued).toContain('"id"');
+      await host.registration.signOut();
+      expect(preflight).toHaveBeenCalledWith();
+      expect(removalConsent).toStrictEqual([]);
+      expect(reporting.state()).toMatchObject({
+        enabled: true,
+        document: queued,
+      });
+      expect(host.registration.getSnapshot().snapshot.kind).toBe('connected');
+      preflight.mockResolvedValue(true);
+      await host.registration.signOut();
+      // oxlint-disable-next-line vitest/max-expects -- The same journey checks preservation before admission and withdrawal before native removal.
+      expect({
+        removalConsent,
+        enabled: reporting.state().enabled,
+        document: reporting.state().document,
+        registration: host.registration.getSnapshot().snapshot.kind,
+      }).toMatchObject({
+        removalConsent: [false],
+        enabled: false,
+        document: expect.not.stringContaining('"id"'),
+        registration: 'signed-out',
+      });
+    } finally {
+      host.errorReporting.dispose();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('starts once however often and concurrently it is asked, and follows wakes once', async () => {
     expect.hasAssertions();
     const { host, counts } = syntheticHost();

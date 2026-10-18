@@ -113,7 +113,11 @@ function appRelease(binary, platform) {
       : executableDirectory,
     'Info.plist',
   );
-  return ['CFBundleShortVersionString', 'CFBundleVersion'].map((key) => {
+  return [
+    'CFBundleIdentifier',
+    'CFBundleShortVersionString',
+    'CFBundleVersion',
+  ].map((key) => {
     const result = spawnSync(
       '/usr/libexec/PlistBuddy',
       ['-c', `Print :${key}`, plist],
@@ -127,12 +131,18 @@ function appRelease(binary, platform) {
 }
 
 function validateRelease({ binary, version, build, platform }) {
-  const [appVersion, appBuild] = appRelease(binary, platform);
+  const [appNamespace, appVersion, appBuild] = appRelease(binary, platform);
+  if (appNamespace !== 'dev.unwired.mail') {
+    throw new Error(
+      'Archive bundle identifier is not an approved reporting namespace.',
+    );
+  }
   if (appVersion !== version || appBuild !== build) {
     throw new Error(
       'Release coordinates do not match the archived app Info.plist.',
     );
   }
+  return appNamespace;
 }
 
 function validateSymbols(options) {
@@ -176,7 +186,7 @@ function main() {
   const bytecode = hermesBytecode(options.bundle);
   const sourceMapBytes = readFileSync(options.map);
   const sourceMap = composedMap(sourceMapBytes);
-  validateRelease(options);
+  const appNamespace = validateRelease(options);
   const nativeIds = validateSymbols(options);
   const canonical = `app:///${options.platform}/${options.version}/${options.build}/index.bundle`;
   // The receiver derives this identity from bounded release coordinates, never client filenames.
@@ -186,7 +196,7 @@ function main() {
   delete prepared.release_id;
   const release = [
     '--release-name',
-    `unwired-${options.platform}`,
+    appNamespace,
     '--release-version',
     options.version,
     '--build',
@@ -208,6 +218,7 @@ function main() {
       { recursive: true },
     );
     const manifest = {
+      appNamespace,
       platform: options.platform,
       appVersion: options.version,
       build: options.build,

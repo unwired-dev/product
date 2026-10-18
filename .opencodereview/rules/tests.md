@@ -2,6 +2,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 `docs/agents/testing.md` is the policy: integration and E2E by default, a test admitted only for a named behavior or failure risk, and mocked journeys kept distinct from real integration evidence. Review a test for whether it can fail for the defect it claims to guard.
 
+#### Regression boundary fidelity
+
+- A lifecycle test such as `AccountRemovalTests` replacing the production removal
+  callback with a lower-level consent call. Exercise the same callable boundary as
+  the host, including its withdrawal retry, and preserve credential-custody
+  assertions; otherwise the tested substitute can pass while production breaks.
+- `reporting-artifacts.test.mjs` or another direct tooling test calling `mkdtemp`
+  under ignored `scratchpad/` before creating that parent. Each independently run
+  journey must own/create its prerequisites and clean its child on failure;
+  otherwise a fresh checkout fails before exercising the claimed contract.
+
 #### The test proves the behavior
 
 - A layout regression journey such as `InboxTests.verifyCompactInboxHeader`

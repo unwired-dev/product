@@ -115,7 +115,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
 @Suite(.serialized) @MainActor struct ErrorReportingTests {
   let date = Date(timeIntervalSince1970: 1_800_000_000)
   let metadata = ReportingMetadata(
-    platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification")
+    appNamespace: "dev.unwired.mail", platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification")
 
   func report(createdAt: Double? = nil) -> ReportingReport {
     ReportingReport(
@@ -281,11 +281,23 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(throws: (any Error).self) { try store.consent(enabled: true, renewIdentity: false) }
     #expect(collector.callbacks.isEmpty)
     memory.locked = false
-    _ = try store.consent(enabled: true, renewIdentity: false)
+    let enabled = try store.consent(enabled: true, renewIdentity: false)
+    let stored = memory.data
+    memory.locked = true
+    #expect(store.read()["available"] as? Bool == false)
+    #expect(!collector.active)
+    #expect(memory.data == stored)
+    memory.locked = false
+    let recovered = store.read()
+    #expect(recovered["enabled"] as? Bool == true)
+    #expect(recovered["generation"] as? Int == enabled["generation"] as? Int)
+    #expect(collector.active)
+    #expect(memory.data == stored)
     memory.locked = true
     store.disableForAccountRemoval()
     #expect(!collector.active)
     memory.locked = false
+    #expect(store.read()["enabled"] as? Bool == false)
     let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
     #expect(reopened.read()["enabled"] as? Bool == false)
   }
@@ -392,6 +404,13 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(UUID(uuidString: try #require(body["installationId"] as? String)) != nil)
     #expect((body["credential"] as? String)?.count == 64)
     let capture = String(decoding: try JSONEncoder().encode(["reports": [report()]]), as: UTF8.self)
+    _ = try await store.request(operation: "capture", body: capture, generation: generation)
+    let sent = try #require(ReportingHTTPProtocol.recording.captured().last?.httpBody)
+    let sentBody = try #require(try JSONSerialization.jsonObject(with: sent) as? [String: Any])
+    let sentMetadata = try #require(sentBody["metadata"] as? [String: Any])
+    #expect(sentMetadata["appNamespace"] as? String == "dev.unwired.mail")
+    #expect(sentMetadata["appVersion"] as? String == "1")
+    #expect(sentMetadata["build"] as? String == "1")
     let (stream, continuation) = AsyncStream<Void>.makeStream()
     ReportingHTTPProtocol.recording.reset(hold: true, started: { continuation.yield() })
     let task = Task {

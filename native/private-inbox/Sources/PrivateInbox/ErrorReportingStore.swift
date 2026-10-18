@@ -54,6 +54,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
   private var startedGeneration: Int?
   private var tasks: [UUID: (String, URLSessionDataTask)] = [:]
   private var blocked = false
+  private var unreadable = false
   private var revokingGeneration: Int?
 
   init(
@@ -115,6 +116,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     } else if stored == nil {
       try persist(value)
     }
+    unreadable = false
     return value
   }
 
@@ -129,13 +131,14 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
 
   private func snapshot(_ value: State?, usable: Bool) -> [String: Any] {
     [
-      "enabled": usable && !blocked && value?.enabled == true,
+      "enabled": usable && !blocked && !unreadable && value?.enabled == true,
       "generation": value?.generation ?? 0,
       "document": value?.document as Any? ?? NSNull(),
       "available": usable,
       "nativeAvailable": usable && nativeQualified,
       "identityAvailable": value != nil,
       "metadata": [
+        "appNamespace": metadata.appNamespace,
         "platform": metadata.platform, "appVersion": metadata.appVersion,
         "build": metadata.build, "osVersion": metadata.osVersion, "channel": metadata.channel,
       ],
@@ -149,7 +152,8 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
       retryWithdrawal(value)
       return snapshot(value, usable: available)
     } catch {
-      blockCollection()
+      unreadable = true
+      stopCollection()
       try? purgeCache()
       return snapshot(nil, usable: false)
     }
@@ -157,6 +161,10 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
 
   private func blockCollection() {
     blocked = true
+    stopCollection()
+  }
+
+  private func stopCollection() {
     startedGeneration = nil
     for (_, (operation, task)) in tasks where operation == "capture" || operation == "enable" {
       task.cancel()
@@ -237,7 +245,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
       decoded.version == 1,
       ["idle", "pending", "offline", "failed", "complete", "missing"].contains(decoded.deletion),
       decoded.queue.count <= 100, decoded.queue.allSatisfy({ $0.valid(now: now()) }),
-      (value.enabled && !blocked) || decoded.queue.isEmpty
+      (value.enabled && !blocked && !unreadable) || decoded.queue.isEmpty
     else { return false }
     value.document = try decoded.encoded()
     try persist(value)
@@ -245,7 +253,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
   }
 
   private func synchronizeCollector(_ value: State) throws {
-    guard value.enabled && available && nativeQualified && !blocked else {
+    guard value.enabled && available && nativeQualified && !blocked && !unreadable else {
       collector.stop()
       startedGeneration = nil
       try purgeCache()
@@ -268,7 +276,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
   }
 
   private func receive(generation: Int, report: ReportingReport) {
-    guard var value = try? load(), value.enabled, !blocked, nativeQualified,
+    guard var value = try? load(), value.enabled, !blocked, !unreadable, nativeQualified,
       value.generation == generation, report.valid(now: now())
     else { return }
     value.native = Array((value.native.filter { $0.valid(now: now()) } + [report]).suffix(32))
@@ -281,7 +289,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
   func takeNative() throws -> [String: Any] {
     var value = try load()
     let reports =
-      value.enabled && !blocked && nativeQualified
+      value.enabled && !blocked && !unreadable && nativeQualified
       ? value.native.filter { $0.valid(now: now()) } : []
     value.native = []
     try persist(value)
@@ -335,7 +343,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     // An installation that never opted in has no reporting authority to withdraw remotely.
     if operation == "revoke" && !value.everEnabled { return ["status": "disabled"] }
     if operation == "enable" || operation == "capture" {
-      guard value.enabled && !blocked else { throw ReportingError.disabled }
+      guard value.enabled && !blocked && !unreadable else { throw ReportingError.disabled }
     }
     var payload: [String: Any] = [:]
     if operation == "capture" {

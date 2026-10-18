@@ -47,6 +47,29 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
+  it('keeps empty refreshes local and enables delivery only for queued reports', async () => {
+    expect.hasAssertions();
+    const host = fixture({ enabled: true });
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.refresh();
+      await store.refresh();
+      expect(host.requests).toStrictEqual([]);
+      store.capture(new TypeError('Invalid time value'));
+      await store.refresh();
+      expect(host.requests.map((request) => request.operation)).toStrictEqual([
+        'enable',
+        'capture',
+      ]);
+      await store.refresh();
+      expect(host.requests).toHaveLength(2);
+      expect(host.state().document).not.toContain('"id"');
+    } finally {
+      store.dispose();
+    }
+  });
+
   it('keeps the innermost 64 JavaScript frames in PostHog wire order', async () => {
     expect.hasAssertions();
     const host = fixture();
@@ -364,7 +387,7 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
-  it('publishes native consent before a slow delivery and ignores duplicate enable', async () => {
+  it('keeps published native consent during a slow delivery and ignores duplicate enable', async () => {
     expect.hasAssertions();
     const host = fixture();
     const store = createErrorReporting(host.native);
@@ -380,11 +403,8 @@ describe('installation error reporting at the protected native boundary', () => 
           return original(operation, body, generation);
         },
       );
-      const enabling = store.setEnabled(true);
-      expect(store.getSnapshot()).toMatchObject({
-        kind: 'saving',
-        enabled: false,
-      });
+      await store.setEnabled(true);
+      store.capture(new Error('synthetic failure'));
       await entered.promise;
       expect(store.getSnapshot()).toMatchObject({
         kind: 'ready',
@@ -394,7 +414,7 @@ describe('installation error reporting at the protected native boundary', () => 
       await store.setEnabled(true);
       expect(host.state().generation).toBe(generation);
       release.resolve(undefined);
-      await enabling;
+      await store.refresh();
     } finally {
       release.resolve(undefined);
       store.dispose();

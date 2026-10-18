@@ -5,6 +5,7 @@ import { v } from 'convex/values';
 import { reportingStateValidator } from './errorReportingModel.js';
 
 export default defineSchema({
+  errorReportingServiceHealth: defineTable({ scheduledAt: v.number() }),
   errorReportingInstallations: defineTable({
     installationId: v.string(),
     credentialDigest: v.string(),

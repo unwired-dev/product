@@ -10,6 +10,8 @@ export function createReportingTest(
   const backend = convexTest(schema, modules);
   return {
     backend,
+    scheduleServiceHealth: () =>
+      backend.mutation(internal.errorReportingState.scheduleServiceHealth, {}),
     captureServiceHealth: () =>
       backend.action(internal.errorReporting.captureServiceHealth, {}),
   };

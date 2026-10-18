@@ -4,6 +4,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Error reporting lifecycle
 
+- `ErrorReportingStore.read` treating a transient unreadable Keychain as durable
+  withdrawal. Stop/cancel collection and fail closed during the failure, then
+  recover stored consent without advancing its generation after a successful
+  read. Preserve explicit withdrawal markers and failed-write blocking across
+  lock/unlock and restart; otherwise a background read silently opts a person out
+  or availability recovery resurrects revoked reporting.
+
 - `ErrorReportingStore.request` transmitting a fresh installation's capability for
   automatic withdrawal when it never opted in. Require prior reporting authority
   for cleanup traffic, preserve deletion credentials across account purge, and keep

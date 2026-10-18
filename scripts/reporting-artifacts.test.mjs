@@ -21,6 +21,9 @@ const script = path.join(import.meta.dirname, 'reporting-artifacts.mjs');
 const parseManifest = Schema.decodeSync(
   Schema.fromJsonString(
     Schema.Struct({
+      appNamespace: Schema.String,
+      appVersion: Schema.String,
+      build: Schema.String,
       chunkId: Schema.String,
       nativeIds: Schema.Array(Schema.String),
       cli: Schema.Struct({ version: Schema.String }),
@@ -61,6 +64,7 @@ function run(command, args) {
 }
 
 test('artifact preparation refuses plain Metro maps, non-Hermes bundles and unsafe release coordinates', () => {
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
   const directory = mkdtempSync(path.join(root, 'scratchpad/reporting-test-'));
   try {
     const bytecode = Buffer.alloc(32);
@@ -99,6 +103,7 @@ test(
   'prepares real Hermes and matching Mach-O dSYM artifacts without upload; refuses a mismatched executable',
   { skip: process.platform !== 'darwin' },
   () => {
+    mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
     const directory = mkdtempSync(
       path.join(root, 'scratchpad/reporting-test-'),
     );
@@ -141,7 +146,7 @@ test(
       ]);
       writeFileSync(
         path.join(directory, 'Info.plist'),
-        '<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>202610181230</string></dict></plist>',
+        '<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.unwired.mail</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>202610181230</string></dict></plist>',
       );
       const originalBytecode = readFileSync(path.join(directory, 'main.hbc'));
       run(process.execPath, [script, ...invocation(directory)]);
@@ -159,6 +164,18 @@ test(
       assert.equal(manifest.chunkId, map.chunk_id);
       assert.equal(manifest.nativeIds.length, 1);
       assert.equal(manifest.cli.version, '0.18.10');
+      assert.equal(manifest.appNamespace, 'dev.unwired.mail');
+      for (const command of manifest.uploadCommands) {
+        assert.equal(
+          command[command.indexOf('--release-name') + 1],
+          manifest.appNamespace,
+        );
+        assert.equal(
+          command[command.indexOf('--release-version') + 1],
+          manifest.appVersion,
+        );
+        assert.equal(command[command.indexOf('--build') + 1], manifest.build);
+      }
       assert.deepEqual(
         readFileSync(path.join(directory, 'main.hbc')),
         originalBytecode,
@@ -191,7 +208,30 @@ test(
         macManifest.chunkId,
         'app:///macos/1.0.0/202610181230/index.bundle',
       );
+      assert.equal(macManifest.appNamespace, 'dev.unwired.mail');
+      assert.deepEqual(
+        macManifest.uploadCommands.map((command) =>
+          command.slice(command.indexOf('--release-name')),
+        ),
+        manifest.uploadCommands.map((command) =>
+          command.slice(command.indexOf('--release-name')),
+        ),
+      );
       rmSync(path.join(directory, 'prepared'), { recursive: true });
+      const plist = path.join(directory, 'Info.plist');
+      const originalPlist = readFileSync(plist, 'utf8');
+      writeFileSync(
+        plist,
+        originalPlist.replace('dev.unwired.mail', 'dev.unwired.other'),
+      );
+      const wrongNamespace = spawnSync(
+        process.execPath,
+        [script, ...invocation(directory)],
+        { encoding: 'utf8' },
+      );
+      assert.equal(wrongNamespace.status, 1);
+      assert.match(wrongNamespace.stderr, /approved reporting namespace/u);
+      writeFileSync(plist, originalPlist);
       writeFileSync(
         path.join(directory, 'different.c'),
         'int main(void){return 1;}\n',

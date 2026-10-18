@@ -286,3 +286,29 @@ export const rescheduleDeletion = internalMutation({
     }
   },
 });
+
+// One project-wide health attempt per hour, including failed vendor requests.
+export const scheduleServiceHealth = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const previous = await ctx.db.query('errorReportingServiceHealth').unique();
+    if (previous !== null && now - previous.scheduledAt < 3_600_000) {
+      return null;
+    }
+    if (previous === null) {
+      await ctx.db.insert('errorReportingServiceHealth', { scheduledAt: now });
+    } else {
+      await ctx.db.patch('errorReportingServiceHealth', previous._id, {
+        scheduledAt: now,
+      });
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.errorReporting.captureServiceHealth,
+      {},
+    );
+    return null;
+  },
+});
