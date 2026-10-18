@@ -182,7 +182,7 @@ extension RegistrationStore {
         && (try? connectedMailbox(id))?.1.account == mailbox.account
     }
     // A write requires current device trust; the offline cache preflight cannot authorize it.
-    if body != nil && !sending {
+    if body != nil {
       let product = try mailboxAccount(id)
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {
@@ -359,7 +359,7 @@ extension RegistrationStore {
     }
     // A mutation requires a current Trusted Device proof. Offline cache reads may use the
     // permissive preflight, but a failed proof must never authorize a provider write.
-    if body != nil && !sending {
+    if body != nil {
       let product = try mailboxAccount(id)
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {

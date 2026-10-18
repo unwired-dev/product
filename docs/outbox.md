@@ -34,9 +34,10 @@ grant permission to send. Delivery does not promise mobile background execution.
 A provider request already started settles through the existing outcome rules.
 Suspension, termination, sign-out, connection removal or device revocation cannot
 turn an uncertain handoff into permission to submit again. Native submission
-revalidates account, connection and current device trust, then checks execution
-again after credential refresh. Removal hides or purges private local data under
-the account and connection policies; the backend retains only the content-free
+revalidates account, connection and current device trust before renewing Gmail or
+Graph credentials and again before handoff, then checks execution permission.
+Removal hides or purges private local data under the account and connection
+policies; the backend retains only the content-free
 delivery claim needed to refuse takeover, until Product Account deletion removes
 it.
 
@@ -230,7 +231,10 @@ The hosted iOS 27 suite adds `OutboxTests`:
 - refusal of non-ASCII text, malformed segments, moved or damaged bytes, and a
   stale mailbox generation before any request;
 - a returned Gmail refusal, and an unknown outcome once a request started;
-- losing native execution permission during credential refresh, before any handoff;
+- losing native execution permission or device trust during credential refresh,
+  before any handoff;
+- already-revoked Gmail and Graph sends purging local registration without
+  refreshing credentials;
 - opaque claim identifiers held by one device.
 
 Deferred before release:
