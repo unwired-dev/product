@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A layout regression journey such as `InboxTests.verifyCompactInboxHeader`
+  checking only the title against Back when the reported header also includes a
+  subtitle. Assert the required geometry for every named part at entry and after
+  the relevant navigation transition; otherwise a displaced subtitle can pass
+  while the reported regression remains possible. Match locators to the rendered
+  text and accessibility exposure, including variable counts.
+
 - A transition test such as the Profile-move cases in
   `packages/mail-core/test/outbox.test.ts` checking only downstream delivery or
   preservation. Assert the transition through the resulting public snapshot as

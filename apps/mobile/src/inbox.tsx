@@ -102,6 +102,8 @@ interface InboxProps {
     | undefined;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Returns to Mailboxes on iPhone, where the list replaces the native navigation bar.
+  readonly onBack?: (() => void) | undefined;
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
@@ -555,6 +557,7 @@ export function Inbox({
   onSelect,
   onSelectBehindComposer,
   onClose,
+  onBack,
   onCompose,
   composing,
   view = allInboxes,
@@ -759,23 +762,26 @@ export function Inbox({
   );
   return (
     // The floating bar rises above the software keyboard while its search field is in use. The safe
-    // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it.
+    // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it. The surface
+    // fills those margins too, behind the status bar and home indicator.
     <KeyboardAvoidingView
       behavior="padding"
       keyboardVerticalOffset={-insets.bottom}
-      style={styles.fill}>
+      style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true }}
         style={styles.fill}>
-        <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+        <View style={styles.fill}>
           <InboxHeading
             account={account}
             detail={selected !== undefined || composing !== undefined}
             onClose={onClose}
+            onBack={onBack}
             onLeave={leave}
             onSearch={ready ? searchState.open : undefined}>
             <SearchHeading search={searchState}>
               <HeadingTitle
+                onBack={onBack}
                 title={title}
                 subtitle={t('inbox.subtitleLabel', {
                   scope: scopeName,

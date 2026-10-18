@@ -22,13 +22,20 @@ export const styles = StyleSheet.create({
   searchField: { flex: 1, flexDirection: 'row' },
   heading: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: ipad ? 'flex-start' : 'center',
     gap: spacing.s,
     paddingHorizontal: ipad ? 14 * scale : spacing.l,
     paddingTop: ipad ? 10 * scale : spacing.xs,
     paddingBottom: ipad ? 10 * scale : spacing.m,
   },
   headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
+  back: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
   // iPad's command input takes its own row above the heading, as the frames place it, so the
   // heading's top padding is the gap beneath it.
   commands: {
