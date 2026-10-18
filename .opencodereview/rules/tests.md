@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A choice-dependent Draft persistence journey such as
+  `apps/mobile/test/evaluation-composer.test.tsx` checking storage only after
+  explicit Save. Reload through a fresh Draft store after cancelling the save
+  question and before a later Save, and assert that the authored edit is absent;
+  then verify it persists after Save. Otherwise premature persistence and
+  choice-dependent persistence produce the same final body and both pass.
+
 - A layout regression journey such as `InboxTests.verifyCompactInboxHeader`
   checking only the title against Back when the reported header also includes a
   subtitle. Assert the required geometry for every named part at entry and after
