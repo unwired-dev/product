@@ -121,21 +121,6 @@ export function InboxProvider({
       }),
     [refreshInbox, mailboxes],
   );
-  // Returning tries queued messages again at once, once for every window.
-  useEffect(
-    () =>
-      followOnce(outbox, () => {
-        const subscription = AppState.addEventListener('change', (state) => {
-          if (state === 'active') {
-            void outbox.process();
-          }
-        });
-        return () => {
-          subscription.remove();
-        };
-      }),
-    [outbox],
-  );
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>

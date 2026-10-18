@@ -1,5 +1,3 @@
-import type { Translate } from '@private-email/localization';
-
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schedule from 'effect/Schedule';
@@ -9,6 +7,7 @@ import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts } from './drafts.ts';
 import type { SendOutcome } from './gmail-inbox.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
+import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 import type { MailProvider } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 
@@ -30,6 +29,10 @@ import {
 } from './outgoing-message.ts';
 import { mailboxesOf } from './registration-snapshot.ts';
 import { canOpenInbox } from './registration.ts';
+
+export type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
+
+export { outboxCopy } from './outbox-copy.ts';
 
 // The native module's delivery claim through Convex. Native code names the Draft by an identifier
 // derived from the Product Account's Product Sync keys, so Convex learns nothing about the message.
@@ -64,131 +67,6 @@ export type SendRefusal =
   | 'too-large'
   | 'changed'
   | 'storage';
-
-// The answer to the person's last Check Again of an unknown message: none, still looking, or its
-// Sent mailbox did not confirm it.
-export type OutboxCheck = 'idle' | 'checking' | 'unconfirmed';
-
-// An Outbox entry as hosts read it.
-export type OutboxSnapshotEntry = OutboxEntry &
-  Readonly<{ check: OutboxCheck }>;
-
-// The provider whose words a row uses; 'unlisted' when its connection is no longer listed.
-type CopyProvider = MailProvider | 'unlisted';
-
-// Why a message waits or was refused, as the person reads it.
-const problems = {
-  offline: 'outbox.queued.offline',
-  locked: 'outbox.queued.locked',
-  'rate-limited': 'outbox.queued.rate-limited',
-  claimed: 'outbox.failed.claimed',
-  authorization: 'outbox.failed.authorization',
-  mailbox: 'outbox.failed.mailbox',
-  assets: 'outbox.failed.assets',
-  'too-large': 'outbox.failed.too-large',
-  refused: 'outbox.failed.refused',
-  'sent-folder': 'outbox.failed.sent-folder',
-} as const satisfies Readonly<Record<DeliveryProblem, string>>;
-// The same reasons in each provider's words: the copy above names Gmail, and an IMAP connection's
-// mail server or Microsoft send other messages. A message whose connection is no longer listed,
-// as after its removal, names no provider.
-const providerProblems = {
-  gmail: problems,
-  imap: {
-    ...problems,
-    offline: 'outbox.queued.offline_imap',
-    authorization: 'outbox.failed.authorization_imap',
-    'too-large': 'outbox.failed.too-large_imap',
-    refused: 'outbox.failed.refused_imap',
-  },
-  'microsoft-graph': {
-    ...problems,
-    offline: 'outbox.queued.offline_microsoft',
-    'rate-limited': 'outbox.queued.rate-limited_microsoft',
-    authorization: 'outbox.failed.authorization_microsoft',
-    'too-large': 'outbox.failed.too-large_microsoft',
-    refused: 'outbox.failed.refused_microsoft',
-  },
-  unlisted: {
-    ...problems,
-    offline: 'outbox.queued.offline_unlisted',
-    'rate-limited': 'outbox.queued.rate-limited_unlisted',
-    authorization: 'outbox.failed.authorization_unlisted',
-    'too-large': 'outbox.failed.too-large_unlisted',
-    refused: 'outbox.failed.refused_unlisted',
-  },
-} as const satisfies Readonly<
-  Record<CopyProvider, Readonly<Record<DeliveryProblem, string>>>
->;
-// The unknown-outcome copy's own words for each provider.
-const unknownCopy = {
-  gmail: '',
-  imap: '_imap',
-  'microsoft-graph': '_microsoft',
-  unlisted: '_unlisted',
-} as const satisfies Readonly<Record<CopyProvider, string>>;
-// Why an accepted message's Sent copy still waits.
-const filing: Readonly<
-  Partial<
-    Record<
-      DeliveryProblem,
-      `outbox.filing.${'offline' | 'locked' | 'authorization' | 'sent-folder'}`
-    >
-  >
-> = {
-  offline: 'outbox.filing.offline',
-  locked: 'outbox.filing.locked',
-  authorization: 'outbox.filing.authorization',
-  'sent-folder': 'outbox.filing.sent-folder',
-};
-
-// Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
-// sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
-// outcome.
-const statusOf = (
-  t: Translate,
-  { state, problem }: OutboxEntry,
-  provider: CopyProvider,
-) => {
-  if (state === 'filing') {
-    return t(
-      (problem === undefined ? undefined : filing[problem]) ??
-        'outbox.state.filing',
-    );
-  }
-  if (state === 'queued') {
-    return t(
-      problem === undefined
-        ? 'outbox.state.sending'
-        : providerProblems[provider][problem],
-    );
-  }
-  if (state === 'failed') {
-    return t(providerProblems[provider][problem ?? 'refused']);
-  }
-  if (state === 'unknown') {
-    return t(`outbox.state.unknown${unknownCopy[provider]}`);
-  }
-  return t(`outbox.state.${state}`);
-};
-
-// An entry's words in the provider it was handed to, undefined once its connection is no longer
-// listed: its status, the notice after Check Again found no confirmation, and the warning before
-// editing an unknown message, which the provider may already have sent.
-export function outboxCopy(
-  t: Translate,
-  entry: OutboxSnapshotEntry,
-  provider: CopyProvider = 'unlisted',
-) {
-  return {
-    status: statusOf(t, entry, provider),
-    unconfirmed:
-      entry.check === 'unconfirmed'
-        ? t(`outbox.unknown.unconfirmed${unknownCopy[provider]}`)
-        : undefined,
-    editWarning: t(`outbox.unknown.confirming${unknownCopy[provider]}`),
-  };
-}
 
 // The person's Check Again of an unknown message, for the Send it was asked about and the Product
 // Account it belongs to.
@@ -280,7 +158,7 @@ export function createOutbox({
     | 'subscribe'
   >;
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
-  registration: Pick<Registration, 'getSnapshot'>;
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
@@ -295,6 +173,20 @@ export function createOutbox({
   const checking = new Map<string, boolean>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
+  let paused = false;
+  // A pause fences work already awaiting a claim or storage, even if execution resumes meanwhile.
+  let execution = 0;
+  const running = () => !disposed && !paused;
+  const executing = (started: number, account: string | undefined) =>
+    running() && started === execution && ownerOf(registration) === account;
+  let owner = ownerOf(registration);
+  const unsubscribeRegistration = registration.subscribe(() => {
+    const next = ownerOf(registration);
+    if (owner !== next) {
+      owner = next;
+      execution += 1;
+    }
+  });
   // The person's Check Again of each unknown message, shared by every window reading this Outbox.
   const asked = new Map<string, CheckRequest>();
   const listeners = new Set<() => void>();
@@ -424,7 +316,11 @@ export function createOutbox({
   };
 
   // Resolves true only once storage holds this device's confirmed claim on a queued message.
-  const holdClaim = async (account: string, entry: OutboxEntry) => {
+  const holdClaim = async (
+    account: string,
+    entry: OutboxEntry,
+    current: () => boolean,
+  ) => {
     const { id } = entry;
     if (entry.claim === 'held') {
       return true;
@@ -437,6 +333,9 @@ export function createOutbox({
         step('queued', (each) => ({ ...each, claim: 'requested' })),
       ))
     ) {
+      return false;
+    }
+    if (!current()) {
       return false;
     }
     const claimed = await claim(account, id);
@@ -483,15 +382,38 @@ export function createOutbox({
     return true;
   };
 
+  // Invokes the current provider with the frozen message and its original envelope.
+  const submit = async (entry: OutboxEntry): Promise<SendOutcome> => {
+    const mailbox = connectionOf(entry.draft.connection);
+    if (mailbox === undefined) {
+      return { kind: 'queued', problem: 'offline' };
+    }
+    const { to, cc, bcc } = entry.draft;
+    return mailbox.provider === 'imap'
+      ? mailbox.inbox.send(
+          entry.message,
+          [...to, ...cc, ...bcc].map(({ address }) => address),
+        )
+      : mailbox.inbox.send(entry.message);
+  };
+
   // Hands a claimed message to Gmail once, after its durable handoff.
-  const handOff = async (id: string) => {
+  const handOff = async (id: string, current: () => boolean) => {
+    const account = ownerOf(registration);
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
-      each.state === 'queued' && each.claim === 'held'
+      current() && each.state === 'queued' && each.claim === 'held'
         ? withState(each, 'sending')
         : undefined,
     );
     if (!handed) {
+      return;
+    }
+    // No provider request started. Keep the held claim retryable when execution ended mid-write.
+    if (!current()) {
+      if (account === ownerOf(registration)) {
+        await keep(id, { kind: 'queued', problem: 'offline' });
+      }
       return;
     }
     const sending = entryOf(id);
@@ -499,7 +421,6 @@ export function createOutbox({
       await keep(id, { kind: 'queued', problem: 'offline' });
       return;
     }
-    const mailbox = connectionOf(sending.draft.connection);
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
     const problem = handoffCheck(sending.draft);
     if (problem !== undefined) {
@@ -509,24 +430,28 @@ export function createOutbox({
       });
       return;
     }
-    let outcome: SendOutcome = { kind: 'queued', problem: 'offline' };
-    if (mailbox !== undefined) {
-      const { to, cc, bcc } = sending.draft;
-      outcome =
-        mailbox.provider === 'imap'
-          ? await mailbox.inbox.send(
-              sending.message,
-              [...to, ...cc, ...bcc].map(({ address }) => address),
-            )
-          : await mailbox.inbox.send(sending.message);
+    const outcome = await submit(sending);
+    if (account === ownerOf(registration)) {
+      await keep(id, outcome);
     }
-    await keep(id, outcome);
+  };
+
+  // Delivery owns opening its sender even when no Inbox view has loaded it.
+  const openSender = async (draft: Draft) => {
+    const mailbox = connectionOf(draft.connection);
+    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
+      await mailbox.inbox.load();
+    }
   };
 
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
-  const file = async (entry: OutboxEntry) => {
+  const file = async (entry: OutboxEntry, current: () => boolean) => {
+    await openSender(entry.draft);
+    if (!current()) {
+      return;
+    }
     const mailbox = connectionOf(entry.draft.connection);
     const boundary = boundaryOf(entry.message.segments);
     const sending = sendingStateOf(
@@ -631,7 +556,15 @@ export function createOutbox({
   };
 
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
-  const sendQueued = async (account: string, entry: OutboxEntry) => {
+  const sendQueued = async (
+    account: string,
+    entry: OutboxEntry,
+    current: () => boolean,
+  ) => {
+    await openSender(entry.draft);
+    if (!current()) {
+      return;
+    }
     const check = handoffCheck(entry.draft);
     if (check === 'wait') {
       return;
@@ -643,11 +576,11 @@ export function createOutbox({
       );
       return;
     }
-    if (await holdClaim(account, entry)) {
-      await handOff(entry.id);
+    if ((await holdClaim(account, entry, current)) && current()) {
+      await handOff(entry.id, current);
       const accepted = entryOf(entry.id);
-      if (accepted?.state === 'filing') {
-        await file(accepted);
+      if (current() && accepted?.state === 'filing') {
+        await file(accepted, current);
       }
     }
   };
@@ -656,20 +589,31 @@ export function createOutbox({
   const advance = async (id: string) => {
     const account = ownerOf(registration);
     const waiting = entryOf(id);
+    const started = execution;
+    const current = () => executing(started, account);
     if (account === undefined || waiting === undefined) {
       return;
     }
     if (await resave(waiting)) {
       return;
     }
-    if (!(await release(waiting))) {
+    if (!(await release(waiting)) || !current()) {
       return;
     }
     const entry = entryOf(id);
-    if (entry?.state === 'filing') {
-      await file(entry);
-    } else if (entry?.state === 'queued') {
-      await sendQueued(account, entry);
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other durable states never permit automatic delivery.
+    switch (entry?.state) {
+      case 'filing': {
+        await file(entry, current);
+        break;
+      }
+      case 'queued': {
+        await sendQueued(account, entry, current);
+        break;
+      }
+      default: {
+        break;
+      }
     }
   };
 
@@ -677,7 +621,7 @@ export function createOutbox({
   const plan = (due: () => void) => {
     timer?.abort();
     timer = undefined;
-    if (disposed) {
+    if (!running()) {
       return;
     }
     const now = Date.now();
@@ -697,7 +641,7 @@ export function createOutbox({
             ),
             { signal: pending.signal },
           );
-          if (!pending.signal.aborted && !disposed) {
+          if (!pending.signal.aborted && running()) {
             timer = undefined;
             due();
           }
@@ -743,40 +687,67 @@ export function createOutbox({
   // Passes run one at a time; a request during one runs another after it.
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
-  const pass = async () => {
-    for (const id of checks) {
-      checks.delete(id);
-      checking.set(id, false);
-      try {
-        await reconcile(id);
-      } finally {
-        const refreshed = checking.get(id) === true;
-        checking.delete(id);
-        if (refreshed && !queuedChecks.has(id) && !disposed) {
-          checkUnknown(false);
-        }
+  // A single Sent lookup owns its deduplication markers until the provider settles.
+  const checkSent = async (id: string) => {
+    if (!running()) {
+      return;
+    }
+    checks.delete(id);
+    checking.set(id, false);
+    try {
+      await reconcile(id);
+    } finally {
+      const refreshed = checking.get(id) === true;
+      checking.delete(id);
+      if (refreshed && !queuedChecks.has(id) && !disposed) {
+        checkUnknown(false);
       }
+    }
+  };
+  // An interrupted execution cannot restore backoff that a new opportunity already cleared.
+  const retry = (id: string, started: number) => {
+    if (started !== execution) {
+      return;
+    }
+    const pending = entryOf(id);
+    if (pending !== undefined && Number.isFinite(dueAt(pending))) {
+      retryAt.set(id, Date.now() + retryDelay);
+    }
+  };
+  const hasUnknown = () =>
+    drafts.getOutbox().some((entry) => entry.state === 'unknown');
+  const pass = async () => {
+    // Recovery also owns opening its mailbox after a launch with no Inbox.
+    for (const entry of drafts.getOutbox()) {
+      if (running() && entry.state === 'unknown') {
+        await openSender(entry.draft);
+      }
+    }
+    checkUnknown(false);
+    for (const id of checks) {
+      await checkSent(id);
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
       const { id } = entry;
-      if (dueAt(entry) <= now) {
+      if (running() && dueAt(entry) <= now) {
+        const started = execution;
         retryAt.delete(id);
         await advance(id);
-        const pending = entryOf(id);
-        if (pending !== undefined && Number.isFinite(dueAt(pending))) {
-          retryAt.set(id, Date.now() + retryDelay);
-        }
+        retry(id, started);
       }
     }
   };
   const process = async () => {
+    if (!running()) {
+      return;
+    }
     requested = true;
     passing ??= (async () => {
       try {
         while (requested) {
           requested = false;
-          if (!disposed) {
+          if (running()) {
             await pass();
           }
         }
@@ -817,7 +788,7 @@ export function createOutbox({
         }
       }
       publish();
-      if (checkUnknown(false)) {
+      if (checkUnknown(false) || hasUnknown()) {
         void process();
       } else if (passing === undefined) {
         plan(() => void process());
@@ -829,7 +800,7 @@ export function createOutbox({
       void process();
     }
   });
-  if (checkUnknown(false)) {
+  if (checkUnknown(false) || hasUnknown()) {
     void process();
   } else {
     plan(() => void process());
@@ -944,7 +915,21 @@ export function createOutbox({
       }
       return current === undefined;
     },
-    // Tries every due message now and checks every unknown one, as when the app becomes active.
+    // Ends this execution opportunity without cancelling a request already handed to its provider.
+    pause: () => {
+      paused = true;
+      execution += 1;
+      timer?.abort();
+      timer = undefined;
+    },
+    // A fresh foreground/application opportunity retries due work without changing Send deadlines.
+    resume: async () => {
+      paused = false;
+      retryAt.clear();
+      checkUnknown(true);
+      await process();
+    },
+    // Tries every due message now and checks every unknown one within the current opportunity.
     process: async () => {
       retryAt.clear();
       checkUnknown(true);
@@ -955,6 +940,7 @@ export function createOutbox({
       timer?.abort();
       unsubscribe();
       unsubscribeMailboxes();
+      unsubscribeRegistration();
       unrecorded.clear();
       checks.clear();
       queuedChecks.clear();

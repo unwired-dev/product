@@ -43,6 +43,19 @@ struct OutboxTests {
       ["text": head], ["asset": ["id": "assetabc123", "digest": digest]], ["text": "\r\n--=_b--"],
     ]
     google.gmailRequests = []
+    // The app lost its execution opportunity while credentials were being refreshed. Nothing
+    // reached Gmail, and returning to the foreground permits the same admitted intent later.
+    var executionAllowed = true
+    store.deliveryAllowed = { executionAllowed }
+    google.beforeRefresh = { executionAllowed = false }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.gmailSend(
+        segments: segments, threadId: nil, connection: connection, address: google.address,
+        generation: generation)
+    }
+    #expect(google.gmailRequests.isEmpty)
+    google.beforeRefresh = nil
+    executionAllowed = true
 
     let sent = try await store.gmailSend(
       segments: segments, threadId: "thread7", connection: connection, address: google.address,
@@ -134,6 +147,79 @@ struct OutboxTests {
       #expect(GmailTransport.failure(URLError(code)) is GmailRequestInterrupted)
     }
     #expect(GmailTransport.failure(URLError(.cancelled)) is CancellationError)
+    // A trust change during credential refresh must be observed before a new provider handoff.
+    let device = try #require(try store.load()?.product?.trustedDeviceId)
+    let beforeRevocation = google.gmailRequests.count
+    google.gmailFailure = nil
+    google.beforeRefresh = { backend.revoked.insert(device) }
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.gmailSend(
+        segments: segments, threadId: nil, connection: connection, address: google.address,
+        generation: generation)
+    }
+    #expect(google.gmailRequests.count == beforeRevocation)
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func revokedDeviceNeverRefreshesSendingCredentials(microsoftMailbox: Bool) async throws {
+    let service = "dev.unwired.outbox-revoked.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    let backend = SyntheticProductSyncBackend()
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let microsoft = SyntheticMicrosoftMailProvider()
+    let account = "account-" + google.subject
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, microsoft: microsoft, productSync: backend.backend,
+      deviceRevoked: { [backend] product in backend.revoked.contains(product.trustedDeviceId) },
+      transport: { try backend.transport($0) },
+      mailCache: PrivateInboxStore(directory: directory, service: service),
+      connect: { [backend] identity, device, _ in
+        try backend.connect("account-" + identity.subject, device: device)
+      })
+    defer {
+      try? keys.remove("registration")
+      try? keys.remove("product-sync." + account)
+      try? keys.remove("product-sync-enrollment." + account)
+      try? keys.remove("product-sync-device-key." + account)
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    var connection = MailboxConnection.id(subject: google.subject)
+    var address = google.address
+    if microsoftMailbox {
+      _ = try await store.signInMailbox(nil, suggest: false, provider: .microsoftGraph)
+      let verified = try await store.verifyMailbox()
+      connection = try #require(verified["connection"] as? String)
+      address = microsoft.address
+      try await store.retryMailboxCleanup()
+      try store.storeMailbox()
+      try await store.synchronizeRegistration()
+    }
+    let generation = store.mailboxGeneration(connection).uuidString
+    let device = try #require(try store.load()?.product?.trustedDeviceId)
+    let refreshes = (google.refreshes, microsoft.refreshes)
+    google.gmailRequests = []
+    microsoft.graphSends = []
+    backend.revoked.insert(device)
+    let segments: [Any] = [["text": "Subject: Plan\r\n\r\nHello\r\n"]]
+    await #expect(throws: RegistrationError.revoked) {
+      if microsoftMailbox {
+        _ = try await store.graphSend(
+          segments: segments, connection: connection, address: address, generation: generation)
+      } else {
+        _ = try await store.gmailSend(
+          segments: segments, threadId: nil, connection: connection, address: address,
+          generation: generation)
+      }
+    }
+    #expect(google.refreshes == refreshes.0 && microsoft.refreshes == refreshes.1)
+    #expect(google.gmailRequests.isEmpty && microsoft.graphSends.isEmpty)
+    #expect(try keys.read("registration") == nil)
   }
 
   @Test @MainActor func deliveryClaimsNameNoDraftAndAreHeldByOneTrustedDevice() async throws {

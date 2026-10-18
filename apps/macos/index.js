@@ -1,4 +1,5 @@
 import 'fast-text-encoding';
+import './src/delivery.ts';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { AppRegistry } from 'react-native';
 

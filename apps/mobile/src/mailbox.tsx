@@ -92,17 +92,6 @@ export function InboxProvider({
       subscription.remove();
     };
   }, [account, mailboxes]);
-  useEffect(() => {
-    // Returning tries queued messages again at once.
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        void outbox.process();
-      }
-    });
-    return () => {
-      subscription.remove();
-    };
-  }, [outbox]);
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
