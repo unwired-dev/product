@@ -6,7 +6,11 @@ import type { SemanticDocument } from '@private-email/mail-core/semantic-documen
 import type { KeyboardEvent } from 'react-native';
 
 import { commandScript } from '@private-email/draft-editor/messages';
-import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import {
+  createDrafts,
+  draftOf,
+  draftsOf,
+} from '@private-email/mail-core/drafts';
 import { imagesOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
@@ -222,6 +226,8 @@ describe('the Tiptap evaluation composer', () => {
     const drafts = createDrafts(storage.native, registration);
     await render(<App drafts={drafts} />);
     await press('New Message');
+    const [created] = draftsOf(drafts.getSnapshot());
+    ok(created, 'Expected the created Draft');
     const page = simulatedPage();
     await page.typed('Keep these unsaved words');
     const back = screen.getByTestId('composer-back-navigation');
@@ -234,7 +240,11 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     const beforeSave = createDrafts(storage.native, registration);
     await beforeSave.load();
-    expect(draftsOf(beforeSave.getSnapshot())[0]?.body).not.toStrictEqual([
+    const snapshot = beforeSave.getSnapshot();
+    expect(snapshot.kind).toBe('ready');
+    const before = draftOf(snapshot, created.id);
+    ok(before, 'Expected the same Draft before Save');
+    expect(before.body).not.toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Keep these unsaved words' }] },
     ]);
     await fireEvent(back, 'back');
@@ -243,7 +253,9 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByTestId('message-webview')).toBeNull();
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
-    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+    const saved = draftOf(reopened.getSnapshot(), created.id);
+    ok(saved, 'Expected the same Draft after Save');
+    expect(saved.body).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Keep these unsaved words' }] },
     ]);
   });
