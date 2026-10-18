@@ -83,7 +83,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Exception forwarding
 
-- Both `index.js` hooks capturing the same synchronous global-to-ExceptionsManager
+- `index.js` installing reporting hooks after application imports have evaluated,
+  or early hooks using a store whose consent stays unknown until asynchronous
+  restoration. Trace the bootstrap's actual import graph and the native startup
+  snapshot through the shared strict decoder. Install hooks before registration
+  side effects, delivery, freshness, routing and windows, and admit startup errors
+  only for a valid available enabled idle snapshot. Missing, locked or malformed
+  state must stay off without buffering raw errors. Preserve ordinary async
+  reconciliation and generation fences; entry mocks do not qualify native cold start.
+- Both `reporting-bootstrap.js` hooks capturing the same synchronous global-to-ExceptionsManager
   forwarding twice. Check primitive values as well as objects, preserve saved
   handlers and their fatal flag, and clear any forwarding guard when a handler
   throws. Trace the installed RN classic and always-available paths plus Expo

@@ -26,8 +26,10 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   or availability recovery resurrects revoked reporting.
 
 - `ErrorReportingStore.request` transmitting a fresh installation's capability for
-  automatic withdrawal when it never opted in. Require prior reporting authority
-  for cleanup traffic, preserve deletion credentials across account purge, and keep
+  revoke, delete or status when it never opted in. Use durable `everEnabled`, not
+  an empty queue, to establish prior reporting authority. Complete never-enabled
+  deletion locally without registering an installation. Preserve actual opted-in
+  remote deletion and deletion credentials across account purge, and keep
   the generation/withdrawal marker effective through failed Keychain writes. Require
   the observed generation on bridged enables so a late enable cannot undo a later
   withdrawal;

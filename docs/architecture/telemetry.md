@@ -26,6 +26,24 @@ reporting because they also represent expected offline conditions. Global
 unexpected exception capture is unchanged. The JS projection keeps exact approved messages and positional bundle coordinates;
 packaged Hermes may omit named capture-group dictionaries.
 
+## Startup
+
+The [startup decision](https://github.com/unwired-dev/product/issues/1049#issuecomment-6256015256)
+keeps synchronous native roots and headless startup. The reporting module exports
+an initial snapshot on the main queue, using the existing native read without
+exposing its credential. Each host's minimal `host.ts` passes the unknown snapshot
+to the shared strict bridge/document decoder before `reporting-bootstrap.js`
+installs the saved global and ExceptionsManager handlers. The entry imports that
+bootstrap before registration side effects, delivery, freshness, routing or windows.
+
+Only a valid available enabled idle snapshot permits startup capture. Missing,
+locked, unavailable or malformed state stays off without retaining raw errors.
+The ordinary asynchronous load still reconciles native state and starts polling;
+startup capture retains native generation/CAS and synchronous withdrawal fences.
+The bootstrap's own dependencies remain outside its hooks' protection. Real
+module-order, bridge/isolation and cold-start delivery qualification remains
+required under #1050; substituted entry/store tests do not establish it.
+
 ## Revocation and deletion
 
 The native consent generation fences saves, callbacks and requests. Bridged enables
@@ -33,7 +51,10 @@ carry the observed generation and cannot undo a later withdrawal. Withdrawal
 closes collection and cancels enable/capture before waiting for the network. A
 separate file marker survives locked-Keychain or interrupted account cleanup;
 restart retries withdrawal until acknowledgement. An installation that never opted
-in does not send a capability merely to withdraw reporting.
+in does not send a capability for revoke, delete or status. Its deletion completes
+locally using durable `everEnabled` authority, without inferring report absence
+from an empty queue. An installation that previously opted in retains remote
+withdrawal and verified-deletion requirements.
 
 Deletion closes collection and publishes its pending intent synchronously, then
 persists the empty document before crossing the withdrawal bridge, refreshing
