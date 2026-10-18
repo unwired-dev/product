@@ -182,26 +182,38 @@ for (const [count, code, expectedExit, expectedAttempts] of [
   [0, 0, 1, 2],
   [56, 65, 1, 1],
 ]) {
-  test(`private Inbox runner: ${count} completed tests, xcodebuild exit ${code}`, () => {
+  test(`private Inbox runner: ${count} completed tests, xcodebuild exit ${code}`, (t) => {
     mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
     const directory = mkdtempSync(
       path.join(root, 'scratchpad/private-inbox-runner-'),
     );
-    try {
-      const integration = path.join(
-        directory,
-        'native/private-inbox/integration',
-      );
-      const bin = path.join(directory, 'bin');
-      const home = path.join(directory, 'home');
-      for (const entry of [integration, bin, home]) {
-        mkdirSync(entry, { recursive: true });
+    t.after(() => {
+      const servers = path.join(directory, 'servers');
+      if (existsSync(servers)) {
+        for (const pid of readFileSync(servers, 'utf8').trim().split('\n')) {
+          try {
+            process.kill(Number(pid), 'SIGTERM');
+          } catch {
+            /* Already stopped by the runner. */
+          }
+        }
       }
-      cpSync(
-        path.join(root, 'native/private-inbox/integration/test.zsh'),
-        path.join(integration, 'test.zsh'),
-      );
-      const stub = `#!${process.execPath}
+      rmSync(directory, { recursive: true, force: true });
+    });
+    const integration = path.join(
+      directory,
+      'native/private-inbox/integration',
+    );
+    const bin = path.join(directory, 'bin');
+    const home = path.join(directory, 'home');
+    for (const entry of [integration, bin, home]) {
+      mkdirSync(entry, { recursive: true });
+    }
+    cpSync(
+      path.join(root, 'native/private-inbox/integration/test.zsh'),
+      path.join(integration, 'test.zsh'),
+    );
+    const stub = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
 const base = ${JSON.stringify(directory)};
@@ -227,44 +239,31 @@ if (command === 'node') {
   setInterval(() => {}, 1000);
 }
 `;
-      for (const command of ['df', 'ruby', 'node', 'xcrun', 'xcodebuild']) {
-        writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
-      }
-      const result = spawnSync(
-        'zsh',
-        ['-f', '-o', 'nobgnice', path.join(integration, 'test.zsh'), 'ios'],
-        {
-          cwd: directory,
-          env: {
-            ...process.env,
-            HOME: home,
-            ZDOTDIR: home,
-            PATH: `${bin}:${process.env.PATH}`,
-          },
-          encoding: 'utf8',
-          timeout: 20_000,
-        },
-      );
-      assert.ifError(result.error);
-      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
-      assert.equal(
-        readFileSync(path.join(directory, 'attempts'), 'utf8')
-          .trim()
-          .split('\n').length,
-        expectedAttempts,
-      );
-    } finally {
-      const servers = path.join(directory, 'servers');
-      if (existsSync(servers)) {
-        for (const pid of readFileSync(servers, 'utf8').trim().split('\n')) {
-          try {
-            process.kill(Number(pid), 'SIGTERM');
-          } catch {
-            /* Already stopped by the runner. */
-          }
-        }
-      }
-      rmSync(directory, { recursive: true, force: true });
+    for (const command of ['df', 'ruby', 'node', 'xcrun', 'xcodebuild']) {
+      writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
     }
+    const result = spawnSync(
+      'zsh',
+      ['-f', '-o', 'nobgnice', path.join(integration, 'test.zsh'), 'ios'],
+      {
+        cwd: directory,
+        env: {
+          ...process.env,
+          HOME: home,
+          ZDOTDIR: home,
+          PATH: `${bin}:${process.env.PATH}`,
+          RUBY: path.join(bin, 'ruby'),
+        },
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+    assert.equal(
+      readFileSync(path.join(directory, 'attempts'), 'utf8').trim().split('\n')
+        .length,
+      expectedAttempts,
+    );
   });
 }
