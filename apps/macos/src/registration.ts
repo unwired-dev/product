@@ -1,26 +1,24 @@
-import type { NativeMailAssistance } from '@private-email/mail-core/assistance-enablement';
-import type { NativePreferences } from '@private-email/mail-core/commands';
-import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
-import type { NativeHostModule } from '@private-email/mail-core/host';
 import type { TurboModule } from 'react-native';
 
-import { createHost } from '@private-email/mail-core/host';
 import { microsoftMailAvailable } from '@private-email/mail-core/registration';
 import { answerSyntheticRegistration } from '@private-email/mail-core/synthetic-registration';
 import { NativeEventEmitter, TurboModuleRegistry } from 'react-native';
 
-interface RegistrationModule
-  extends
-    TurboModule,
-    NativeHostModule,
-    NativeMailAssistance,
-    NativePreferences {}
+import { native } from './host.ts';
 
-interface ReportingModule extends TurboModule, NativeErrorReporting {}
-
-// The host's only lookup of its native module, on first use.
-export const native = () =>
-  TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
+export {
+  registration,
+  gmailMailboxes,
+  drafts,
+  outbox,
+  wakes,
+  freshness,
+  remoteContent,
+  errorReporting,
+  start,
+  followWakes,
+  native,
+} from './host.ts';
 
 interface SyntheticRegistrationModule extends TurboModule {
   readonly getConstants: () => Readonly<{ scenario?: unknown }>;
@@ -56,18 +54,3 @@ if (answerSyntheticRegistration !== undefined) {
 // Whether this build can authorize Microsoft mail.
 export const microsoftMail = () =>
   microsoftMailAvailable(native().getConstants?.());
-
-export const {
-  registration,
-  gmailMailboxes,
-  drafts,
-  outbox,
-  wakes,
-  freshness,
-  remoteContent,
-  errorReporting,
-  start,
-  followWakes,
-} = createHost(native, () =>
-  TurboModuleRegistry.getEnforcing<ReportingModule>('UnwiredErrorReporting'),
-);

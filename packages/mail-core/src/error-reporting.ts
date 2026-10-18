@@ -201,20 +201,36 @@ const consentEnabled = (value: typeof BridgeState.Type) =>
 
 export function createErrorReporting(
   native: NativeErrorReporting,
+  initialState?: unknown,
 ): ErrorReporting {
   const operations = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   const lifetime = new AbortController();
   let snapshot: ErrorReportingSnapshot = { kind: 'loading' };
-  let state: typeof BridgeState.Type | undefined = undefined;
+  const initial = Schema.decodeUnknownOption(BridgeState, strict)(initialState);
+  let state = Option.getOrUndefined(initial);
+  const initialDocument = Option.flatMap(initial, (value) =>
+    value.document === null ? Option.none() : decodeDocument(value.document),
+  );
   let document: {
     version: 1;
     queue: typeof Document.Type.queue;
     deletion: typeof Deletion.Type;
-  } = { version: 1, queue: [], deletion: 'idle' };
+  } = Option.getOrElse(initialDocument, () => ({
+    version: 1 as const,
+    queue: [],
+    deletion: 'idle' as const,
+  }));
   let breadcrumbs: ReportingBreadcrumb[] = [];
   const captured = new WeakSet<object>();
-  let collecting = false;
+  let collecting =
+    state !== undefined &&
+    consentEnabled(state) &&
+    (state.document === null || Option.isSome(initialDocument)) &&
+    document.deletion === 'idle';
+  if (!collecting) {
+    document.queue = [];
+  }
   let revision = 0;
   let loaded = false;
   let disposed = false;

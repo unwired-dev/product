@@ -3,7 +3,11 @@ import React
 
 @objc(UnwiredErrorReporting)
 final class UnwiredErrorReporting: NSObject {
-  @objc static func requiresMainQueueSetup() -> Bool { false }
+  @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  @objc @MainActor func constantsToExport() -> [AnyHashable: Any]! {
+    ["initialState": ErrorReportingRuntime.shared.read()]
+  }
 
   @objc @MainActor static func start() { _ = ErrorReportingRuntime.shared.read() }
 

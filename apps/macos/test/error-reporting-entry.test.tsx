@@ -1,7 +1,13 @@
-jest.mock('../src/registration.ts', () => ({
+let mockFailStartup = false;
+jest.mock('../src/host.ts', () => ({
   errorReporting: { capture: jest.fn() },
-  start: jest.fn(),
 }));
+jest.mock('../src/registration.ts', () => {
+  if (mockFailStartup) {
+    throw new Error('synthetic startup failure');
+  }
+  return { start: jest.fn() };
+});
 jest.mock('../src/delivery.ts', () => ({}));
 jest.mock('../src/freshness.ts', () => ({ keepGmailFresh: jest.fn() }));
 jest.mock('../src/window.tsx', () => ({
@@ -14,9 +20,13 @@ jest.mock('@private-email/mail-core/registration-mode', () => ({
 
 /* oxlint-disable vitest/max-expects -- Each entrypoint journey preserves forwarding, direct handling and cleanup for the same exception. */
 // Saved handlers model both installed RN paths; native handling is mocked.
-it.each(['synthetic thrown string', new TypeError('Invalid time value')])(
-  'captures global and explicit exception forwarding once for %s',
-  (error) => {
+it.each([
+  { error: 'synthetic thrown string', startupFails: false },
+  { error: new TypeError('Invalid time value'), startupFails: false },
+  { error: new TypeError('Invalid time value'), startupFails: true },
+])(
+  'captures global and explicit exceptions after startup failure $startupFails',
+  ({ error, startupFails }) => {
     expect.hasAssertions();
     jest.isolateModules(() => {
       const manager = jest.requireActual<{
@@ -24,7 +34,7 @@ it.each(['synthetic thrown string', new TypeError('Invalid time value')])(
       }>('react-native/Libraries/Core/ExceptionsManager').default;
       const { errorReporting } = jest.requireMock<{
         errorReporting: { capture: jest.Mock };
-      }>('../src/registration.ts');
+      }>('../src/host.ts');
       const descriptor = Object.getOwnPropertyDescriptor(
         globalThis,
         'ErrorUtils',
@@ -47,7 +57,14 @@ it.each(['synthetic thrown string', new TypeError('Invalid time value')])(
         },
       });
       try {
-        jest.requireActual('../index.js');
+        mockFailStartup = startupFails;
+        if (startupFails) {
+          expect(() => jest.requireActual('../index.js')).toThrow(
+            'synthetic startup failure',
+          );
+        } else {
+          jest.requireActual('../index.js');
+        }
         globalHandler(error, true);
         expect(errorReporting.capture).toHaveBeenCalledTimes(1);
         expect(forwarding).toHaveBeenCalledWith(error, true);
@@ -73,6 +90,7 @@ it.each(['synthetic thrown string', new TypeError('Invalid time value')])(
         manager.handleException(error, false);
         expect(errorReporting.capture).toHaveBeenCalledTimes(1);
       } finally {
+        mockFailStartup = false;
         manager.handleException = original;
         Object.defineProperty(
           globalThis,

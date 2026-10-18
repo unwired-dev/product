@@ -47,6 +47,61 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
+  it.each([true, false])(
+    'admits a startup error only with a previously enabled snapshot: %s',
+    async (enabled) => {
+      expect.hasAssertions();
+      const host = fixture({ enabled });
+      const store = createErrorReporting(host.native, host.state());
+      try {
+        store.capture(new TypeError('Invalid time value'));
+        await store.load();
+        expect(
+          host.requests.filter((request) => request.operation === 'capture'),
+        ).toHaveLength(enabled ? 1 : 0);
+        await store.setEnabled(false);
+        store.capture(new TypeError('Invalid time value'));
+        await store.refresh();
+        expect(
+          host.requests.filter((request) => request.operation === 'capture'),
+        ).toHaveLength(enabled ? 1 : 0);
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  it.each(['missing', 'unavailable', 'invalid', 'pending', 'invalid-document'])(
+    'discards startup errors for a %s snapshot instead of buffering them',
+    async (kind) => {
+      expect.hasAssertions();
+      const host = fixture({ enabled: true });
+      const initial: Record<string, unknown> = {
+        missing: undefined,
+        unavailable: { ...host.state(), available: false },
+        invalid: { ...host.state(), enabled: 'true' },
+        pending: {
+          ...host.state(),
+          document: '{"version":1,"queue":[],"deletion":"pending"}',
+        },
+        'invalid-document': { ...host.state(), document: 'not JSON' },
+      };
+      const store = createErrorReporting(host.native, initial[kind]);
+      try {
+        store.capture(new TypeError('Invalid time value'));
+        await store.load();
+        expect(host.requests).toStrictEqual([]);
+        store.capture(new TypeError('Invalid time value'));
+        await store.refresh();
+        expect(
+          host.requests.filter((request) => request.operation === 'capture'),
+        ).toHaveLength(1);
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
   it('keeps empty refreshes local and enables delivery only for queued reports', async () => {
     expect.hasAssertions();
     const host = fixture({ enabled: true });

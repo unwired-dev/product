@@ -66,6 +66,7 @@ export interface NativeHostModule
 export function createHost(
   native: () => NativeHostModule,
   reportingNative?: () => NativeErrorReporting,
+  initialReportingState?: unknown,
 ) {
   const reportingBridge = () => {
     if (reportingNative === undefined) {
@@ -73,17 +74,20 @@ export function createHost(
     }
     return reportingNative();
   };
-  const errorReporting = createErrorReporting({
-    errorReportingRead: () => reportingBridge().errorReportingRead(),
-    errorReportingConsent: (enabled, renew, generation) =>
-      reportingBridge().errorReportingConsent(enabled, renew, generation),
-    errorReportingSave: (generation, document) =>
-      reportingBridge().errorReportingSave(generation, document),
-    errorReportingRequest: (operation, body, generation) =>
-      reportingBridge().errorReportingRequest(operation, body, generation),
-    errorReportingTakeNative: () =>
-      reportingBridge().errorReportingTakeNative(),
-  });
+  const errorReporting = createErrorReporting(
+    {
+      errorReportingRead: () => reportingBridge().errorReportingRead(),
+      errorReportingConsent: (enabled, renew, generation) =>
+        reportingBridge().errorReportingConsent(enabled, renew, generation),
+      errorReportingSave: (generation, document) =>
+        reportingBridge().errorReportingSave(generation, document),
+      errorReportingRequest: (operation, body, generation) =>
+        reportingBridge().errorReportingRequest(operation, body, generation),
+      errorReportingTakeNative: () =>
+        reportingBridge().errorReportingTakeNative(),
+    },
+    initialReportingState,
+  );
   const observe = async <A>(
     operation: ReportingBreadcrumb['operation'],
     code: ReportingCode,

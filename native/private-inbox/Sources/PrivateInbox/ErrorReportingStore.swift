@@ -363,7 +363,10 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     guard value.generation == generation else { throw ReportingError.stale }
     guard available else { throw ReportingError.unavailable }
     // An installation that never opted in has no reporting authority to withdraw remotely.
-    if operation == "revoke" && !value.everEnabled { return ["status": "disabled"] }
+    if !value.everEnabled {
+      if operation == "revoke" { return ["status": "disabled"] }
+      if operation == "delete" || operation == "status" { return ["status": "complete"] }
+    }
     if operation == "enable" || operation == "capture" {
       guard value.enabled && !blocked && !unreadable else { throw ReportingError.disabled }
     }

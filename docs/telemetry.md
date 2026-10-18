@@ -33,6 +33,15 @@ are excluded. TestFlight and production use the same consent rules, with test
 reports distinguishable from production. Ordinary development builds remain
 disconnected except during deliberate qualification.
 
+At process startup, a synchronous native snapshot seeds the shared reporting
+policy before application modules run. The shared schema validates that snapshot;
+missing, locked, unavailable or malformed state leaves collection off. Hooks are
+installed before registration side effects, delivery, freshness, routing and
+windows evaluate. The ordinary asynchronous read still reconciles state and
+starts retries. No raw errors are buffered while consent is unknown. Failures
+inside the minimal bootstrap's own dependencies remain outside its protection;
+release startup behavior still requires platform qualification.
+
 Original exception types, messages, stacks and cause chains may be reported where
 safe, together with a bounded recent history of navigation, operation steps,
 retries, timings and safe status codes. Breadcrumbs are attached to failures;
@@ -65,6 +74,8 @@ The installation's deletion credential survives sign-out and Product Account
 deletion so those reports can still be removed without signing in. There is no
 account-linked recovery or separate recovery code. Explain that reinstalling or
 wiping the device may remove the ability to delete earlier reports.
+An installation that has never enabled reporting completes deletion locally:
+there is no reporting capability to register or withdraw remotely.
 
 Native capture first passes the
 [consent-revocation feasibility gate](https://github.com/unwired-dev/product/issues/1050)
