@@ -100,17 +100,21 @@ jobs:
           retention-days: 7
 
   native-build:
-    name: Expo native build
+    name: Expo native build (${{ matrix.scenario }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: xcode-27
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [open-read-relaunch, registration-thread]
     defaults:
       run:
         shell: zsh -e -o pipefail {0}
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
-      UNWIRED_MOCK_SCENARIO: open-read-relaunch
+      UNWIRED_MOCK_SCENARIO: ${{ matrix.scenario }}
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -155,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # No attempt suffix: re-run journey jobs reuse the app from the original build.
-          name: expo-native-app-${{ github.run_id }}
+          name: expo-native-app-${{ matrix.scenario }}-${{ github.run_id }}
           path: artifacts/expo-bootstrap/UnwiredMail.app.tar
           if-no-files-found: error
           overwrite: true
@@ -164,7 +168,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: expo-native-build-${{ github.run_id }}-${{ github.run_attempt }}
+          name: expo-native-build-${{ matrix.scenario }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/expo-bootstrap/build.log
             artifacts/expo-bootstrap/build.xcresult/**
@@ -172,13 +176,14 @@ jobs:
           retention-days: 7
 
   native-e2e:
-    name: Expo native E2E (${{ matrix.device.name }})
+    name: Expo native E2E (${{ matrix.device.name }}, ${{ matrix.scenario }})
     needs: native-build
     runs-on: xcode-27
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        scenario: [open-read-relaunch, registration-thread]
         device:
           - name: iPhone
             type: com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
@@ -206,7 +211,7 @@ jobs:
       - name: Download packaged app
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: expo-native-app-${{ github.run_id }}
+          name: expo-native-app-${{ matrix.scenario }}-${{ github.run_id }}
           path: artifacts/expo-bootstrap
       - name: Unpack packaged app
         run: |
@@ -219,7 +224,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: expo-native-e2e-${{ matrix.device.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: expo-native-e2e-${{ matrix.device.name }}-${{ matrix.scenario }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/expo-bootstrap/**/result.json
             artifacts/expo-bootstrap/**/ownership.json

@@ -399,9 +399,10 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent.press(toggle);
     expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
     await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
-    expect(
-      glassOf(app.getByRole('button', { name: 'All inboxes' })),
-    ).toHaveProp('interactive', false);
+    expect(glassOf(app.getByRole('button', { name: 'All inboxes' }))).toHaveProp(
+      'interactive',
+      false,
+    );
   });
 
   it('shows saved search matches with the default row preview and result count', async () => {

@@ -157,6 +157,12 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 
 ## Validate
 
+Native CI runs both the Light-mode preview Inbox and the Dark-mode registered-account
+Thread journey on iPhone and iPad. The latter cold-launches into the message list
+and repeatedly opens a Gmail HTML message through the production account/Settings
+container before checking the older-message Thread deep link. These remain synthetic
+provider journeys; they do not qualify a physical-device TestFlight session.
+
 All workspace checks, including the locally retained legacy harness, run from the root:
 
 ```sh

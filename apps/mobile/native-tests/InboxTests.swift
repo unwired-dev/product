@@ -345,6 +345,33 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    // Unlike the preview journey, this opens through the production account/Settings container.
+    // A completed account must cold-launch on its message list, with no extra Account action.
+    app.terminate()
+    app.launch()
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertTrue(rowan.isHittable)
+    for attempt in 1...3 {
+      rowan.tap()
+      let sender = app.staticTexts["rowan@example.invalid"].firstMatch
+      XCTAssertTrue(sender.waitForExistence(timeout: 10))
+      XCTAssertTrue(app.buttons["Archive"].isHittable)
+      XCTAssertTrue(
+        app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
+          .firstMatch.waitForExistence(timeout: 15))
+      let reader = XCTAttachment(screenshot: app.screenshot())
+      reader.name = "Dark production reader, open \(attempt)"
+      reader.lifetime = .keepAlways
+      add(reader)
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons.matching(
+          NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
+        ).firstMatch.tap()
+        waitUntil { rowan.isHittable }
+        XCTAssertFalse(sender.exists)
+      }
+    }
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
     let connection = SHA256.hash(
       data: Data("dev.unwired.mailbox-connection\nsynthetic-alternate-mailbox".utf8)
