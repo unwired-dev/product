@@ -221,7 +221,7 @@ describe('installation error reporting at the protected native boundary', () => 
   it('keeps server deletion failures retryable without describing them as offline', async () => {
     expect.hasAssertions();
     const host = fixture();
-    const store = createErrorReporting(host.native);
+    let store = createErrorReporting(host.native);
     try {
       await store.load();
       await store.setEnabled(true);
@@ -241,15 +241,14 @@ describe('installation error reporting at the protected native boundary', () => 
         phase: 'failed',
       });
       store.dispose();
-      const reopened = createErrorReporting(host.native);
+      store = createErrorReporting(host.native);
       host.native.errorReportingRequest = original;
       host.complete();
-      await reopened.load();
-      expect(reopened.getSnapshot()).toMatchObject({
+      await store.load();
+      expect(store.getSnapshot()).toMatchObject({
         enabled: false,
         deletion: 'complete',
       });
-      reopened.dispose();
     } finally {
       store.dispose();
     }
