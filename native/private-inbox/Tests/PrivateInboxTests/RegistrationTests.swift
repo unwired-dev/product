@@ -328,7 +328,7 @@ extension PrivateInboxTests {
     ]
     _ = try await store.call(session)
     #expect(sent.last?.identity?.subject == "synthetic-product-subject")
-    store.endSession()
+    try store.endSession()
     await #expect(throws: RegistrationError.unavailable) { _ = try await store.call(session) }
     // Only the purpose-specific connect operation may receive an issued credential.
     for request: [String: Any] in [

@@ -135,7 +135,7 @@ final class UnwiredRegistration: NSObject {
     if let store = Self.sharedStore { return store }
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
-      store.stopErrorReporting = { ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
       Self.sharedStore = store
       return store
     #else
@@ -176,7 +176,7 @@ final class UnwiredRegistration: NSObject {
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
             previous: previous)
         })
-      store.stopErrorReporting = { ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
       Self.sharedStore = store
       return store
     #endif
@@ -724,7 +724,7 @@ final class UnwiredRegistration: NSObject {
   func endSession(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("endSession", resolve, reject: reject) { $0.endSession() }
+    performStep("endSession", resolve, reject: reject) { try $0.endSession() }
   }
   @objc(purge:resolver:rejecter:)
   func purge(

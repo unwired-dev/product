@@ -99,7 +99,9 @@ const Reply = Schema.Struct({
     'complete',
     'retry',
   ]),
-  retryAfterMs: Schema.optionalKey(Schema.Finite),
+  retryAfterMs: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 86_400_000 })),
+  ),
 });
 const decodeState = Schema.decodeUnknownEffect(BridgeState, strict);
 const decodeDocument = Schema.decodeUnknownOption(
@@ -232,6 +234,7 @@ export function createErrorReporting(
     document.queue = [];
   }
   let revision = 0;
+  let retryAt = 0;
   let loaded = false;
   let disposed = false;
   let consentPending = false;
@@ -268,6 +271,7 @@ export function createErrorReporting(
       strict,
     )(result);
     if (!accepted.saved) {
+      retryAt = 0;
       collecting = false;
       document.queue = [];
     }
@@ -286,6 +290,11 @@ export function createErrorReporting(
     ).pipe(Effect.flatMap(decodeReply));
   });
   const isCurrent = (expected: number) => expected === revision && !disposed;
+  const reconcileRetry = (next: typeof BridgeState.Type) => {
+    if (state?.generation !== next.generation) {
+      retryAt = 0;
+    }
+  };
   const deletionAllowed = (expected: number) =>
     isCurrent(expected) &&
     !consentPending &&
@@ -343,10 +352,23 @@ export function createErrorReporting(
   ) {
     while (document.queue.length > 0) {
       const { reports, body } = yield* captureBatch(metadata);
-      const reply = yield* request('capture', body);
-      if (!stillCollecting(expected) || reply.status !== 'accepted') {
+      const reply = yield* request('capture', body).pipe(
+        Effect.catchTag('SchemaError', () =>
+          Effect.succeed({ status: 'retry' as const, retryAfterMs: 30_000 }),
+        ),
+      );
+      const now = yield* Clock.currentTimeMillis;
+      if (!stillCollecting(expected)) {
         break;
       }
+      if (reply.status !== 'accepted') {
+        if (reply.status === 'retry') {
+          const delay = reply.retryAfterMs ?? 30_000;
+          retryAt = now + (delay === 0 ? 30_000 : delay);
+        }
+        break;
+      }
+      retryAt = 0;
       document.queue = document.queue.slice(reports.length);
       yield* save();
     }
@@ -384,6 +406,9 @@ export function createErrorReporting(
     if (!stillCollecting(expected) || document.queue.length === 0) {
       return;
     }
+    if ((yield* Clock.currentTimeMillis) < retryAt) {
+      return;
+    }
     const enabled = yield* request('enable');
     if (enabled.status !== 'enabled' || !stillCollecting(expected)) {
       return;
@@ -406,12 +431,14 @@ export function createErrorReporting(
       return;
     }
     if (Option.isNone(result)) {
+      retryAt = 0;
       state = undefined;
       collecting = false;
       loaded = true;
       return;
     }
     const next = result.value;
+    reconcileRetry(next);
     state = next;
     const stored =
       next.document === null
@@ -422,6 +449,7 @@ export function createErrorReporting(
           })
         : decodeDocument(next.document);
     if (Option.isNone(stored)) {
+      retryAt = 0;
       collecting = false;
       document = { version: 1, queue: [], deletion: 'idle' };
       state = yield* call(() =>
@@ -434,6 +462,7 @@ export function createErrorReporting(
     document = stored.value;
     collecting = consentEnabled(next) && document.deletion === 'idle';
     if (!collecting) {
+      retryAt = 0;
       document.queue = [];
       breadcrumbs = [];
     }
@@ -514,6 +543,7 @@ export function createErrorReporting(
       return;
     }
     revision += 1;
+    retryAt = 0;
     consentPending = true;
     const expected = revision;
     collecting = false;
@@ -647,6 +677,7 @@ export function createErrorReporting(
     },
     dispose: () => {
       disposed = true;
+      retryAt = 0;
       collecting = false;
       revision += 1;
       lifetime.abort();

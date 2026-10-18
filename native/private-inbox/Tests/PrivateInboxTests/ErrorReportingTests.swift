@@ -7,6 +7,7 @@ import Testing
 @MainActor private final class ReportingMemory {
   var data: Data?
   var locked = false
+  var writeFails = false
   var persistence: ReportingPersistence {
     ReportingPersistence(
       read: {
@@ -15,6 +16,7 @@ import Testing
       },
       write: {
         if self.locked { throw PrivateInboxError.locked }
+        if self.writeFails { throw PrivateInboxError.unavailable }
         self.data = $0
       })
   }
@@ -192,7 +194,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     let status = try await reopened.request(operation: "status", body: "{}", generation: deleting)
     #expect(status["status"] as? String == "complete")
     #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
-    store.disableForAccountRemoval()
+    try store.disableForAccountRemoval()
     #expect(store.read()["enabled"] as? Bool == false)
     #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
   }
@@ -401,12 +403,73 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(collector.active)
     #expect(memory.data == stored)
     memory.locked = true
-    store.disableForAccountRemoval()
+    try store.disableForAccountRemoval()
     #expect(!collector.active)
     memory.locked = false
     #expect(store.read()["enabled"] as? Bool == false)
     let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
     #expect(reopened.read()["enabled"] as? Bool == false)
+  }
+
+  @Test func accountWithdrawalUsesDisabledCustodyWhenTheMarkerCannotBeWritten() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    _ = try store.consent(enabled: true, renewIdentity: false)
+    try Data("blocked directory".utf8).write(to: directory)
+    try store.disableForAccountRemoval()
+    #expect(!collector.active)
+    let reopenedCollector = ReportingTestCollector()
+    let reopened = self.store(memory, directory: directory, collector: reopenedCollector)
+    #expect(reopened.read()["enabled"] as? Bool == false)
+    #expect(reopenedCollector.callbacks.isEmpty)
+  }
+
+  @Test(arguments: ["directory", "marker", "stale-marker"])
+  func accountWithdrawalRequiresADurableFenceBeforeCleanup(_ filesystemBlocker: String) throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: directory.path)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    let enabled = try store.consent(enabled: true, renewIdentity: false)
+    let generation = try #require(enabled["generation"] as? Int)
+    let stored = memory.data
+    let marker = directory.appendingPathComponent("withdrawn")
+    if filesystemBlocker == "directory" {
+      try Data("blocked directory".utf8).write(to: directory)
+    } else if filesystemBlocker == "marker" {
+      try FileManager.default.createDirectory(at: marker, withIntermediateDirectories: true)
+    } else {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try Data(String(generation - 1).utf8).write(to: marker, options: .atomic)
+      try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: directory.path)
+    }
+    memory.locked = filesystemBlocker != "stale-marker"
+    memory.writeFails = filesystemBlocker == "stale-marker"
+    #expect(throws: (any Error).self) { try store.disableForAccountRemoval() }
+    #expect(!collector.active)
+    #expect(memory.data == stored)
+    #expect(store.read()["enabled"] as? Bool == false)
+    if filesystemBlocker == "stale-marker" {
+      #expect(try String(contentsOf: marker, encoding: .utf8) == String(generation - 1))
+      try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: directory.path)
+    }
+    try FileManager.default.removeItem(at: directory)
+    try store.disableForAccountRemoval()
+    #expect(!collector.active)
+    #expect(memory.data == stored)
+    memory.locked = false
+    memory.writeFails = false
+    let reopenedCollector = ReportingTestCollector()
+    let reopened = self.store(memory, directory: directory, collector: reopenedCollector)
+    #expect(reopened.read()["enabled"] as? Bool == false)
+    #expect(reopenedCollector.callbacks.isEmpty)
   }
 
   @Test func publicNativeProjectionExcludesArbitraryMessagesPathsAndImageNames() throws {
@@ -453,7 +516,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     _ = try store.consent(enabled: true, renewIdentity: false)
     let (stream, continuation) = AsyncStream<Void>.makeStream()
     ReportingHTTPProtocol.recording.reset(status: 503, started: { continuation.yield() })
-    store.disableForAccountRemoval()
+    try store.disableForAccountRemoval()
     for await _ in stream { break }
     let marker = directory.appendingPathComponent("withdrawn")
     #expect(FileManager.default.fileExists(atPath: marker.path))

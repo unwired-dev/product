@@ -175,9 +175,14 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     collector.stop()
   }
 
-  // An independent marker survives a locked Keychain or interrupted account cleanup.
-  func disableForAccountRemoval() {
-    _ = try? consent(enabled: false, renewIdentity: false)
+  // Account cleanup needs persisted disabled consent or a newly written independent marker.
+  func disableForAccountRemoval() throws {
+    do {
+      _ = try consent(enabled: false, renewIdentity: false)
+    } catch {
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try Data().write(to: marker, options: .atomic)
+    }
     if let value = try? load() { retryWithdrawal(value) }
   }
 

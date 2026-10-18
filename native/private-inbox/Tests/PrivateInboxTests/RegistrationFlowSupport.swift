@@ -339,7 +339,7 @@ extension RegistrationStore {
       try await purge(notice: notice)
       return notice == "signed-out" ? ["kind": "signed-out"] : ["kind": "signed-out", "notice": notice]
     }
-    endSession()
+    try endSession()
     guard let product = saved.product else { throw RegistrationError.unavailable }
     return [
       "kind": "mailbox-needed", "productAccountId": product.productAccountId,

@@ -200,6 +200,10 @@ Neither identity nor credential is exposed to screens or linked to Product
 Accounts. Revocation cancels native capture requests and preserves a durable
 withdrawal marker until the receiver acknowledges it; restart retries cleanup.
 Sign-out and account removal withdraw consent before clearing account data.
+Cleanup requires a successful native consent update or a freshly written durable
+withdrawal marker. If both fail, cleanup stops and can be retried; collection
+stays stopped in the current process. Cleanup never waits for the reporting
+receiver to acknowledge revocation.
 Deletion preserves the credential through those operations, polls verified
 remote completion and keeps reporting off. Re-enabling after completed deletion
 creates a new reporting identity; the deleted identity cannot be reopened.
@@ -236,7 +240,10 @@ the mail operation's result. Legacy native `unavailable` rejections are omitted
 from operation reporting because they can mean a proven-unsent offline request;
 global unexpected exceptions still use the normal projection. Known offline deletion errors show the offline state;
 server and invalid-response failures show the retryable failed state. No console dumps, attachments, user text,
-autocapture, session replay or independent breadcrumb upload is enabled. Queues
+autocapture, session replay or independent breadcrumb upload is enabled. Capture delivery honors the receiver's retry delay, bounded to 24 hours, with a
+30-second fallback for a missing, zero or invalid delay. Refreshes still prune and save
+locally while enable and capture requests wait. Consent changes clear the old
+deadline; withdrawal and report deletion never wait for capture backoff. Queues
 are bounded and reports expire after 24 hours. Loss of diagnostics is acceptable;
 reporting failure must not change a mail operation's result.
 
