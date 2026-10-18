@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
 import { readingProfile } from '@private-email/mail-core/mailboxes';
@@ -70,10 +71,24 @@ if (!previewInbox) {
 void scheduleGmailFreshness();
 pollGmailWhileActive();
 
+// Keep Account updates from rendering SplitView, whose inline Slot wrapper remounts the reader.
+function MailDestination({
+  detail,
+  splitView,
+}: {
+  readonly detail: boolean;
+  readonly splitView: RefObject<SplitHostCommands | null>;
+}) {
+  const inboxRevealRequest = use(AccountContext)?.inboxRevealRequest;
+  useEffect(() => {
+    splitView.current?.show(detail ? 'secondary' : 'supplementary');
+  }, [detail, inboxRevealRequest, splitView]);
+  return null;
+}
+
 // Presentation choices live below ProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
-  const inboxRevealRequest = use(AccountContext)?.inboxRevealRequest;
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
@@ -157,12 +172,6 @@ function MailShell() {
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
 
-  // Open Inbox also reveals the retained column when Settings closes, without
-  // leaving an active reader or Draft.
-  useEffect(() => {
-    splitView.current?.show(detail ? 'secondary' : 'supplementary');
-  }, [detail, inboxRevealRequest]);
-
   function selectMessage(selection: Selection) {
     reader.current = {
       ...selection,
@@ -196,6 +205,10 @@ function MailShell() {
 
   return (
     <CommandPaletteProvider>
+      <MailDestination
+        detail={detail}
+        splitView={splitView}
+      />
       <StatusBar style="auto" />
       <View
         testID="mail-shell"

@@ -673,13 +673,25 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   replaced or removed. The Jest router mock commits synchronously and cannot
   show this ordering; a passing routing test is not evidence.
 
-- Mobile `app/_layout.tsx.MailShell` updating composer keyboard geometry while
-  no composer is open. Trace the installed split view's screen lifetime and
-  focus Search in the reader's Move picker: a shell render can remount the reader
-  and dismiss its sheet as the keyboard appears. Scope avoidance subscriptions
-  and retained geometry to the open Draft, and verify the picker stays open,
-  filters folders and keeps Search reachable through the native keyboard journey.
-  Component-only callbacks do not qualify this screen-lifetime boundary.
+- Mobile `app/_layout.tsx.MailShell` subscribing to unrelated Account updates or
+  updating composer keyboard geometry while no composer is open. Trace the
+  installed split view's screen lifetime: its render-local Slot wrapper can
+  remount the reader on a shell render, losing a sheet, scroll position or Thread
+  anchor. Isolate Account command consumption from the split owner, and scope
+  avoidance subscriptions and retained geometry to the open Draft. Check native
+  Settings return and Search in the reader's Move picker, preserving the sheet,
+  folder filtering and keyboard access. A stable mocked Slot or retained route
+  alone does not prove the reader's lifetime.
+
+- `registration-gate.tsx.SettingsPage` treating explicit Open Inbox as only a
+  Settings dismissal. Native split-column selection can remain on Mailboxes
+  without any route change. Trace the explicit action through the current
+  Profile's split owner: reveal its retained list or active reader/Draft without
+  changing the route, mailbox/filter or editor state. Native Back stays
+  dismissal-only. Retire command identities when their connected Product Account
+  ends, repeat distinct explicit requests and check both Mailboxes entry paths
+  in the packaged native journey; otherwise Open Inbox closes Settings over the
+  wrong destination or an old command affects a later account.
 
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.

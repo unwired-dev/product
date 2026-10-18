@@ -87,6 +87,7 @@ jest.mock('expo-router/unstable-split-view', () => {
   }>('react');
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
+  let renders = 0;
   function SplitView({
     children,
     testID,
@@ -96,6 +97,7 @@ jest.mock('expo-router/unstable-split-view', () => {
     readonly testID?: string;
     readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
   }) {
+    renders += 1;
     useImperativeHandle(ref, () => ({
       show: (column) => {
         shown.push(column);
@@ -110,7 +112,7 @@ jest.mock('expo-router/unstable-split-view', () => {
     return createElement(View, { testID }, children, createElement(detail));
   }
   SplitView.Column = View;
-  return { SplitView, shown };
+  return { SplitView, shown, renderCount: () => renders };
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
@@ -188,7 +190,7 @@ const route = jest.requireMock<{
   setParams: (params: Readonly<Record<string, unknown>>) => void;
   router: typeof ExpoRouter;
 }>('expo-router');
-const split = jest.requireMock<{ shown: string[] }>(
+const split = jest.requireMock<{ shown: string[]; renderCount: () => number }>(
   'expo-router/unstable-split-view',
 );
 
@@ -828,6 +830,7 @@ describe('profile-scoped mobile routes', () => {
         ? { profileId: 'work', mailbox: 'garden', id }
         : { profileId: 'work' };
       route.setParams(params);
+      const content = <RootLayout />;
       const view = (inboxRevealRequest?: Readonly<{ account: string }>) => (
         <AccountContext
           value={{
@@ -837,7 +840,7 @@ describe('profile-scoped mobile routes', () => {
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
           }}>
-          <RootLayout />
+          {content}
         </AccountContext>
       );
       const app = await render(view());
@@ -848,6 +851,8 @@ describe('profile-scoped mobile routes', () => {
         await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
       }
       split.shown.length = 0;
+      // The installed SplitView recreates its reader Slot type on every render.
+      const renders = split.renderCount();
       const request = { account: 'synthetic-product-account' };
       await app.rerender(view(request));
       const first = [...split.shown];
@@ -859,11 +864,13 @@ describe('profile-scoped mobile routes', () => {
         repeated,
         latest: split.shown,
         params: route.params(),
+        renders: split.renderCount(),
       }).toStrictEqual({
         first: [column],
         repeated: [column],
         latest: [column, column],
         params,
+        renders,
       });
       expect(
         reader

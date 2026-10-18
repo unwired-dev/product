@@ -16,6 +16,11 @@ replacement requirements or release qualification.
   UIKit's dismissal event retires that Settings request. The mail shell and composer
   keep their route and mounted state beneath the push; iPad retains the two-column
   Settings workspace over its mounted shell.
+  Explicit Open Inbox publishes an ephemeral Product-Account-scoped reveal request
+  through the Account context. A leaf below the current Profile consumes it and
+  selects the retained list or active detail without rendering the split owner;
+  the installed split view recreates its Slot wrapper when rendered. Native Back
+  only dismisses Settings, and leaving the connected account retires the request.
 
 - React Native `StyleSheet` and framework-independent light/dark tokens in
   `packages/mail-core`. System text, accessible buttons, selection state and
