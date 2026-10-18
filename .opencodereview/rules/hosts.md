@@ -50,6 +50,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   can inherit the earlier repair destination. Exercise the real gate and repair
   form with both confirmed and deferred setup on each host.
 
+- `registration-gate.tsx.SettingsPage` applying a default destination only in
+  `SettingsWorkspace`'s sidebar while its detail children use the raw selection.
+  Trace a fresh `openAccount()` request without a destination on iPhone and iPad:
+  iPhone must retain its Settings list, while iPad selects and renders Account &
+  Devices together. Assert the default detail content before tapping any Settings
+  destination; otherwise a highlighted Account row can hide a blank detail pane.
+  Preserve explicit destinations, setup landing and later requests that keep the
+  current selection.
+
 - `registration-gate.tsx.SettingsPage` retaining a selected destination or child
   form state when foreground verification replaces its Product Account while
   Settings stays mounted. Scope the page lifetime to that account and retire
