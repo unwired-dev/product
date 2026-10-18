@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import type { ScrollViewProps } from 'react-native';
 
 import { useRef, useState } from 'react';
 
 export type InboxLayout = (
-  content: Readonly<ReactNode>,
+  content: Readonly<ReactElement>,
   onBack: (() => void) | undefined,
 ) => ReactNode;
 
@@ -32,7 +32,7 @@ export function useInboxPresentation({
     handleBack,
     contentOffset,
     handleScroll,
-    render: (content: Readonly<ReactNode>) =>
+    render: (content: Readonly<ReactElement>) =>
       children === undefined ? content : children(content, handleBack),
   };
 }
