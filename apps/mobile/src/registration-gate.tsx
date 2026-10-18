@@ -90,15 +90,14 @@ type SettingsRequest = Readonly<{
 
 type InboxRevealRequest = Readonly<{ account: string }>;
 
-// Settings stays open only over the Inbox of the Product Account it opened for, so sign-out,
-// locking, pending setup or another Product Account closes it.
-const coveringSettings = (
-  settings: SettingsRequest | undefined,
+// Inbox requests retire on sign-out, locking, pending setup or another Product Account.
+const connectedRequest = <Request extends Readonly<{ account: string }>>(
+  request: Request | undefined,
   screen: RegistrationScreen,
 ) =>
   screen.destination === 'inbox' &&
-  settings?.account === screen.choices?.inbox.account
-    ? settings
+  request?.account === screen.choices?.inbox.account
+    ? request
     : undefined;
 
 export function RegistrationGate({
@@ -144,15 +143,11 @@ export function RegistrationGate({
     setChoice(screen.choice);
   }
   // Settings closes with the Inbox it covers, so a later Inbox does not reopen it.
-  const shownSettings = coveringSettings(settings, screen);
+  const shownSettings = connectedRequest(settings, screen);
   if (shownSettings !== settings) {
     setSettings(shownSettings);
   }
-  const shownInboxRevealRequest =
-    screen.destination === 'inbox' &&
-    inboxRevealRequest?.account === choices?.inbox.account
-      ? inboxRevealRequest
-      : undefined;
+  const shownInboxRevealRequest = connectedRequest(inboxRevealRequest, screen);
   if (shownInboxRevealRequest !== inboxRevealRequest) {
     setInboxRevealRequest(shownInboxRevealRequest);
   }

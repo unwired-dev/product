@@ -82,6 +82,7 @@ function MailDestination({
   const inboxRevealRequest = use(AccountContext)?.inboxRevealRequest;
   useEffect(() => {
     splitView.current?.show(detail ? 'secondary' : 'supplementary');
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each explicit Open Inbox request must repeat the native reveal even when detail is unchanged.
   }, [detail, inboxRevealRequest, splitView]);
   return null;
 }

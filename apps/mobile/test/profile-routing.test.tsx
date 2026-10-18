@@ -87,7 +87,7 @@ jest.mock('expo-router/unstable-split-view', () => {
   }>('react');
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
-  let renders = 0;
+  const rendered = jest.fn();
   function SplitView({
     children,
     testID,
@@ -97,7 +97,7 @@ jest.mock('expo-router/unstable-split-view', () => {
     readonly testID?: string;
     readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
   }) {
-    renders += 1;
+    rendered();
     useImperativeHandle(ref, () => ({
       show: (column) => {
         shown.push(column);
@@ -112,7 +112,7 @@ jest.mock('expo-router/unstable-split-view', () => {
     return createElement(View, { testID }, children, createElement(detail));
   }
   SplitView.Column = View;
-  return { SplitView, shown, renderCount: () => renders };
+  return { SplitView, shown, renderCount: () => rendered.mock.calls.length };
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
@@ -333,7 +333,7 @@ describe('profile-scoped mobile routes', () => {
     showMail(defaultProfile);
     route.setParams({});
     const insets = { top: 59, bottom: 34, left: 0, right: 0 };
-    let inboxRevealRequest: Readonly<{ account: string }> | undefined;
+    let inboxRevealRequest: Readonly<{ account: string }> | undefined = undefined;
     const view = () => (
       <SafeAreaProvider
         initialMetrics={{
@@ -819,16 +819,31 @@ describe('profile-scoped mobile routes', () => {
   );
 
   it.each([
-    { name: 'list', reader: false, column: 'supplementary' },
-    { name: 'reader', reader: true, column: 'secondary' },
+    {
+      name: 'list',
+      column: 'supplementary',
+      params: () => ({ profileId: 'work' }),
+      ready: async () => {
+        await screen.findByRole('button', { name: /Garden plan/u });
+        await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
+      },
+      visible: () => screen.getByRole('button', { name: /Garden plan/u }),
+    },
+    {
+      name: 'reader',
+      column: 'secondary',
+      params: (id: string) => ({ profileId: 'work', mailbox: 'garden', id }),
+      ready: async () => {
+        await screen.findByText('Synthetic garden body.');
+      },
+      visible: () => screen.getByText('Synthetic garden body.'),
+    },
   ])(
     'reveals the retained Work $name for each Open Inbox request',
-    async ({ reader, column }) => {
+    async ({ column, params: parameters, ready, visible }) => {
       expect.hasAssertions();
       const id = showMail('work');
-      const params = reader
-        ? { profileId: 'work', mailbox: 'garden', id }
-        : { profileId: 'work' };
+      const params = parameters(id);
       route.setParams(params);
       const content = <RootLayout />;
       const view = (inboxRevealRequest?: Readonly<{ account: string }>) => (
@@ -844,12 +859,7 @@ describe('profile-scoped mobile routes', () => {
         </AccountContext>
       );
       const app = await render(view());
-      if (reader) {
-        await screen.findByText('Synthetic garden body.');
-      } else {
-        await screen.findByRole('button', { name: /Garden plan/u });
-        await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
-      }
+      await ready();
       split.shown.length = 0;
       // The installed SplitView recreates its reader Slot type on every render.
       const renders = split.renderCount();
@@ -872,11 +882,7 @@ describe('profile-scoped mobile routes', () => {
         params,
         renders,
       });
-      expect(
-        reader
-          ? screen.getByText('Synthetic garden body.')
-          : screen.getByRole('button', { name: /Garden plan/u }),
-      ).toBeVisible();
+      expect(visible()).toBeVisible();
     },
   );
 
