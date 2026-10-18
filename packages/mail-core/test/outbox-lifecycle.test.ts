@@ -274,53 +274,56 @@ describe('outbox execution opportunities', () => {
       expect.hasAssertions();
       const { server, gmail } = sharedAccount();
       const phone = await sender(server, gmail, 'phone');
-      const mac = await sender(server, gmail, 'mac');
       try {
-        const id = await addressed(phone);
-        await phone.outbox.send(() => phone.draft(id));
-        const entered = Promise.withResolvers<undefined>();
-        const release = Promise.withResolvers<undefined>();
-        const submit = gmail.native.gmailSend;
-        gmail.failSend({ lost: true });
-        gmail.native.gmailSend = async (...args) => {
-          try {
-            return await submit(...args);
-          } finally {
-            entered.resolve(undefined);
-            await release.promise;
-          }
-        };
-        vi.setSystemTime(Date.now() + undoSendWindow);
-        const processing = phone.outbox.process();
-        await entered.promise;
-        phone.change(
-          removal === 'connection'
-            ? {
-                kind: 'connected',
-                productAccountId: account,
-                signInProvider: 'google',
-                mailboxes: '[]',
-              }
-            : {
-                kind: 'signed-out',
-                ...(removal === 'revocation'
-                  ? { notice: 'revoked' as const }
-                  : {}),
-              },
-        );
-        release.resolve(undefined);
-        await processing;
-        await phone.outbox.process();
-        await expect(
-          mac.storage.delivery?.claimDraftDelivery(account, id),
-        ).resolves.toStrictEqual({ owner: account, claimed: false });
-        expect(gmail.sends).toHaveLength(1);
-        expect([...server.claimsOf(account)]).toStrictEqual([
-          [`draft-delivery.${id}`, 'phone'],
-        ]);
+        const mac = await sender(server, gmail, 'mac');
+        try {
+          const id = await addressed(phone);
+          await phone.outbox.send(() => phone.draft(id));
+          const entered = Promise.withResolvers<undefined>();
+          const release = Promise.withResolvers<undefined>();
+          const submit = gmail.native.gmailSend;
+          gmail.failSend({ lost: true });
+          gmail.native.gmailSend = async (...args) => {
+            try {
+              return await submit(...args);
+            } finally {
+              entered.resolve(undefined);
+              await release.promise;
+            }
+          };
+          vi.setSystemTime(Date.now() + undoSendWindow);
+          const processing = phone.outbox.process();
+          await entered.promise;
+          phone.change(
+            removal === 'connection'
+              ? {
+                  kind: 'connected',
+                  productAccountId: account,
+                  signInProvider: 'google',
+                  mailboxes: '[]',
+                }
+              : {
+                  kind: 'signed-out',
+                  ...(removal === 'revocation'
+                    ? { notice: 'revoked' as const }
+                    : {}),
+                },
+          );
+          release.resolve(undefined);
+          await processing;
+          await phone.outbox.process();
+          await expect(
+            mac.storage.delivery?.claimDraftDelivery(account, id),
+          ).resolves.toStrictEqual({ owner: account, claimed: false });
+          expect(gmail.sends).toHaveLength(1);
+          expect([...server.claimsOf(account)]).toStrictEqual([
+            [`draft-delivery.${id}`, 'phone'],
+          ]);
+        } finally {
+          mac.outbox.dispose();
+        }
       } finally {
         phone.outbox.dispose();
-        mac.outbox.dispose();
       }
     },
   );

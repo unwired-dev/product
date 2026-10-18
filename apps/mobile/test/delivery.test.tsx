@@ -54,49 +54,52 @@ describe('application-owned Outbox execution', () => {
     const initial = AppState.currentState;
     AppState.currentState = 'background';
     jest.useFakeTimers();
-    const host = jest.requireActual<ReturnType<typeof createHost>>(
-      '../src/registration.ts',
-    );
     try {
-      const firstListener = jest.mocked(AppState.addEventListener).mock.calls
-        .length;
-      jest.requireActual('../src/delivery.ts');
-      const change = (state: 'active' | 'inactive' | 'background') => {
-        for (const [, listener] of jest
-          .mocked(AppState.addEventListener)
-          .mock.calls.slice(firstListener)) {
-          listener(state);
-        }
-      };
-      await host.registration.restoreOnce();
-      await host.drafts.load();
-      const id = present(
-        await host.drafts.create({
-          id: connection,
-          address: 'alex@example.invalid',
-        }),
+      const host = jest.requireActual<ReturnType<typeof createHost>>(
+        '../src/registration.ts',
       );
-      const draft = present(draftOf(host.drafts.getSnapshot(), id));
-      const addressed = { ...draft, to: [{ address: 'sam@example.invalid' }] };
-      await host.drafts.update(addressed, draft);
-      const current = present(draftOf(host.drafts.getSnapshot(), id));
-      await expect(host.outbox.send(() => current)).resolves.toBeUndefined();
-      await jest.advanceTimersByTimeAsync(undoSendWindow + 30_000);
-      await host.outbox.process();
-      expect(gmail.sends).toHaveLength(0);
-      change('inactive');
-      await host.outbox.process();
-      expect(host.drafts.getOutbox()).toMatchObject([{ id, state: 'waiting' }]);
-      change('active');
-      await host.outbox.process();
-      expect(gmail.sends).toHaveLength(1);
-      change('background');
-      change('active');
-      await host.outbox.process();
-      expect(gmail.sends).toHaveLength(1);
-      expect(host.drafts.getOutbox()).toStrictEqual([]);
+      try {
+        const firstListener = jest.mocked(AppState.addEventListener).mock.calls
+          .length;
+        jest.requireActual('../src/delivery.ts');
+        const change = (state: 'active' | 'inactive' | 'background') => {
+          for (const [, listener] of jest
+            .mocked(AppState.addEventListener)
+            .mock.calls.slice(firstListener)) {
+            listener(state);
+          }
+        };
+        await host.registration.restoreOnce();
+        await host.drafts.load();
+        const id = present(
+          await host.drafts.create({
+            id: connection,
+            address: 'alex@example.invalid',
+          }),
+        );
+        const draft = present(draftOf(host.drafts.getSnapshot(), id));
+        const addressed = { ...draft, to: [{ address: 'sam@example.invalid' }] };
+        await host.drafts.update(addressed, draft);
+        const current = present(draftOf(host.drafts.getSnapshot(), id));
+        await expect(host.outbox.send(() => current)).resolves.toBeUndefined();
+        await jest.advanceTimersByTimeAsync(undoSendWindow + 30_000);
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(0);
+        change('inactive');
+        await host.outbox.process();
+        expect(host.drafts.getOutbox()).toMatchObject([{ id, state: 'waiting' }]);
+        change('active');
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(1);
+        change('background');
+        change('active');
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(1);
+        expect(host.drafts.getOutbox()).toStrictEqual([]);
+      } finally {
+        host.outbox.dispose();
+      }
     } finally {
-      host.outbox.dispose();
       AppState.currentState = initial;
       jest.useRealTimers();
       bridge.mockRestore();
