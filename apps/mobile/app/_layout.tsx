@@ -48,9 +48,6 @@ import { start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
-// iPhone's Inbox shows its own Back to Mailboxes in place of the native navigation bar.
-const phone = Platform.OS === 'ios' && !Platform.isPad;
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   overlay: {
@@ -89,10 +86,11 @@ function MailDestination({
 
 // Presentation choices live below ProfileScope, which retires them with the Profile.
 function MailShell() {
+  const phone = Platform.OS === 'ios' && !Platform.isPad;
   const splitView = useRef<SplitHostCommands>(null);
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
-  const regular = width >= 600 && !collapsed;
+  const regular = !phone && width >= 600 && !collapsed;
   const [expanded, setExpanded] = useState(false);
   const [height, setHeight] = useState(0);
   // UIKit changes the reading column's width when either leading column moves or hides; every

@@ -26,7 +26,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { DeviceEventEmitter, StyleSheet } from 'react-native';
+import { DeviceEventEmitter, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type ComposeRoute from '../app/compose/[draft].tsx';
@@ -292,6 +292,8 @@ describe('profile-scoped mobile routes', () => {
   /* oxlint-disable vitest/max-expects -- One composition session crosses reader, expansion and adaptive-layout transitions. */
   it('keeps the same Draft and history through iPad expansion, reader selection and compact layout', async () => {
     expect.hasAssertions();
+    ok(Platform.OS === 'ios', 'Expected the iOS test platform');
+    const platform = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(true);
     const dimensions = jest
       .spyOn(
         jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
@@ -549,7 +551,7 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
       await fireEvent.press(screen.getByRole('button', { name: 'Collapse' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Text style' }));
-      // A landscape phone can be wide while UIKit still collapses its split view.
+      // A collapsed split view switches the same Draft to its compact controls.
       await fireEvent(
         screen.getByTestId('mail-split', { includeHiddenElements: true }),
         'collapse',
@@ -621,6 +623,7 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.queryByLabelText('Message body')).toBeNull();
     } finally {
       releaseSave();
+      platform.mockRestore();
       await app.unmount();
       dimensions.mockRestore();
       jest.replaceProperty(
@@ -646,6 +649,8 @@ describe('profile-scoped mobile routes', () => {
     'leaves an expanded iPad composer $draft for the Inbox from the Command Palette',
     async ({ body, command }) => {
       expect.hasAssertions();
+      ok(Platform.OS === 'ios', 'Expected the iOS test platform');
+      const platform = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(true);
       split.shown.length = 0;
       const dimensions = jest
         .spyOn(
@@ -733,6 +738,7 @@ describe('profile-scoped mobile routes', () => {
         // A collapsed split view, as on iPhone, returns to the Inbox column rather than an empty reader.
         expect(split.shown.at(-1)).toBe('supplementary');
       } finally {
+        platform.mockRestore();
         await app.unmount();
         dimensions.mockRestore();
         jest.replaceProperty(
@@ -900,32 +906,42 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('returns a Work reader to its Inbox by edge swipe, then its list to Mailboxes', async () => {
-    expect.hasAssertions();
-    const dimensions = jest
-      .spyOn(
-        jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
-          'react-native',
-        ),
-        'useWindowDimensions',
-      )
-      .mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
-    try {
-      const id = showMail('work');
-      route.setParams({ profileId: 'work', mailbox: 'garden', id });
-      await render(<RootLayout />);
-      await screen.findByText('Synthetic garden body.');
-      split.shown.length = 0;
-      await fireEvent(screen.getByTestId('message-back-navigation'), 'back');
-      expect(route.params()).toStrictEqual({ profileId: 'work' });
-      expect(split.shown).toStrictEqual(['supplementary']);
-      expect(screen.queryByText('Synthetic garden body.')).toBeNull();
-      await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
-      expect(split.shown).toStrictEqual(['supplementary', 'primary']);
-    } finally {
-      dimensions.mockRestore();
-    }
-  });
+  it.each([
+    { name: 'portrait', width: 390, height: 844 },
+    { name: 'landscape', width: 844, height: 390 },
+  ])(
+    'keeps a $name iPhone compact while returning a Work reader to Inbox and Mailboxes',
+    async ({ width, height }) => {
+      expect.hasAssertions();
+      ok(Platform.OS === 'ios', 'Expected the iOS test platform');
+      const platform = jest.spyOn(Platform, 'isPad', 'get').mockReturnValue(false);
+      const dimensions = jest
+        .spyOn(
+          jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
+            'react-native',
+          ),
+          'useWindowDimensions',
+        )
+        .mockReturnValue({ width, height, scale: 3, fontScale: 1 });
+      try {
+        const id = showMail('work');
+        route.setParams({ profileId: 'work', mailbox: 'garden', id });
+        await render(<RootLayout />);
+        await screen.findByText('Synthetic garden body.');
+        expect(screen.queryByTestId('window-bar')).toBeNull();
+        split.shown.length = 0;
+        await fireEvent(screen.getByTestId('message-back-navigation'), 'back');
+        expect(route.params()).toStrictEqual({ profileId: 'work' });
+        expect(split.shown).toStrictEqual(['supplementary']);
+        expect(screen.queryByText('Synthetic garden body.')).toBeNull();
+        await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
+        expect(split.shown).toStrictEqual(['supplementary', 'primary']);
+      } finally {
+        dimensions.mockRestore();
+        platform.mockRestore();
+      }
+    },
+  );
 
   it.each([
     { name: 'empty', profileId: '' },

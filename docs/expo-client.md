@@ -304,7 +304,8 @@ On iPhone, Mailboxes, Inbox and routed readers use a native screen stack. The
 preceding destination stays underneath the interactive Back gesture. Settings
 and Sign In also retain their preceding native screen. Compose uses the same
 stack but asks its existing Close action before dismissal, preserving Save Draft
-and cancellation. iPad keeps the split view.
+and cancellation. iPhone keeps compact controls in both orientations; iPad keeps
+the split view.
 
 Welcome waits until native account restoration settles. A connected or cached
 mailbox opens Inbox while optional Recovery Key entry for private product data
