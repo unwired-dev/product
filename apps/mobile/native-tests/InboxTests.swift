@@ -1110,8 +1110,14 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(back.waitForExistence(timeout: 10))
     let title = app.staticTexts["Inbox"].firstMatch
     XCTAssertTrue(title.waitForExistence(timeout: 10))
-    XCTAssertLessThan(title.frame.minY, back.frame.maxY)
-    XCTAssertGreaterThan(title.frame.maxY, back.frame.minY)
+    let subtitle = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Preview mailbox")
+    ).firstMatch
+    XCTAssertTrue(subtitle.exists)
+    for text in [title, subtitle] {
+      XCTAssertLessThan(text.frame.minY, back.frame.maxY)
+      XCTAssertGreaterThan(text.frame.maxY, back.frame.minY)
+    }
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
   }
 
