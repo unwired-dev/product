@@ -116,7 +116,7 @@ Convex backend:
 | CI: Fallow      | Root unused-code and complexity audit                                                                                                                                                                |
 | CI: Expo mobile | Mobile Fallow scan, Expo compatibility, production Hermes export, bundle boundary and native autolinking checks                                                                                      |
 | CI: Mac bundle  | Mac production JavaScript export, renderer inventory, shared source, native autolinking and Podfile pod scope                                                                                        |
-| CI: Expo native | Real Keychain/encrypted-store checks, Expo Release build and parallel iPhone/iPad relaunch journeys; selected memory-backed native reporting contracts and real Hermes/Mach-O artifact preparation                                                                                                  |
+| CI: Expo native | Real Keychain/encrypted-store checks, Expo Release build and parallel iPhone/iPad relaunch journeys; selected memory-backed native reporting contracts and real Hermes/Mach-O artifact preparation   |
 | Pre-release     | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification                                                       |
 
 The workflow files [CI](../../.github/workflows/ci.yml) and

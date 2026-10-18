@@ -68,10 +68,14 @@ it.each(['synthetic thrown string', new TypeError('Invalid time value')])(
         expect(errorReporting.capture).toHaveBeenCalledTimes(1);
       } finally {
         manager.handleException = original;
-        Object.defineProperty(globalThis, 'ErrorUtils', descriptor ?? {
-          configurable: true,
-          value: undefined,
-        });
+        Object.defineProperty(
+          globalThis,
+          'ErrorUtils',
+          descriptor ?? {
+            configurable: true,
+            value: undefined,
+          },
+        );
       }
     });
   },

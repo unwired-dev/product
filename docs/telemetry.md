@@ -195,13 +195,13 @@ creates a new reporting identity; the deleted identity cannot be reopened.
 
 The wire inventory is defined by the contracts' errorReportingSchema entry point:
 
-| Field                    | Permitted value                                                                                                       |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Report identity and time | Random report UUID, creation timestamp; no mail or account identity                                                   |
-| Failure                  | Predefined code and exception name; only exact approved constant messages                                             |
-| Stack                    | JavaScript bundle line/column, or native instruction address, image address and UUID; no paths, URLs or function text |
-| Causes                   | Up to eight safe exception names and approved messages                                                                |
-| Breadcrumbs              | Last 50 predefined navigation/operation stages, optional bounded elapsed milliseconds and HTTP status                 |
+| Field                    | Permitted value                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Report identity and time | Random report UUID, creation timestamp; no mail or account identity                                                                             |
+| Failure                  | Predefined code and exception name; only exact approved constant messages                                                                       |
+| Stack                    | JavaScript bundle line/column, or native instruction address, image address and UUID; no paths, URLs or function text                           |
+| Causes                   | Up to eight safe exception names and approved messages                                                                                          |
+| Breadcrumbs              | Last 50 predefined navigation/operation stages, optional bounded elapsed milliseconds and HTTP status                                           |
 | Build                    | Fixed public app namespace `dev.unwired.mail`, platform, numeric app version, build and OS version, production/TestFlight/qualification channel |
 
 JavaScript stacks retain the innermost 64 matching bundle frames and send them
