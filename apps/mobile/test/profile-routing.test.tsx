@@ -33,6 +33,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type ComposeRoute from '../app/compose/[draft].tsx';
 import type MessageRoute from '../app/message/[id].tsx';
 import type ThreadRoute from '../app/thread/[id].tsx';
+import type { BackNavigation as BackNavigationComponent } from '../src/back-navigation.tsx';
+import type { Inbox as InboxComponent } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
 import RootLayout from '../app/_layout.tsx';
@@ -89,11 +91,12 @@ jest.mock('../src/mail-navigation.tsx', () => {
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
   const rendered = jest.fn();
-  const { Inbox } =
-    jest.requireActual<typeof import('../src/inbox.tsx')>('../src/inbox.tsx');
-  const { BackNavigation } = jest.requireActual<
-    typeof import('../src/back-navigation.tsx')
-  >('../src/back-navigation.tsx');
+  const { Inbox } = jest.requireActual<{ Inbox: typeof InboxComponent }>(
+    '../src/inbox.tsx',
+  );
+  const { BackNavigation } = jest.requireActual<{
+    BackNavigation: typeof BackNavigationComponent;
+  }>('../src/back-navigation.tsx');
   function MailNavigation({
     primary,
     inbox,

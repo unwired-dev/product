@@ -4,7 +4,7 @@ import type { ScrollViewProps } from 'react-native';
 import { useRef, useState } from 'react';
 
 export type InboxLayout = (
-  content: ReactNode,
+  content: Readonly<ReactNode>,
   onBack: (() => void) | undefined,
 ) => ReactNode;
 
@@ -18,21 +18,21 @@ export function useInboxPresentation({
 }) {
   const scrollPosition = useRef({ x: 0, y: 0 });
   const [contentOffset, setContentOffset] = useState({ x: 0, y: 0 });
-  const back =
+  const handleBack =
     onBack === undefined
       ? undefined
       : () => {
           setContentOffset(scrollPosition.current);
           onBack();
         };
-  const onScroll: ScrollViewProps['onScroll'] = ({ nativeEvent }) => {
+  const handleScroll: ScrollViewProps['onScroll'] = ({ nativeEvent }) => {
     scrollPosition.current = nativeEvent.contentOffset;
   };
   return {
-    back,
+    handleBack,
     contentOffset,
-    onScroll,
-    render: (content: ReactNode) =>
-      children === undefined ? content : children(content, back),
+    handleScroll,
+    render: (content: Readonly<ReactNode>) =>
+      children === undefined ? content : children(content, handleBack),
   };
 }

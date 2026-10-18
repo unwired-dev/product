@@ -783,12 +783,12 @@ export function Inbox({
             account={account}
             detail={selected !== undefined || composing !== undefined}
             onClose={onClose}
-            onBack={presentation.back}
+            onBack={presentation.handleBack}
             onLeave={leave}
             onSearch={ready ? searchState.open : undefined}>
             <SearchHeading search={searchState}>
               <HeadingTitle
-                onBack={presentation.back}
+                onBack={presentation.handleBack}
                 title={title}
                 subtitle={t('inbox.subtitleLabel', {
                   scope: scopeName,
@@ -840,7 +840,7 @@ export function Inbox({
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             contentOffset={presentation.contentOffset}
-            onScroll={presentation.onScroll}
+            onScroll={presentation.handleScroll}
             contentContainerStyle={styles.list}
             sections={sections}
             stickySectionHeadersEnabled={false}

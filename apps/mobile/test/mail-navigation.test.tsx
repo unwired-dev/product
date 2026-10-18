@@ -69,7 +69,7 @@ function Mail() {
 }
 
 describe('phone mail navigation', () => {
-  // oxlint-disable-next-line vitest/max-expects -- One native/button Back journey checks retained state and its scroll bridge.
+  /* oxlint-disable vitest/max-expects -- One native/button Back journey checks retained state and its scroll bridge. */
   it('retains search and filters through native and button Back while Mailboxes remains the predecessor', async () => {
     expect.hasAssertions();
     const fixture = createPersistentInbox(
@@ -90,7 +90,7 @@ describe('phone mail navigation', () => {
     expect(screen.queryByText('Mailboxes')).toBeNull();
     expect(
       screen.getByText('Mailboxes', { includeHiddenElements: true }),
-    ).toBeTruthy();
+    ).toBeDefined();
     await fireEvent.press(screen.getByRole('togglebutton', { name: 'Filter' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Search' }));
     await fireEvent.changeText(
@@ -140,4 +140,5 @@ describe('phone mail navigation', () => {
       { checked: true },
     );
   });
+  /* oxlint-enable vitest/max-expects */
 });
