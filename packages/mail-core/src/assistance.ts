@@ -41,8 +41,15 @@ export type AssistanceUnavailable = typeof Unavailable.Type;
 const decodeAvailability = Schema.decodeUnknownEffect(
   Schema.Union([Schema.Literal('available'), Unavailable]),
 );
+const jsonObject = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
 const decodeSummary = Schema.decodeUnknownEffect(
-  Schema.String.check(Schema.isMaxLength(4000)),
+  Schema.String.check(
+    Schema.isMaxLength(4000),
+    // A serialized object, such as the model echoing its JSON request, is never readable prose.
+    Schema.makeFilter((text) => Option.isNone(jsonObject(text))),
+  ),
 );
 // Rewritten text can be longer than its source, but not without bound: twice the input limit.
 // Applying text drops image placeholders, so a result containing one could delete authored text.

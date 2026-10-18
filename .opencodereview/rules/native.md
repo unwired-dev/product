@@ -177,6 +177,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   instructions aligned with the fields. Otherwise adversarial correspondence
   can impersonate the person's reply or escaping can exceed the model budget.
 
+- `UnwiredAssistance` summary generation or `assistance.ts.decodeSummary`
+  treating a serialized request/response object as readable summary prose.
+  Check the native output instructions and shared decoder together: internal
+  JSON fields must not become a successful preview, while legitimate quotation
+  marks, braces, escaped characters and paragraph breaks remain intact. Require
+  the documented failure state for unsupported output and real on-device model
+  evidence for prompt changes; a fixed mock summary cannot establish the output
+  format. Otherwise the Summary card can expose protocol fields despite accepting
+  a valid string at the native boundary.
+
 - `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
   base64 URI merely to show a composer thumbnail, or decoding previews on the
   main actor. Keep verification and thumbnail work off-main, return bounded
