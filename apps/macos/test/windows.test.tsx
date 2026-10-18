@@ -117,7 +117,9 @@ const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
   return row;
 };
 
-const glassOf = (control: ReturnType<ReturnType<typeof within>['getByRole']>) => {
+const glassOf = (
+  control: ReturnType<ReturnType<typeof within>['getByRole']>,
+) => {
   let node = control.parent;
   while (node !== null && node.type !== 'UnwiredGlass') {
     node = node.parent;
