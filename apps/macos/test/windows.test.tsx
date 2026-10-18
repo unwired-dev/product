@@ -117,10 +117,8 @@ const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
   return row;
 };
 
-const glassOf = (
-  control: ReturnType<ReturnType<typeof within>['getByRole']>,
-) => {
-  let node = control.parent;
+const glassOf = (view: ReturnType<ReturnType<typeof within>['getByRole']>) => {
+  let node = view.parent;
   while (node !== null && node.type !== 'UnwiredGlass') {
     node = node.parent;
   }
@@ -401,10 +399,8 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent.press(toggle);
     expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
     await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
-    expect(glassOf(app.getByRole('button', { name: 'All inboxes' }))).toHaveProp(
-      'interactive',
-      false,
-    );
+    const restored = app.getByRole('button', { name: 'All inboxes' });
+    expect(glassOf(restored)).toHaveProp('interactive', false);
   });
 
   it('shows saved search matches with the default row preview and result count', async () => {
