@@ -160,13 +160,13 @@ typedef UIView UnwiredPlatformView;
 #endif
 
 #if !TARGET_OS_OSX
-// The compact reader supplies its own Back pill; restore native chrome when it leaves.
-@interface UnwiredReaderChromeView : UIView
+// The compact Inbox and reader supply their own Back pill; restore native chrome when they leave.
+@interface UnwiredNavigationChromeView : UIView
 @property (nonatomic, weak) UINavigationController *navigation;
 @property (nonatomic) BOOL previousHidden;
 @end
 
-@implementation UnwiredReaderChromeView
+@implementation UnwiredNavigationChromeView
 - (void)didMoveToWindow
 {
   [super didMoveToWindow];
@@ -188,12 +188,12 @@ typedef UIView UnwiredPlatformView;
 }
 @end
 
-@interface UnwiredReaderChromeManager : RCTViewManager
+@interface UnwiredNavigationChromeManager : RCTViewManager
 @end
 
-@implementation UnwiredReaderChromeManager
-RCT_EXPORT_MODULE(UnwiredReaderChrome)
-- (UIView *)view { return [UnwiredReaderChromeView new]; }
+@implementation UnwiredNavigationChromeManager
+RCT_EXPORT_MODULE(UnwiredNavigationChrome)
+- (UIView *)view { return [UnwiredNavigationChromeView new]; }
 @end
 #endif
 

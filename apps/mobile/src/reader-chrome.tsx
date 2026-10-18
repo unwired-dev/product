@@ -3,23 +3,19 @@ import type { ViewProps } from 'react-native';
 import { spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
 import { createContext, use, useState } from 'react';
-import {
-  Pressable,
-  requireNativeComponent,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { usePaletteHeader } from './command-palette.tsx';
-import { ContextMenu, Glass, Monogram, SFSymbol } from './design.tsx';
+import {
+  ContextMenu,
+  Glass,
+  Monogram,
+  NavigationChrome,
+  SFSymbol,
+} from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
-
-const NativeReaderChrome = requireNativeComponent<ViewProps>(
-  'UnwiredReaderChrome',
-);
 
 // Every reading-column route reports the native column's width to the shell, which sizes the
 // window bar's edge and the composer overlay from it.
@@ -105,9 +101,7 @@ export function ReaderHeader({
     <View
       style={styles.header}
       {...header.swipe}>
-      <NativeReaderChrome
-        style={{ position: 'absolute', width: 0, height: 0 }}
-      />
+      <NavigationChrome />
       <Glass
         interactive
         cornerRadius={22}

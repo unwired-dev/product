@@ -7,7 +7,13 @@ import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  Keyboard,
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -33,6 +39,9 @@ import { RegistrationGate } from '../src/registration-gate.tsx';
 import { start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
+
+// iPhone's Inbox shows its own Back to Mailboxes in place of the native navigation bar.
+const phone = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -246,6 +255,13 @@ function MailShell() {
                       // On iPhone the list returns over the reader, or over Mailboxes for the palette.
                       splitView.current?.show('supplementary');
                     }}
+                    onBack={
+                      phone
+                        ? () => {
+                            splitView.current?.show('primary');
+                          }
+                        : undefined
+                    }
                     onCompose={compose}
                     onSelect={selectMessage}
                     onSelectBehindComposer={

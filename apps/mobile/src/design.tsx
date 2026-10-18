@@ -65,6 +65,19 @@ export function Glass({
   );
 }
 
+const NativeNavigationChrome = requireNativeComponent<ViewProps>(
+  'UnwiredNavigationChrome',
+);
+
+// Hides the native navigation bar while a compact screen shows its own Back pill.
+export function NavigationChrome() {
+  return (
+    <NativeNavigationChrome
+      style={{ position: 'absolute', width: 0, height: 0 }}
+    />
+  );
+}
+
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 
