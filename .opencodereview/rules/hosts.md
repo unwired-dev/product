@@ -689,7 +689,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   a completed pop must update its owning route or destination exactly once.
   Check full-window Mailboxes and the preceding screen during native interaction;
   a component callback or a blank native root can pass while the person swipes
-  over an empty or clipped destination.
+  over an empty or clipped destination. When leading split columns such as
+  `sidebar.tsx.Mailboxes` and `inbox.tsx.Inbox` become full-screen phone screens,
+  trace both horizontal safe-area edges in landscape. The screens experimental
+  `SafeAreaView` defaults omitted edges to false, so a leading-column edge list
+  can leave controls beneath the right-hand cutout.
 
 - Mobile `app/_layout.tsx.MailShell` subscribing to unrelated Account updates or
   updating composer keyboard geometry while no composer is open. Trace the

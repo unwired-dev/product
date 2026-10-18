@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A full-viewport native assertion such as `InboxTests.threadJourney` measuring
+  an inset `SafeAreaView` instead of its owning native screen. Trace the installed
+  safe-area component's margin/padding behavior and compare the full-screen owner
+  with the window separately from the inset content. Otherwise valid safe insets
+  fail the viewport check, or an edge omitted from full-screen phone content goes
+  unnoticed. Keep landscape content-inset evidence separate from portrait bounds.
+
 - A native Inbox readiness check such as `InboxTests.threadJourney` requiring
   one older fixture row to be hittable before the journey can scroll to it.
   Require a visible seeded message for list readiness after entry and relaunch,

@@ -367,7 +367,7 @@ final class InboxTests: XCTestCase {
           && app.windows.firstMatch.frame.contains(title.frame)
       }
       waitUntil(listReady)
-      let mailboxes = app.otherElements["mailboxes-content"].firstMatch
+      let mailboxes = app.otherElements["mailboxes-screen"].firstMatch
       swipeBack(app, commit: false)
       XCTAssertFalse(app.buttons["All inboxes"].waitForExistence(timeout: 3))
       XCTAssertTrue(listReady())
@@ -380,7 +380,33 @@ final class InboxTests: XCTestCase {
       fullScreenMailboxes.name = "Dark full-screen Mailboxes after native Back"
       fullScreenMailboxes.lifetime = .keepAlways
       add(fullScreenMailboxes)
-      app.buttons["All inboxes"].tap()
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      for destination in ["Mailboxes", "Inbox"] {
+        let screen =
+          destination == "Mailboxes" ? mailboxes : app.otherElements["inbox-screen"].firstMatch
+        let content = app.otherElements[
+          destination == "Mailboxes" ? "mailboxes-content" : "inbox-content"
+        ].firstMatch
+        waitUntil {
+          content.exists && content.frame.width > content.frame.height
+            && screen.frame == app.windows.firstMatch.frame
+        }
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(screen.frame.width, window.width, accuracy: 1)
+        XCTAssertEqual(screen.frame.height, window.height, accuracy: 1)
+        XCTAssertGreaterThan(content.frame.minX, window.minX)
+        XCTAssertLessThan(content.frame.maxX, window.maxX)
+        let safeLandscape = XCTAttachment(screenshot: app.screenshot())
+        safeLandscape.name = "Landscape \(destination) with horizontal safe insets"
+        safeLandscape.lifetime = .keepAlways
+        add(safeLandscape)
+        if destination == "Mailboxes" {
+          app.buttons["All inboxes"].tap()
+          waitUntil(listReady)
+        }
+      }
+      XCUIDevice.shared.orientation = .portrait
       waitUntil(listReady)
       // The reported black screen begins when opening the list, before selecting a message.
       for destination in ["All inboxes", "Account"] {

@@ -769,7 +769,8 @@ export function Inbox({
       keyboardVerticalOffset={-insets.bottom}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
-        edges={{ top: true, bottom: true, left: true }}
+        testID="inbox-content"
+        edges={{ top: true, bottom: true, left: true, right: !ipad }}
         style={styles.fill}>
         <View style={styles.fill}>
           <InboxHeading
