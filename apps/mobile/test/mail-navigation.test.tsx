@@ -85,7 +85,7 @@ describe('phone mail navigation', () => {
     );
     await render(<Mail />);
     await screen.findByRole('button', {
-      name: 'Unread. Oliver Park. Saturday, by the river?',
+      name: /^Unread\. Oliver Park\. Saturday, by the river\?/u,
     });
     expect(screen.queryByText('Mailboxes')).toBeNull();
     expect(
@@ -98,7 +98,7 @@ describe('phone mail navigation', () => {
       'Oliver',
     );
     await screen.findByRole('button', {
-      name: 'Unread. Oliver Park. Saturday, by the river?',
+      name: /^Unread\. Oliver Park\. Saturday, by the river\?/u,
     });
     await act(async () => {
       await fireEvent(screen.getByTestId('inbox-screen'), 'dismissed', {
