@@ -196,6 +196,9 @@ sign-out, connection removal and device revocation before and after submission.
 The host `delivery.test.tsx` journeys run application entry wiring with real shared
 stores and synthetic native storage, Gmail and claims, without mounting an Inbox.
 They prove mobile foreground gating and Mac processing with no mounted windows.
+Cold shared-store journeys reopen Draft storage with fresh, unloaded mailbox
+stores and recover queued handoffs, unknown outcomes and accepted SMTP Sent
+copies without another submission.
 These are deterministic integration checks, separate from native lifecycle and
 real-provider qualification.
 

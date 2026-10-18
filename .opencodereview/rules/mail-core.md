@@ -595,6 +595,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   adopt another incarnation; only current explicit consent or a retained matching
   recreation intent may do so. Otherwise an offline device restores a removed
   connection's provider access.
+- `outbox.ts` starting delivery or recovery only after an Inbox view has opened
+  its mailbox. Trace queued handoff, unknown Sent lookup and accepted SMTP filing
+  through a fresh `createMailboxes` instance and reopened Draft storage without
+  calling `mailboxes.load` from test setup. Delivery must prepare its own selected
+  mailbox and recheck current execution and account authority after awaited
+  preparation before a new submission. Otherwise a cold application launch or
+  window-free process leaves durable work waiting indefinitely, while preloaded
+  fixtures hide the missing owner.
+- `outbox.ts.pass` restoring retry backoff after a pause or authority transition
+  while `advance` awaited claim or storage. Bind delayed scheduler writes to the
+  execution that started them, including pause followed by resume before the old
+  await settles. Verify one immediate handoff from the fresh opportunity without
+  advancing the clock and without duplicate submission; otherwise stale work
+  reinstates a delay that activation already cleared.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

@@ -600,7 +600,10 @@ export function createOutbox({
     // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other durable states never permit automatic delivery.
     switch (entry?.state) {
       case 'filing': {
-        await file(entry);
+        await openSender(entry.draft);
+        if (current()) {
+          await file(entry);
+        }
         break;
       }
       case 'queued': {
@@ -710,7 +713,16 @@ export function createOutbox({
       retryAt.set(id, Date.now() + retryDelay);
     }
   };
+  const hasUnknown = () =>
+    drafts.getOutbox().some((entry) => entry.state === 'unknown');
   const pass = async () => {
+    // Recovery also owns opening its mailbox after a launch with no Inbox.
+    for (const entry of drafts.getOutbox()) {
+      if (running() && entry.state === 'unknown') {
+        await openSender(entry.draft);
+      }
+    }
+    checkUnknown(false);
     for (const id of checks) {
       await checkSent(id);
     }
@@ -775,7 +787,7 @@ export function createOutbox({
         }
       }
       publish();
-      if (checkUnknown(false)) {
+      if (checkUnknown(false) || hasUnknown()) {
         void process();
       } else if (passing === undefined) {
         plan(() => void process());
@@ -787,7 +799,7 @@ export function createOutbox({
       void process();
     }
   });
-  if (checkUnknown(false)) {
+  if (checkUnknown(false) || hasUnknown()) {
     void process();
   } else {
     plan(() => void process());
