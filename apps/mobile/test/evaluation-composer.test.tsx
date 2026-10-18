@@ -232,6 +232,11 @@ describe('the Tiptap evaluation composer', () => {
     // A second Back dismisses the question and keeps the authored body available.
     await fireEvent(back, 'back');
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
+    const beforeSave = createDrafts(storage.native, registration);
+    await beforeSave.load();
+    expect(draftsOf(beforeSave.getSnapshot())[0]?.body).not.toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Keep these unsaved words' }] },
+    ]);
     await fireEvent(back, 'back');
     await page.report({ frozen: true });
     await press('Save Draft');

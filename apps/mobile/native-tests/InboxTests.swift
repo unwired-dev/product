@@ -125,7 +125,7 @@ final class InboxTests: XCTestCase {
     add(shot)
     if phone {
       swipeBack(app, commit: false)
-      XCTAssertTrue(app.buttons["Back to Settings"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons["Back to Settings"].waitForNonExistence(timeout: 3))
       swipeBack(app)
       XCTAssertTrue(app.buttons["Account & Devices"].waitForExistence(timeout: 10))
       XCTAssertFalse(app.buttons["Back to Settings"].exists)
@@ -735,7 +735,7 @@ final class InboxTests: XCTestCase {
         XCTAssertFalse(app.buttons["Save Draft"].exists)
       }
       swipeBack(app, commit: false)
-      XCTAssertFalse(app.buttons["Save Draft"].exists)
+      XCTAssertFalse(app.buttons["Save Draft"].waitForExistence(timeout: 3))
       swipeBack(app)
       XCTAssertTrue(app.buttons["Save Draft"].waitForExistence(timeout: 10))
       // A second Back cancels the question without losing the editor's unsaved version.
@@ -1104,7 +1104,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
     if UIDevice.current.userInterfaceIdiom == .phone {
       swipeBack(app, commit: false)
-      XCTAssertTrue(sender.exists)
+      XCTAssertFalse(sender.waitForNonExistence(timeout: 3))
       swipeBack(app)
       waitUntil { maya.isHittable }
       XCTAssertFalse(sender.exists)
