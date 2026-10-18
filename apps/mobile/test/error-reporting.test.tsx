@@ -207,7 +207,7 @@ describe('error reporting controls', () => {
 });
 
 describe('installation privacy access', () => {
-  it('opens reporting before sign-in through the native navigation stack and returns to Welcome', async () => {
+  it('uses Back to return from signed-out privacy to the retained Welcome or Sign In page', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-declined');
     const registration = createRegistration(synthetic.vault);
@@ -243,11 +243,17 @@ describe('installation privacy access', () => {
     expect(
       screen.queryByRole('button', { name: 'Sign in with Google' }),
     ).toBeNull();
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back to Settings' }),
-    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
     await expect(
       screen.findByRole('button', { name: 'Continue' }),
+    ).resolves.toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Privacy & Data' }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    await expect(
+      screen.findByRole('button', { name: 'Sign in with Google' }),
     ).resolves.toBeVisible();
   });
 });

@@ -421,6 +421,9 @@ export function SettingsWorkspace({
       <View style={styles.page}>
         <AccountHeader
           title={t(`settings.destinations.${destination}`)}
+          backLabel={t(
+            onWelcome === undefined ? 'settings.back' : 'onboarding.back',
+          )}
           onBack={() => {
             if (onWelcome === undefined) {
               onDestination(

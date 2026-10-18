@@ -133,6 +133,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Qualify any separate enlarged touch handler with
   native interaction evidence rather than treating component events as proof.
 
+- `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
+  label after changing its return target. Trace the callback to the retained
+  destination, including signed-out privacy opened from Welcome or Sign In;
+  use a generic Back label when entry points differ, while preserving ordinary
+  Settings-return labels. Otherwise VoiceOver announces a destination the action
+  does not open. Exercise the route through the labeled action and check the
+  screen it restores.
+
 - `settings.tsx.settingsButton` giving a short visible title whose words are
   absent from its target-specific accessible name. Trace every `options.title`
   caller and localized title/name pair, ignoring decorative punctuation and

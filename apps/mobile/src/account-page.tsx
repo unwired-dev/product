@@ -47,10 +47,12 @@ export function AccountPage({
 export function AccountHeader({
   title,
   onBack,
+  backLabel,
   accessory,
 }: {
   readonly title: string;
   readonly onBack?: (() => void) | undefined;
+  readonly backLabel?: string;
   readonly accessory?: ReactNode;
 }) {
   const colors = usePalette();
@@ -75,7 +77,7 @@ export function AccountHeader({
           <View style={pad ? undefined : styles.phoneHeaderSlot}>
             {onBack === undefined ? null : (
               <Pressable
-                accessibilityLabel={t('settings.back')}
+                accessibilityLabel={backLabel ?? t('settings.back')}
                 accessibilityRole="button"
                 onPress={onBack}
                 style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
