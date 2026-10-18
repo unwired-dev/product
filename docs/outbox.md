@@ -31,6 +31,9 @@ write or refreshed native credentials. Returning retries due work; it does not
 restart an Undo Send Window. Background Inbox refreshes and push wakes do not
 grant permission to send. Delivery does not promise mobile background execution.
 
+[Mock Mail Session](mock-mail-sessions.md) builds use the same lifecycle and Undo
+Send Window with their synthetic providers.
+
 A provider request already started settles through the existing outcome rules.
 Suspension, termination, sign-out, connection removal or device revocation cannot
 turn an uncertain handoff into permission to submit again. Native submission

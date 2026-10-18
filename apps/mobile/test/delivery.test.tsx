@@ -19,6 +19,11 @@ import {
 } from '@private-email/mail-core/testing/registration-vault';
 import { AppState, TurboModuleRegistry } from 'react-native';
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
+jest.mock('@private-email/mail-core/registration-mode', () => ({
+  previewInbox: true,
+}));
+
 const present = <T,>(value: T | undefined): T => {
   if (value === undefined) {
     throw new Error('Expected a value');
@@ -29,7 +34,7 @@ const ownerOf = (snapshot: RegistrationSnapshot) =>
   'productAccountId' in snapshot ? snapshot.productAccountId : undefined;
 
 describe('application-owned Outbox execution', () => {
-  it('pauses through inactive and headless background opportunities, then sends on activation without a mounted Inbox', async () => {
+  it('pauses preview delivery through inactive and background opportunities, then sends on activation without a mounted Inbox', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
     const registered = createRegistration(vault);

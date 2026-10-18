@@ -1,4 +1,3 @@
-import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { AppState } from 'react-native';
 
 import { drafts, outbox } from './registration.ts';
@@ -12,8 +11,6 @@ const follow = (state: string) => {
     outbox.pause();
   }
 };
-if (!previewInbox) {
-  void drafts.load();
-  follow(AppState.currentState);
-  AppState.addEventListener('change', follow);
-}
+void drafts.load();
+follow(AppState.currentState);
+AppState.addEventListener('change', follow);

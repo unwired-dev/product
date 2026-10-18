@@ -436,6 +436,14 @@ export function createOutbox({
     }
   };
 
+  // Delivery owns opening its sender even when no Inbox view has loaded it.
+  const openSender = async (draft: Draft) => {
+    const mailbox = connectionOf(draft.connection);
+    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
+      await mailbox.inbox.load();
+    }
+  };
+
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
@@ -545,14 +553,6 @@ export function createOutbox({
       }
     }
     return true;
-  };
-
-  // Delivery owns opening its sender even when no Inbox view has loaded it.
-  const openSender = async (draft: Draft) => {
-    const mailbox = connectionOf(draft.connection);
-    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
-      await mailbox.inbox.load();
-    }
   };
 
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.

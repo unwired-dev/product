@@ -68,7 +68,7 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     }
   });
 
-  it('reconciles an accepted handoff after the relaunched mailbox becomes ready', async () => {
+  it('opens the relaunched mailbox and reconciles an accepted handoff', async () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();
     const sending = await sender(server, gmail, 'phone');
@@ -94,6 +94,7 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       sending.storage.relaunch();
       const drafts = createDrafts(sending.storage.native, sending.registration);
       await drafts.load();
+      expect(drafts.getOutbox()).toMatchObject([{ id, state: 'unknown' }]);
       recovery = createOutbox({
         drafts,
         mailboxes,
@@ -101,8 +102,6 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         claims: sending.storage.delivery,
       });
       await recovery.process();
-      expect(drafts.getOutbox()).toMatchObject([{ id, state: 'unknown' }]);
-      await mailboxes.load();
       await vi.waitFor(() => {
         expect(drafts.getOutbox()).toStrictEqual([]);
       });
