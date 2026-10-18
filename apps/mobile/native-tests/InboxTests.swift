@@ -343,20 +343,27 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     enter(String(presented.suffix(4)), into: app.textFields["Last four characters"], in: app)
     app.buttons["Confirm Recovery Key"].tap()
-    XCTAssertTrue(
-      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    let visibleMessage = {
+      app.buttons.matching(
+        NSPredicate(
+          format: "label CONTAINS %@ OR label CONTAINS %@",
+          "Garden plans for spring", "Trail maintenance")
+      ).allElementsBoundByIndex.contains { $0.isHittable }
+    }
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    waitUntil(visibleMessage)
     // Unlike the preview journey, this opens through the production account/Settings container.
     // A completed account must cold-launch on its message list, with no extra Account action.
     app.terminate()
     app.launch()
-    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
-    XCTAssertTrue(rowan.isHittable)
+    waitUntil(visibleMessage)
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
       let title = app.staticTexts["Inbox"].firstMatch
       let listReady = {
-        rowan.isHittable && back.isHittable && title.exists && !title.frame.isEmpty
+        visibleMessage() && back.isHittable && title.exists && !title.frame.isEmpty
           && app.windows.firstMatch.frame.contains(title.frame)
       }
       waitUntil(listReady)
@@ -379,6 +386,13 @@ final class InboxTests: XCTestCase {
       }
     }
     for attempt in 1...3 {
+      let messages = app.scrollViews.containing(
+        .button, identifier: "Unread. Rowan Hale. Garden plans for spring"
+      ).firstMatch
+      for _ in 0..<8 where !rowan.isHittable {
+        messages.swipeUp(velocity: .slow)
+      }
+      XCTAssertTrue(rowan.isHittable)
       rowan.tap()
       let sender = app.staticTexts["rowan@example.invalid"].firstMatch
       XCTAssertTrue(sender.waitForExistence(timeout: 10))
