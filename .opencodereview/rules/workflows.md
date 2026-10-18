@@ -18,6 +18,12 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 - `release.yml` preflight or `changesets/action` integration treating zero-release changeset files as actionable changesets. Check the action's no-change, empty-only and version paths after preprocessing; an empty file left after a version PR merges must not suppress tagging and TestFlight, and checkout-only cleanup must not be committed to `main` by the publish path.
 - A required check removed, made `continue-on-error`, skipped by a path filter that misses files it covers, or changed to pass with zero tests selected.
 - A workflow command that diverges from the local validation command documented in `README.md` and `docs/expo-client.md`, so CI and local runs prove different things.
+- A matrix, job-name or artifact-name change in `.github/workflows/mobile.yml`
+  leaving `docs/expo-client.md`'s native CI guide stale. Reconcile every emitted
+  check name, scenario/device combination, `needs` dependency and upload/download
+  artifact name against the guide, including branch-protection instructions;
+  otherwise maintainers can require nonexistent checks or select the wrong
+  evidence while the workflow itself passes.
 - A path filter that omits a dependency of the job: shared `packages/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `scripts/` or the workflow file itself.
 - A native or bundle job whose evidence is described more broadly than it is. A Hermes export checks the bundle; a Simulator journey checks that journey; neither is device, provider or credential qualification.
 - A legacy Swift job presented as a merge gate for the replacement hosts.

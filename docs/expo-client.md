@@ -242,14 +242,19 @@ with Xcode 27.0 selected explicitly and the iOS 27.0 simulator runtime. The
 native work is split into jobs that run side by side so that simulator startup,
 which dominates the duration, is not paid serially:
 
-- `Expo native build` performs a frozen root installation, generates the iOS
-  project with the test-only `open-read-relaunch` scenario, installs Pods, builds
-  an ad-hoc signed arm64 simulator Release app with packaged JavaScript and
-  uploads it as a tar archive (`expo-native-app-<run id>`).
-- `Expo native E2E (iPhone)` and `Expo native E2E (iPad)` start when the build
-  finishes. Each downloads that app and passes it with one simulator device type
-  to the same `test-native.zsh` runner used locally by `pnpm test:native`. These
-  jobs need no JavaScript installation.
+- `Expo native build (<scenario>)` runs once for each test-only scenario,
+  `open-read-relaunch` and `registration-thread`. Each performs a frozen root
+  installation, generates the iOS project, installs Pods, builds an ad-hoc signed
+  arm64 simulator Release app with packaged JavaScript and uploads it as a tar
+  archive (`expo-native-app-<scenario>-<run id>`).
+- `Expo native E2E (<device>, <scenario>)` runs all four iPhone/iPad and scenario
+  combinations after the whole native-build matrix succeeds. Each downloads the
+  app for its matching scenario and passes it with one simulator device type to
+  the same `test-native.zsh` runner used locally by `pnpm test:native`. These jobs
+  need no JavaScript installation. The `open-read-relaunch` journey covers the
+  Light preview Inbox; `registration-thread` covers the Dark registered Inbox,
+  HTML message opening and Thread navigation through the production registration
+  gate and Settings cover, including cold relaunch.
 - `Expo native storage checks` runs the runner's failure-handling contract, the
   [private storage checks](private-inbox-storage.md#verification) and ordinary
   project generation with a cleared scenario, independently of the build.
@@ -265,18 +270,27 @@ a 34-minute timeout; its native integration step has a 26-minute limit, includin
 the bounded infrastructure retry and cleanup. Superseded pull-request runs are cancelled.
 Logs and XCTest result bundles, including screenshots, run ownership, simulator
 IDs and exit results, are uploaded with seven-day retention, including on failure,
-as `expo-native-e2e-<device>-<run id>-<attempt>`,
-`expo-native-build-<run id>-<attempt>` and `expo-native-checks-<run id>-<attempt>`.
-Re-running a failed journey job reuses the app from the original build while that
-artifact is retained.
+as `expo-native-e2e-<device>-<scenario>-<run id>-<attempt>`,
+`expo-native-build-<scenario>-<run id>-<attempt>` and
+`expo-native-checks-<run id>-<attempt>`. Re-running a failed journey job reuses
+the matching scenario's app from the original build while that artifact is
+retained.
 
-The `Expo native E2E (iPhone)` and `Expo native E2E (iPad)` checks cover the mock
-Inbox. They do not qualify the separate native Mac host or real provider
-integration. Repository branch protection must select both journey checks,
-`Expo native build` and `Expo native storage checks` separately if they should
-block merging. A failed build skips the journey jobs, and GitHub accepts skipped
-required checks, so requiring only the journeys would not enforce a successful
-build.
+These journeys use synthetic Mock Mail Sessions. They do not qualify the separate
+native Mac host or real provider integration. If maintainers elect to require the
+native checks for merging, branch protection must select all seven exact check
+names separately:
+
+- `Expo native build (open-read-relaunch)`
+- `Expo native build (registration-thread)`
+- `Expo native E2E (iPhone, open-read-relaunch)`
+- `Expo native E2E (iPhone, registration-thread)`
+- `Expo native E2E (iPad, open-read-relaunch)`
+- `Expo native E2E (iPad, registration-thread)`
+- `Expo native storage checks`
+
+A failed build skips all journey jobs, and GitHub accepts skipped required
+checks, so requiring only the journeys would not enforce successful builds.
 
 ## Interface language
 
