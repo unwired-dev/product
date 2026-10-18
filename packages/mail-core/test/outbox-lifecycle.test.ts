@@ -51,9 +51,15 @@ describe('outbox execution opportunities', () => {
     }
   });
 
-  it.each(['claim', 'handoff', 'dispose'] as const)(
-    'fences a %s interrupted before the provider starts',
-    async (boundary) => {
+  it.each([
+    ['claim', false],
+    ['handoff', false],
+    ['dispose', false],
+    ['claim', true],
+    ['handoff', true],
+  ] as const)(
+    'fences a %s interruption (resume before settlement: %s)',
+    async (boundary, resumeEarly) => {
       expect.hasAssertions();
       const { server, gmail } = sharedAccount();
       const phone = await sender(server, gmail, 'phone');
@@ -94,12 +100,14 @@ describe('outbox execution opportunities', () => {
         } else {
           phone.outbox.pause();
         }
+        const resuming = resumeEarly ? phone.outbox.resume() : Promise.resolve();
         release.resolve(undefined);
         await processing;
-        expect(gmail.sends).toHaveLength(0);
-        expect(phone.drafts.getOutbox()).toMatchObject([
-          { id, state: 'queued', claim: 'held' },
-        ]);
+        await resuming;
+        expect(gmail.sends).toHaveLength(resumeEarly ? 1 : 0);
+        expect(phone.drafts.getOutbox()).toMatchObject(
+          resumeEarly ? [] : [{ id, state: 'queued', claim: 'held' }],
+        );
         await phone.outbox.resume();
         expect(gmail.sends).toHaveLength(boundary === 'dispose' ? 0 : 1);
       } finally {

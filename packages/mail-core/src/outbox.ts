@@ -543,12 +543,24 @@ export function createOutbox({
     return true;
   };
 
+  // Delivery owns opening its sender even when no Inbox view has loaded it.
+  const openSender = async (draft: Draft) => {
+    const mailbox = connectionOf(draft.connection);
+    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
+      await mailbox.inbox.load();
+    }
+  };
+
   // Claims a queued message and hands it off; a message SMTP accepted files its Sent copy at once.
   const sendQueued = async (
     account: string,
     entry: OutboxEntry,
     current: () => boolean,
   ) => {
+    await openSender(entry.draft);
+    if (!current()) {
+      return;
+    }
     const check = handoffCheck(entry.draft);
     if (check === 'wait') {
       return;
@@ -688,6 +700,16 @@ export function createOutbox({
       }
     }
   };
+  // An interrupted execution cannot restore backoff that a new opportunity already cleared.
+  const retry = (id: string, started: number) => {
+    if (started !== execution) {
+      return;
+    }
+    const pending = entryOf(id);
+    if (pending !== undefined && Number.isFinite(dueAt(pending))) {
+      retryAt.set(id, Date.now() + retryDelay);
+    }
+  };
   const pass = async () => {
     for (const id of checks) {
       await checkSent(id);
@@ -696,12 +718,10 @@ export function createOutbox({
     for (const entry of drafts.getOutbox()) {
       const { id } = entry;
       if (running() && dueAt(entry) <= now) {
+        const started = execution;
         retryAt.delete(id);
         await advance(id);
-        const pending = entryOf(id);
-        if (pending !== undefined && Number.isFinite(dueAt(pending))) {
-          retryAt.set(id, Date.now() + retryDelay);
-        }
+        retry(id, started);
       }
     }
   };

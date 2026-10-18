@@ -70,7 +70,6 @@ describe('application-owned Outbox execution', () => {
       };
       await host.registration.restoreOnce();
       await host.drafts.load();
-      await host.gmailMailboxes.load();
       const id = present(
         await host.drafts.create({
           id: connection,
