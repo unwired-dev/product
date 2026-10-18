@@ -47,6 +47,37 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
+  it('keeps the innermost 64 JavaScript frames in PostHog wire order', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      const error = new TypeError('Invalid time value');
+      error.stack = [
+        'TypeError: Invalid time value',
+        ...Array.from(
+          { length: 65 },
+          (_, index) => `    at caller (index.bundle:${index + 1}:9)`,
+        ),
+      ].join('\n');
+      store.capture(error);
+      await store.refresh();
+      const capture = host.requests.find(
+        (request) => request.operation === 'capture',
+      );
+      const expected = Array.from({ length: 64 }, (_, index) => ({
+        kind: 'javascript',
+        line: 64 - index,
+        column: 9,
+      }));
+      expect(capture?.body).toContain(`"frames":${JSON.stringify(expected)}`);
+    } finally {
+      store.dispose();
+    }
+  });
+
   it('ignores stale deletion retry actions after consent or identity changes', async () => {
     expect.hasAssertions();
     const host = fixture();

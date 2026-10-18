@@ -204,6 +204,10 @@ The wire inventory is defined by the contracts' errorReportingSchema entry point
 | Breadcrumbs              | Last 50 predefined navigation/operation stages, optional bounded elapsed milliseconds and HTTP status                 |
 | Build                    | Platform, numeric app version, build and OS version, production/TestFlight/qualification channel                      |
 
+JavaScript stacks retain the innermost 64 matching bundle frames and send them
+with the outermost retained call first and the throw site last, following
+[PostHog wire order](https://github.com/PostHog/posthog-go/blob/main/error_tracking_stack_trace.go).
+
 Unknown messages are omitted rather than attempting to scrub arbitrary text.
 JS global exceptions and exceptions surfaced through React Native's explicit
 exception path, plus classified sign-in, sync and send transport failures, use
