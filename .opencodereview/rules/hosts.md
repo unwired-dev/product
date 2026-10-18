@@ -698,7 +698,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   a completed pop must update its owning route or destination exactly once.
   Check full-window Mailboxes and the preceding screen during native interaction;
   a component callback or a blank native root can pass while the person swipes
-  over an empty or clipped destination. When leading split columns such as
+  over an empty or clipped destination. For retained `BackScreen` siblings,
+  compare `ScreenStackItem` positioning with the installed native navigator and
+  trace caller style overrides. Each destination must overlay the stack viewport;
+  flex siblings can divide React content height while native screen bounds still
+  fill the window, clipping rows and displacing the toolbar.
+  When leading split columns such as
   `sidebar.tsx.Mailboxes` and `inbox.tsx.Inbox` become full-screen phone screens,
   trace both horizontal safe-area edges in landscape. The screens experimental
   `SafeAreaView` defaults omitted edges to false, so a leading-column edge list

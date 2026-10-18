@@ -9,7 +9,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   safe-area component's margin/padding behavior and compare the full-screen owner
   with the window separately from the inset content. Otherwise valid safe insets
   fail the viewport check, or an edge omitted from full-screen phone content goes
-  unnoticed. Keep landscape content-inset evidence separate from portrait bounds.
+  unnoticed. For retained native stacks, also measure the actual non-inset React
+  content root, such as `inbox-back-navigation`, against the window at entry,
+  relaunch, rotation and Back return. Native screen bounds alone can stay full-size
+  while flex siblings squeeze React content and make message rows unreachable.
+  Keep landscape content-inset evidence separate from portrait bounds.
 
 - A native Inbox readiness check such as `InboxTests.threadJourney` requiring
   one older fixture row to be hittable before the journey can scroll to it.
