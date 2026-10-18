@@ -95,7 +95,11 @@ final class InboxTests: XCTestCase {
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      app.buttons["Back to Mailboxes"].tap()
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons["Back to Mailboxes"].tap()
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
@@ -550,7 +554,11 @@ final class InboxTests: XCTestCase {
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      app.buttons["Back to Mailboxes"].tap()
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons["Back to Mailboxes"].tap()
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
