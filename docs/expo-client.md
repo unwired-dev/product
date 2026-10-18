@@ -122,8 +122,10 @@ This command takes the team from the environment; it does not load the root
 `.env.local`. `pnpm ios` reuses an existing native project and its signing team.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
-after changing native dependencies or app configuration. Keep native changes in
-config plugins. The design plugin compiles `native/design`, the SF Symbol and
+after changing native dependencies, app configuration, or sources copied by config
+plugins, including `native/design`. Keep native changes in config plugins. Before
+native validation, compare those source files with their generated `ios/Design`
+copies so an incremental build cannot silently compile stale controls. The design plugin compiles `native/design`, the SF Symbol and
 Liquid Glass views the Mac host shares. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in
 `native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and

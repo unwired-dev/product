@@ -37,7 +37,7 @@ const NativeSymbol = requireNativeComponent<
 >('UnwiredSymbol');
 
 export const NativeGlass = requireNativeComponent<
-  ViewProps & { readonly cornerRadius: number }
+  ViewProps & { readonly cornerRadius: number; readonly interactive?: boolean }
 >('UnwiredGlass');
 
 export const ModalBackground = requireNativeComponent<ViewProps>(
@@ -46,14 +46,23 @@ export const ModalBackground = requireNativeComponent<ViewProps>(
 
 export function Glass({
   cornerRadius,
+  interactive = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
+}: ViewProps & {
+  readonly cornerRadius: number;
+  readonly interactive?: boolean;
+}) {
   return (
     <NativeGlass
       {...props}
       cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+      interactive={interactive}
+      style={[
+        style,
+        { borderRadius: cornerRadius },
+        !interactive && { overflow: 'hidden' },
+      ]}
     />
   );
 }
@@ -188,23 +197,14 @@ export function GlassGroup({
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
-    <View
-      style={[
-        styles.group,
-        {
-          boxShadow: colors.smallGlassShadow,
-          backgroundColor: colors.surfaceContent,
-        },
-        style,
-      ]}>
-      <Glass
-        cornerRadius={
-          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
-        }
-        style={StyleSheet.absoluteFill}
-      />
+    <Glass
+      interactive
+      cornerRadius={
+        typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+      }
+      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
       {children}
-    </View>
+    </Glass>
   );
 }
 

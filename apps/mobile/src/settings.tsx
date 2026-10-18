@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AccountHeader } from './account-page.tsx';
+import { BackNavigation } from './back-navigation.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -387,7 +388,11 @@ export function SettingsWorkspace({
   }
   if (destination !== undefined) {
     return (
-      <View style={styles.page}>
+      <BackNavigation
+        testID="settings-back-navigation"
+        onBack={() => {
+          onDestination(undefined);
+        }}>
         <AccountHeader
           title={t(`settings.destinations.${destination}`)}
           onBack={() => {
@@ -396,7 +401,7 @@ export function SettingsWorkspace({
           accessory={accessory}
         />
         {content}
-      </View>
+      </BackNavigation>
     );
   }
   return (

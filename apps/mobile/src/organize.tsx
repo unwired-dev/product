@@ -118,7 +118,7 @@ const folderIcon = (name: string, roles: readonly string[]) => {
 };
 
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
-// response actions passed as children, and More, whose panel lists the remaining actions.
+// response actions passed as children, and regular-width More. iPhone lists the rest in Reply.
 export function MessageActions({
   id,
   folder,
@@ -288,14 +288,16 @@ function Toolbar({
             />
           )}
           <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
-          <ToolbarButton
-            icon="ellipsis"
-            label={t('message.more')}
-            expanded={more.open}
-            onPress={() => {
-              more.toggle();
-            }}
-          />
+          {compact ? null : (
+            <ToolbarButton
+              icon="ellipsis"
+              label={t('message.more')}
+              expanded={more.open}
+              onPress={() => {
+                more.toggle();
+              }}
+            />
+          )}
         </GlassGroup>
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}

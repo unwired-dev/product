@@ -74,18 +74,22 @@ export function AccountHeader({
         {pad && onBack === undefined ? null : (
           <View style={pad ? undefined : styles.phoneHeaderSlot}>
             {onBack === undefined ? null : (
-              <Pressable
-                accessibilityLabel={t('settings.back')}
-                accessibilityRole="button"
-                onPress={onBack}
-                style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
-                <Glass cornerRadius={22} />
-                <SFSymbol
-                  name="chevron.left"
-                  size={17}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
+              <Glass
+                interactive
+                cornerRadius={22}
+                style={{ boxShadow: colors.smallGlassShadow }}>
+                <Pressable
+                  accessibilityLabel={t('settings.back')}
+                  accessibilityRole="button"
+                  onPress={onBack}
+                  style={styles.back}>
+                  <SFSymbol
+                    name="chevron.left"
+                    size={17}
+                    color={colors.textPrimary}
+                  />
+                </Pressable>
+              </Glass>
             )}
           </View>
         )}

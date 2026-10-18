@@ -216,6 +216,33 @@ describe('the Tiptap evaluation composer', () => {
     expect(draftsOf(reopened.getSnapshot())).toHaveLength(1);
   });
 
+  it('keeps unsaved edits after swipe Back asks to save, and saves only when chosen', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.typed('Keep these unsaved words');
+    const back = screen.getByTestId('composer-back-navigation');
+    await fireEvent(back, 'back');
+    await page.report({ frozen: true });
+    expect(screen.getByTestId('message-webview')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save Draft' })).toBeVisible();
+    // A second Back dismisses the question and keeps the authored body available.
+    await fireEvent(back, 'back');
+    expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
+    await fireEvent(back, 'back');
+    await page.report({ frozen: true });
+    await press('Save Draft');
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Keep these unsaved words' }] },
+    ]);
+  });
+
   it('includes queued page edits before Save and locks editing until storage finishes', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');

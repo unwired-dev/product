@@ -1,5 +1,6 @@
 #import <React/RCTView.h>
 #import <React/RCTViewManager.h>
+#import <React/UIView+React.h>
 
 // SF Symbols and Liquid Glass for both hosts, which target iOS and macOS 27.
 #if TARGET_OS_OSX
@@ -72,9 +73,27 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @end
 
 @interface UnwiredGlassView : NSGlassEffectView
+@property (nonatomic) BOOL interactive;
 @end
 
 @implementation UnwiredGlassView
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    self.contentView = [[RCTView alloc] initWithFrame:self.bounds];
+    self.contentView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  }
+  return self;
+}
+- (void)setInteractive:(BOOL)interactive
+{
+  _interactive = interactive;
+  self.effectIsInteractive = interactive;
+}
+- (void)didUpdateReactSubviews
+{
+  for (NSView *subview in self.reactSubviews) [self.contentView addSubview:subview];
+}
 @end
 #else
 #import <UIKit/UIKit.h>
@@ -109,6 +128,7 @@ typedef UIView UnwiredPlatformView;
 
 @interface UnwiredGlassView : UIVisualEffectView
 @property (nonatomic) CGFloat cornerRadius;
+@property (nonatomic) BOOL interactive;
 @end
 
 @implementation UnwiredGlassView
@@ -124,6 +144,17 @@ typedef UIView UnwiredPlatformView;
 {
   _cornerRadius = cornerRadius;
   self.layer.cornerRadius = cornerRadius;
+}
+- (void)setInteractive:(BOOL)interactive
+{
+  _interactive = interactive;
+  UIGlassEffect *effect = [UIGlassEffect effectWithStyle:UIGlassEffectStyleRegular];
+  effect.interactive = interactive;
+  self.effect = effect;
+}
+- (void)didUpdateReactSubviews
+{
+  for (UIView *subview in self.reactSubviews) [self.contentView addSubview:subview];
 }
 @end
 #endif
@@ -327,12 +358,13 @@ RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end
 
-// The navigation layer's material, drawn behind the controls laid over it.
+// React controls belong inside the native material so it receives their interactions.
 @interface UnwiredGlassManager : RCTViewManager
 @end
 
 @implementation UnwiredGlassManager
 RCT_EXPORT_MODULE(UnwiredGlass)
 RCT_EXPORT_VIEW_PROPERTY(cornerRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(interactive, BOOL)
 - (UnwiredPlatformView *)view { return [UnwiredGlassView new]; }
 @end

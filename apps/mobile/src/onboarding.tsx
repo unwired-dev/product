@@ -306,23 +306,30 @@ export function SignIn({
         },
       ]}>
       {onBack === undefined ? null : (
-        <Pressable
-          accessibilityLabel={t('onboarding.back')}
-          accessibilityRole="button"
-          onPress={onBack}
-          style={[
-            styles.back,
-            {
-              backgroundColor: colors.surfaceContent,
-              boxShadow: colors.smallGlassShadow,
-            },
-          ]}>
-          <Glass cornerRadius={22} />
-          <SFSymbol
-            name="chevron.left"
-            color={colors.textPrimary}
-          />
-        </Pressable>
+        <Glass
+          interactive
+          cornerRadius={22}
+          style={{
+            marginLeft: spacing.l,
+            alignSelf: 'flex-start',
+            boxShadow: colors.smallGlassShadow,
+          }}>
+          <Pressable
+            accessibilityLabel={t('onboarding.back')}
+            accessibilityRole="button"
+            onPress={onBack}
+            style={[
+              styles.back,
+              {
+                marginLeft: 0,
+              },
+            ]}>
+            <SFSymbol
+              name="chevron.left"
+              color={colors.textPrimary}
+            />
+          </Pressable>
+        </Glass>
       )}
       <ScrollView contentContainerStyle={styles.compactForm}>
         {heading}

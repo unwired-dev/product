@@ -1,5 +1,5 @@
-import CryptoKit
 import CoreFoundation
+import CryptoKit
 import UIKit
 import XCTest
 
@@ -21,6 +21,15 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 }
 
 final class InboxTests: XCTestCase {
+  private func swipeBack(_ app: XCUIApplication, commit: Bool = true) {
+    let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.002, dy: 0.5))
+    edge.press(
+      forDuration: 0.05,
+      thenDragTo:
+        app.coordinate(withNormalizedOffset: CGVector(dx: commit ? 0.85 : 0.12, dy: 0.5)),
+      withVelocity: commit ? .default : .slow, thenHoldForDuration: commit ? 0 : 0.3)
+  }
+
   private func registrationJourney(_ app: XCUIApplication) throws {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
@@ -67,13 +76,16 @@ final class InboxTests: XCTestCase {
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
-    // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
+    // Organizing goes through the packaged native Gmail modify: a star from the actions panel, then
     // an archive and Undo.
-    app.buttons["More"].tap()
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    app.buttons[phone ? "Reply" : "More"].tap()
     app.buttons["Star"].tap()
+    if phone { app.buttons["Reply"].tap() }
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
     XCTAssertTrue(app.buttons["Remove star"].exists)
+    if phone { app.buttons["Close"].tap() }
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
@@ -95,7 +107,7 @@ final class InboxTests: XCTestCase {
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      if phone { swipeBack(app) } else { app.navigationBars.buttons.firstMatch.tap() }
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
@@ -111,6 +123,16 @@ final class InboxTests: XCTestCase {
     shot.name = "Resumed Gmail registration"
     shot.lifetime = .keepAlways
     add(shot)
+    if phone {
+      swipeBack(app, commit: false)
+      XCTAssertTrue(app.buttons["Back to Settings"].waitForExistence(timeout: 10))
+      swipeBack(app)
+      XCTAssertTrue(app.buttons["Account & Devices"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons["Back to Settings"].exists)
+      // The detail gesture consumed one level; the native containing stack still dismisses next.
+      swipeBack(app)
+      XCTAssertTrue(app.buttons["Account"].waitForExistence(timeout: 10))
+    }
   }
 
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
@@ -376,6 +398,13 @@ final class InboxTests: XCTestCase {
     top.name = "Thread scrolled to its newest message"
     top.lifetime = .keepAlways
     add(top)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      swipeBack(app)
+      XCTAssertTrue(
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Rowan Hale"))
+          .firstMatch.waitForExistence(timeout: 10))
+      XCTAssertFalse(app.staticTexts["6 Messages"].exists)
+    }
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -693,7 +722,26 @@ final class InboxTests: XCTestCase {
 
   // Close asks before keeping changes; Save Draft stores the Draft and removes the page.
   private func saveOnClose(_ app: XCUIApplication) {
-    app.buttons["Close"].tap()
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let format = app.buttons["Close Format"]
+      if format.exists {
+        swipeBack(app)
+        XCTAssertTrue(format.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Save Draft"].exists)
+      }
+      swipeBack(app, commit: false)
+      XCTAssertFalse(app.buttons["Save Draft"].exists)
+      swipeBack(app)
+      XCTAssertTrue(app.buttons["Save Draft"].waitForExistence(timeout: 10))
+      // A second Back cancels the question without losing the editor's unsaved version.
+      swipeBack(app)
+      XCTAssertTrue(app.buttons["Save Draft"].waitForNonExistence(timeout: 10))
+      XCTAssertTrue(app.webViews.firstMatch.exists)
+      swipeBack(app)
+    } else {
+      app.buttons["Close"].tap()
+    }
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     let asked = XCTAttachment(screenshot: app.screenshot())
@@ -1049,6 +1097,15 @@ final class InboxTests: XCTestCase {
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      swipeBack(app, commit: false)
+      XCTAssertTrue(sender.exists)
+      swipeBack(app)
+      waitUntil { maya.isHittable }
+      XCTAssertFalse(sender.exists)
+      maya.tap()
+      XCTAssertTrue(sender.waitForExistence(timeout: 10))
+    }
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCTAssertGreaterThan(sender.frame.minX, maya.frame.maxX)
     }

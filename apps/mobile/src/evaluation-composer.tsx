@@ -49,6 +49,7 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
+import { BackNavigation } from './back-navigation.tsx';
 import { MenuItem } from './composer-controls.tsx';
 import {
   CapturedAssistance,
@@ -568,7 +569,7 @@ function EvaluationEditor({
     shown !== undefined,
     layout.size,
   );
-  return (
+  const content = (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
@@ -817,6 +818,24 @@ function EvaluationEditor({
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+  return (
+    <BackNavigation
+      testID="composer-back-navigation"
+      onBack={() => {
+        if (open !== undefined) {
+          setOpen(undefined);
+          if (open === 'format') {
+            run({ type: 'focus' });
+          }
+        } else if (captured === undefined) {
+          void close();
+        } else {
+          forget();
+        }
+      }}>
+      {content}
+    </BackNavigation>
   );
 }
 

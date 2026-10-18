@@ -402,26 +402,29 @@ function SettingsPage({
                 return Promise.resolve();
               })
             ) : (
-              <Pressable
-                accessibilityLabel={t('registration.openInbox')}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: busy }}
-                disabled={busy}
-                onPress={onInbox}
-                style={[
-                  styles.back,
-                  {
-                    opacity: busy ? 0.4 : 1,
-                    boxShadow: colors.smallGlassShadow,
-                  },
-                ]}>
-                <Glass cornerRadius={22} />
-                <SFSymbol
-                  name="tray"
-                  size={20}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
+              <Glass
+                interactive={!busy}
+                cornerRadius={22}
+                style={{ boxShadow: colors.smallGlassShadow }}>
+                <Pressable
+                  accessibilityLabel={t('registration.openInbox')}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: busy }}
+                  disabled={busy}
+                  onPress={onInbox}
+                  style={[
+                    styles.back,
+                    {
+                      opacity: busy ? 0.4 : 1,
+                    },
+                  ]}>
+                  <SFSymbol
+                    name="tray"
+                    size={20}
+                    color={colors.textPrimary}
+                  />
+                </Pressable>
+              </Glass>
             )}
           </>
         }>

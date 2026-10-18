@@ -108,11 +108,10 @@ export function ReaderHeader({
       <NativeReaderChrome
         style={{ position: 'absolute', width: 0, height: 0 }}
       />
-      <View style={[styles.backGlass, { boxShadow: colors.smallGlassShadow }]}>
-        <Glass
-          cornerRadius={22}
-          style={StyleSheet.absoluteFill}
-        />
+      <Glass
+        interactive
+        cornerRadius={22}
+        style={[styles.backGlass, { boxShadow: colors.smallGlassShadow }]}>
         <Pressable
           focusable
           onLayout={(event) => {
@@ -154,7 +153,7 @@ export function ReaderHeader({
             </View>
           )}
         </Pressable>
-      </View>
+      </Glass>
       <Text
         accessibilityRole="header"
         numberOfLines={1}

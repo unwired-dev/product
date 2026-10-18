@@ -101,6 +101,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { BackNavigation } from './back-navigation.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   ComposerActions,
@@ -2004,7 +2005,7 @@ function Editor({
   );
 
   const [topBar, bottomBar] = regular ? [formatBar, null] : [null, formatBar];
-  return (
+  const content = (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
@@ -2282,6 +2283,19 @@ function Editor({
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+  return (
+    <BackNavigation
+      testID="composer-back-navigation"
+      onBack={() => {
+        if (captured === undefined) {
+          void close();
+        } else {
+          closeCaptured();
+        }
+      }}>
+      {content}
+    </BackNavigation>
+  );
 }
 
 // A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
@@ -2297,7 +2311,7 @@ function ComposerFallback({
   const colors = usePalette();
   const { t } = useLocalization();
   const paletteHeader = usePaletteHeader();
-  return (
+  const content = (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
@@ -2349,6 +2363,13 @@ function ComposerFallback({
         )}
       </View>
     </SafeAreaView>
+  );
+  return (
+    <BackNavigation
+      testID="composer-back-navigation"
+      onBack={onClose}>
+      {content}
+    </BackNavigation>
   );
 }
 

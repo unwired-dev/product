@@ -231,6 +231,18 @@ const inboxNewMessage = () => {
   return button;
 };
 
+const threadBackActions = [
+  {
+    name: 'button',
+    back: () =>
+      fireEvent.press(screen.getByRole('button', { name: 'Back, 2 unread' })),
+  },
+  {
+    name: 'edge swipe',
+    back: () => fireEvent(screen.getByTestId('thread-back-navigation'), 'back'),
+  },
+];
+
 describe('profile-scoped mobile routes', () => {
   it('retains the routed reader view when archiving its row from the Inbox', async () => {
     expect.hasAssertions();
@@ -703,53 +715,59 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('returns a cold-opened Thread to its Work Profile Inbox when Back has no history', async () => {
-    expect.hasAssertions();
-    const id = showMail('work');
-    route.setParams({});
-    route.router.replace({
-      pathname: '/thread/[id]',
-      params: { profileId: 'work', mailbox: 'garden', id },
-    });
-    await render(<RootLayout />);
-    await expect(
-      screen.findByText('Synthetic garden body.'),
-    ).resolves.toBeVisible();
-    split.shown.length = 0;
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back, 2 unread' }),
-    );
-    expect(split.shown).toStrictEqual(['supplementary']);
-    expect(screen.queryByText('Synthetic garden body.')).toBeNull();
-    expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
-    expect(screen.getByRole('button', { name: /Garden plan/u })).toBeVisible();
-  });
-
-  it('returns a pushed Thread to the previous reader instead of replacing it with the Inbox', async () => {
-    expect.hasAssertions();
-    const id = showMail('work');
-    route.setParams({ profileId: 'work', mailbox: 'garden', id });
-    await render(<RootLayout />);
-    await expect(
-      screen.findByRole('button', { name: 'Archive' }),
-    ).resolves.toBeVisible();
-    await act(() => {
-      route.router.push({
+  it.each(threadBackActions)(
+    'returns a cold-opened Thread to its Work Profile Inbox via $name when Back has no history',
+    async ({ back }) => {
+      expect.hasAssertions();
+      const id = showMail('work');
+      route.setParams({});
+      route.router.replace({
         pathname: '/thread/[id]',
         params: { profileId: 'work', mailbox: 'garden', id },
       });
-    });
-    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back, 2 unread' }),
-    );
-    await expect(
-      screen.findByRole('button', { name: 'Archive' }),
-    ).resolves.toBeVisible();
-    await expect(
-      screen.findByText('Synthetic garden body.'),
-    ).resolves.toBeVisible();
-  });
+      await render(<RootLayout />);
+      await expect(
+        screen.findByText('Synthetic garden body.'),
+      ).resolves.toBeVisible();
+      split.shown.length = 0;
+      await back();
+      expect(split.shown).toStrictEqual(['supplementary']);
+      expect(screen.queryByText('Synthetic garden body.')).toBeNull();
+      expect(
+        screen.getByLabelText('Search senders and subjects'),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: /Garden plan/u }),
+      ).toBeVisible();
+    },
+  );
+
+  it.each(threadBackActions)(
+    'returns a pushed Thread to the previous reader via $name instead of replacing it with the Inbox',
+    async ({ back }) => {
+      expect.hasAssertions();
+      const id = showMail('work');
+      route.setParams({ profileId: 'work', mailbox: 'garden', id });
+      await render(<RootLayout />);
+      await expect(
+        screen.findByRole('button', { name: 'Archive' }),
+      ).resolves.toBeVisible();
+      await act(() => {
+        route.router.push({
+          pathname: '/thread/[id]',
+          params: { profileId: 'work', mailbox: 'garden', id },
+        });
+      });
+      expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+      await back();
+      await expect(
+        screen.findByRole('button', { name: 'Archive' }),
+      ).resolves.toBeVisible();
+      await expect(
+        screen.findByText('Synthetic garden body.'),
+      ).resolves.toBeVisible();
+    },
+  );
 
   it.each([
     { name: 'legacy Default', profile: defaultProfile, params: {} },
@@ -782,6 +800,33 @@ describe('profile-scoped mobile routes', () => {
       ).toBeVisible();
     },
   );
+
+  it('returns a Work reader to its Inbox by edge swipe, then its list to Mailboxes', async () => {
+    expect.hasAssertions();
+    const dimensions = jest
+      .spyOn(
+        jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
+          'react-native',
+        ),
+        'useWindowDimensions',
+      )
+      .mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
+    try {
+      const id = showMail('work');
+      route.setParams({ profileId: 'work', mailbox: 'garden', id });
+      await render(<RootLayout />);
+      await screen.findByText('Synthetic garden body.');
+      split.shown.length = 0;
+      await fireEvent(screen.getByTestId('message-back-navigation'), 'back');
+      expect(route.params()).toStrictEqual({ profileId: 'work' });
+      expect(split.shown).toStrictEqual(['supplementary']);
+      expect(screen.queryByText('Synthetic garden body.')).toBeNull();
+      await fireEvent(screen.getByTestId('inbox-back-navigation'), 'back');
+      expect(split.shown).toStrictEqual(['supplementary', 'primary']);
+    } finally {
+      dimensions.mockRestore();
+    }
+  });
 
   it.each([
     { name: 'empty', profileId: '' },

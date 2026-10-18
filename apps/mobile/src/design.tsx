@@ -39,19 +39,28 @@ const NativeSymbol = requireNativeComponent<
 >('UnwiredSymbol');
 
 export const NativeGlass = requireNativeComponent<
-  ViewProps & { readonly cornerRadius: number }
+  ViewProps & { readonly cornerRadius: number; readonly interactive?: boolean }
 >('UnwiredGlass');
 
 export function Glass({
   cornerRadius,
+  interactive = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
+}: ViewProps & {
+  readonly cornerRadius: number;
+  readonly interactive?: boolean;
+}) {
   return (
     <NativeGlass
       {...props}
       cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+      interactive={interactive}
+      style={[
+        style,
+        { borderRadius: cornerRadius },
+        !interactive && { overflow: 'hidden' },
+      ]}
     />
   );
 }
@@ -276,24 +285,23 @@ export function GlassGroup({
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
-  return (
+  const group = (
+    <Glass
+      interactive
+      cornerRadius={
+        typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+      }
+      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
+      {children}
+    </Glass>
+  );
+  return ref === undefined ? (
+    group
+  ) : (
     <View
       ref={ref}
-      style={[
-        styles.group,
-        {
-          boxShadow: colors.smallGlassShadow,
-          backgroundColor: colors.surfaceContent,
-        },
-        style,
-      ]}>
-      <Glass
-        cornerRadius={
-          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
-        }
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
+      style={{ alignSelf: 'flex-start', flexShrink: 1 }}>
+      {group}
     </View>
   );
 }

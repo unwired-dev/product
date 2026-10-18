@@ -398,37 +398,41 @@ export function CommandBar() {
           },
         ]}>
         {opened === undefined ? (
-          <Pressable
-            accessibilityLabel={t('commands.openPalette')}
-            accessibilityRole="button"
-            onBlur={() => {
-              pillFocused.current = false;
-            }}
-            onFocus={() => {
-              pillFocused.current = true;
-            }}
-            onPress={open}
-            ref={pill}
-            style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-            <Glass cornerRadius={inputHeight / 2} />
-            <SFSymbol
-              name="command"
-              color={colors.textSecondary}
-            />
-            <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-              {t('commands.open')}
-            </Text>
-            <Text
-              style={[
-                styles.key,
-                {
-                  backgroundColor: colors.fillQuiet,
-                  color: colors.textSecondary,
-                },
-              ]}>
-              {t('commands.shortcut')}
-            </Text>
-          </Pressable>
+          <Glass
+            interactive
+            cornerRadius={inputHeight / 2}
+            style={{ boxShadow: colors.smallGlassShadow }}>
+            <Pressable
+              accessibilityLabel={t('commands.openPalette')}
+              accessibilityRole="button"
+              onBlur={() => {
+                pillFocused.current = false;
+              }}
+              onFocus={() => {
+                pillFocused.current = true;
+              }}
+              onPress={open}
+              ref={pill}
+              style={styles.pill}>
+              <SFSymbol
+                name="command"
+                color={colors.textSecondary}
+              />
+              <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+                {t('commands.open')}
+              </Text>
+              <Text
+                style={[
+                  styles.key,
+                  {
+                    backgroundColor: colors.fillQuiet,
+                    color: colors.textSecondary,
+                  },
+                ]}>
+                {t('commands.shortcut')}
+              </Text>
+            </Pressable>
+          </Glass>
         ) : (
           <Palette
             opened={opened}
@@ -582,8 +586,10 @@ function Palette({
       : t('commands.chooseFolder');
   return (
     <>
-      <View style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-        <Glass cornerRadius={inputHeight / 2} />
+      <Glass
+        interactive
+        cornerRadius={inputHeight / 2}
+        style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
         <View
           pointerEvents="none"
           style={[styles.focusRing, { borderColor: colors.accentFill }]}
@@ -637,7 +643,7 @@ function Palette({
           ]}>
           {t('commands.escape')}
         </Text>
-      </View>
+      </Glass>
       <View
         style={[
           styles.panel,

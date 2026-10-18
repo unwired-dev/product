@@ -3649,7 +3649,7 @@ describe('replying to and forwarding from the reader', () => {
     },
   );
 
-  it('offers the Thread actions in the iPhone Reply sheet beside More', async () => {
+  it('offers the Thread actions in the iPhone Reply sheet without a duplicate More menu', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -3669,8 +3669,7 @@ describe('replying to and forwarding from the reader', () => {
       />,
     );
     await screen.findByRole('button', { name: 'Reply' });
-    // The owner kept More beside Reply; the sheet repeats its actions.
-    expect(screen.getByRole('button', { name: 'More' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
     await press('Reply');
     expect(
       [

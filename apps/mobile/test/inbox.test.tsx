@@ -1024,21 +1024,24 @@ describe('connected Gmail Inbox', () => {
       await store.load();
     });
     expect(screen.getByRole('button', { name: 'Labels' })).toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Mark as read' }),
-      );
-    });
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    await chooseFromMenu(
+      contextMenuOf(screen.getByText('In alex@example.invalid')),
+      'Mark as Read',
+    );
     expect(
       screen.getByRole('button', {
         name: 'Oliver Park. Saturday, by the river?',
       }),
     ).toBeVisible();
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
-    });
-    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    await chooseFromMenu(
+      contextMenuOf(screen.getByText('In alex@example.invalid')),
+      'Flag',
+    );
+    const flaggedActions = menuSections(
+      contextMenuOf(screen.getByText('In alex@example.invalid')),
+    ).flat();
+    expect(flaggedActions).toContain('Unflag');
     // Every outcome is stated, not only removals that can be undone.
     expect(
       screen.getByText('Starred: “Saturday, by the river?”.'),
@@ -1208,12 +1211,10 @@ describe('connected Gmail Inbox', () => {
     );
     // Trashed mail moves back to the Inbox instead of being archived again.
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Move to Inbox' }),
-      );
-    });
+    await chooseFromMenu(
+      contextMenuOf(screen.getByText('In alex@example.invalid')),
+      'Move to Inbox',
+    );
     expect(
       screen.getByText('Moved back to the Inbox: “Old receipt”.'),
     ).toBeVisible();
@@ -1241,8 +1242,10 @@ describe('connected Gmail Inbox', () => {
       await screen.findByRole('button', { name: /Lunch on Friday/u }),
     );
     expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.queryByRole('button', { name: 'Move to Inbox' })).toBeNull();
+    const inboxActions = menuSections(
+      contextMenuOf(screen.getByText('In alex@example.invalid')),
+    ).flat();
+    expect(inboxActions).not.toContain('Move to Inbox');
 
     // A cached label-only message found online still has no Inbox organizing actions.
     await fireEvent.changeText(field, 'Flight');
@@ -1374,8 +1377,10 @@ describe('connected Gmail Inbox', () => {
     );
     await fireEvent.press(row);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeVisible();
+    const readerActions = menuSections(
+      contextMenuOf(screen.getByText('In casey@example.invalid')),
+    ).flat();
+    expect(readerActions).toContain('Delete Message');
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(
       screen.getByText('This Microsoft mailbox has no folders of its own yet.'),
@@ -1399,17 +1404,18 @@ describe('connected Gmail Inbox', () => {
       }),
     );
     expect(
-      ['Archive', 'Folders', 'More'].map((name) =>
+      ['Archive', 'Folders'].map((name) =>
         screen.getByRole('button', { name }),
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(
-      ['Mark as read', 'Move to Trash', 'Report spam'].map((name) =>
-        screen.getByRole('button', { name }),
-      ),
-    ).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    const readerActions = menuSections(
+      contextMenuOf(screen.getByText('In casey@example.invalid')),
+    ).flat();
+    expect(readerActions).toStrictEqual(
+      expect.arrayContaining(['Mark as Read', 'Delete Message']),
+    );
     expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
 
     // A Microsoft message is in one folder: it moves, with no label to add.

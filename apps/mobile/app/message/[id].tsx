@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { BackNavigation } from '../../src/back-navigation.tsx';
 import { useProfile } from '../../src/mailbox.tsx';
 import { MessageDetail } from '../../src/message-detail.tsx';
 import { ReaderPane } from '../../src/reader-chrome.tsx';
@@ -11,22 +12,27 @@ export default function MessageRoute() {
     mailbox?: string;
     folder?: string;
   }>();
+  const close = () => {
+    router.replace({ pathname: '/', params: { profileId: profile } });
+  };
   return (
-    <ReaderPane>
-      <MessageDetail
-        id={id}
-        mailbox={mailbox}
-        folder={folder}
-        onClose={() => {
-          router.replace({ pathname: '/', params: { profileId: profile } });
-        }}
-        onCompose={(draft) => {
-          router.replace({
-            pathname: '/compose/[draft]',
-            params: { draft, id, mailbox, folder, profileId: profile },
-          });
-        }}
-      />
-    </ReaderPane>
+    <BackNavigation
+      testID="message-back-navigation"
+      onBack={close}>
+      <ReaderPane>
+        <MessageDetail
+          id={id}
+          mailbox={mailbox}
+          folder={folder}
+          onClose={close}
+          onCompose={(draft) => {
+            router.replace({
+              pathname: '/compose/[draft]',
+              params: { draft, id, mailbox, folder, profileId: profile },
+            });
+          }}
+        />
+      </ReaderPane>
+    </BackNavigation>
   );
 }

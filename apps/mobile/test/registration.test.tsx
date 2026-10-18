@@ -230,6 +230,15 @@ async function connectImap(
   return mailbox.id;
 }
 
+function contextMenuOf(element: ReturnType<typeof screen.getByText>) {
+  let menu = element.parent;
+  while (menu !== null && menu.type !== 'UnwiredContextMenu') {
+    menu = menu.parent;
+  }
+  assert.ok(menu !== null);
+  return menu;
+}
+
 describe('product registration', () => {
   it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
     expect.hasAssertions();
@@ -728,8 +737,16 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
-    await press('More');
-    await press('Mark as read');
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    const menu = contextMenuOf(screen.getByText(/^In /u));
+    const sections: ReadonlyArray<{
+      items: ReadonlyArray<{ id: string; title: string }>;
+    }> = menu.props.sections;
+    const read = sections
+      .flatMap(({ items }) => items)
+      .find(({ title }) => title === 'Mark as Read');
+    assert.ok(read !== undefined);
+    await fireEvent(menu, 'select', { nativeEvent: { id: read.id } });
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });

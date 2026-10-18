@@ -606,20 +606,24 @@ export function CommandInput({
     return null;
   }
   return (
-    <Pressable
-      accessibilityLabel={t('commands.openPalette')}
-      accessibilityRole="button"
-      onPress={open}
-      style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
-      <Glass cornerRadius={22} />
-      <SFSymbol
-        name="command"
-        color={colors.textSecondary}
-      />
-      <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-        {t('commands.open')}
-      </Text>
-    </Pressable>
+    <Glass
+      interactive
+      cornerRadius={22}
+      style={[style, { boxShadow: colors.smallGlassShadow }]}>
+      <Pressable
+        accessibilityLabel={t('commands.openPalette')}
+        accessibilityRole="button"
+        onPress={open}
+        style={styles.pill}>
+        <SFSymbol
+          name="command"
+          color={colors.textSecondary}
+        />
+        <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+          {t('commands.open')}
+        </Text>
+      </Pressable>
+    </Glass>
   );
 }
 

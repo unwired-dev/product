@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { BackNavigation } from '../src/back-navigation.tsx';
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
@@ -218,7 +219,13 @@ function MailShell() {
                 />
               </SplitView.Column>
               <SplitView.Column>
-                <View style={styles.fill}>
+                <BackNavigation
+                  testID="inbox-back-navigation"
+                  onBack={
+                    regular
+                      ? undefined
+                      : () => splitView.current?.show('primary')
+                  }>
                   <Inbox
                     composing={draft}
                     onClose={() => {
@@ -266,7 +273,7 @@ function MailShell() {
                     }
                     view={view}
                   />
-                </View>
+                </BackNavigation>
               </SplitView.Column>
             </SplitView>
           </ReaderPaneWidthContext>

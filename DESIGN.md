@@ -380,7 +380,14 @@ styles) so the file stays editable.
   Read or Unread target the whole Thread. Snooze also targets the whole Thread,
   per the [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes). The reference
   mockups show only Archive, Delete, Move, Reply, Reply All, Forward, a flag and
-  Snooze.
+  Snooze. On iPhone, Archive, Move and Reply remain in the bottom action group;
+  Reply also offers the Thread's read state, star, Trash and Spam actions. The
+  duplicate More button is removed per [#1044](https://github.com/unwired-dev/product/issues/1044);
+  the earlier iPhone frames still show it. Regular-width readers retain More.
+  Compact back navigation follows the leading-edge swipe across Mailboxes,
+  message lists, readers, Settings details and Compose. Cancelling retains the
+  current destination; committing uses its Back or Close action, including
+  Draft save confirmation.
 - **Compose:** follows the
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
@@ -422,7 +429,10 @@ content.
 
 - Liquid Glass is reserved for the navigation layer: sidebar, toolbar groups,
   search bar, menus, popovers and sheets. Use the macOS 27 and iOS 27 kit
-  material ("Liquid Glass - Medium") in its Light or Dark variant.
+  material ("Liquid Glass - Medium") in its Light or Dark variant. Controls and
+  control groups use interactive system glass with their content inside the
+  material; menus, sheets and structural surfaces keep passive material. An
+  opaque backing fill must not block the content beneath a glass control.
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
   down. Menus and sheets keep a deeper 24pt shadow so they read as floating.
