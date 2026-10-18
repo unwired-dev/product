@@ -19,6 +19,7 @@ final class UnwiredErrorReporting: NSObject {
         case ReportingError.disabled: code = "error-reporting-disabled"
         case ReportingError.invalid: code = "error-reporting-invalid"
         case ReportingError.retry: code = "error-reporting-retry"
+        case ReportingError.offline: code = "offline"
         default: code = "error-reporting-unavailable"
         }
         reject(code, "Error reporting is unavailable.", nil)
@@ -33,14 +34,16 @@ final class UnwiredErrorReporting: NSObject {
     Task { @MainActor in resolve(ErrorReportingRuntime.shared.read()) }
   }
 
-  @objc(errorReportingConsent:renewIdentity:resolver:rejecter:)
+  @objc(errorReportingConsent:renewIdentity:generation:resolver:rejecter:)
   func errorReportingConsent(
-    _ enabled: Bool, renewIdentity: Bool,
+    _ enabled: Bool, renewIdentity: Bool, generation: Double,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task { @MainActor in
       perform(resolve, reject: reject) {
-        try ErrorReportingRuntime.shared.consent(enabled: enabled, renewIdentity: renewIdentity)
+        guard let generation = Self.generation(generation) else { throw ReportingError.invalid }
+        return try ErrorReportingRuntime.shared.consent(
+          enabled: enabled, renewIdentity: renewIdentity, expectedGeneration: generation)
       }
     }
   }

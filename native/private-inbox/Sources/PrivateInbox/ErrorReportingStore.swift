@@ -183,7 +183,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     }
   }
 
-  func consent(enabled: Bool, renewIdentity: Bool) throws -> [String: Any] {
+  func consent(enabled: Bool, renewIdentity: Bool, expectedGeneration: Int? = nil) throws -> [String: Any] {
     var value: State
     var purgeFailed = false
     if !enabled {
@@ -198,6 +198,9 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
       value = try load()
     }
     guard !enabled || available else { throw ReportingError.unavailable }
+    if enabled, let expectedGeneration, expectedGeneration != value.generation {
+      throw ReportingError.stale
+    }
     var document = ReportingDocument.decode(value.document, now: now())
     if renewIdentity {
       guard enabled, !value.enabled, document.deletion == "complete" else {
@@ -343,6 +346,8 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     let value = try load()
     guard value.generation == generation else { throw ReportingError.stale }
     guard available else { throw ReportingError.unavailable }
+    // An installation that never opted in has no reporting authority to withdraw remotely.
+    if operation == "revoke" && !value.everEnabled { return ["status": "disabled"] }
     if operation == "enable" || operation == "capture" {
       guard value.enabled && !blocked else { throw ReportingError.disabled }
     }
@@ -377,8 +382,12 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     do {
       (data, status) = try await withCheckedThrowingContinuation { continuation in
         let task = session.dataTask(with: request) { data, response, error in
-          if error != nil {
-            continuation.resume(throwing: ReportingError.retry)
+          if let error {
+            let offline = (error as? URLError).map {
+              [.notConnectedToInternet, .networkConnectionLost, .dataNotAllowed,
+                .internationalRoamingOff].contains($0.code)
+            } ?? false
+            continuation.resume(throwing: offline ? ReportingError.offline : ReportingError.retry)
             return
           }
           guard let data, data.count <= 16_384, let response = response as? HTTPURLResponse else {
@@ -392,7 +401,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
       }
     } catch {
       guard try load().generation == generation else { throw ReportingError.stale }
-      throw ReportingError.retry
+      throw error
     }
     guard try load().generation == generation else { throw ReportingError.stale }
     guard (200...299).contains(status) else { throw ReportingError.retry }

@@ -68,6 +68,11 @@ Documentation here is product truth that agents execute: an implementer follows 
   a completed review thread can edit the shared checkout concurrently with the
   implementer and invalidate both reviewed artifacts.
 
+- Error-reporting copy disclosing reinstall/wipe loss of deletion access only in a
+  missing-credential state that normal native restoration cannot reach. Make that
+  limitation discoverable while the installation still holds its deletion authority;
+  otherwise the person learns the consequence only after access is gone.
+
 #### Vocabulary
 
 - A term from `GLOSSARY.md` or a topic glossary replaced by a synonym, a new domain term used without a definition, or a glossary entry changed outside `docs/agents/domain.md`'s policy.

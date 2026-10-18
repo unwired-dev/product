@@ -1,91 +1,6 @@
 import { createErrorReporting } from '@private-email/mail-core/error-reporting';
 
-const metadata = {
-  platform: 'ios',
-  appVersion: '1.0',
-  build: '202610181234',
-  osVersion: '27.0',
-  channel: 'qualification',
-};
-function fixture(initial: { enabled?: boolean; document?: string } = {}) {
-  let state = {
-    enabled: false,
-    generation: 0,
-    document: null as string | null,
-    available: true,
-    nativeAvailable: false,
-    identityAvailable: true,
-    metadata,
-    ...initial,
-  };
-  const requests: Array<{
-    operation: string;
-    body: string;
-    generation: number;
-  }> = [];
-  let offline = false;
-  let complete = false;
-  const native = {
-    errorReportingRead: async () => state,
-    errorReportingConsent: async (enabled: boolean, renewIdentity: boolean) => {
-      state = {
-        ...state,
-        enabled,
-        generation: state.generation + 1,
-        document: enabled ? state.document : null,
-      };
-      if (renewIdentity) {
-        complete = false;
-      }
-      return state;
-    },
-    errorReportingSave: async (generation: number, document: string) => {
-      if (state.generation !== generation) {
-        return { saved: false };
-      }
-      state.document = document;
-      return { saved: true };
-    },
-    errorReportingRequest: async (
-      operation: string,
-      body: string,
-      generation: number,
-    ) => {
-      if (
-        (operation === 'capture' || operation === 'enable') &&
-        (!state.enabled || generation !== state.generation)
-      ) {
-        throw new Error('stale');
-      }
-      if (offline) {
-        throw new Error('offline');
-      }
-      requests.push({ operation, body, generation });
-      const statuses: Record<string, string> = {
-        capture: 'accepted',
-        enable: 'enabled',
-        revoke: 'disabled',
-      };
-      return {
-        status: statuses[operation] ?? (complete ? 'complete' : 'pending'),
-      };
-    },
-    errorReportingTakeNative: async (): Promise<{ reports: unknown[] }> => ({
-      reports: [],
-    }),
-  };
-  return {
-    native,
-    requests,
-    state: () => state,
-    offline: (value: boolean) => {
-      offline = value;
-    },
-    complete: () => {
-      complete = true;
-    },
-  };
-}
+import { reportingFixture as fixture } from './error-reporting-fixture.ts';
 
 /* oxlint-disable vitest/max-expects -- Each journey proves the full consent/deletion boundary through the public store. */
 describe('installation error reporting at the protected native boundary', () => {
@@ -128,6 +43,70 @@ describe('installation error reporting at the protected native boundary', () => 
         host.requests.filter((request) => request.operation === 'capture'),
       ).toHaveLength(1);
     } finally {
+      store.dispose();
+    }
+  });
+
+  it('ignores stale deletion retry actions after consent or identity changes', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      await store.retryDeletion();
+      expect(store.getSnapshot()).toMatchObject({
+        enabled: true,
+        deletion: 'idle',
+      });
+      expect(
+        host.requests.filter((request) => request.operation === 'delete'),
+      ).toStrictEqual([]);
+      await store.deleteReports();
+      host.complete();
+      await store.retryDeletion();
+      await store.setEnabled(true);
+      const requests = host.requests.length;
+      await store.retryDeletion();
+      expect(host.requests).toHaveLength(requests);
+      expect(store.getSnapshot()).toMatchObject({
+        enabled: true,
+        deletion: 'idle',
+      });
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('ignores deletion completion after a newer consent revision', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      vi.spyOn(host.native, 'errorReportingRequest')
+        .mockImplementationOnce(host.native.errorReportingRequest)
+        .mockImplementationOnce(async () => {
+          entered.resolve(undefined);
+          await release.promise;
+          return { status: 'complete' };
+        });
+      const deleting = store.deleteReports();
+      await entered.promise;
+      const withdrawing = store.setEnabled(false);
+      release.resolve(undefined);
+      await Promise.all([deleting, withdrawing]);
+      expect(store.getSnapshot()).toMatchObject({
+        kind: 'deleting',
+        phase: 'pending',
+      });
+      expect(host.state().enabled).toBe(false);
+      expect(host.state().document).not.toContain('complete');
+    } finally {
+      release.resolve(undefined);
       store.dispose();
     }
   });
@@ -204,6 +183,224 @@ describe('installation error reporting at the protected native boundary', () => 
       expect(host.state().document).not.toContain('"id"');
     } finally {
       release.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('keeps server deletion failures retryable without describing them as offline', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      const original = host.native.errorReportingRequest;
+      host.native.errorReportingRequest = async (
+        operation,
+        body,
+        generation,
+      ) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the external deletion request fails in this recovery journey.
+        operation === 'delete'
+          ? { status: 'retry' }
+          : original(operation, body, generation);
+      await store.deleteReports();
+      expect(store.getSnapshot()).toMatchObject({
+        kind: 'deleting',
+        phase: 'failed',
+      });
+      store.dispose();
+      const reopened = createErrorReporting(host.native);
+      host.native.errorReportingRequest = original;
+      host.complete();
+      await reopened.load();
+      expect(reopened.getSnapshot()).toMatchObject({
+        enabled: false,
+        deletion: 'complete',
+      });
+      reopened.dispose();
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('blocks re-enabling as soon as deletion starts while withdrawal is in flight', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const original = host.native.errorReportingRequest;
+    host.native.errorReportingRequest = async (operation, body, generation) => {
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the withdrawal to exercise the public deletion race.
+      if (operation === 'revoke') {
+        entered.resolve(undefined);
+        await release.promise;
+      }
+      return original(operation, body, generation);
+    };
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      const deleting = store.deleteReports();
+      await entered.promise;
+      expect(store.getSnapshot()).toMatchObject({ kind: 'deleting' });
+      await store.setEnabled(true);
+      expect(host.state().enabled).toBe(false);
+      release.resolve(undefined);
+      await deleting;
+      expect(host.state().enabled).toBe(false);
+    } finally {
+      release.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('refuses an enable that reaches native after a later withdrawal', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const original = host.native.errorReportingConsent;
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      host.native.errorReportingConsent = async (...args) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Reorder only the external enable, so a later withdrawal reaches native first.
+        if (args[0]) {
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return original(...args);
+      };
+      const enabling = store.setEnabled(true);
+      await entered.promise;
+      await store.setEnabled(false);
+      release.resolve(undefined);
+      await enabling;
+      expect(host.state().enabled).toBe(false);
+      expect(store.getSnapshot()).toMatchObject({ enabled: false });
+    } finally {
+      release.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('keeps deletion intent when an older capture save is refused after withdrawal', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const saving = Promise.withResolvers<undefined>();
+    const releaseSave = Promise.withResolvers<undefined>();
+    const revoking = Promise.withResolvers<undefined>();
+    const releaseRevoke = Promise.withResolvers<undefined>();
+    const originalSave = host.native.errorReportingSave;
+    const originalRequest = host.native.errorReportingRequest;
+    const store = createErrorReporting(host.native);
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      host.native.errorReportingSave = async (generation, document) => {
+        saving.resolve(undefined);
+        await releaseSave.promise;
+        return originalSave(generation, document);
+      };
+      host.native.errorReportingRequest = async (
+        operation,
+        body,
+        generation,
+      ) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The external withdrawal remains held while the stale save settles.
+        if (operation === 'revoke') {
+          revoking.resolve(undefined);
+          await releaseRevoke.promise;
+        }
+        return originalRequest(operation, body, generation);
+      };
+      store.capture(new Error('synthetic failure'));
+      await saving.promise;
+      const deleting = store.deleteReports();
+      releaseSave.resolve(undefined);
+      await revoking.promise;
+      expect(store.getSnapshot()).toMatchObject({ kind: 'deleting' });
+      await store.setEnabled(true);
+      expect(host.state().enabled).toBe(false);
+      releaseRevoke.resolve(undefined);
+      await deleting;
+      expect(store.getSnapshot()).toMatchObject({ kind: 'deleting' });
+    } finally {
+      releaseSave.resolve(undefined);
+      releaseRevoke.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('publishes native consent before a slow delivery and ignores duplicate enable', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const original = host.native.errorReportingRequest;
+    try {
+      await store.load();
+      vi.spyOn(host.native, 'errorReportingRequest').mockImplementationOnce(
+        async (operation, body, generation) => {
+          entered.resolve(undefined);
+          await release.promise;
+          return original(operation, body, generation);
+        },
+      );
+      const enabling = store.setEnabled(true);
+      expect(store.getSnapshot()).toMatchObject({
+        kind: 'saving',
+        enabled: false,
+      });
+      await entered.promise;
+      expect(store.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        enabled: true,
+      });
+      const { generation } = host.state();
+      await store.setEnabled(true);
+      expect(host.state().generation).toBe(generation);
+      release.resolve(undefined);
+      await enabling;
+    } finally {
+      release.resolve(undefined);
+      store.dispose();
+    }
+  });
+
+  it('retains bundle coordinates when the packaged runtime omits named captures', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    const nativeExec = RegExp.prototype.exec;
+    try {
+      await store.load();
+      await store.setEnabled(true);
+      const spy = vi
+        .spyOn(RegExp.prototype, 'exec')
+        .mockImplementation(function (this: RegExp, text: string) {
+          const result = nativeExec.call(this, text);
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Match the host result while preserving ordinary nonmatches.
+          if (result !== null) {
+            delete result.groups;
+          }
+          return result;
+        });
+      const error = new Error('private body');
+      error.stack = 'Error: private body\n at read (index.bundle:12:9)';
+      store.capture(error);
+      spy.mockRestore();
+      await store.refresh();
+      const capture = host.requests.find(
+        (request) => request.operation === 'capture',
+      );
+      expect(capture?.body).toContain('"line":12,"column":9');
+      expect(capture?.body).not.toContain('private body');
+    } finally {
+      vi.restoreAllMocks();
       store.dispose();
     }
   });

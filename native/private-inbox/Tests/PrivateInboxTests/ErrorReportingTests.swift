@@ -42,6 +42,7 @@ private final class ReportingHTTP: @unchecked Sendable {
   var hold = false
   var reply = "accepted"
   var status = 200
+  var failure: URLError.Code?
   var started: (@Sendable () -> Void)?
   func accept(_ original: URLRequest) -> Bool {
     var request = original
@@ -67,6 +68,7 @@ private final class ReportingHTTP: @unchecked Sendable {
   }
   func reset(
     hold: Bool = false, reply: String = "accepted", status: Int = 200,
+    failure: URLError.Code? = nil,
     started: (@Sendable () -> Void)? = nil
   ) {
     lock.lock()
@@ -75,12 +77,13 @@ private final class ReportingHTTP: @unchecked Sendable {
     self.hold = hold
     self.reply = reply
     self.status = status
+    self.failure = failure
     self.started = started
   }
-  func response() -> (String, Int) {
+  func response() -> (String, Int, URLError.Code?) {
     lock.lock()
     defer { lock.unlock() }
-    return (reply, status)
+    return (reply, status, failure)
   }
   func captured() -> [URLRequest] {
     lock.lock()
@@ -95,7 +98,11 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     if Self.recording.accept(request) { return }
-    let (reply, status) = Self.recording.response()
+    let (reply, status, failure) = Self.recording.response()
+    if let failure {
+      client?.urlProtocol(self, didFailWithError: URLError(failure))
+      return
+    }
     let response = HTTPURLResponse(
       url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -162,6 +169,36 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(after["installationId"] as? String == identity["installationId"] as? String)
     #expect(after["credential"] as? String == identity["credential"] as? String)
     #expect((after["generation"] as? Int ?? 0) > generation)
+  }
+
+  @Test func freshOffCleanupDoesNotTransmitAnInstallationIdentity() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let store = store(memory, directory: directory, collector: ReportingTestCollector())
+    ReportingHTTPProtocol.recording.reset(reply: "disabled")
+    _ = store.read()
+    let off = try store.consent(enabled: false, renewIdentity: false)
+    let generation = try #require(off["generation"] as? Int)
+    _ = try await store.request(operation: "revoke", body: "{}", generation: generation)
+    #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
+    store.disableForAccountRemoval()
+    #expect(store.read()["enabled"] as? Bool == false)
+    #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
+  }
+
+  @Test func staleEnableCannotRestoreCollectionAfterWithdrawal() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let collector = ReportingTestCollector()
+    let store = store(ReportingMemory(), directory: directory, collector: collector)
+    let generation = try #require(store.read()["generation"] as? Int)
+    _ = try store.consent(enabled: false, renewIdentity: false)
+    #expect(throws: ReportingError.stale) {
+      try store.consent(enabled: true, renewIdentity: false, expectedGeneration: generation)
+    }
+    #expect(store.read()["enabled"] as? Bool == false)
+    #expect(!collector.active)
   }
 
   @Test func identityRenewsOnlyAfterConfirmedDeletionAndExplicitEnable() throws {
@@ -305,6 +342,22 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     _ = try await store.request(operation: "revoke", body: "{}", generation: generation)
     #expect(!FileManager.default.fileExists(atPath: marker.path))
     #expect(store.read()["enabled"] as? Bool == false)
+  }
+
+  @Test func deletionDistinguishesOfflineFromServerFailure() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = store(ReportingMemory(), directory: directory, collector: ReportingTestCollector())
+    let on = try store.consent(enabled: true, renewIdentity: false)
+    let generation = try #require(on["generation"] as? Int)
+    ReportingHTTPProtocol.recording.reset(failure: .notConnectedToInternet)
+    await #expect(throws: ReportingError.offline) {
+      _ = try await store.request(operation: "delete", body: "{}", generation: generation)
+    }
+    ReportingHTTPProtocol.recording.reset(status: 503)
+    await #expect(throws: ReportingError.retry) {
+      _ = try await store.request(operation: "delete", body: "{}", generation: generation)
+    }
   }
 
   @Test func HTTPAllowlistGenerationCredentialInjectionAndCancelledCapture() async throws {

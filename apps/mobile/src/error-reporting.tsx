@@ -215,7 +215,7 @@ export function ErrorReportingSettings({
         footer={
           missing
             ? t('errorReporting.missing')
-            : t('errorReporting.deleteExplanation')
+            : `${t('errorReporting.deleteExplanation')}\n\n${t('errorReporting.missing')}`
         }>
         <ReportingAction
           label={t('errorReporting.delete')}

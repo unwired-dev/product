@@ -26,3 +26,14 @@ dependencies until cutover retires it.
 
 [Effect conventions](../agents/effect.md) define the patterns. Shared lint policy
 enforces them. Each exemption names the issue that removes it.
+
+## Declarative wire schemas in contracts
+
+The #1049 review decision panel selected permitting `effect/Schema` in
+`packages/contracts` solely for declarative wire validators and inferred types.
+Keep those schemas in dedicated entry points, separate from Convex validators;
+contracts still owns no application logic, services, transports or Effect execution.
+The client and receiver share one payload inventory instead of duplicating it in
+mail-core and Convex. Sol and Astra voted for this option; Fable was unavailable
+because of its API rate limit. No product requirement or other dependency
+boundary changed.

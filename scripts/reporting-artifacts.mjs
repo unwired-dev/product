@@ -11,6 +11,7 @@ import {
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 const cliVersion = '0.18.10';
@@ -55,16 +56,63 @@ function digest(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function validVersion(value) {
-  return value !== undefined && versionPattern.test(value);
+const decodeOptions = Schema.decodeUnknownOption(
+  Schema.Struct({
+    platform: Schema.Literals(['ios', 'macos']),
+    version: Schema.String.check(Schema.isPattern(versionPattern)),
+    build: Schema.String.check(Schema.isPattern(buildPattern)),
+    bundle: Schema.NonEmptyString,
+    map: Schema.NonEmptyString,
+    binary: Schema.NonEmptyString,
+    dsym: Schema.String.check(Schema.isPattern(/\.dSYM$/u)),
+    output: Schema.NonEmptyString,
+  }),
+);
+
+function releaseOptions(values) {
+  const decoded = decodeOptions(values);
+  if (Option.isNone(decoded)) {
+    throw new Error(
+      'Required release coordinates or artifacts are missing; use --help.',
+    );
+  }
+  return decoded.value;
 }
 
-function validBuild(value) {
-  return value !== undefined && buildPattern.test(value);
+function hermesBytecode(file) {
+  const bytes = readFileSync(file);
+  if (
+    bytes.length < 32 ||
+    !bytes.subarray(0, 8).equals(Buffer.from('c61fbc03c103191f', 'hex'))
+  ) {
+    throw new Error(
+      'Bundle is not Hermes bytecode; plain Metro exports cannot qualify native Hermes stacks.',
+    );
+  }
+  return bytes;
 }
 
-function appRelease(binary) {
-  const plist = path.join(path.dirname(path.resolve(binary)), 'Info.plist');
+function composedMap(bytes) {
+  const value = decodeJson(bytes.toString('utf8'));
+  if (
+    !validMap(value) ||
+    Object.keys(value.x_hermes_function_offsets).length === 0
+  ) {
+    throw new Error(
+      'Expected a nonempty composed Hermes map with x_hermes_function_offsets; plain Metro maps are refused.',
+    );
+  }
+  return value;
+}
+
+function appRelease(binary, platform) {
+  const executableDirectory = path.dirname(path.resolve(binary));
+  const plist = path.join(
+    platform === 'macos'
+      ? path.dirname(executableDirectory)
+      : executableDirectory,
+    'Info.plist',
+  );
   return ['CFBundleShortVersionString', 'CFBundleVersion'].map((key) => {
     const result = spawnSync(
       '/usr/libexec/PlistBuddy',
@@ -78,13 +126,24 @@ function appRelease(binary) {
   });
 }
 
-function validateRelease(binary, version, build) {
-  const [appVersion, appBuild] = appRelease(binary);
+function validateRelease({ binary, version, build, platform }) {
+  const [appVersion, appBuild] = appRelease(binary, platform);
   if (appVersion !== version || appBuild !== build) {
     throw new Error(
       'Release coordinates do not match the archived app Info.plist.',
     );
   }
+}
+
+function validateSymbols(options) {
+  const nativeIds = uuids(path.resolve(options.binary));
+  const symbolIds = uuids(path.resolve(options.dsym));
+  if (JSON.stringify(nativeIds) !== JSON.stringify(symbolIds)) {
+    throw new Error(
+      'dSYM UUID/architecture set does not match the shipped executable.',
+    );
+  }
+  return nativeIds;
 }
 
 function main() {
@@ -107,57 +166,19 @@ function main() {
     );
     return;
   }
-  if (
-    (values.platform !== 'ios' && values.platform !== 'macos') ||
-    !validVersion(values.version) ||
-    !validBuild(values.build) ||
-    !values.bundle ||
-    !values.map ||
-    !values.binary ||
-    !values.dsym ||
-    !values.output
-  ) {
-    throw new Error(
-      'Required release coordinates or artifacts are missing; use --help.',
-    );
-  }
-  const output = path.resolve(values.output);
+  const options = releaseOptions(values);
+  const output = path.resolve(options.output);
   if (existsSync(output)) {
     throw new Error(
       'Output already exists; use a new directory so stale symbols cannot be uploaded.',
     );
   }
-  const bytecode = readFileSync(values.bundle);
-  if (
-    bytecode.length < 32 ||
-    !bytecode.subarray(0, 8).equals(Buffer.from('c61fbc03c103191f', 'hex'))
-  ) {
-    throw new Error(
-      'Bundle is not Hermes bytecode; plain Metro exports cannot qualify native Hermes stacks.',
-    );
-  }
-  const sourceMapBytes = readFileSync(values.map);
-  const sourceMap = decodeJson(sourceMapBytes.toString('utf8'));
-  if (
-    !validMap(sourceMap) ||
-    Object.keys(sourceMap.x_hermes_function_offsets).length === 0
-  ) {
-    throw new Error(
-      'Expected a nonempty composed Hermes map with x_hermes_function_offsets; plain Metro maps are refused.',
-    );
-  }
-  if (!values.dsym.endsWith('.dSYM')) {
-    throw new Error('Expected an Apple .dSYM bundle.');
-  }
-  validateRelease(values.binary, values.version, values.build);
-  const nativeIds = uuids(path.resolve(values.binary));
-  const symbolIds = uuids(path.resolve(values.dsym));
-  if (JSON.stringify(nativeIds) !== JSON.stringify(symbolIds)) {
-    throw new Error(
-      'dSYM UUID/architecture set does not match the shipped executable.',
-    );
-  }
-  const canonical = `app:///${values.platform}/${values.version}/${values.build}/index.bundle`;
+  const bytecode = hermesBytecode(options.bundle);
+  const sourceMapBytes = readFileSync(options.map);
+  const sourceMap = composedMap(sourceMapBytes);
+  validateRelease(options);
+  const nativeIds = validateSymbols(options);
+  const canonical = `app:///${options.platform}/${options.version}/${options.build}/index.bundle`;
   // The receiver derives this identity from bounded release coordinates, never client filenames.
   const prepared = { ...sourceMap, file: canonical, chunk_id: canonical };
   delete prepared.chunkId;
@@ -165,11 +186,11 @@ function main() {
   delete prepared.release_id;
   const release = [
     '--release-name',
-    `unwired-${values.platform}`,
+    `unwired-${options.platform}`,
     '--release-version',
-    values.version,
+    options.version,
     '--build',
-    values.build,
+    options.build,
   ];
   const hermesDirectory = path.join(output, 'hermes');
   const nativeDirectory = path.join(output, 'native');
@@ -182,14 +203,14 @@ function main() {
       JSON.stringify(prepared),
     );
     cpSync(
-      values.dsym,
-      path.join(nativeDirectory, path.basename(values.dsym)),
+      options.dsym,
+      path.join(nativeDirectory, path.basename(options.dsym)),
       { recursive: true },
     );
     const manifest = {
-      platform: values.platform,
-      appVersion: values.version,
-      build: values.build,
+      platform: options.platform,
+      appVersion: options.version,
+      build: options.build,
       canonical,
       chunkId: canonical,
       bytecodeSha256: digest(bytecode),

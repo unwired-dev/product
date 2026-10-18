@@ -203,6 +203,103 @@ const capture = Effect.fn('ErrorReporting.capture')(function* (
   });
 });
 
+interface DeletionTarget {
+  installationId: string;
+  base: string;
+  headers: { authorization: string };
+}
+
+const beginDeletion = Effect.fn('ErrorReporting.beginDeletion')(function* (
+  ctx: ActionCtx,
+  target: DeletionTarget,
+) {
+  const { installationId, base, headers } = target;
+  const response = yield* vendor(`${base}?distinct_id=${installationId}`, {
+    headers,
+  });
+  const persons = decodePersons(yield* call(() => response.json()));
+  if (Option.isNone(persons) || (persons.value.next ?? null) !== null) {
+    return;
+  }
+  const person = persons.value.results.find(
+    (candidate) =>
+      candidate.distinct_ids.length === 1 &&
+      candidate.distinct_ids[0] === installationId,
+  );
+  // No profile can mean ingestion lag; it is never proof that events were deleted.
+  if (person === undefined || persons.value.results.length !== 1) {
+    return;
+  }
+  yield* call(() =>
+    ctx.runMutation(internal.errorReportingState.advanceDeletion, {
+      installationId,
+      personUuid: person.id,
+    }),
+  );
+  yield* vendor(
+    `${base}${person.id}/?delete_events=true&delete_recordings=true`,
+    { method: 'DELETE', headers },
+  );
+});
+
+function verifiedDeletion(
+  status: ReturnType<typeof decodeDeletionStatus>,
+  personUuid: string,
+): boolean {
+  return (
+    Option.isSome(status) &&
+    status.value.results.some(
+      (item) =>
+        item.person_uuid === personUuid &&
+        item.status === 'completed' &&
+        item.delete_verified_at !== null &&
+        item.delete_verified_at.length > 0,
+    )
+  );
+}
+
+function absentProfile(persons: ReturnType<typeof decodePersons>): boolean {
+  return (
+    Option.isSome(persons) &&
+    persons.value.results.length === 0 &&
+    (persons.value.next ?? null) === null
+  );
+}
+
+const verifyDeletion = Effect.fn('ErrorReporting.verifyDeletion')(function* (
+  ctx: ActionCtx,
+  target: DeletionTarget,
+  personUuid: string,
+) {
+  const { installationId, base, headers } = target;
+  const response = yield* vendor(
+    `${base}deletion_status/?person_uuid=${personUuid}&status=all`,
+    { headers },
+  );
+  const status = decodeDeletionStatus(yield* call(() => response.json()));
+  if (verifiedDeletion(status, personUuid)) {
+    const profileResponse = yield* vendor(
+      `${base}?distinct_id=${installationId}`,
+      { headers },
+    );
+    const persons = decodePersons(yield* call(() => profileResponse.json()));
+    if (absentProfile(persons)) {
+      yield* call(() =>
+        ctx.runMutation(internal.errorReportingState.advanceDeletion, {
+          installationId,
+          complete: true,
+        }),
+      );
+    }
+  } else if (Option.isSome(status) && status.value.results.length === 0) {
+    // Retry a DELETE that may have failed after the person UUID was recorded.
+    yield* vendor(
+      `${base}${personUuid}/?delete_events=true&delete_recordings=true`,
+      { method: 'DELETE', headers },
+    );
+  }
+});
+
 const deleteStep = Effect.fn('ErrorReporting.deleteStep')(function* (
   ctx: ActionCtx,
   installationId: string,
@@ -219,84 +316,14 @@ const deleteStep = Effect.fn('ErrorReporting.deleteStep')(function* (
     return;
   }
   const config = yield* configuration;
-  const base = `https://eu.posthog.com/api/projects/${config.project}/persons/`;
-  const headers = { authorization: `Bearer ${config.personKey}` };
-  let personUuid = '';
-  if (current.state.kind === 'pending') {
-    const response = yield* vendor(`${base}?distinct_id=${installationId}`, {
-      headers,
-    });
-    const data: unknown = yield* call(() => response.json());
-    const persons = decodePersons(data);
-    if (
-      Option.isNone(persons) ||
-      (persons.value.next !== null && persons.value.next !== undefined)
-    ) {
-      return;
-    }
-    const person = persons.value.results.find(
-      (candidate) =>
-        candidate.distinct_ids.length === 1 &&
-        candidate.distinct_ids[0] === installationId,
-    );
-    // No profile can mean ingestion lag; it is never proof that events were deleted.
-    if (person === undefined || persons.value.results.length !== 1) {
-      return;
-    }
-    personUuid = person.id;
-    yield* call(() =>
-      ctx.runMutation(internal.errorReportingState.advanceDeletion, {
-        installationId,
-        personUuid,
-      }),
-    );
-    yield* vendor(
-      `${base}${personUuid}/?delete_events=true&delete_recordings=true`,
-      { method: 'DELETE', headers },
-    );
-    return;
-  }
-  ({ personUuid } = current.state);
-  const response = yield* vendor(
-    `${base}deletion_status/?person_uuid=${personUuid}&status=all`,
-    { headers },
-  );
-  const data: unknown = yield* call(() => response.json());
-  const status = decodeDeletionStatus(data);
-  const verified =
-    Option.isSome(status) &&
-    status.value.results.some(
-      (item) =>
-        item.person_uuid === personUuid &&
-        item.status === 'completed' &&
-        item.delete_verified_at !== null &&
-        item.delete_verified_at.length > 0,
-    );
-  if (verified) {
-    const profileResponse = yield* vendor(
-      `${base}?distinct_id=${installationId}`,
-      { headers },
-    );
-    const persons = decodePersons(yield* call(() => profileResponse.json()));
-    if (
-      Option.isSome(persons) &&
-      persons.value.results.length === 0 &&
-      (persons.value.next === null || persons.value.next === undefined)
-    ) {
-      yield* call(() =>
-        ctx.runMutation(internal.errorReportingState.advanceDeletion, {
-          installationId,
-          complete: true,
-        }),
-      );
-    }
-  } else if (Option.isSome(status) && status.value.results.length === 0) {
-    // Retry a DELETE that may have failed after the person UUID was recorded.
-    yield* vendor(
-      `${base}${personUuid}/?delete_events=true&delete_recordings=true`,
-      { method: 'DELETE', headers },
-    );
-  }
+  const target = {
+    installationId,
+    base: `https://eu.posthog.com/api/projects/${config.project}/persons/`,
+    headers: { authorization: `Bearer ${config.personKey}` },
+  };
+  yield* current.state.kind === 'pending'
+    ? beginDeletion(ctx, target)
+    : verifyDeletion(ctx, target, current.state.personUuid);
 });
 
 async function progressDeletion(
@@ -406,52 +433,64 @@ export const handle = httpAction(async (ctx, request) => {
       { status: 400 },
     );
   }
+  const credentialDigest = await digest(args.credential);
+  const control = () =>
+    ctx.runMutation(internal.errorReportingState.control, {
+      installationId: args.installationId,
+      credentialDigest,
+      generation: args.generation,
+      operation: path,
+    });
   if (payload !== null) {
-    const configured = await runConvexProgram(
-      configuration.pipe(
-        Effect.as(true),
-        Effect.orElseSucceed(() => false),
+    return runConvexProgram(
+      Effect.gen(function* () {
+        // Configuration must be usable before recording a possible delivery.
+        yield* configuration;
+        const controlled = yield* call(control);
+        if (controlled.status !== 200) {
+          return Response.json(
+            { code: 'REPORTING_UNAVAILABLE' },
+            { status: controlled.status },
+          );
+        }
+        if (controlled.leaseId === undefined) {
+          return stateResponse(controlled.state.kind);
+        }
+        const { leaseId } = controlled;
+        const accepted = yield* capture(
+          args.installationId,
+          payload.reports,
+          payload.metadata,
+        ).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+          Effect.ensuring(
+            call(() =>
+              ctx.runMutation(internal.errorReportingState.releaseDelivery, {
+                leaseId,
+              }),
+            ).pipe(Effect.orDie),
+          ),
+        );
+        return Response.json(
+          accepted
+            ? { status: 'accepted' }
+            : { status: 'retry', retryAfterMs: 60_000 },
+        );
+      }).pipe(
+        Effect.orElseSucceed(() =>
+          Response.json({ status: 'retry', retryAfterMs: 60_000 }),
+        ),
       ),
       () => new Error('Reporting unavailable'),
     );
-    if (!configured) {
-      return Response.json({ status: 'retry', retryAfterMs: 60_000 });
-    }
   }
-  const controlled = await ctx.runMutation(
-    internal.errorReportingState.control,
-    {
-      installationId: args.installationId,
-      credentialDigest: await digest(args.credential),
-      generation: args.generation,
-      operation: path,
-    },
-  );
+  const controlled = await control();
   if (controlled.status !== 200) {
     return Response.json(
       { code: 'REPORTING_UNAVAILABLE' },
       { status: controlled.status },
     );
-  }
-  if (payload !== null && controlled.leaseId !== undefined) {
-    try {
-      const accepted = await runConvexProgram(
-        capture(args.installationId, payload.reports, payload.metadata).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(() => false),
-        ),
-        () => new Error('Reporting unavailable'),
-      );
-      return Response.json(
-        accepted
-          ? { status: 'accepted' }
-          : { status: 'retry', retryAfterMs: 60_000 },
-      );
-    } finally {
-      await ctx.runMutation(internal.errorReportingState.releaseDelivery, {
-        leaseId: controlled.leaseId,
-      });
-    }
   }
   if (
     (path === 'delete' || path === 'status') &&

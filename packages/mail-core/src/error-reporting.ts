@@ -52,6 +52,7 @@ export interface NativeErrorReporting {
   readonly errorReportingConsent: (
     enabled: boolean,
     renewIdentity: boolean,
+    generation: number,
   ) => Promise<unknown>;
   readonly errorReportingSave: (
     generation: number,
@@ -117,6 +118,18 @@ const encodeCapture = Schema.encodeEffect(
 const isName = Schema.is(ReportingNameSchema);
 const isMessage = Schema.is(ReportingMessageSchema);
 const maxAge = 86_400_000;
+const deleting = (
+  phase: typeof Deletion.Type,
+): phase is 'pending' | 'offline' | 'failed' =>
+  ['pending', 'offline', 'failed'].includes(phase);
+const recentReports = <Report extends { readonly createdAt: number }>(
+  reports: readonly Report[],
+  now: number,
+) =>
+  reports.filter(
+    (report) =>
+      report.createdAt <= now + 60_000 && now - report.createdAt <= maxAge,
+  );
 class ReportingFailure extends Schema.TaggedError<ReportingFailure>()(
   'ReportingFailure',
   { cause: Schema.Defect() },
@@ -157,9 +170,19 @@ function frames(error: unknown) {
     .slice(0, 64)
     .map((match) => ({
       kind: 'javascript' as const,
-      line: Number(match.groups?.line),
-      column: Number(match.groups?.column),
+      line: Number(match[1]),
+      column: Number(match[2]),
     }));
+}
+function exceptionCauses(error: unknown) {
+  const causes: Array<ReturnType<typeof exception>> = [];
+  let cause = error;
+  for (let i = 0; i < 8 && Predicate.hasProperty(cause, 'cause'); i += 1) {
+    const { cause: nextCause } = cause;
+    cause = nextCause;
+    causes.push(exception(cause));
+  }
+  return causes;
 }
 const uuid = Effect.gen(function* () {
   const bytes: number[] = [];
@@ -171,6 +194,9 @@ const uuid = Effect.gen(function* () {
   const hex = bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 });
+
+const consentEnabled = (value: typeof BridgeState.Type) =>
+  value.available && value.enabled;
 
 export function createErrorReporting(
   native: NativeErrorReporting,
@@ -191,21 +217,18 @@ export function createErrorReporting(
   let revision = 0;
   let loaded = false;
   let disposed = false;
+  let consentPending = false;
   const publish = () => {
     if (disposed) {
       return;
     }
     if (state === undefined || !state.available) {
       snapshot = { kind: 'unavailable' };
-    } else if (
-      document.deletion === 'pending' ||
-      document.deletion === 'offline' ||
-      document.deletion === 'failed'
-    ) {
+    } else if (deleting(document.deletion)) {
       snapshot = { kind: 'deleting', phase: document.deletion };
     } else {
       snapshot = {
-        kind: 'ready',
+        kind: consentPending ? 'saving' : 'ready',
         enabled: collecting,
         deletion: document.deletion,
       };
@@ -229,7 +252,7 @@ export function createErrorReporting(
     )(result);
     if (!accepted.saved) {
       collecting = false;
-      document = { version: 1, queue: [], deletion: 'idle' };
+      document.queue = [];
     }
   });
   const request = Effect.fn('ErrorReporting.request')(function* (
@@ -244,20 +267,70 @@ export function createErrorReporting(
       native.errorReportingRequest(operation, body ?? '{}', generation),
     ).pipe(Effect.flatMap(decodeReply));
   });
+  const deletionAllowed = (expected: number) =>
+    !disposed &&
+    expected === revision &&
+    !collecting &&
+    deleting(document.deletion);
   const deletion = Effect.fn('ErrorReporting.delete')(function* () {
+    const expected = revision;
+    if (!deletionAllowed(expected)) {
+      return;
+    }
     if (state === undefined || !state.identityAvailable) {
       document.deletion = 'missing';
       yield* save();
       return;
     }
-    const reply = yield* request('delete').pipe(
-      Effect.catchTag('ReportingFailure', () =>
-        Effect.succeed({ status: 'retry' as const }),
+    const phase = yield* request('delete').pipe(
+      Effect.map((reply) => {
+        if (reply.status === 'complete' || reply.status === 'pending') {
+          return reply.status;
+        }
+        return 'failed' as const;
+      }),
+      Effect.catchTag('ReportingFailure', (error) =>
+        Effect.succeed(
+          rejectionCode(error.cause) === 'offline'
+            ? ('offline' as const)
+            : ('failed' as const),
+        ),
       ),
+      Effect.orElseSucceed(() => 'failed' as const),
     );
-    const phase = reply.status === 'retry' ? 'offline' : 'pending';
-    document.deletion = reply.status === 'complete' ? 'complete' : phase;
+    if (!deletionAllowed(expected)) {
+      return;
+    }
+    document.deletion = phase;
     yield* save();
+  });
+  const stillCollecting = (expected: number) =>
+    collecting && expected === revision;
+  const captureBatch = Effect.fn('ErrorReporting.captureBatch')(function* (
+    metadata: typeof ReportingMetadataSchema.Type,
+  ) {
+    let reports = document.queue.slice(0, 10);
+    let body = yield* encodeCapture({ reports, metadata });
+    // All admitted fields are ASCII. Leave room for the native capability proof.
+    while (body.length > 60_000 && reports.length > 1) {
+      reports = reports.slice(0, -1);
+      body = yield* encodeCapture({ reports, metadata });
+    }
+    return { reports, body };
+  });
+  const deliverQueue = Effect.fn('ErrorReporting.deliverQueue')(function* (
+    metadata: typeof ReportingMetadataSchema.Type,
+    expected: number,
+  ) {
+    while (document.queue.length > 0) {
+      const { reports, body } = yield* captureBatch(metadata);
+      const reply = yield* request('capture', body);
+      if (!stillCollecting(expected) || reply.status !== 'accepted') {
+        break;
+      }
+      document.queue = document.queue.slice(reports.length);
+      yield* save();
+    }
   });
   const flush = Effect.fn('ErrorReporting.flush')(function* () {
     if (!collecting || state === undefined) {
@@ -265,12 +338,7 @@ export function createErrorReporting(
     }
     const expected = revision;
     const now = yield* Clock.currentTimeMillis;
-    document.queue = document.queue
-      .filter(
-        (report) =>
-          report.createdAt <= now + 60_000 && now - report.createdAt <= maxAge,
-      )
-      .slice(-32);
+    document.queue = recentReports(document.queue, now).slice(-32);
     const nativeReports = yield* call(() =>
       native.errorReportingTakeNative(),
     ).pipe(
@@ -286,39 +354,22 @@ export function createErrorReporting(
       ),
       Effect.orElseSucceed(() => ({ reports: [] })),
     );
-    if (!collecting || expected !== revision) {
+    if (!stillCollecting(expected)) {
       return;
     }
     document.queue = [
       ...document.queue,
-      ...nativeReports.reports.filter(
-        (report) =>
-          now - report.createdAt <= maxAge && report.createdAt <= now + 60_000,
-      ),
+      ...recentReports(nativeReports.reports, now),
     ].slice(-32);
     yield* save();
-    if (!collecting || expected !== revision) {
+    if (!stillCollecting(expected)) {
       return;
     }
     const enabled = yield* request('enable');
-    if (enabled.status !== 'enabled' || !collecting || expected !== revision) {
+    if (enabled.status !== 'enabled' || !stillCollecting(expected)) {
       return;
     }
-    while (document.queue.length > 0) {
-      let reports = document.queue.slice(0, 10);
-      let body = yield* encodeCapture({ reports, metadata: state.metadata });
-      // All admitted fields are ASCII. Leave room for the native capability proof.
-      while (body.length > 60_000 && reports.length > 1) {
-        reports = reports.slice(0, -1);
-        body = yield* encodeCapture({ reports, metadata: state.metadata });
-      }
-      const reply = yield* request('capture', body);
-      if (!collecting || expected !== revision || reply.status !== 'accepted') {
-        break;
-      }
-      document.queue = document.queue.slice(reports.length);
-      yield* save();
-    }
+    yield* deliverQueue(state.metadata, expected);
   });
   const guarded = (program: Effect.Effect<void, unknown>) =>
     runLogged(
@@ -355,24 +406,20 @@ export function createErrorReporting(
       collecting = false;
       document = { version: 1, queue: [], deletion: 'idle' };
       state = yield* call(() =>
-        native.errorReportingConsent(false, false),
+        native.errorReportingConsent(false, false, next.generation),
       ).pipe(Effect.flatMap(decodeState));
       loaded = true;
       yield* save();
       return;
     }
     document = stored.value;
-    collecting = next.available && next.enabled && document.deletion === 'idle';
+    collecting = consentEnabled(next) && document.deletion === 'idle';
     if (!collecting) {
       document.queue = [];
       breadcrumbs = [];
     }
     loaded = true;
-    yield* document.deletion === 'pending' ||
-    document.deletion === 'offline' ||
-    document.deletion === 'failed'
-      ? deletion()
-      : flush();
+    yield* deleting(document.deletion) ? deletion() : flush();
   }).pipe(Effect.ignore);
   let polling = false;
   const refresh = async () => {
@@ -382,38 +429,44 @@ export function createErrorReporting(
       void poll();
     }
   };
+  const canChangeConsent = (enabled: boolean) =>
+    !disposed &&
+    loaded &&
+    state?.available === true &&
+    (!enabled ||
+      (!consentPending && !collecting && !deleting(document.deletion)));
   const setEnabled = async (enabled: boolean) => {
-    if (
-      disposed ||
-      !loaded ||
-      state?.available !== true ||
-      (enabled &&
-        (document.deletion === 'pending' ||
-          document.deletion === 'offline' ||
-          document.deletion === 'failed'))
-    ) {
+    if (!canChangeConsent(enabled) || state === undefined) {
       return;
     }
     revision += 1;
+    consentPending = true;
     const expected = revision;
     collecting = false;
     breadcrumbs = [];
     document.queue = [];
     publish();
     const renew = enabled && document.deletion === 'complete';
+    const { generation } = state;
     // Revocation reaches native before waiting for an in-flight network action.
     const consent = call(() =>
-      native.errorReportingConsent(enabled, renew),
+      native.errorReportingConsent(enabled, renew, generation),
     ).pipe(Effect.flatMap(decodeState));
     const next = await runLogged(consent.pipe(Effect.option));
-    if (Option.isNone(next) || expected !== revision || disposed) {
+    if (expected !== revision || disposed) {
+      return;
+    }
+    consentPending = false;
+    if (Option.isNone(next)) {
+      publish();
       return;
     }
     state = next.value;
-    collecting = enabled && state.enabled && state.available;
+    collecting = enabled && consentEnabled(state);
     if (renew) {
       document.deletion = 'idle';
     }
+    publish();
     await guarded(
       Effect.gen(function* () {
         if (expected !== revision) {
@@ -428,8 +481,8 @@ export function createErrorReporting(
     if (disposed || state?.available !== true) {
       return;
     }
-    await setEnabled(false);
     document = { version: 1, queue: [], deletion: 'pending' };
+    await setEnabled(false);
     publish();
     await guarded(
       Effect.gen(function* () {
@@ -452,26 +505,21 @@ export function createErrorReporting(
     // Read foreign error properties before scheduling; no arbitrary error is retained.
     let detail: ReturnType<typeof exception> = { name: 'Error' };
     let stack: ReturnType<typeof frames> = [];
-    const causes: Array<ReturnType<typeof exception>> = [];
+    let causes: ReturnType<typeof exceptionCauses> = [];
     try {
       if (['offline', 'cancelled'].includes(rejectionCode(error) ?? '')) {
         return;
       }
       detail = exception(error);
       stack = frames(error);
-      let cause = error;
-      for (let i = 0; i < 8 && Predicate.hasProperty(cause, 'cause'); i += 1) {
-        const { cause: nextCause } = cause;
-        cause = nextCause;
-        causes.push(exception(cause));
-      }
+      causes = exceptionCauses(error);
     } catch {
       return;
     }
     const trail = [...breadcrumbs];
     void guarded(
       Effect.gen(function* () {
-        if (!collecting || expected !== revision) {
+        if (!stillCollecting(expected)) {
           return;
         }
         const report: ErrorReport = {

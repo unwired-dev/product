@@ -76,6 +76,9 @@ describe('error reporting controls', () => {
       'valueChange',
       true,
     );
+    expect(
+      screen.getByText(/After a reinstall or cleared app data/u),
+    ).toBeVisible();
     expect(store.setEnabled).toHaveBeenCalledWith(true);
     expect(screen.getByRole('switch').props.value).toBe(true);
   });

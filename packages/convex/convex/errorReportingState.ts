@@ -1,3 +1,5 @@
+import type { Infer } from 'convex/values';
+
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -74,86 +76,132 @@ function initialState(command: 'enable' | 'revoke' | 'delete') {
     : { kind: 'disabled' as const };
 }
 
+interface ControlArgs {
+  installationId: string;
+  credentialDigest: string;
+  generation: number;
+  operation: Infer<typeof operation>;
+}
+type Installation = Doc<'errorReportingInstallations'>;
+interface ControlResult {
+  status: number;
+  state: Installation['state'];
+  leaseId?: Id<'errorReportingDeliveries'>;
+}
+interface ControlContext {
+  ctx: MutationCtx;
+  record: Installation;
+  args: ControlArgs;
+}
+const deleting = (record: Installation) =>
+  !['enabled', 'disabled'].includes(record.state.kind);
+
+async function createInstallation(ctx: MutationCtx, args: ControlArgs) {
+  if (args.operation === 'capture' || args.operation === 'status') {
+    return null;
+  }
+  const id = await ctx.db.insert('errorReportingInstallations', {
+    installationId: args.installationId,
+    credentialDigest: args.credentialDigest,
+    generation: args.generation,
+    deliveryAttempted: false,
+    state: initialState(args.operation),
+  });
+  return ctx.db.get('errorReportingInstallations', id);
+}
+
+function enableRefused(record: Installation, generation: number) {
+  return (
+    deleting(record) ||
+    (record.state.kind === 'disabled' && generation === record.generation)
+  );
+}
+
+async function enable({
+  ctx,
+  record,
+  args,
+}: ControlContext): Promise<ControlResult> {
+  if (enableRefused(record, args.generation)) {
+    return { status: 409, state: record.state };
+  }
+  await ctx.db.patch('errorReportingInstallations', record._id, {
+    state: { kind: 'enabled' },
+    generation: args.generation,
+  });
+  return { status: 200, state: { kind: 'enabled' } };
+}
+
+async function revoke({
+  ctx,
+  record,
+  args,
+}: ControlContext): Promise<ControlResult> {
+  if (deleting(record)) {
+    return { status: 200, state: record.state };
+  }
+  await ctx.db.patch('errorReportingInstallations', record._id, {
+    generation: args.generation,
+    state: { kind: 'disabled' },
+  });
+  return { status: 200, state: { kind: 'disabled' } };
+}
+
+async function deleteReports({
+  ctx,
+  record,
+  args,
+}: ControlContext): Promise<ControlResult> {
+  if (deleting(record)) {
+    return { status: 200, state: record.state };
+  }
+  const state = record.deliveryAttempted
+    ? { kind: 'pending' as const }
+    : { kind: 'complete' as const };
+  await ctx.db.patch('errorReportingInstallations', record._id, {
+    generation: args.generation,
+    state,
+  });
+  if (state.kind === 'pending') {
+    await ctx.scheduler.runAfter(5000, internal.errorReporting.pollDeletion, {
+      installationId: args.installationId,
+    });
+  }
+  return { status: 200, state };
+}
+
+const commands = {
+  enable,
+  revoke,
+  delete: deleteReports,
+  capture: ({ ctx, record, args }: ControlContext) =>
+    claimCapture(ctx, record, args.generation),
+  status: ({ record }: ControlContext): ControlResult => ({
+    status: 200,
+    state: record.state,
+  }),
+};
+
+function authenticated(
+  record: Installation | null,
+  digest: string,
+): record is Installation {
+  return record !== null && sameDigest(record.credentialDigest, digest);
+}
+
 export const control = internalMutation({
   args: { ...proof, operation },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    status: number;
-    state: Doc<'errorReportingInstallations'>['state'];
-    leaseId?: Id<'errorReportingDeliveries'>;
-  }> => {
-    let record = await installation(ctx, args.installationId);
-    if (record === null) {
-      if (args.operation === 'capture' || args.operation === 'status') {
-        return { status: 403, state: { kind: 'disabled' } };
-      }
-      const state = initialState(args.operation);
-      const id = await ctx.db.insert('errorReportingInstallations', {
-        installationId: args.installationId,
-        credentialDigest: args.credentialDigest,
-        generation: args.generation,
-        deliveryAttempted: false,
-        state,
-      });
-      record = await ctx.db.get('errorReportingInstallations', id);
-    }
-    if (
-      record === null ||
-      !sameDigest(record.credentialDigest, args.credentialDigest)
-    ) {
+  handler: async (ctx, args): Promise<ControlResult> => {
+    const record =
+      (await installation(ctx, args.installationId)) ??
+      (await createInstallation(ctx, args));
+    if (!authenticated(record, args.credentialDigest)) {
       return { status: 403, state: { kind: 'disabled' } };
     }
     if (args.generation < record.generation) {
       return { status: 409, state: record.state };
     }
-    const deleting = !['enabled', 'disabled'].includes(record.state.kind);
-    if (args.operation === 'enable') {
-      if (
-        deleting ||
-        (record.state.kind === 'disabled' &&
-          args.generation === record.generation)
-      ) {
-        return { status: 409, state: record.state };
-      }
-      await ctx.db.patch('errorReportingInstallations', record._id, {
-        state: { kind: 'enabled' },
-        generation: args.generation,
-      });
-      return { status: 200, state: { kind: 'enabled' } };
-    }
-    if (args.operation === 'capture') {
-      return claimCapture(ctx, record, args.generation);
-    }
-    if (args.operation === 'revoke') {
-      if (deleting) {
-        return { status: 200, state: record.state };
-      }
-      await ctx.db.patch('errorReportingInstallations', record._id, {
-        generation: args.generation,
-        state: { kind: 'disabled' },
-      });
-      return { status: 200, state: { kind: 'disabled' } };
-    }
-    if (args.operation === 'delete' && !deleting) {
-      const state = record.deliveryAttempted
-        ? { kind: 'pending' as const }
-        : { kind: 'complete' as const };
-      await ctx.db.patch('errorReportingInstallations', record._id, {
-        generation: args.generation,
-        state,
-      });
-      if (state.kind === 'pending') {
-        await ctx.scheduler.runAfter(
-          5000,
-          internal.errorReporting.pollDeletion,
-          { installationId: args.installationId },
-        );
-      }
-      return { status: 200, state };
-    }
-    return { status: 200, state: record.state };
+    return commands[args.operation]({ ctx, record, args });
   },
 });
 
@@ -186,6 +234,24 @@ export const deletionState = internalQuery({
   },
 });
 
+interface DeletionUpdate {
+  personUuid?: string;
+  complete?: boolean;
+}
+const deletionTransitions: Partial<
+  Record<
+    Installation['state']['kind'],
+    (update: DeletionUpdate) => Installation['state'] | undefined
+  >
+> = {
+  verifying: (update) =>
+    update.complete === true ? { kind: 'complete' } : undefined,
+  pending: (update) =>
+    update.personUuid === undefined
+      ? undefined
+      : { kind: 'verifying', personUuid: update.personUuid },
+};
+
 export const advanceDeletion = internalMutation({
   args: {
     installationId: v.string(),
@@ -194,23 +260,12 @@ export const advanceDeletion = internalMutation({
   },
   handler: async (ctx, args) => {
     const record = await installation(ctx, args.installationId);
-    if (
-      record === null ||
-      (record.state.kind !== 'pending' && record.state.kind !== 'verifying')
-    ) {
+    if (record === null) {
       return;
     }
-    if (args.complete === true && record.state.kind === 'verifying') {
-      await ctx.db.patch('errorReportingInstallations', record._id, {
-        state: { kind: 'complete' },
-      });
-    } else if (
-      args.personUuid !== undefined &&
-      record.state.kind === 'pending'
-    ) {
-      await ctx.db.patch('errorReportingInstallations', record._id, {
-        state: { kind: 'verifying', personUuid: args.personUuid },
-      });
+    const state = deletionTransitions[record.state.kind]?.(args);
+    if (state !== undefined) {
+      await ctx.db.patch('errorReportingInstallations', record._id, { state });
     }
   },
 });

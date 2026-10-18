@@ -1,3 +1,5 @@
+import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
+
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
@@ -13,6 +15,7 @@ import {
   createSyntheticVault,
   syntheticMailboxes,
 } from '../src/testing/registration-vault.ts';
+import { reportingFixture } from './error-reporting-fixture.ts';
 
 const required = <Value>(value: Value | undefined): Value => {
   if (value === undefined) {
@@ -23,7 +26,7 @@ const required = <Value>(value: Value | undefined): Value => {
 
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
-function syntheticHost() {
+function syntheticHost(reporting?: NativeErrorReporting) {
   const gmail = createSyntheticGmail();
   const { vault } = createSyntheticVault();
   const base = syntheticConnections({
@@ -76,11 +79,21 @@ function syntheticHost() {
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
   };
-  const host = createHost(() => {
-    counts.lookups += 1;
-    return native;
-  });
-  return { host, gmail, attachments: attachments.promise, cancelled, counts };
+  const host = createHost(
+    () => {
+      counts.lookups += 1;
+      return native;
+    },
+    reporting === undefined ? undefined : () => reporting,
+  );
+  return {
+    host,
+    native,
+    gmail,
+    attachments: attachments.promise,
+    cancelled,
+    counts,
+  };
 }
 
 describe('the host assembly', () => {
@@ -102,6 +115,85 @@ describe('the host assembly', () => {
     await download;
     close();
     expect(cancelled).toStrictEqual([request]);
+  });
+
+  it('reports resolved provider HTTP failures without changing send or synchronization outcomes', async () => {
+    expect.hasAssertions();
+    const reporting = reportingFixture();
+    const { host, native } = syntheticHost(reporting.native);
+    try {
+      await host.errorReporting.load();
+      await host.errorReporting.setEnabled(true);
+      await host.registration.register('google');
+      await host.registration.addMailbox();
+      await host.gmailMailboxes.load();
+      const inbox = required(host.gmailMailboxes.getSnapshot()[0]?.inbox);
+      vi.spyOn(native, 'gmailSend').mockResolvedValue({
+        status: 503,
+        body: 'private mail subject',
+      });
+      await expect(
+        inbox.send({ segments: [{ text: 'private mail body' }] }),
+      ).resolves.toStrictEqual({ kind: 'unknown' });
+      vi.spyOn(native, 'gmailRequest').mockResolvedValue({
+        status: 503,
+        body: 'private mailbox address',
+      });
+      await inbox.load();
+      await host.errorReporting.refresh();
+      const captures = reporting.requests
+        .filter((request) => request.operation === 'capture')
+        .map((request) => request.body)
+        .join('');
+      expect(captures).toContain('send-failed');
+      expect(captures).toContain('sync-failed');
+      expect(captures).toContain('"status":503');
+      expect(captures).not.toContain('private');
+      const before = reporting.requests.filter(
+        (request) => request.operation === 'capture',
+      ).length;
+      vi.mocked(native.gmailRequest).mockRejectedValue({ code: 'offline' });
+      await inbox.load();
+      vi.mocked(native.gmailRequest).mockRejectedValue({ code: 'cancelled' });
+      await inbox.load();
+      vi.mocked(native.gmailRequest).mockRejectedValue({ code: 'unavailable' });
+      await inbox.load();
+      await host.errorReporting.refresh();
+      // oxlint-disable-next-line vitest/max-expects -- This public journey proves outcomes and payload privacy together.
+      expect(
+        reporting.requests.filter((request) => request.operation === 'capture'),
+      ).toHaveLength(before);
+    } finally {
+      host.errorReporting.dispose();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('reports a failed backend envelope even when its HTTP transport succeeded', async () => {
+    expect.hasAssertions();
+    const reporting = reportingFixture();
+    const { host, native } = syntheticHost(reporting.native);
+    try {
+      await host.errorReporting.load();
+      await host.errorReporting.setEnabled(true);
+      await host.registration.register('google');
+      vi.spyOn(native, 'call').mockResolvedValue({
+        status: 200,
+        body: '{"status":"error","errorMessage":"private account value"}',
+      });
+      await host.registration.resume();
+      await host.errorReporting.refresh();
+      const captures = reporting.requests
+        .filter((request) => request.operation === 'capture')
+        .map((request) => request.body)
+        .join('');
+      expect(captures).toMatch(/(?:backend|sync)-failed/u);
+      expect(captures).not.toContain('private account value');
+      expect(host.registration.getSnapshot().busy).toBe(false);
+    } finally {
+      host.errorReporting.dispose();
+      vi.restoreAllMocks();
+    }
   });
 
   it('starts once however often and concurrently it is asked, and follows wakes once', async () => {

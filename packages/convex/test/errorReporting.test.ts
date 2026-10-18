@@ -79,31 +79,45 @@ function configure() {
 }
 
 const personId = '11111111-1111-4111-8111-111111111111';
-function provider(
-  state: {
-    visible: boolean;
-    deleted: boolean;
-    verified: boolean;
-    failDelete: boolean;
-  },
-  outbound: string[],
-) {
+type ProviderState = {
+  visible: boolean;
+  deleted: boolean;
+  verified: boolean;
+  failDelete: boolean;
+};
+function deletionReply(state: ProviderState) {
+  return Response.json({
+    results: state.deleted
+      ? [
+          {
+            person_uuid: personId,
+            status: state.verified ? 'completed' : 'pending',
+            delete_verified_at: state.verified ? '2026-10-18T12:00:00Z' : null,
+          },
+        ]
+      : [],
+  });
+}
+function profileReply(state: ProviderState) {
+  return Response.json({
+    results:
+      state.visible && !state.deleted
+        ? [
+            {
+              id: personId,
+              distinct_ids: [identity.installationId],
+              properties: {},
+            },
+          ]
+        : [],
+    next: null,
+  });
+}
+function provider(state: ProviderState, outbound: string[]) {
   return async (input: string, init?: RequestInit) => {
     outbound.push(input);
     if (input.includes('deletion_status')) {
-      return Response.json({
-        results: state.deleted
-          ? [
-              {
-                person_uuid: personId,
-                status: state.verified ? 'completed' : 'pending',
-                delete_verified_at: state.verified
-                  ? '2026-10-18T12:00:00Z'
-                  : null,
-              },
-            ]
-          : [],
-      });
+      return deletionReply(state);
     }
     if (init?.method === 'DELETE') {
       if (state.failDelete) {
@@ -114,19 +128,7 @@ function provider(
       return new Response(null, { status: 202 });
     }
     if (input.includes('/persons/')) {
-      return Response.json({
-        results:
-          state.visible && !state.deleted
-            ? [
-                {
-                  id: personId,
-                  distinct_ids: [identity.installationId],
-                  properties: {},
-                },
-              ]
-            : [],
-        next: null,
-      });
+      return profileReply(state);
     }
     return Response.json({ status: 1 });
   };

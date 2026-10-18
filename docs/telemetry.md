@@ -182,7 +182,8 @@ are [iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-138
 [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-133080).
 
 The shared store owns consent, safe projection, the bounded queue and deletion
-state. The native host owns an independent Keychain installation UUID and
+state. The reviewer-owned [architecture companion](architecture/telemetry.md)
+records its implementation boundaries. The native host owns an independent Keychain installation UUID and
 256-bit deletion credential, generation checks, native collection and purge.
 Neither identity nor credential is exposed to screens or linked to Product
 Accounts. Revocation cancels native capture requests and preserves a durable
@@ -209,7 +210,12 @@ exception path, plus classified sign-in, sync and send transport failures, use
 the same projection. Release Hermes promise-rejection coverage remains a
 qualification check: no additional tracker is enabled until its consent and
 purge behavior is demonstrated. Expected offline and
-cancelled operations are excluded. No console dumps, attachments, user text,
+cancelled operations are excluded. Resolved provider HTTP failures and Convex
+error envelopes are classified without retaining their response text or changing
+the mail operation's result. Legacy native `unavailable` rejections are omitted
+from operation reporting because they can mean a proven-unsent offline request;
+global unexpected exceptions still use the normal projection. Known offline deletion errors show the offline state;
+server and invalid-response failures show the retryable failed state. No console dumps, attachments, user text,
 autocapture, session replay or independent breadcrumb upload is enabled. Queues
 are bounded and reports expire after 24 hours. Loss of diagnostics is acceptable;
 reporting failure must not change a mail operation's result.
@@ -217,11 +223,10 @@ reporting failure must not change a mail operation's result.
 The receiver exposes fixed POST /api/error-reporting/{enable,capture,revoke,delete,status}
 capability endpoints on the existing Convex HTTP site. It rejects unknown fields,
 invalid credentials, stale generations, oversized batches and expired reports.
-Credentials are hashed at rest. In-flight delivery leases fence remote deletion;
-the durable deletion worker waits for deliveries and verifies vendor completion,
+Credentials are hashed at rest. Remote deletion waits for admitted deliveries and verifies vendor completion,
 including when the app closes. An absent PostHog profile or an accepted deletion
-request alone is not completion. A hard-killed delivery whose lease cannot be
-settled deliberately leaves deletion pending for operator investigation.
+request alone is not completion. An interrupted delivery whose outcome cannot be
+settled leaves deletion pending for operator investigation.
 
 Selected rejected or timed-out APNs service operations report fixed identity-free
 backend health fields, independently of app consent. Other backend failures,
@@ -246,12 +251,11 @@ and TestFlight use their corresponding channel and the same default-off consent.
 UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED defaults to 0; keep it there until the
 per-platform checks in #1050 pass. No Sentry service DSN is configured.
 
-Sentry Cocoa 9.30.2 is used solely as a disconnected local native collector:
-a custom session blocks every SDK request, and beforeSend extracts an approved
-projection then returns nil. Only the application receiver can forward it to
-PostHog. Revocation closes the collector and purges its application-owned raw
-cache and projection queue. PostHog Swift's stock native collector failed the
-local opt-out/relaunch probe and is not integrated.
+Sentry Cocoa 9.30.2 is used solely as a disconnected local native collector.
+Every SDK request must remain blocked; only the approved projection may reach
+PostHog through the application receiver. Revocation closes the collector and
+purges its raw cache and projection queue. PostHog Swift's stock native collector
+failed the local opt-out/relaunch probe and is not integrated.
 
 Local macOS 27 probes exercised fresh-off, opt-in, pending-report purge,
 revoke/crash and off/on relaunch without resurrection using the disconnected

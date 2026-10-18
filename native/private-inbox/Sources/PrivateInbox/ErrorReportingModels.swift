@@ -115,4 +115,4 @@ struct ReportingMetadata: Codable, Equatable, Sendable {
   let channel: String
 }
 
-enum ReportingError: Error, Equatable { case unavailable, disabled, stale, invalid, retry }
+enum ReportingError: Error, Equatable { case unavailable, disabled, stale, invalid, retry, offline }

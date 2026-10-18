@@ -2,6 +2,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
+#### Error reporting lifecycle
+
+- `ErrorReportingStore.request` transmitting a fresh installation's capability for
+  automatic withdrawal when it never opted in. Require prior reporting authority
+  for cleanup traffic, preserve deletion credentials across account purge, and keep
+  the generation/withdrawal marker effective through failed Keychain writes. Require
+  the observed generation on bridged enables so a late enable cannot undo a later
+  withdrawal;
+  otherwise opting out itself registers an installation or a restart restores consent.
+- `SentryReportingCollector` allowing any SDK HTTP request, including close's flush,
+  forwarding an SDK dictionary instead of its approved projection, or starting when
+  the per-platform qualification flag is false. Check the disconnected session,
+  beforeSend drop, raw-cache purge and late generation callbacks together; otherwise
+  native reports bypass the consent or safe-payload boundary.
+
 #### Bundled localization resources
 
 - `UnwiredLanguagePreferences.catalog` relying on a Debug assertion before using

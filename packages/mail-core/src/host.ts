@@ -3,6 +3,9 @@ import type {
   ReportingCode,
 } from '@private-email/contracts/errorReporting';
 
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
@@ -11,6 +14,7 @@ import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
 
+import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
@@ -18,6 +22,30 @@ import { createMailboxes } from './mailboxes.ts';
 import { createOutbox } from './outbox.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
+
+const decodeReportingResponse = Schema.decodeUnknownOption(
+  Schema.Struct({
+    status: Schema.Int.check(Schema.isBetween({ minimum: 100, maximum: 599 })),
+    body: Schema.optionalKey(Schema.String),
+  }),
+);
+const failedEnvelope = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ status: Schema.Literal('error') })),
+);
+
+function reportingResponse(result: unknown, code: ReportingCode) {
+  const reply = decodeReportingResponse(result);
+  if (Option.isNone(reply)) {
+    return { failed: false };
+  }
+  const { status, body } = reply.value;
+  const failed =
+    status >= 400 ||
+    (code === 'backend-failed' &&
+      body !== undefined &&
+      Option.isSome(failedEnvelope(body)));
+  return { status, failed };
+}
 
 // The native module both Apple hosts register as `UnwiredRegistration`.
 export interface NativeHostModule
@@ -47,8 +75,8 @@ export function createHost(
   };
   const errorReporting = createErrorReporting({
     errorReportingRead: () => reportingBridge().errorReportingRead(),
-    errorReportingConsent: (enabled, renew) =>
-      reportingBridge().errorReportingConsent(enabled, renew),
+    errorReportingConsent: (enabled, renew, generation) =>
+      reportingBridge().errorReportingConsent(enabled, renew, generation),
     errorReportingSave: (generation, document) =>
       reportingBridge().errorReportingSave(generation, document),
     errorReportingRequest: (operation, body, generation) =>
@@ -67,11 +95,16 @@ export function createHost(
     errorReporting.breadcrumb({ operation, stage: 'start' });
     try {
       const result = await request();
+      const { status, failed } = reportingResponse(result, code);
       errorReporting.breadcrumb({
         operation,
-        stage: 'complete',
+        stage: failed ? 'failed' : 'complete',
         elapsedMs: elapsedMs(),
+        ...(status === undefined ? {} : { status }),
       });
+      if (failed) {
+        errorReporting.capture({ name: 'OperationError' }, code);
+      }
       return result;
     } catch (error) {
       errorReporting.breadcrumb({
@@ -79,7 +112,10 @@ export function createHost(
         stage: 'failed',
         elapsedMs: elapsedMs(),
       });
-      errorReporting.capture(error, code);
+      // Legacy transports also use unavailable for proven-unsent offline requests.
+      if (rejectionCode(error) !== 'unavailable') {
+        errorReporting.capture(error, code);
+      }
       throw error;
     }
   };
@@ -99,7 +135,8 @@ export function createHost(
     appleCredentialState: () => native().appleCredentialState(),
     reuseSession: () => native().reuseSession(),
     saveIdentity: (replacing) => native().saveIdentity(replacing),
-    connect: (mode) => native().connect(mode),
+    connect: (mode) =>
+      observe('sign-in', 'sign-in-failed', () => native().connect(mode)),
     createKeyRing: () => native().createKeyRing(),
     recordInitialization: (initialized) =>
       native().recordInitialization(initialized),
@@ -152,7 +189,8 @@ export function createHost(
     prepareSignOut: () => withdrawReporting(() => native().prepareSignOut()),
     endSession: () => withdrawReporting(() => native().endSession()),
     purge: (notice) => withdrawReporting(() => native().purge(notice)),
-    call: (request) => native().call(request),
+    call: (request) =>
+      observe('account', 'backend-failed', () => native().call(request)),
     removeMailbox: (connection) => native().removeMailbox(connection),
     routeMailboxes: () => native().routeMailboxes(),
     stopMailboxWatches: () => native().stopMailboxWatches(),

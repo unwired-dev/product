@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
+  cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -171,6 +173,25 @@ test(
       );
       assert.equal(wrongBuild.status, 1);
       assert.match(wrongBuild.stderr, /do not match/u);
+      const mac = path.join(directory, 'Mac.app/Contents');
+      mkdirSync(path.join(mac, 'MacOS'), { recursive: true });
+      cpSync(path.join(directory, 'App'), path.join(mac, 'MacOS/App'));
+      cpSync(path.join(directory, 'Info.plist'), path.join(mac, 'Info.plist'));
+      const macArguments = invocation(directory);
+      macArguments[1] = 'macos';
+      macArguments[macArguments.indexOf('--binary') + 1] = path.join(
+        mac,
+        'MacOS/App',
+      );
+      run(process.execPath, [script, ...macArguments]);
+      const macManifest = parseManifest(
+        readFileSync(path.join(directory, 'prepared/manifest.json'), 'utf8'),
+      );
+      assert.equal(
+        macManifest.chunkId,
+        'app:///macos/1.0.0/202610181230/index.bundle',
+      );
+      rmSync(path.join(directory, 'prepared'), { recursive: true });
       writeFileSync(
         path.join(directory, 'different.c'),
         'int main(void){return 1;}\n',

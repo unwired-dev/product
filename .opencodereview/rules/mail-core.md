@@ -9,6 +9,30 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Reporting consent and failure observation
+
+- `error-reporting.ts.deleteReports` waiting for withdrawal before publishing deletion
+  intent. Close re-enablement synchronously before native/network waits, including
+  a second Mac window; otherwise a delayed revoke allows fresh collection during
+  deletion. Preserve that intent when an older save is refused after withdrawal.
+  Distinguish known offline failures from retryable server/invalid-response
+  failures instead of presenting every retry as offline.
+- `host.ts.observe` treating resolved provider HTTP failures or a Convex
+  `status:error` envelope as successful work. Inspect only validated status fields,
+  preserve the original operation result, and omit ambiguous native `unavailable`
+  rejections that can mean expected offline; otherwise real failures disappear or
+  routine offline use becomes error statistics. Never retain response text, paths,
+  arguments or account/mailbox context in the report.
+
+- In `createErrorReporting.setEnabled`, publish native-acknowledged consent before
+  waiting for remote queue delivery, and fence duplicate enable/identity-renewal
+  actions while consent is pending. A slow delivery must not leave Settings
+  showing Off while native collection is enabled or rotate deletion identity twice.
+
+- Deletion retries must recheck the current pending/offline/failed state inside
+  serialized work and discard replies after a consent revision changes. A stale
+  retry callback must not delete a renewed identity or bypass withdrawal.
+
 #### Shared runtime compatibility
 
 - Shared modules, including `testing/synthetic-convex.ts`, using Node-supported

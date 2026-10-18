@@ -20,7 +20,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 #### Package boundary
 
 - Runtime logic beyond validators, inferred types, fixtures and small derived helpers. Behavior belongs in the backend function or the shared core.
-- A dependency other than `convex` validators added to this package, or an import from `packages/convex`, `packages/mail-core` or an app. Every consumer bundles this package.
+- A dependency beyond `convex/values` and the narrow declarative `effect/Schema` wire-schema exception in ADR 0065, or an import from `packages/convex`, `packages/mail-core` or an app. Keep Effect schemas in dedicated entry points without services, transport or Effect execution; every consumer bundles this package.
 - A new module without a subpath in `package.json` `exports`.
 - A type declared by hand beside a validator rather than inferred from it with `Infer`; the two drift.
 

@@ -46,6 +46,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Secrets and release
 
+- `reporting-artifacts.mjs.appRelease` assuming every executable has an adjacent
+  Info.plist. Exercise iOS's flat bundle and Mac's Contents/MacOS executable with
+  Contents/Info.plist using real matching Mach-O/dSYM artifacts; otherwise the
+  documented Mac symbol-preparation path fails before qualification can begin.
+
 - `scripts/testflight-signing.zsh` suppressing native `security` failures without
   a fixed operation name and exit code, or printing raw diagnostics to recover
   that information. The former makes protected setup failures untraceable; the
