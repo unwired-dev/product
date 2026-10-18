@@ -301,7 +301,7 @@ export function PrivacyAccess({
     <AccountPage onInbox={onClose}>
       <SettingsWorkspace
         account=""
-        destination="errorReporting"
+        destination="privacy"
         onDestination={onClose}
         onWelcome={onClose}>
         <ErrorReportingSettings signedOut />

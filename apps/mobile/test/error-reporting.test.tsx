@@ -234,8 +234,12 @@ describe('installation privacy access', () => {
     ).resolves.toBeVisible();
     expect(screen.getByTestId('reporting-privacy-screen')).toBeVisible();
     expect(
-      screen.getAllByRole('header', { name: 'Error Reporting' }),
-    ).toHaveLength(2);
+      screen
+        .getAllByRole('header', {
+          name: /^(?:Privacy & Data|Error Reporting)$/u,
+        })
+        .map((header) => header.props.children),
+    ).toStrictEqual(['Privacy & Data', 'Error Reporting']);
     expect(
       screen.queryByRole('button', { name: 'Sign in with Google' }),
     ).toBeNull();
