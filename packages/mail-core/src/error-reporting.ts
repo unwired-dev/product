@@ -454,26 +454,61 @@ export function createErrorReporting(
     state?.available === true &&
     (!enabled ||
       (!consentPending && !collecting && !deleting(document.deletion)));
-  const persistDeletionIntent = Effect.fn('ErrorReporting.persistDeletionIntent')(
-    function* (expected: number) {
-      while (isCurrent(expected)) {
-        if (yield* save()) {
-          return;
-        }
-        const latest = yield* call(() => native.errorReportingRead()).pipe(
-          Effect.flatMap(decodeState),
-        );
-        if (
-          expected !== revision ||
-          !latest.available ||
-          latest.generation <= (state?.generation ?? -1)
-        ) {
-          return;
-        }
-        state = latest;
+  const persistDeletionIntent = Effect.fn(
+    'ErrorReporting.persistDeletionIntent',
+  )(function* (expected: number) {
+    while (isCurrent(expected)) {
+      if (yield* save()) {
+        return;
       }
-    },
-  );
+      const latest = yield* call(() => native.errorReportingRead()).pipe(
+        Effect.flatMap(decodeState),
+      );
+      if (
+        expected !== revision ||
+        !latest.available ||
+        latest.generation <= (state?.generation ?? -1)
+      ) {
+        return;
+      }
+      state = latest;
+    }
+  });
+  const applyConsent = async ({
+    next,
+    expected,
+    enabled,
+    renew,
+  }: {
+    next: Option.Option<typeof BridgeState.Type>;
+    expected: number;
+    enabled: boolean;
+    renew: boolean;
+  }) => {
+    if (!isCurrent(expected)) {
+      return;
+    }
+    consentPending = false;
+    if (Option.isNone(next)) {
+      publish();
+      return;
+    }
+    state = next.value;
+    collecting = enabled && consentEnabled(state);
+    if (renew) {
+      document.deletion = 'idle';
+    }
+    publish();
+    await guarded(
+      Effect.gen(function* () {
+        if (expected !== revision) {
+          return;
+        }
+        yield* save();
+        yield* collecting ? flush() : request('revoke').pipe(Effect.asVoid);
+      }),
+    );
+  };
   const setEnabled = async (enabled: boolean) => {
     if (!canChangeConsent(enabled) || state === undefined) {
       return;
@@ -499,29 +534,7 @@ export function createErrorReporting(
       native.errorReportingConsent(enabled, renew, generation),
     ).pipe(Effect.flatMap(decodeState));
     const next = await runLogged(consent.pipe(Effect.option));
-    if (!isCurrent(expected)) {
-      return;
-    }
-    consentPending = false;
-    if (Option.isNone(next)) {
-      publish();
-      return;
-    }
-    state = next.value;
-    collecting = enabled && consentEnabled(state);
-    if (renew) {
-      document.deletion = 'idle';
-    }
-    publish();
-    await guarded(
-      Effect.gen(function* () {
-        if (expected !== revision) {
-          return;
-        }
-        yield* save();
-        yield* collecting ? flush() : request('revoke').pipe(Effect.asVoid);
-      }),
-    );
+    await applyConsent({ next, expected, enabled, renew });
   };
   const deleteReports = async () => {
     if (disposed || state?.available !== true) {

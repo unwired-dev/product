@@ -85,7 +85,9 @@ describe('installation error reporting at the protected native boundary', () => 
       const store = createErrorReporting(host.native, host.state());
       try {
         const withdrawal =
-          action === 'disable' ? store.setEnabled(false) : store.deleteReports();
+          action === 'disable'
+            ? store.setEnabled(false)
+            : store.deleteReports();
         expect(store.getSnapshot()).toStrictEqual(snapshot);
         store.capture(new TypeError('Invalid time value'));
         await withdrawal;
