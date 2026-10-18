@@ -386,7 +386,7 @@ styles) so the file stays editable.
   the earlier iPhone frames still show it. The native reader context menu retains
   those organizing actions when Reply is unavailable. Regular-width readers retain More.
   Compact back navigation follows the leading-edge swipe across Mailboxes,
-  message lists, readers, Settings details and Compose. Cancelling retains the
+  message lists, readers, Settings details, Sign In and Compose. Cancelling retains the
   current destination; committing uses its Back or Close action, including
   Draft save confirmation.
 - **Compose:** follows the

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BackNavigation } from './back-navigation.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -296,7 +297,9 @@ export function SignIn({
     );
   }
   return (
-    <View
+    <BackNavigation
+      testID="onboarding-back-navigation"
+      onBack={onBack}
       style={[
         styles.page,
         {
@@ -336,7 +339,7 @@ export function SignIn({
         {children}
       </ScrollView>
       <View style={styles.footer}>{actions}</View>
-    </View>
+    </BackNavigation>
   );
 }
 

@@ -1123,6 +1123,13 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     await continueToSignIn();
     await act(async () => {
+      await fireEvent(screen.getByTestId('onboarding-back-navigation'), 'back');
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Your mail,\non your devices.' }),
+    ).resolves.toBeVisible();
+    await continueToSignIn();
+    await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Sign in with Apple' }),
       );
