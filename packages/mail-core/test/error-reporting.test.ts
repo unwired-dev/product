@@ -71,6 +71,38 @@ describe('installation error reporting at the protected native boundary', () => 
     },
   );
 
+  it.each([
+    {
+      action: 'disable',
+      snapshot: { kind: 'saving', enabled: false, deletion: 'idle' },
+    },
+    { action: 'delete', snapshot: { kind: 'deleting', phase: 'pending' } },
+  ])(
+    'withdraws seeded startup consent before loading through $action',
+    async ({ action, snapshot }) => {
+      expect.hasAssertions();
+      const host = fixture({ enabled: true });
+      const store = createErrorReporting(host.native, host.state());
+      try {
+        const withdrawal =
+          action === 'disable' ? store.setEnabled(false) : store.deleteReports();
+        expect(store.getSnapshot()).toStrictEqual(snapshot);
+        store.capture(new TypeError('Invalid time value'));
+        await withdrawal;
+        expect(host.state().enabled).toBe(false);
+        await store.load();
+        store.capture(new TypeError('Invalid time value'));
+        await store.refresh();
+        expect(
+          host.requests.filter((request) => request.operation === 'capture'),
+        ).toStrictEqual([]);
+        expect(host.state().document).not.toContain('"id"');
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
   it.each(['missing', 'unavailable', 'invalid', 'pending', 'invalid-document'])(
     'discards startup errors for a %s snapshot instead of buffering them',
     async (kind) => {

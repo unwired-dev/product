@@ -43,8 +43,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 - In `createErrorReporting.setEnabled`, publish native-acknowledged consent before
   waiting for remote queue delivery, and fence duplicate enable/identity-renewal
-  actions while consent is pending. A slow delivery must not leave Settings
-  showing Off while native collection is enabled or rotate deletion identity twice.
+  actions while consent is pending. A known available startup snapshot must permit
+  synchronous withdrawal and deletion before ordinary async loading, while enabling
+  still waits for reconciliation. Otherwise seeded consent keeps collecting after
+  an early disable or delete. A slow delivery must not leave Settings showing Off
+  while native collection is enabled or rotate deletion identity twice.
 
 - Deletion retries must recheck the current pending/offline/failed state inside
   serialized work and discard replies after a consent revision changes. A stale

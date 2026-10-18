@@ -450,7 +450,7 @@ export function createErrorReporting(
   };
   const canChangeConsent = (enabled: boolean) =>
     !disposed &&
-    loaded &&
+    (loaded || !enabled) &&
     state?.available === true &&
     (!enabled ||
       (!consentPending && !collecting && !deleting(document.deletion)));
