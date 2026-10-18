@@ -4,6 +4,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Error reporting lifecycle
 
+- `ErrorReportingStore.disableForAccountRemoval` acknowledging withdrawal after
+  both consent persistence and a new marker write fail. Require successful
+  disabled custody or a freshly written wildcard withdrawal marker; an older
+  marker can predate the enabled generation. Propagate failure through
+  `stopErrorReporting`, `recordRemoval`, `endSession` and `purge` before account
+  mutation, while stopping collection immediately and preserving the independent
+  deletion credential. Otherwise cleanup succeeds and restart restores reporting.
 - `ErrorReportingStore.save` or `load` allowing a durably pending deletion to
   collect before the shared withdrawal bridge completes. Treat that document as
   a collection gate and purge both queues. Atomically disable and advance the

@@ -11,6 +11,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Reporting consent and failure observation
 
+- `error-reporting.ts.deliverQueue` discarding a capture retry delay, allowing
+  refresh, polling or a new capture to send enable/capture before its deadline.
+  Decode bounded integer hints using the native reply contract and retain a
+  Clock deadline for the current consent revision and native generation. Keep
+  pruning, validated native drain, queue bounds and saving active while waiting;
+  withdrawal and deletion must remain available. Clear stale deadlines on
+  consent or generation changes and fence late replies before installing one,
+  or retry traffic ignores receiver backoff or delays a renewed installation.
 - `host.ts` withdrawing reporting around `prepareSignOut` before that preflight
   permits removal. A refused Recovery Key preflight leaves the account active;
   preserve consent and queued reports until actual removal starts, while retaining

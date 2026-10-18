@@ -44,15 +44,29 @@ The bootstrap's own dependencies remain outside its hooks' protection. Real
 module-order, bridge/isolation and cold-start delivery qualification remains
 required under #1050; substituted entry/store tests do not establish it.
 
+## Capture retries
+
+The shared store keeps a Clock deadline for capture retries. Native-compatible
+integer hints span zero through 24 hours; missing, zero or malformed capture
+hints use the 30-second polling interval. Before the deadline, flush still
+prunes, drains validated native reports, bounds and saves the queue, but sends
+neither enable nor capture. Acceptance clears the deadline. Consent revision and
+native generation changes invalidate it; late replies cannot restore it after
+withdrawal. Deletion and revocation do not wait for capture backoff.
+
 ## Revocation and deletion
 
 The native consent generation fences saves, callbacks and requests. Bridged enables
 carry the observed generation and cannot undo a later withdrawal. Withdrawal
 closes collection and cancels enable/capture before waiting for the network. A
-separate file marker survives locked-Keychain or interrupted account cleanup;
-restart retries withdrawal until acknowledgement. An installation that never opted
-in does not send a capability for revoke, delete or status. Its deletion completes
-locally using durable `everEnabled` authority, without inferring report absence
+separate file marker survives locked-Keychain or interrupted account cleanup.
+Account cleanup requires successful native consent persistence or a fresh
+wildcard marker write; an older marker is insufficient. If both fail, the
+throwing callback stops account-record, session and purge mutations while
+collection stays blocked in the current process. Cleanup does not wait for the
+receiver; restart retries withdrawal until acknowledgement. An installation that
+never opted in does not send a capability for revoke, delete or status. Its deletion
+completes locally using durable `everEnabled` authority, without inferring report absence
 from an empty queue. An installation that previously opted in retains remote
 withdrawal and verified-deletion requirements.
 
