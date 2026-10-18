@@ -30,18 +30,22 @@ export function HeadingTitle({
   return (
     <View style={styles.heading}>
       {onBack === undefined ? null : (
-        <Pressable
-          accessibilityLabel={t('mailboxes.back')}
-          accessibilityRole="button"
-          onPress={onBack}
-          style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
-          <Glass cornerRadius={22} />
-          <SFSymbol
-            name="chevron.left"
-            size={17}
-            color={colors.textPrimary}
-          />
-        </Pressable>
+        <Glass
+          interactive
+          cornerRadius={22}
+          style={{ boxShadow: colors.smallGlassShadow }}>
+          <Pressable
+            accessibilityLabel={t('mailboxes.back')}
+            accessibilityRole="button"
+            onPress={onBack}
+            style={styles.back}>
+            <SFSymbol
+              name="chevron.left"
+              size={17}
+              color={colors.textPrimary}
+            />
+          </Pressable>
+        </Glass>
       )}
       <View style={styles.headingText}>
         <Text

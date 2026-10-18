@@ -2269,23 +2269,46 @@ describe('context menus', () => {
     expect({
       sender: menuSections(sender),
       message: menuSections(message),
+      reply: screen.queryByRole('button', { name: 'Reply' }) !== null,
+      more: screen.queryByRole('button', { name: 'More' }) !== null,
     }).toStrictEqual({
       sender: [['Copy Address']],
+      reply: false,
+      more: false,
       message: [
         ['Mark as Read', 'Unflag'],
-        [['Move Message', ['Travel']], 'Delete Message'],
+        [['Move Message', ['Travel']], 'Report spam', 'Delete Message'],
       ],
     });
     await chooseFromMenu(sender, 'Copy Address');
-    expect(setStringAsync).toHaveBeenLastCalledWith('oliver@example.invalid');
+    const copiedAddress = jest.mocked(setStringAsync).mock.lastCall?.[0];
     jest.mocked(setStringAsync).mockClear();
     await fireEvent(
       within(sender).getByText('Oliver Park'),
       'accessibilityAction',
       { nativeEvent: { actionName: 'copy' } },
     );
-    expect(setStringAsync).toHaveBeenCalledWith('oliver@example.invalid');
-    await chooseFromMenu(message, 'Move Message', 'Travel');
+    expect({
+      copiedAddress,
+      accessibilityCopied: jest.mocked(setStringAsync).mock.lastCall?.[0],
+    }).toStrictEqual({
+      copiedAddress: 'oliver@example.invalid',
+      accessibilityCopied: 'oliver@example.invalid',
+    });
+    // Organizing stays available without a response source or Draft store.
+    await chooseFromMenu(message, 'Report spam');
+    expect({
+      spam: gmail.labelsOf(oliver).includes('SPAM'),
+      shown: screen.queryByText('Saturday, by the river?') !== null,
+    }).toStrictEqual({ spam: true, shown: false });
+    await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    await fireEvent.press(row());
+    await screen.findByRole('button', { name: 'Labels' });
+    const reopenedSender = contextMenuOf(
+      screen.getByText('oliver@example.invalid'),
+    );
+    const reopenedMessage = contextMenuOf(reopenedSender);
+    await chooseFromMenu(reopenedMessage, 'Move Message', 'Travel');
     expect({
       labels: gmail.labelsOf(oliver),
       shown: screen.queryByText('Saturday, by the river?') !== null,

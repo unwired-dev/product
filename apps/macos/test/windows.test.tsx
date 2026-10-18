@@ -1284,7 +1284,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
         ['Mark as Read', 'Flag'],
-        [['Move Message', ['Travel']], 'Delete Message'],
+        [['Move Message', ['Travel']], 'Report spam', 'Delete Message'],
       ]);
       await chooseFromMenu(message, 'Delete Message');
       expect(gmail.labelsOf(id)).toContain('TRASH');

@@ -383,7 +383,8 @@ styles) so the file stays editable.
   Snooze. On iPhone, Archive, Move and Reply remain in the bottom action group;
   Reply also offers the Thread's read state, star, Trash and Spam actions. The
   duplicate More button is removed per [#1044](https://github.com/unwired-dev/product/issues/1044);
-  the earlier iPhone frames still show it. Regular-width readers retain More.
+  the earlier iPhone frames still show it. The native reader context menu retains
+  those organizing actions when Reply is unavailable. Regular-width readers retain More.
   Compact back navigation follows the leading-edge swipe across Mailboxes,
   message lists, readers, Settings details and Compose. Cancelling retains the
   current destination; committing uses its Back or Close action, including

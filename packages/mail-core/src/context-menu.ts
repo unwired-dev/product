@@ -127,6 +127,7 @@ export const messageContextMenu = (
       items: items([
         ['restore', t('contextMenu.restore'), 'tray.and.arrow.down'],
         ['move', t('contextMenu.moveMessage'), 'folder'],
+        ['spam', t('gmailActions.label.spam'), 'xmark.bin'],
         ['trash', t('contextMenu.trashMessage'), 'trash'],
       ]),
     },

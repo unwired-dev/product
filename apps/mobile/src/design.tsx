@@ -231,14 +231,20 @@ export function SFSymbol({
   readonly size?: number;
 }) {
   return (
-    <NativeSymbol
+    // Legacy-view interop drops a nested native child's layout offset; retain its host View.
+    <View
+      collapsable={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      name={name}
-      size={size}
-      color={color}
-      style={{ width: size, height: size }}
-    />
+      pointerEvents="none"
+      style={{ width: size, height: size }}>
+      <NativeSymbol
+        name={name}
+        size={size}
+        color={color}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
   );
 }
 

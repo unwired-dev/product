@@ -113,7 +113,7 @@ import {
   Notice as Banner,
   Button,
   ContextMenu,
-  NativeGlass,
+  Glass,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -2018,24 +2018,25 @@ function Editor({
         <View
           style={styles.header}
           {...paletteHeader.swipe}>
-          <Pressable
-            accessibilityLabel={t('drafts.close')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: closing === 'saving' }}
-            disabled={closing === 'saving'}
-            onPress={() => {
-              void close();
-            }}
-            style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <NativeGlass
-              cornerRadius={22}
-              style={StyleSheet.absoluteFill}
-            />
-            <SFSymbol
-              name="xmark"
-              color={colors.textPrimary}
-            />
-          </Pressable>
+          <Glass
+            interactive={closing !== 'saving'}
+            cornerRadius={22}
+            style={{ boxShadow: colors.smallGlassShadow }}>
+            <Pressable
+              accessibilityLabel={t('drafts.close')}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: closing === 'saving' }}
+              disabled={closing === 'saving'}
+              onPress={() => {
+                void close();
+              }}
+              style={styles.circle}>
+              <SFSymbol
+                name="xmark"
+                color={colors.textPrimary}
+              />
+            </Pressable>
+          </Glass>
           <Text
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
@@ -2318,20 +2319,21 @@ function ComposerFallback({
       <View
         style={styles.header}
         {...paletteHeader.swipe}>
-        <Pressable
-          accessibilityLabel={t('drafts.close')}
-          accessibilityRole="button"
-          onPress={onClose}
-          style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-          <NativeGlass
-            cornerRadius={22}
-            style={StyleSheet.absoluteFill}
-          />
-          <SFSymbol
-            name="xmark"
-            color={colors.textPrimary}
-          />
-        </Pressable>
+        <Glass
+          interactive
+          cornerRadius={22}
+          style={{ boxShadow: colors.smallGlassShadow }}>
+          <Pressable
+            accessibilityLabel={t('drafts.close')}
+            accessibilityRole="button"
+            onPress={onClose}
+            style={styles.circle}>
+            <SFSymbol
+              name="xmark"
+              color={colors.textPrimary}
+            />
+          </Pressable>
+        </Glass>
         <View style={styles.grow} />
         <CommandInput />
       </View>

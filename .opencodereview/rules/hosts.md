@@ -922,6 +922,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   as To. Explicit role words must retain meaning when punctuation is omitted;
   component label assertions do not qualify native VoiceOver pronunciation.
 
+- `organize.tsx.Toolbar` removing More on iPhone while `ResponseActions` cannot
+  render Reply because its body, sender or Draft storage is unavailable. Trace
+  every removed action through the native reader context menu, including Spam;
+  retain the existing action without enabling an unavailable response or adding
+  another overflow button. Otherwise an organizing-capable reader loses an
+  action when its response prerequisites are absent.
+- `design.tsx.SFSymbol` or another legacy native view becoming a direct child of
+  native `Glass`. The installed Fabric interop mounts a nested legacy child's
+  content view without its wrapper's layout offset. Keep a noncollapsible host
+  View at that boundary and check search groups and open palettes, or padded,
+  centered icons render at the material's origin despite component tests passing.
 - `organize.tsx.Toolbar` projecting provider actions into the iPhone Reply sheet
   in their More-menu order instead of the approved sheet order. Check tiles and
   grouped rows against the approved frames after provider eligibility filtering;

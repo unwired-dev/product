@@ -38,9 +38,9 @@ import {
   rewriteLabel,
 } from './composer.tsx';
 import {
+  Glass,
   GlassGroup,
   GlassPanel,
-  NativeGlass,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -743,22 +743,23 @@ export function EditorHeader({
             styles.headerLeading,
             regular ? styles.regularHeaderLeading : null,
           ]}>
-          <Pressable
-            accessibilityLabel={t('drafts.close')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy, expanded: closeOpen }}
-            disabled={busy}
-            onPress={onClose}
-            style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <NativeGlass
-              cornerRadius={22}
-              style={StyleSheet.absoluteFill}
-            />
-            <SFSymbol
-              name="xmark"
-              color={colors.textPrimary}
-            />
-          </Pressable>
+          <Glass
+            interactive={!busy}
+            cornerRadius={22}
+            style={{ boxShadow: colors.smallGlassShadow }}>
+            <Pressable
+              accessibilityLabel={t('drafts.close')}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy, expanded: closeOpen }}
+              disabled={busy}
+              onPress={onClose}
+              style={s.circle}>
+              <SFSymbol
+                name="xmark"
+                color={colors.textPrimary}
+              />
+            </Pressable>
+          </Glass>
           <Text
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
