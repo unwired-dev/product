@@ -221,6 +221,7 @@
   },
   "mailboxes": {
     "title": "Mailboxes",
+    "back": "Back to Mailboxes",
     "description": "Each mailbox keeps its own access and saved mail on this device. The Inbox shows them together or one at a time.",
     "states": {
       "connected": "Connected",
