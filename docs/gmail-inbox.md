@@ -296,18 +296,21 @@ to Trash** and **Labels** (or **Folders**), then Reply, Reply All and Forward,
 then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
-**Reply** and **More**, beside a separate circular New Message button. Reply
+**Reply**, beside a separate circular New Message button. Reply
 grows a floating glass sheet out of the button: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
-Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
-beside them.
+Move, Report spam and Move to Trash, offering only what the provider supports.
+The duplicate iPhone **More** button is removed under
+[#1044](https://github.com/unwired-dev/product/issues/1044); regular-width readers
+retain it. When Reply is unavailable, the native reader context menu retains the
+supported organizing actions.
 Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
 Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
 like Reply: a caption, the mailbox's address with a Close button, the message's sender
 and subject, one row per folder with its role's symbol (the message's current folder
 dimmed and unavailable), and a search field at the bottom that narrows the folders by
-name. Choosing a folder moves the message and closes the picker. More lists the remaining
+name. Choosing a folder moves the message and closes the picker. On regular-width readers, More lists the remaining
 actions as text buttons. Menu panels ease in from their toolbar and fade out on
 iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
@@ -329,7 +332,8 @@ and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every pl
 Report spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
 **Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
-the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address**. A link in the reader's link list
+the reader's Move to, and **Report spam** and **Delete Message** outside Trash and
+Spam; its sender offers **Copy Address**. A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.

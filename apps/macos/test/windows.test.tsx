@@ -18,7 +18,7 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
-import { palette } from '@private-email/mail-core/theme';
+import { palette, radius, spacing } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
   act,
@@ -115,6 +115,17 @@ const rowOf = (button: ReturnType<ReturnType<typeof within>['getByRole']>) => {
     throw new Error('Expected the command row around its button');
   }
   return row;
+};
+
+const glassOf = (control: ReturnType<ReturnType<typeof within>['getByRole']>) => {
+  let node = control.parent;
+  while (node !== null && node.type !== 'UnwiredGlass') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected native glass around the control');
+  }
+  return node;
 };
 
 // The native context menu around a rendered control, its item titles by section, and choosing one.
@@ -360,6 +371,37 @@ describe('mac window selection with the shared mock mailbox', () => {
     });
     await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
     expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+  });
+
+  it('keeps the structural sidebar passive while its control group stays interactive', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    const sidebar = glassOf(
+      await app.findByRole('button', { name: 'All inboxes' }),
+    );
+    expect(sidebar).toHaveProp('interactive', false);
+    expect(sidebar).toHaveProp('cornerRadius', radius.window);
+    expect(sidebar).toHaveStyle({
+      width: 236,
+      margin: spacing.s,
+      padding: 0,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      boxShadow: palette.light.largeGlassShadow,
+    });
+    const toggle = app.getByRole('button', { name: 'Hide Sidebar' });
+    expect(glassOf(toggle)).toHaveProp('interactive', true);
+    await fireEvent.press(toggle);
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+    expect(
+      glassOf(app.getByRole('button', { name: 'All inboxes' })),
+    ).toHaveProp('interactive', false);
   });
 
   it('shows saved search matches with the default row preview and result count', async () => {

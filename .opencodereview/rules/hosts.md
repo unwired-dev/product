@@ -933,6 +933,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   content view without its wrapper's layout offset. Keep a noncollapsible host
   View at that boundary and check search groups and open palettes, or padded,
   centered icons render at the material's origin despite component tests passing.
+- `design.tsx.GlassGroup` or another shared material wrapper changing interaction
+  semantics without a caller census in both maintained hosts, including unchanged
+  files. Structural callers such as `window.tsx.WindowContents`' sidebar must use
+  passive `Glass`, preserving their geometry, shadow and child layout; genuine
+  control groups stay interactive. Exercise the structural caller through its
+  rendered window, or helper-only tests can pass while a whole navigation surface
+  reacts like a control.
 - `organize.tsx.Toolbar` projecting provider actions into the iPhone Reply sheet
   in their More-menu order instead of the approved sheet order. Check tiles and
   grouped rows against the approved frames after provider eligibility filtering;

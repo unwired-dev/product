@@ -8,7 +8,7 @@ import type { MailboxView } from './sidebar.tsx';
 
 import { CategorizationSpike } from './categorization-spike.ts';
 import { CommandBar, CommandPaletteProvider } from './command-palette.tsx';
-import { GlassGroup, SFSymbol } from './design.tsx';
+import { Glass, GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
@@ -41,6 +41,8 @@ const styles = StyleSheet.create({
   // The floating glass sidebar, inset from the window edges.
   sidebar: {
     alignSelf: 'stretch',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     width: sidebarWidth,
     margin: spacing.s,
     padding: 0,
@@ -195,7 +197,8 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
             style={styles.panes}>
             {/* The expanded composer covers the panes, so the glass sidebar steps aside. */}
             {sidebarShown && !expanded ? (
-              <GlassGroup
+              <Glass
+                cornerRadius={radius.window}
                 style={[
                   styles.sidebar,
                   { boxShadow: colors.largeGlassShadow },
@@ -204,7 +207,7 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
                   view={view}
                   onView={setView}
                 />
-              </GlassGroup>
+              </Glass>
             ) : null}
             <View
               pointerEvents={expanded ? 'none' : 'auto'}
