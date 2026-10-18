@@ -165,9 +165,10 @@ with screenshots after both transitions. Explicit Open Inbox reveals the retaine
 mail destination; dismissing Settings with native Back preserves the prior column.
 Returning through Mailboxes preserves the Inbox search, filters, online results
 and scroll position. An active reader or Draft retains its route and editor state.
-It then repeatedly opens a Gmail HTML message through the production account/Settings container on both device classes
-before checking the older-message Thread deep link. These remain synthetic
-provider journeys; they do not qualify a physical-device TestFlight session.
+It then repeatedly opens a Gmail HTML message through the production registration
+gate and Settings container on both device classes before checking the
+older-message Thread deep link. These remain synthetic provider journeys; they do
+not qualify a physical-device TestFlight session.
 
 All workspace checks, including the locally retained legacy harness, run from the root:
 
@@ -200,9 +201,9 @@ runs types and tests for mobile, core, contracts and the retained Convex backend
 plus the Effect import-policy tests. Formatting skips `AGENTS.md` files, whose
 managed blocks agent tools rewrite, and the generated Icon Composer `icon.json`.
 The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
-Its native jobs also build the Release app once and run the iPhone and iPad
-interaction journeys in parallel `Expo native E2E` jobs on pull requests ready
-for review and pushes to `main`.
+Its native jobs also build the Release app once per scenario and run the iPhone
+and iPad interaction journeys in parallel `Expo native E2E` jobs on pull requests
+ready for review and pushes to `main`.
 Legacy Swift CI and manual qualification jobs are disabled by maintainer decision.
 
 A focused native XCTest journey is also available through the
