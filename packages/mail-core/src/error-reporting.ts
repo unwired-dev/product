@@ -269,9 +269,9 @@ export function createErrorReporting(
       native.errorReportingRequest(operation, body ?? '{}', generation),
     ).pipe(Effect.flatMap(decodeReply));
   });
+  const isCurrent = (expected: number) => expected === revision && !disposed;
   const deletionAllowed = (expected: number) =>
-    !disposed &&
-    expected === revision &&
+    isCurrent(expected) &&
     !consentPending &&
     !collecting &&
     deleting(document.deletion);
@@ -386,7 +386,7 @@ export function createErrorReporting(
       Effect.flatMap(decodeState),
       Effect.option,
     );
-    if (expected !== revision || disposed || consentPending) {
+    if (!isCurrent(expected) || consentPending) {
       return;
     }
     if (Option.isNone(result)) {
@@ -438,6 +438,26 @@ export function createErrorReporting(
     state?.available === true &&
     (!enabled ||
       (!consentPending && !collecting && !deleting(document.deletion)));
+  const persistDeletionIntent = Effect.fn('ErrorReporting.persistDeletionIntent')(
+    function* (expected: number) {
+      while (isCurrent(expected)) {
+        if (yield* save()) {
+          return;
+        }
+        const latest = yield* call(() => native.errorReportingRead()).pipe(
+          Effect.flatMap(decodeState),
+        );
+        if (
+          expected !== revision ||
+          !latest.available ||
+          latest.generation <= (state?.generation ?? -1)
+        ) {
+          return;
+        }
+        state = latest;
+      }
+    },
+  );
   const setEnabled = async (enabled: boolean) => {
     if (!canChangeConsent(enabled) || state === undefined) {
       return;
@@ -453,26 +473,7 @@ export function createErrorReporting(
     const { generation } = state;
     if (!enabled && deleting(document.deletion)) {
       // Native withdrawal must carry durable deletion intent through interruption.
-      await runLogged(
-        Effect.gen(function* () {
-          while (expected === revision && !disposed) {
-            if (yield* save()) {
-              return;
-            }
-            const latest = yield* call(() => native.errorReportingRead()).pipe(
-              Effect.flatMap(decodeState),
-            );
-            if (
-              expected !== revision ||
-              !latest.available ||
-              latest.generation <= (state?.generation ?? -1)
-            ) {
-              return;
-            }
-            state = latest;
-          }
-        }).pipe(Effect.ignore),
-      );
+      await runLogged(persistDeletionIntent(expected).pipe(Effect.ignore));
       if (expected !== revision && !disposed) {
         return;
       }
@@ -482,7 +483,7 @@ export function createErrorReporting(
       native.errorReportingConsent(enabled, renew, generation),
     ).pipe(Effect.flatMap(decodeState));
     const next = await runLogged(consent.pipe(Effect.option));
-    if (expected !== revision || disposed) {
+    if (!isCurrent(expected)) {
       return;
     }
     consentPending = false;

@@ -3641,7 +3641,7 @@ describe('gmail push relay', () => {
   });
 
   it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
-    expect.assertions(7);
+    expect.assertions(8);
 
     vi.useFakeTimers();
     apnsMock.connections.length = 0;
