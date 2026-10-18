@@ -287,31 +287,39 @@ function SettingsCover({
   const covered = settings !== undefined;
   if (!settingsColumns) {
     return (
-      <ScreenStack style={styles.page}>
-        <ScreenStackItem
-          screenId="mail"
-          activityState={2}
-          freezeOnBlur={false}
-          headerConfig={{ hidden: true }}>
-          <View
-            accessibilityElementsHidden={covered}
-            importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
-            style={styles.page}>
-            {children}
-          </View>
-        </ScreenStackItem>
-        {covered ? (
+      <View style={styles.page}>
+        <View
+          accessibilityElementsHidden={covered}
+          importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+          style={styles.page}>
+          {children}
+        </View>
+        <ScreenStack
+          accessibilityElementsHidden={!covered}
+          importantForAccessibility={covered ? 'auto' : 'no-hide-descendants'}
+          pointerEvents={covered ? 'auto' : 'none'}
+          nativeContainerStyle={{ backgroundColor: 'transparent' }}
+          style={StyleSheet.absoluteFill}>
+          {/* The split view stays outside the Settings navigation controller. */}
           <ScreenStackItem
-            screenId="settings"
-            testID="settings-screen"
+            screenId="mail"
             activityState={2}
+            style={{ backgroundColor: 'transparent' }}
             headerConfig={{ hidden: true }}
-            gestureEnabled
-            onDismissed={onClose}>
-            {settings}
-          </ScreenStackItem>
-        ) : null}
-      </ScreenStack>
+          />
+          {covered ? (
+            <ScreenStackItem
+              screenId="settings"
+              testID="settings-screen"
+              activityState={2}
+              headerConfig={{ hidden: true }}
+              gestureEnabled
+              onDismissed={onClose}>
+              {settings}
+            </ScreenStackItem>
+          ) : null}
+        </ScreenStack>
+      </View>
     );
   }
   return (
