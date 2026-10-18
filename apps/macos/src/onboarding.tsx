@@ -153,11 +153,14 @@ export function Welcome({
             accessibilityLabel={t('settings.destinations.privacy')}
             onPress={onPrivacy}
             focusable
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              alignSelf: 'flex-start',
-            }}>
+            style={[
+              styles.continue,
+              {
+                minHeight: 44,
+                justifyContent: 'center',
+                alignItems: 'center',
+              },
+            ]}>
             <Text style={[textStyles.body, ink]}>
               {t('settings.destinations.privacy')}
             </Text>

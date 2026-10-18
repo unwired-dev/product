@@ -164,28 +164,31 @@ export function Welcome({
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
+  const privacy =
+    onPrivacy === undefined ? null : (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('settings.destinations.privacy')}
+        onPress={onPrivacy}
+        style={{
+          minHeight: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+        <Text style={[textStyles.subheadline, ink]}>
+          {t('settings.destinations.privacy')}
+        </Text>
+      </Pressable>
+    );
   const action = (
     <>
+      {ipad ? null : privacy}
       <OnboardingAction
         fill="brand"
         label={t('onboarding.welcome.continue')}
         onPress={onContinue}
       />
-      {onPrivacy === undefined ? null : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('settings.destinations.privacy')}
-          onPress={onPrivacy}
-          style={{
-            minHeight: 44,
-            alignItems: ipad ? 'flex-start' : 'center',
-            justifyContent: 'center',
-          }}>
-          <Text style={[textStyles.subheadline, ink]}>
-            {t('settings.destinations.privacy')}
-          </Text>
-        </Pressable>
-      )}
+      {ipad ? privacy : null}
     </>
   );
   return (

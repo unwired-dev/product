@@ -470,12 +470,14 @@ function Hairline() {
 export function SettingsRow({
   icon,
   title,
+  disabled = false,
   subtitle,
   subtitleTone,
   children,
 }: {
   readonly icon?: string;
   readonly title: string;
+  readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
@@ -491,7 +493,7 @@ export function SettingsRow({
           color={colors.accentInk}
         />
       )}
-      <View style={styles.rowText}>
+      <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
         <Label style={[textStyles.body, { color: colors.textPrimary }]}>
           {title}
         </Label>

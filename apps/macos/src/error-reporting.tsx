@@ -85,14 +85,28 @@ export function ErrorReportingEntry({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const store = useContext(ErrorReportingContext);
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const status =
+    snapshot.kind === 'loading' || snapshot.kind === 'unavailable'
+      ? undefined
+      : t(
+          `errorReporting.${snapshot.kind !== 'deleting' && snapshot.enabled ? 'statusOn' : 'statusOff'}`,
+        );
   return (
     <SettingsGroup title={t('errorReporting.title')}>
       <Pressable
         accessibilityLabel={t('errorReporting.title')}
         accessibilityRole="button"
+        accessibilityValue={status === undefined ? undefined : { text: status }}
         onPress={onPress}
         focusable>
         <SettingsRow title={t('errorReporting.title')}>
+          {status === undefined ? null : (
+            <Text style={[textStyles.body, { color: colors.textSecondary }]}>
+              {status}
+            </Text>
+          )}
           <SFSymbol
             name="chevron.right"
             size={14}
@@ -224,7 +238,9 @@ export function ErrorReportingSettings({
       <SettingsGroup
         title={t('errorReporting.title')}
         footer={consentDescription}>
-        <SettingsRow title={t('errorReporting.share')}>
+        <SettingsRow
+          title={t('errorReporting.share')}
+          disabled={!available}>
           <Switch
             accessibilityLabel={t('errorReporting.share')}
             accessibilityState={{

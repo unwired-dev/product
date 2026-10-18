@@ -8,7 +8,11 @@ import { createRegistrationScenario } from '@private-email/mail-core/testing/reg
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-import { ErrorReportingSettings } from '../src/error-reporting.tsx';
+import {
+  ErrorReportingContext,
+  ErrorReportingEntry,
+  ErrorReportingSettings,
+} from '../src/error-reporting.tsx';
 import { RegistrationGate, SettingsGate } from '../src/registration-gate.tsx';
 import { useSettingsRequest } from '../src/settings-window.ts';
 
@@ -48,6 +52,41 @@ function reporting(initial: ErrorReportingSnapshot) {
 }
 
 describe('error reporting controls', () => {
+  it('privacy entry follows reporting consent without showing an unknown state as off', async () => {
+    expect.hasAssertions();
+    const { store, update } = reporting({
+      kind: 'ready',
+      enabled: false,
+      deletion: 'idle',
+    });
+    await render(
+      <ErrorReportingContext.Provider value={store}>
+        <ErrorReportingEntry onPress={() => undefined} />
+      </ErrorReportingContext.Provider>,
+    );
+    expect(screen.getByText('Off')).toBeVisible();
+    await act(async () => {
+      update({ kind: 'ready', enabled: true, deletion: 'idle' });
+    });
+    expect({
+      visible: screen.getByText('On').props.children,
+      accessible: screen.getByRole('button', { name: 'Error Reporting' }).props
+        .accessibilityValue.text,
+    }).toStrictEqual({ visible: 'On', accessible: 'On' });
+    await act(async () => {
+      update({ kind: 'deleting', phase: 'pending' });
+    });
+    expect(screen.getByText('Off')).toBeVisible();
+    await act(async () => {
+      update({ kind: 'loading' });
+    });
+    expect(screen.queryByText('Off')).toBeNull();
+    await act(async () => {
+      update({ kind: 'unavailable' });
+    });
+    expect(screen.queryByText('Off')).toBeNull();
+  });
+
   it('explicit opt-in is available without signing in', async () => {
     expect.hasAssertions();
     const { store } = reporting({

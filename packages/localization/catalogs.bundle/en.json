@@ -1058,6 +1058,8 @@
   "errorReporting": {
     "title": "Error Reporting",
     "share": "Share error reports",
+    "statusOn": "On",
+    "statusOff": "Off",
     "off": "Off by default. Only for this installation, without linking your account or other devices.",
     "on": "On for this installation. Turning it off stops reporting and clears reports waiting to send.",
     "signedOut": "Available without signing in or after account removal. Reports are not linked to an account or another device.",

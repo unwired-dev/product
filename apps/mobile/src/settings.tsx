@@ -420,9 +420,7 @@ export function SettingsWorkspace({
     const page = (
       <View style={styles.page}>
         <AccountHeader
-          title={t(
-            `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
-          )}
+          title={t(`settings.destinations.${destination}`)}
           onBack={() => {
             if (onWelcome === undefined) {
               onDestination(
@@ -638,12 +636,14 @@ function Hairline() {
 export function SettingsRow({
   icon,
   title,
+  disabled = false,
   subtitle,
   subtitleTone,
   children,
 }: {
   readonly icon?: string;
   readonly title: string;
+  readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
@@ -660,7 +660,7 @@ export function SettingsRow({
           color={colors.accentInk}
         />
       )}
-      <View style={styles.rowText}>
+      <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
         <Text style={[type.title, { color: colors.textPrimary }]}>{title}</Text>
         {subtitle === undefined ? null : (
           <Text
