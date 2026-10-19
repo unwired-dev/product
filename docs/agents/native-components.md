@@ -7,6 +7,14 @@ not a precedent to copy.
 
 ## Choose the provided implementation
 
+Before implementing a standard interaction, record the component choice in the
+existing issue or task plan. Name the supported API, the installed host/package
+versions and the declaration or official reference checked. State which behavior
+the framework owns and which mail requirements remain application-owned, such as
+Draft save guards or a nonmodal composer. Record any remaining gap under
+[exceptions and review](#exceptions-and-review). This is part of planning, not a
+separate approval or review stage.
+
 1. Check the public components and APIs supported by the host's installed React
    Native, Expo and navigation versions. Use the provided control or presenter
    directly when it meets the product requirement. Prefer the complete native
@@ -29,6 +37,12 @@ public framework composition rather than creating another navigation adapter,
 presentation state machine or shared widget framework. A dependency upgrade
 must preserve the host's supported compatibility set; a fork or experimental API
 is not the default shortcut to a missing control.
+
+Confirm skill examples against the installed package's exports and declarations.
+When compatibility or behavior is uncertain, use the smallest task-owned probe
+of the required interaction before building surrounding UI. A custom component
+already in the app, a matching screenshot or an example from another host does
+not establish a missing framework API.
 
 ## Native behavior and design
 
@@ -55,6 +69,9 @@ why they cannot meet it, the smallest retained custom part, and the condition
 for deleting it. Include or link the record in the PR when delivery includes one.
 Keep application-specific content separate from that exception.
 Reviewers reject custom replacements that have a suitable provided equivalent.
+Check the recorded component choice before reviewing its styling. A known
+custom-control follow-up does not satisfy the exception rule; validate an API
+gap or replace the standard interaction within the agreed scope.
 
 Every migration moves all affected callers and removes its superseded controls,
 bridges, presence state and motion in the same change. Add a replacement wrapper
@@ -63,6 +80,14 @@ navigation/presentations, keyboard/focus, VoiceOver, Reduced Motion and responsi
 layouts through the [native validation guide](native-validation.md). Component
 mocks cannot establish that a system gesture or presenter works; unavailable
 native checks remain deferred before release.
+
+Exercise the smallest affected native journey before expanding the change:
+open, interact, cancel and reopen, including keyboard/focus where relevant.
+Use the existing native runner and its resource-ownership rules. When the target
+is unavailable, record that limitation and use the strongest deterministic
+evidence under the [testing policy](testing.md#proportionate-verification).
+Keep the native interaction check deferred; passing mocks do not validate a
+presentation workaround.
 
 ## Skills
 

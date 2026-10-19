@@ -31,6 +31,14 @@ the real Persistent Inbox store and verify the displayed detail or unavailable r
 The native E2E runner verifies packaged launch, message selection and back
 navigation. A rendered component test is not a native E2E test.
 
+For native navigation and presentation changes, follow the
+[early interaction check](native-components.md#exceptions-and-review) before
+expanding the implementation. Component tests can protect application state and
+action ordering, but keyboard, focus, gesture cancellation and presenter behavior
+need native evidence. Where an event source is substituted, deliver events only
+to current subscribers and honor listener removal; a mock must not make an
+unmounted or dismissed interaction appear live.
+
 For Convex, exercise public backend operations with the test database and
 identity context, checking stored state and authorization outcomes rather than
 mocking each internal helper. As persistence, Gmail and Outbox slices land, add
