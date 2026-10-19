@@ -41,8 +41,9 @@ library migration merely to satisfy this policy.
 Use DESIGN.md's tokens where the component supports customization. Prefer its
 system appearance and behavior over rebuilding it to reproduce a mockup's
 dimensions or animation curve. Product requirements still govern behavior and
-Draft safety. When adopting a component needs a visible design change or a
-requirement change, reconcile the relevant documents and follow the existing
+Draft safety. Resolve requirement changes through the existing
+[decision process](implementation-review.md#decision-panel) and reconcile the
+relevant documents. A visible design change follows the existing
 [Figma design approval](implementation-review.md#design-approval) before UI code.
 This policy does not authorize dropping required behavior to fit a component.
 

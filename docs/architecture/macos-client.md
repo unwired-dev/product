@@ -7,6 +7,11 @@ replacement requirements or release qualification.
 
 ## Host ownership
 
+Apply the [native component selection policy](../agents/native-components.md)
+to new UI and migrations. The custom views described below record the current
+implementation, not requirements to retain them; AppKit ownership and the Mac
+dependency boundary remain in force.
+
 The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and React
 19.1.4 in the root workspace and lockfile. This follows the amended
 [ADR 0064](../adr/0064-isolate-mobile-and-macos-native-dependencies.md), which

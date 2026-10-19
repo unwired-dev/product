@@ -7,6 +7,10 @@ replacement requirements or release qualification.
 
 ## Stack and boundaries
 
+Apply the [native component selection policy](../agents/native-components.md)
+to new UI and migrations. The custom views and navigation wiring described below
+record the current implementation, not requirements to retain them.
+
 - Router's explicitly accepted alpha `unstable-split-view` supplies native compact
   and regular layouts. Route parameters identify the selected message. The iPhone
   registration gate owns an outer `react-native-screens` native stack, retaining
