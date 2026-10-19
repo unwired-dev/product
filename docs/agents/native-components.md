@@ -49,10 +49,11 @@ This policy does not authorize dropping required behavior to fit a component.
 
 ## Exceptions and review
 
-A custom standard interaction needs a concrete gap recorded in its issue and
-PR: the requirement, provided APIs/packages checked and their host versions,
+A custom standard interaction needs a concrete gap recorded in its issue or
+local task artifact: the requirement, provided APIs/packages checked and their host versions,
 why they cannot meet it, the smallest retained custom part, and the condition
-for deleting it. Keep application-specific content separate from that exception.
+for deleting it. Include or link the record in the PR when delivery includes one.
+Keep application-specific content separate from that exception.
 Reviewers reject custom replacements that have a suitable provided equivalent.
 
 Every migration moves all affected callers and removes its superseded controls,
