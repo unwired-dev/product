@@ -1,0 +1,4 @@
+# Preserve the upstream formatting of pinned third-party skill copies.
+.agents/skills/ponytail/**
+.agents/skills/principle-laziness-protocol/**
+.agents/skills/principle-subtract-before-you-add/**

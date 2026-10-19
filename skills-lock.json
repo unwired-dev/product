@@ -75,6 +75,27 @@
       "source": "Dimillian/Skills",
       "sourceType": "github"
     },
+    "ponytail": {
+      "source": "rajzik/agent-config",
+      "ref": "f28b04249c47dcba6baa72f2df0873cb4ca8ba2e",
+      "sourceType": "github",
+      "skillPath": "skills/agents/ponytail/SKILL.md",
+      "computedHash": "1dcd7acbafa5df99101987b8b64a1891bc7f7a36bd1afac0d6c41dc07096f110"
+    },
+    "principle-laziness-protocol": {
+      "source": "rajzik/agent-config",
+      "ref": "f28b04249c47dcba6baa72f2df0873cb4ca8ba2e",
+      "sourceType": "github",
+      "skillPath": "skills/agents/principle-laziness-protocol/SKILL.md",
+      "computedHash": "5c6a19fca468569ee4f31fe71148a1c09e36d4b4c7d3ee30d05ebc7c4e840ea8"
+    },
+    "principle-subtract-before-you-add": {
+      "source": "rajzik/agent-config",
+      "ref": "f28b04249c47dcba6baa72f2df0873cb4ca8ba2e",
+      "sourceType": "github",
+      "skillPath": "skills/agents/principle-subtract-before-you-add/SKILL.md",
+      "computedHash": "c85188049e825fe715bb76bb0aa53adfa7f2f719a0b52db2b0c72daf6dd9aac7"
+    },
     "project-skill-audit": {
       "computedHash": "29d50ebe7302acf46580a42df68739b192a7e8ab913c3125f9c65350ffe7c29d",
       "skillPath": "project-skill-audit/SKILL.md",
