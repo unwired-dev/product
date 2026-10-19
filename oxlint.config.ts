@@ -33,7 +33,12 @@ export default buildOxlintConfig({
       '@convex-dev/eslint-plugin',
     ],
     extends: [EffectPresets.recommended],
-    ignorePatterns: ['**/convex/_generated/**'],
+    ignorePatterns: [
+      '**/convex/_generated/**',
+      // The Expo skill bundles are pinned upstream code, not application code.
+      '.agents/skills/expo-ui/**',
+      '.agents/skills/expo-router/**',
+    ],
     rules: {
       'effect-imports/namespace-imports': 'deny',
       'import/no-namespace': ['warn', { ignore: ['effect/**', '@effect/**'] }],
