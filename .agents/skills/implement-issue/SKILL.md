@@ -96,6 +96,8 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 
 ## Implement, verify, and review
 
+Before implementation, load and apply the workflow's
+[simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills).
 Follow the root guide's coding principles, skill selection and navigation rules.
 Complete the issue's requested behavior, update affected
 documentation, and add a changeset when required by repository policy.

@@ -29,8 +29,10 @@ for every implementation, including later implementation fixes.
 - Search the repository as the implementer with `scripts/implementer-grep`
   (`git grep` arguments, pathspecs after `--`), which always excludes those
   sources. Do not use `grep -r`, `rg` or bare `git grep` across the checkout.
-- Invoke `ponytail` before implementing. For React, React Native or Expo work,
-  use [native component and skill selection](docs/agents/native-components.md).
+- Before implementing, load and apply the workflow's
+  [simplicity skills](docs/agents/implementation-review.md#simplicity-skills).
+  For React, React Native or Expo work, use
+  [native component and skill selection](docs/agents/native-components.md).
 - The workflow owns [review depth](docs/agents/implementation-review.md#review-depth),
   handoffs, [review limits](docs/agents/implementation-review.md#four-round-safeguard)
   and [decision authority](docs/agents/implementation-review.md#decision-panel).

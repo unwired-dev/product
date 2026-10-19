@@ -7,8 +7,12 @@ as separate gates.
 
 ## Review depth
 
-Record the applicable rows and their reasons in the handoff. Extra review follows
-the changed contract rather than the task's size or file count.
+Every implementation starts with a separate
+[simplicity and reuse review](#simplicity-and-reuse-review). After its final report,
+run the applicable independent documentation or OCR review, then any required
+maintainability and design reviews in that order. Record the applicable rows and
+their reasons in the handoff. Later review depth follows the changed contract
+rather than the task's size or file count.
 
 | Change                                                                                                            | Required review                                                                                                                                                |
 | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -97,6 +101,32 @@ outcomes and verification results without copying architecture documents into
 the implementer's context. File separation supports this reading policy; it does
 not itself restrict filesystem or Git-history access.
 
+## Simplicity skills
+
+The implementer must load and apply these repository-pinned skills before
+implementation. The simplicity reviewer must independently do so before its
+review. Use a catalogue entry when it resolves to the bundled copy; otherwise
+read the linked `SKILL.md` files directly. No global installation or catalogue
+refresh is required:
+
+- [`ponytail`](../../.agents/skills/ponytail/SKILL.md): choose the smallest complete solution.
+- [`principle-laziness-protocol`](../../.agents/skills/principle-laziness-protocol/SKILL.md): remove unnecessary layers and indirection.
+- [`principle-subtract-before-you-add`](../../.agents/skills/principle-subtract-before-you-add/SKILL.md): remove unneeded complexity before adding code.
+
+The copies come from `rajzik/agent-config` at the revision in
+[`skills-lock.json`](../../skills-lock.json), the authoritative source for
+reproducing these bundled files. That source repository is private; normal
+implementation and review use the checked-in files without source-repository
+access. Ponytail's bundled `UPSTREAM.md` preserves `agent-config`'s earlier import
+from `DietrichGebert/ponytail`, including that original revision. Preserve the pins
+and bundled licenses and provenance when updating them.
+
+For framework or library research, also load `context7-mcp` when available and
+use its documentation tools. If unavailable, consult official documentation and
+installed source directly. Confirm APIs against the supported host/version.
+Repository component selection, scope and safety requirements take precedence
+over generic skill examples for both roles.
+
 ## Implementer handoff
 
 1. Before editing, record `git status --short` and classify staged, unstaged and
@@ -110,32 +140,45 @@ not itself restrict filesystem or Git-history access.
 2. Identify acceptance criteria, [review depth](#review-depth) and relevant
    checks under the [testing policy](testing.md). Complete any required
    [design approval](#design-approval) before code edits.
-3. Implement and run those checks. Documentation changes use formatting, local
-   links and any affected example, command or workflow contracts.
-4. Pin the actual comparison and hand off to a separate reviewer with explicit
-   `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
+3. Load and apply the [simplicity skills](#simplicity-skills) before implementation.
+   For standard UI work, record the
+   [component choice](native-components.md#choose-the-provided-implementation)
+   before implementing, and exercise the smallest affected native journey before
+   expanding the change. Implement and run the selected checks. Documentation
+   changes use formatting, local links and any affected example, command or
+   workflow contracts.
+4. Pin the actual comparison and hand off first to a separate simplicity reviewer
+   with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
    Include the checkout, request and issue, acceptance criteria, original starting
    commit, summary, task-owned files, pre-existing changes, checks/results,
-   limitations and [round history](#four-round-safeguard). Include prior findings,
-   their dispositions and any completed review conclusions proposed for reuse.
+   limitations and [round history](#four-round-safeguard). For UI, include the
+   selected API, remaining gaps and native evidence or deferred checks. Include
+   prior findings, their dispositions and any completed review conclusions
+   proposed for reuse.
    For uncommitted work, include staged/unstaged diffs and task-owned untracked
-   files. A commit-only diff does not cover them. For OCR, create a local task
-   snapshot and pass the exact checkpoint plan's `from`, `to`, mode, reason and
-   prior report under [incremental checkpoints](#incremental-ocr-checkpoints).
-   Snapshot commits are authorized before review; pushing still waits for the
-   required reviews.
+   files. A commit-only diff does not cover them. Give the simplicity reviewer
+   the original starting commit and full task comparison. After its final report,
+   hand the resulting snapshot, evidence and report to the independent
+   documentation or OCR reviewer selected under [review depth](#review-depth).
+   For OCR, create a local task snapshot after the simplicity pass and pass the
+   exact checkpoint plan's `from`, `to`, mode, reason and prior report under
+   [incremental checkpoints](#incremental-ocr-checkpoints). Snapshot commits are
+   authorized before review; pushing still waits for the required reviews.
 5. Pause implementer writes while a reviewer owns the checkout and wait for its
-   final report. Run applicable maintainability and design passes in order after
-   the independent review, giving each the original task comparison, evidence and
-   earlier reports. Never run two writing reviewers at once. Record inapplicable
-   passes with their reason, including design review when no client-visible
-   behavior changed.
+   final report before the next pass. Run applicable maintainability and design
+   passes after the independent documentation or OCR review, giving each the
+   original task comparison, evidence and earlier reports. Use the same explicit
+   model, reasoning and fresh-context settings for every reviewer. Never run two
+   writing reviewers at once. Record inapplicable passes with their reason,
+   including design review when no client-visible behavior changed.
 6. Apply the [review-depth rule](#review-depth) to later fixes and PR feedback.
    Identify invalidated conclusions explicitly. OCR reuse must satisfy its
    checkpoint helper; an unchanged valid checkpoint can reuse its completed
-   report without an empty pass. Other reviewers retain the original baseline
-   and prior reports to assess the delta and affected interactions. An unavailable
-   or incomplete required pass blocks delivery.
+   report without an empty pass. Each new review sequence starts with a full-task
+   simplicity pass. Other reviewers retain the original baseline and prior reports
+   to assess the delta and affected interactions. Later-reviewer fixes return to
+   the implementer for invalidation assessment and any required earlier passes
+   before delivery. An unavailable or incomplete required pass blocks delivery.
 
 A final report ends reviewer and child-agent write ownership. Reviewers do not
 start PR watchers or schedules, and a notification does not renew ownership. Stop
@@ -152,9 +195,9 @@ or changing agents, threads or worktrees.
 
 ### Count local review rounds
 
-- One round is the applicable independent, maintainability and design review
-  sequence. Reusing a valid completed report still counts the sequence
-  once; individual reviewers do not each consume a round.
+- One round is the simplicity pass and applicable independent, maintainability
+  and design review sequence. Reusing a valid completed report still counts the
+  sequence once; individual reviewers do not each consume a round.
 - Record a round when its first reviewer begins substantive review. A failed,
   interrupted or partial round with substantive review counts. A retry that only
   repairs infrastructure, such as a reviewer failing to start, does not consume
@@ -249,6 +292,50 @@ Before further implementation edits or review after either limit is reached:
    PR watchers or recurring tasks in review threads. Stop any existing review
    watcher before reporting, and do not act on later PR notifications or resume
    writes without a new delegated review and explicit checkout handoff.
+
+## Simplicity and reuse review
+
+This first pass audits the full task diff and affected callers for unnecessary
+custom mechanisms, speculative flexibility, duplicated framework behavior and
+layers that add more work than they remove. It researches the smallest complete
+solution before the independent documentation or OCR review checks the result.
+It shares reviewer reading access, write ownership, finding validation and the
+four-cycle limit.
+It does not record an OCR checkpoint.
+
+1. Load and apply the shared [simplicity skills](#simplicity-skills).
+   Read the applicable requirements and reviewer-only architecture constraints
+   before judging whether a mechanism is unnecessary.
+   Apply the repository's component-selection and safety requirements over generic
+   skill examples. Review documentation-only tasks for unnecessary procedure and
+   duplication; research libraries when the task actually needs that capability.
+2. For each material custom mechanism, check the standard library, platform,
+   framework and already-installed dependencies first. Research current official
+   documentation and source for the supported host/version. If those options have a
+   concrete gap, check maintained, proven libraries before retaining custom code.
+   Compare required behavior, compatibility and integration/maintenance cost;
+   popularity alone does not prove suitability. Avoid a new dependency where
+   direct code is simpler overall.
+3. Prefer deleting unnecessary work or using a provided API over adding wrappers,
+   generic frameworks or a new abstraction around the same complexity. Preserve
+   required behavior, Draft safety, security, accessibility and host boundaries.
+   Keep fixes within task scope; unrelated legacy debt belongs in existing or
+   deduplicated follow-up issues, not a repository-wide rewrite.
+4. For each finding, report the current mechanism, simpler alternative, linked
+   primary evidence and version/host fit, what can be deleted, and the checks
+   that establish preserved behavior. If research is unavailable or equivalence
+   is unproven, record the limitation; do not claim a proven replacement.
+   A no-change outcome is valid when the current solution is already simplest.
+5. Validate and apply confirmed behavior-preserving fixes before handing off.
+   For code fixes, resolve repository rules with `ocr delegate rule` for every
+   file before fixing it, and honor the required architecture sources.
+   Documentation fixes verify their affected operational contracts under
+   [review depth](#review-depth). Follow [decision authority](#decision-panel)
+   for product or architecture changes and [design approval](#design-approval)
+   for visible design changes. Run relevant checks; return scope, sources,
+   alternatives, findings and dispositions, deletions, final snapshot, checks and
+   deferred work. The next independent documentation or OCR review covers the
+   result, including these fixes.
 
 ## Thermo-nuclear code quality review
 
@@ -373,8 +460,9 @@ votes alone do not change requirements or grant authority.
 
 The OCR helper validates reuse of its completed coverage. The first OCR pass
 covers the full task; subsequent passes cover changes since the last completed
-snapshot. Other reviews follow [review depth](#review-depth), retaining the
-original baseline and reports when assessing a later delta.
+snapshot. Simplicity reviews always cover the full task. Other reviews follow
+[review depth](#review-depth), retaining the original baseline and reports when
+assessing a later delta.
 
 1. Fetch the PR's actual target base and use a stable task ID (normally its issue
    number) for every round on this branch. Commit only task-owned changes to a
@@ -544,8 +632,8 @@ and new code areas that need their own rule.
 
 ## Completion
 
-Deliver after all applicable reviews cover the final artifact, validated findings
-are resolved and relevant checks have passed or are accurately recorded as
-unavailable. Required CI and release qualification remain independent gates.
+Deliver after the simplicity pass and all applicable later reviews cover the final
+artifact, validated findings are resolved and relevant checks have passed or are
+accurately recorded as unavailable. Required CI and release qualification remain independent gates.
 Continue with [PR delivery and babysitting](pull-request-babysitting.md#implementer-pr-delivery)
 within the user's explicit limits. Reviewers do not open or babysit PRs.

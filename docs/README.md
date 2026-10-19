@@ -46,7 +46,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, review depth, decisions and incremental OCR checkpoints](agents/implementation-review.md)
+- [Implementation handoff, simplicity review, review depth and decisions](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Native component selection and UI rewrite tracking](agents/native-components.md)
