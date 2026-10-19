@@ -7,12 +7,14 @@ documented API gap that policy requires; existing house code is not an exception
 Every implementation hands off to separate review agents, in sequence, before
 delivery:
 
-1. The **OCR reviewer** runs the [Open Code Review delegation](#open-code-review-delegation)
+1. The **simplicity reviewer** runs the [simplicity and reuse review](#simplicity-and-reuse-review),
+   researching simpler provided solutions before the later reviews.
+2. After that reviewer's final report, the **OCR reviewer** runs the [Open Code Review delegation](#open-code-review-delegation)
    and the repository rules, including architecture checks.
-2. After the OCR reviewer's final report, the **thermo-nuclear reviewer** runs
+3. After the OCR reviewer's final report, the **thermo-nuclear reviewer** runs
    the [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
    on the result.
-3. When the task changes anything user-visible, after the thermo-nuclear
+4. When the task changes anything user-visible, after the thermo-nuclear
    reviewer's final report, the **design reviewer** runs the
    [design review](#design-review) of the app against the design.
 
@@ -112,11 +114,11 @@ not itself restrict filesystem or Git-history access.
    Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
-4. Spawn the OCR reviewer with these explicit arguments:
+4. Spawn the simplicity reviewer with these explicit arguments:
 
    ```json
    {
-     "task_name": "implementation_review",
+     "task_name": "simplicity_review",
      "model": "gpt-6.1-sol",
      "reasoning_effort": "high",
      "fork_turns": "none",
@@ -128,15 +130,15 @@ not itself restrict filesystem or Git-history access.
    commit, implementation summary, task-owned files, pre-existing changes, checks
    and their results, known limitations, and the current attempt, round count and
    rethink history under the [four-round safeguard](#four-round-safeguard).
-   Tell it to read this workflow, run the
-   Open Code Review delegation step below, apply the repository rules and their
-   required architecture-source reading, review the implementation, fix validated issues,
-   and rerun the relevant checks. Include the actual comparison to review:
+   Tell it to read this workflow, run the [simplicity and reuse review](#simplicity-and-reuse-review),
+   fix validated in-scope findings and rerun the relevant checks. Include the
+   actual comparison to review:
 
    - For uncommitted work, inspect the staged and unstaged diffs and task-owned
      untracked files. A commit-only diff does not cover this work.
    - Keep the original starting commit and full task comparison for the
-     thermo-nuclear and design reviewers. For OCR, follow
+     simplicity, thermo-nuclear and design reviewers. After the simplicity pass,
+     prepare the OCR handoff under
      [incremental OCR checkpoints](#incremental-ocr-checkpoints): create a local
      task snapshot commit, prepare a plan, and include its exact `from`/`to`,
      mode, reason and prior report in the handoff. The first OCR pass is full;
@@ -144,34 +146,40 @@ not itself restrict filesystem or Git-history access.
      Local snapshot commits are authorized before review; pushing and PR
      delivery still wait for every required review.
 
-5. Pause all implementer writes to the shared checkout while the OCR reviewer
+5. Pause all implementer writes to the shared checkout while the simplicity reviewer
    owns it. Wait for its final report.
-6. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
+6. Then spawn the OCR reviewer with the same explicit arguments and
+   `"task_name": "implementation_review"`. Include the simplicity report and
+   resulting snapshot, checks and checkpoint plan. Tell it to run the
+   [Open Code Review delegation](#open-code-review-delegation), apply the resolved
+   repository rules and required architecture sources, fix validated findings and
+   rerun the relevant checks. Keep implementer writes paused until its final report.
+7. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
    `"task_name": "thermo_nuclear_review"`. Write it a separate self-contained
-   message with the same context and comparison, plus the OCR reviewer's final
-   report. Tell it to read this workflow and follow the
+   message with the same context and comparison, plus both earlier final
+   reports. Tell it to read this workflow and follow the
    [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
    instead of the OCR delegation step. Keep the comparison pinned to the
    starting commit so it covers the implementation and the OCR reviewer's fixes.
    Keep implementer writes paused until its final report. Never run two
    reviewers at once.
-7. When the task changes anything user-visible, then spawn the design reviewer
+8. When the task changes anything user-visible, then spawn the design reviewer
    with the same explicit arguments and `"task_name": "design_review"`. Write it
-   a separate self-contained message with the same context and comparison, both
+   a separate self-contained message with the same context and comparison, all
    earlier final reports, the changed screens and states, and the Figma sections
    you implemented against. Tell it to read this workflow and follow the
    [design review](#design-review). Keep implementer writes paused until its
    final report. For other tasks, record "design review: not applicable" with
    the reason in your final report and the PR.
-8. The required reviews form one implementation review. Apply the
+9. The required reviews form one implementation review. Apply the
    [four-round safeguard](#four-round-safeguard) before repeating this sequence.
    Additional implementation edits, including fixes after review or PR feedback,
    require another pinned
    review by every required reviewer. OCR uses its validated checkpoint; the
-   thermo-nuclear and applicable design reviews keep the full task comparison.
+   simplicity, thermo-nuclear and applicable design reviews keep the full task comparison.
    Changes made by later reviewers are not covered by an earlier OCR checkpoint;
-   before delivery, return those changes to a new OCR reviewer and repeat the
-   later required reviews in sequence. An unchanged valid OCR checkpoint can
+   before delivery, restart with a new simplicity reviewer and repeat the
+   required reviews in sequence. An unchanged valid OCR checkpoint can
    reuse its completed report without spawning an empty OCR pass. Give every
    reviewer and its children the same ownership boundary: no PR
    watchers, scheduled work, or writes after their final report. A notification
@@ -189,7 +197,7 @@ or changing agents, threads or worktrees.
 
 ### Count local review rounds
 
-- One round is the required OCR, thermo-nuclear and applicable design sequence
+- One round is the required simplicity, OCR, thermo-nuclear and applicable design sequence
   for an implementation. Reusing a valid OCR report still counts the sequence
   once; individual reviewers do not each consume a round.
 - Record a round when its first reviewer begins substantive review. A failed,
@@ -287,6 +295,48 @@ Before further implementation edits or review after either limit is reached:
    watcher before reporting, and do not act on later PR notifications or resume
    writes without a new delegated review and explicit checkout handoff.
 
+## Simplicity and reuse review
+
+This first pass audits the full task diff and affected callers for unnecessary
+custom mechanisms, speculative flexibility, duplicated framework behavior and
+layers that add more work than they remove. It researches the smallest complete
+solution before OCR checks the resulting implementation. It shares reviewer
+reading access, write ownership, finding validation and the four-cycle limit.
+It does not record an OCR checkpoint.
+
+1. Resolve the installed `ponytail`, `principle-laziness-protocol` and
+   `principle-subtract-before-you-add` skills through the session catalogue.
+   Read the applicable requirements and reviewer-only architecture constraints
+   before judging whether a mechanism is unnecessary.
+   Apply the repository's component-selection and safety requirements over generic
+   skill examples. Review documentation-only tasks for unnecessary procedure and
+   duplication; research libraries when the task actually needs that capability.
+2. For each material custom mechanism, check the standard library, platform,
+   framework and already-installed dependencies first. Research current official
+   documentation and source for the supported host/version. Use `context7-mcp`
+   when available, or consult primary sources directly. If those options have a
+   concrete gap, check maintained, proven libraries before retaining custom code.
+   Compare required behavior, compatibility and integration/maintenance cost;
+   popularity alone does not prove suitability. Avoid a new dependency where
+   direct code is simpler overall.
+3. Prefer deleting unnecessary work or using a provided API over adding wrappers,
+   generic frameworks or a new abstraction around the same complexity. Preserve
+   required behavior, Draft safety, security, accessibility and host boundaries.
+   Keep fixes within task scope; unrelated legacy debt belongs in existing or
+   deduplicated follow-up issues, not a repository-wide rewrite.
+4. For each finding, report the current mechanism, simpler alternative, linked
+   primary evidence and version/host fit, what can be deleted, and the checks
+   that establish preserved behavior. If research is unavailable or equivalence
+   is unproven, record the limitation; do not claim a proven replacement.
+   A no-change outcome is valid when the current solution is already simplest.
+5. Validate and apply confirmed behavior-preserving fixes before handing off.
+   Resolve repository rules with `ocr delegate rule` for every file before fixing
+   it, and honor the required architecture sources. Send product or architecture
+   changes to the decision panel and visible design changes through design
+   approval. Run relevant checks; return scope, sources, alternatives, findings
+   and dispositions, deletions, final snapshot, checks and deferred work. OCR
+   then reviews the implementation including these fixes.
+
 ## Thermo-nuclear code quality review
 
 The thermo-nuclear reviewer has the same responsibilities, reading access, write
@@ -297,8 +347,8 @@ pass in place of the OCR delegation step:
    the host's global skill install and follow it. The skill disables model
    invocation, so read the file instead of invoking it. If the skill is not
    installed, report the review as blocked.
-2. Review the full task diff from the pinned starting commit, including the OCR
-   reviewer's fixes and task-owned uncommitted files. A documentation-only task
+2. Review the full task diff from the pinned starting commit, including both
+   earlier reviewers' fixes and task-owned uncommitted files. A documentation-only task
    records that no code changed and reviews any scripts or config it touched.
 3. Validate each finding and apply behavior-preserving fixes directly. Resolve
    rules with `ocr delegate rule` for every file the fixes touch and keep the
@@ -410,7 +460,7 @@ without a majority. Continue independent work while the prerequisite is blocked.
 
 Only the OCR pass is incremental. The first review covers the full task;
 subsequent reviews cover changes since the last successfully completed OCR
-snapshot. Thermo-nuclear and design reviews retain their full task scope.
+snapshot. Simplicity, thermo-nuclear and design reviews retain their full task scope.
 
 1. Fetch the PR's actual target base and use a stable task ID (normally its issue
    number) for every round on this branch. Commit only task-owned changes to a
@@ -581,8 +631,8 @@ and new code areas that need their own rule.
 ## Completion
 
 The implementer delivers only after every required reviewer has finished fixing
-validated issues and verifying the final artifact, including the Open Code Review
-delegation step, the thermo-nuclear code quality review and, for user-visible
+validated issues and verifying the final artifact, including the simplicity and
+reuse review, Open Code Review delegation, thermo-nuclear code quality review and, for user-visible
 changes, the design review. Unresolved findings or an
 unavailable reviewer leave implementation review incomplete; report them
 accurately. Review completion and required CI remain independent gates.
