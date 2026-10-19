@@ -46,4 +46,6 @@ current replacement work from prototype maintenance and historical plans.
 
 - One-message consent authorizes only the current remote retrieval and later encrypted-cache reuse for the same stable message presentation; it does not authorize changed content or a new request. Remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, and repeat that boundary for every redirect
 
-- The remote-content limit is a shared quota only: entries use Product Account-, Mail Profile-, connection-, stable-message-, and resource-revision-scoped encryption and identity, never deduplicate across Profiles, become inaccessible with Profile Lock, and follow existing Profile-removal deletion rules
+## Authorized Remote Content Cache
+
+The remote-content limit is a shared quota only: entries use Product Account-, Mail Profile-, Mailbox Connection-, stable-message-, and resource-revision-scoped encryption and identity, never deduplicate across Profiles, become inaccessible with Profile Lock, and follow existing Profile-removal deletion rules.

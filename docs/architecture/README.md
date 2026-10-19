@@ -23,10 +23,10 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/agents/effect.md](../agents/effect.md)                                     | [agents/effect.md](agents/effect.md)                                     |
 | [docs/apple-registration.md](../apple-registration.md)                           | [apple-registration.md](apple-registration.md)                           |
 | [docs/account-removal.md](../account-removal.md)                                 | [account-removal.md](account-removal.md)                                 |
-| [docs/domain/identity.md](../domain/identity.md)                                 | [domain/identity.md](domain/identity.md)                                 |
+| [docs/domain/identity.md](../domain/identity.md)                                 | [product/identity.md](product/identity.md)                               |
 | [docs/domain/mailboxes.md](../domain/mailboxes.md)                               | [domain/mailboxes.md](domain/mailboxes.md)                               |
 | [docs/domain/messages-and-delivery.md](../domain/messages-and-delivery.md)       | [domain/messages-and-delivery.md](domain/messages-and-delivery.md)       |
-| [docs/domain/privacy-and-sync.md](../domain/privacy-and-sync.md)                 | [domain/privacy-and-sync.md](domain/privacy-and-sync.md)                 |
+| [docs/domain/privacy-and-sync.md](../domain/privacy-and-sync.md)                 | [product/privacy-and-sync.md](product/privacy-and-sync.md)               |
 | [docs/draft-editor-evaluation.md](../draft-editor-evaluation.md)                 | [draft-editor-evaluation.md](draft-editor-evaluation.md)                 |
 | [Benchmark guide](../../tools/system-category-benchmark/README.md)               | [system-category-benchmark.md](system-category-benchmark.md)             |
 | [docs/expo-client.md](../expo-client.md)                                         | [expo-client.md](expo-client.md)                                         |
@@ -120,6 +120,7 @@ receive scope or supersession notes where needed.
 Update affected documentation in each implementation slice. At
 [cutover #627](https://github.com/unwired-dev/product/issues/627), remove the
 remaining Swift implementation, build targets and tests after their replacement
-slices are complete. Obsolete Swift operating instructions can be removed now.
+slices are complete. Retire Swift operating instructions only after confirming
+their remaining operational use has ended.
 Keep useful historical decisions and provider evidence clearly scoped rather
 than presenting them as replacement qualification.

@@ -31,6 +31,29 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
 Follow the [execution-environment policy](testing.md#execution-environment) for
 sandbox restrictions and the separate PR babysitter validation boundary.
 
+## Performance qualification
+
+The existing local-mail budgets remain release requirements. Measure a Release
+build with a warm encrypted cache on the reference iPhone 17, at least two
+connections with 50 initially available messages each, completed backfill and
+cached-body samples. Use the current launch-provider scope rather than a
+historical Gmail-only fixture.
+
+| Interaction                                                       | Budget                       |
+| ----------------------------------------------------------------- | ---------------------------- |
+| App entry, sidebar and message list                               | p95 at most 1 second         |
+| Cached mailbox or Mail View switch, cached body and warm composer | p95 at most 200 ms           |
+| Empty composer                                                    | p95 at most 300 ms           |
+| Typing and formatting feedback                                    | Next rendered frame          |
+| Main-thread stall                                                 | No stall of 100 ms or longer |
+
+Measure provider/network latency separately and keep the app interactive while
+it waits. Nominate iPad and Mac reference hardware and establish their baselines;
+unmeasured baselines remain required qualification. Hosted-runner speed does not
+relax a device budget. Record the device, fixture, build, command and measurement
+evidence; these targets do not claim a passing measurement. The reviewer verifies
+the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md).
+
 ## Report what the evidence proves
 
 A production Hermes export verifies the JavaScript bundle. A native build proves

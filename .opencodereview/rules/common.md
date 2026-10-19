@@ -14,17 +14,17 @@ Read applicable AGENTS.md files, docs/agents/implementation-review.md, docs/arch
 
 #### R2 — Review coverage (all files)
 
-Use the handoff's actual pinned comparison and inventory task-owned staged, unstaged, untracked and committed changes; preserve pre-existing unrelated work. The first OCR pass and every thermo-nuclear or applicable design pass cover the full task. An OCR follow-up may use only the validated incremental checkpoint plan from `docs/agents/implementation-review.md`; verify its exact range and prior report, inspect affected context and prior findings, and distinguish carried-forward coverage from newly reviewed changes. A missing or invalid checkpoint, changed base or review inputs, invalid ancestry or uncommitted work requires the workflow's full-review fallback.
+Use the handoff's actual pinned comparison and inventory task-owned staged, unstaged, untracked and committed changes; preserve pre-existing unrelated work. Apply the review category and coverage rules in `docs/agents/implementation-review.md`: every implementation needs independent final-artifact review, documentation-only work needs documentation and relevant contract checks, and code needs applicable OCR architecture and standards review. Separate maintainability and design passes follow that workflow's triggers. The first OCR pass covers the full task. An OCR follow-up may use only the validated incremental checkpoint plan; verify its exact range and prior report, inspect affected context and prior findings, and distinguish retained coverage from newly reviewed changes. Repeat conclusions a later edit can invalidate and record why retained review coverage remains valid. A missing or invalid checkpoint, changed base or review inputs, invalid ancestry or uncommitted work requires the workflow's full-review fallback.
 
 Reconcile OCR previews with the selected Git diff and task-owned untracked inventory, keyed by (path, status), including deletions and staged deletion/untracked recreation pairs. OCR exclusions never waive review: apply this repository checklist manually to excluded task-owned text and review other excluded artifacts through their relevant owning interfaces without exposing secrets. Check both the requested behavior and repository standards, privacy boundaries, collaborating modules and meaningful test coverage. Cover every change in the selected comparison, not a single commit from a multi-commit range.
 
 #### R3 — Validated findings and evidence (all files)
 
 Match local validation to the actual CI invocation and gate, not only a similarly
-named package script. For Fallow changes, check `.github/workflows/ci.yml` and run
-`git fetch origin main` followed by
-`mise exec -- pnpm exec fallow audit --root . --quiet --changed-since origin/main --gate new-only`.
-Record the audit verdict; `pnpm fallow` reports health findings without enforcing
+named package script. For Fallow changes, use the canonical validation commands
+in `README.md` and check `.github/workflows/ci.yml`; exact CI parity requires
+fetching and pinning the event's actual comparison SHA. Record that SHA and the
+audit verdict; `pnpm fallow` reports health findings without enforcing
 that new-only gate and cannot establish a pass. Leave individual tool-decided
 complexity/duplication findings to Fallow, while reviewing suppressions under R0.
 

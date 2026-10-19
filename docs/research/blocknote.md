@@ -272,7 +272,7 @@ Check internal scrolling, system appearance and body-editor focus preservation
 through menu and native-bridge interactions; assistance remains preview-first
 and never starts from ordinary typing.
 
-Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
+Apply the [replacement performance targets](../agents/native-validation.md#performance-qualification)
 as pass/fail gates: in Release on the iPhone 17 reference device with a warm
 encrypted cache, warm Draft opening must reach rendered interactive content within
 200 ms at p95 from user selection; empty Draft opening must do so within 300 ms.

@@ -28,6 +28,29 @@ the Mac host they need no change to the native-dependency allowlist
 Tracking issues: #775 (`postal-mime`), #838 (`@exodus/bytes`), #839 (`jose`),
 #840 (`@legendapp/list`) and #841 (`@csstools`).
 
+## Recommendation disposition, 2026-10-19
+
+The rankings and probes below remain the 2026-10-10 assessment. Follow the
+owning implementation issue and current feature contract for later decisions
+and evidence:
+
+| Recommendation                | Disposition owner                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `postal-mime` From parsing    | [#775](https://github.com/unwired-dev/product/issues/775), [Gmail behavior](../gmail-inbox.md#behavior)                     |
+| `@exodus/bytes` charsets      | [#838](https://github.com/unwired-dev/product/issues/838), [message reading](../gmail-inbox.md#reading-messages)            |
+| `jose` token operations       | [#839](https://github.com/unwired-dev/product/issues/839)                                                                   |
+| Legend List trial             | [#840](https://github.com/unwired-dev/product/issues/840), [Catch Up](../catch-up.md)                                       |
+| CSS parser trial              | [#841](https://github.com/unwired-dev/product/issues/841), [sanitization contract](../gmail-inbox.md#sanitization-contract) |
+| Existing mobile swipe actions | [#811](https://github.com/unwired-dev/product/issues/811), [Catch Up](../catch-up.md)                                       |
+
+The current [mail-core manifest](../../packages/mail-core/package.json) lists
+`postal-mime`, `@exodus/bytes` and the CSS parser libraries as runtime
+dependencies; the [Convex manifest](../../packages/convex/package.json) lists
+`jose`. These entries establish dependency availability only. They do not prove
+complete migration, the Legend List trial, deployed compatibility or native
+qualification. Keep the limitations of each dated probe distinct from later
+implementation evidence.
+
 ## 1. `postal-mime` `addressParser`: parse From headers correctly on Hermes
 
 **Problem.** `sender` in `packages/mail-core/src/gmail-inbox.ts:549-556` parses

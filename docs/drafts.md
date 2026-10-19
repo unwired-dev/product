@@ -135,9 +135,11 @@ body content or attachments discards it only if no other window has completed it
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
-Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
+Switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
 also finishes recipient entry and waits for saving; invalid entry or a save failure
-keeps the current composer open. A failed discard keeps the Draft visible and can
+keeps the current composer open. **Account** follows the separate
+[Settings navigation contract](gmail-inbox.md#settings).
+A failed discard keeps the Draft visible and can
 be retried. A concurrent save from another storage writer is recovered once;
 closing an empty stale composer preserves that writer's completed Draft and
 finishes with **Saved on this device**. Edits accepted while discard was pending stay available for saving and
