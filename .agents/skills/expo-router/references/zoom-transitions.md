@@ -78,7 +78,10 @@ For manual control over where the zoom lands on the destination, use `alignmentR
 <Link href="/photo" asChild>
   <Link.AppleZoom alignmentRect={{ x: 0, y: 0, width: 200, height: 300 }}>
     <Pressable>
-      <Image source={{ uri: "https://example.com/thumb.jpg" }} />
+      <Image
+        source={{ uri: "https://example.com/thumb.jpg" }}
+        style={{ width: 120, height: 120 }}
+      />
     </Pressable>
   </Link.AppleZoom>
 </Link>

@@ -62,18 +62,16 @@ function extractComponents(indexFile, visited = new Set()) {
         .find(file => fs.existsSync(file));
       if (declaration) names.push(...extractComponents(declaration, visited));
     }
-    // export { Name, ... } from './Something'  — pick up named re-exports too
-    const n = line.match(/^export \{([^}]+)\}/);
-    if (n) {
-      for (const part of n[1].split(',')) {
-        // Skip `type Foo` re-exports
-        if (/^\s*type\s/.test(part)) continue;
-        const id = part.trim().split(/\s+as\s+/).at(-1).trim();
-        if (id && /^[A-Z]/.test(id) && !TYPE_SUFFIX.test(id)) names.push(id);
-      }
-    }
     const declaration = line.match(/^export (?:declare )?(?:const|function|class) ([A-Z][a-zA-Z0-9_]*)/);
     if (declaration && !TYPE_SUFFIX.test(declaration[1])) names.push(declaration[1]);
+  }
+  // Named export statements can span multiple declaration lines.
+  for (const match of src.matchAll(/^export\s*\{([^}]+)\}/gm)) {
+    for (const part of match[1].split(',')) {
+      if (/^\s*type\s/.test(part)) continue;
+      const id = part.trim().split(/\s+as\s+/).at(-1).trim();
+      if (id && /^[A-Z]/.test(id) && !TYPE_SUFFIX.test(id)) names.push(id);
+    }
   }
   return [...new Set(names)].sort();
 }

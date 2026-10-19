@@ -8,6 +8,9 @@ new version and retain any that upstream has not incorporated.
 
 ## Expo UI
 
+- Describe native List virtualization separately from eager React row creation;
+  retain the guidance to use data-driven lists for large datasets.
+
 - Import `Host` from the matching UI layer. Universal trees use the package root;
   SwiftUI and Compose trees use their platform subpath so platform-only props
   remain available.
@@ -26,14 +29,19 @@ new version and retain any that upstream has not incorporated.
 - Clarify that [`useNativeState` works without worklets](https://docs.expo.dev/versions/latest/sdk/ui/swift-ui/usenativestate/);
   synchronous UI-thread worklet updates require the worklet runtime.
 - Resolve wildcard declaration re-exports to their value names rather than
-  reporting module names such as `Shapes`. Preserve named exports and aliases;
+  reporting module names such as `Shapes`. Parse named statements across lines
+  and preserve aliases;
   prevent recursion through cyclic declarations. The discovery helper is a
   compact inventory, not a TypeScript parser; confirm APIs in installed declarations.
-  Its CLI regression is part of `pnpm test:tooling`.
+  Its CLI regression covers both declaration formats and a script path with
+  spaces, and runs in `pnpm test:tooling`.
 - Keep the local CommonJS `package.json` so the upstream helper runs in this
   repository's ESM workspace.
 
 ## Expo Router
+
+- Include Android icons in cross-platform NativeTabs examples and explicit
+  dimensions on the remote zoom-source image.
 
 - Preserve special route filenames and distinguish screen default exports from
   [special-file contracts such as `+native-intent`](https://docs.expo.dev/router/advanced/native-intent/).

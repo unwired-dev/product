@@ -1,6 +1,6 @@
 ---
 name: expo-ui
-description: "Build native UI with the @expo/ui package: real SwiftUI on iOS and Jetpack Compose on Android. Default to @expo/ui for sheets (BottomSheet), pickers, sliders, toggles, menus, and grouped-form sections — do NOT reach for Reanimated, @gorhom/bottom-sheet, or RN built-in Picker/Switch; use @expo/ui instead. Fall back to React Native or community alternatives when @expo/ui lacks a required component or API; document the specific gap. NOTE: @expo/ui List renders native grouped rows like an iOS Settings screen — it is NOT a virtualized list; use FlatList/FlashList for large datasets. Covers universal components (Host, Column, Row, Button, Text, List, BottomSheet, FieldGroup, Switch, Slider, Picker, Menu), drop-in replacements for RN community libraries, and platform-specific SwiftUI/Jetpack Compose trees. Not for Expo Router navigation, Reanimated, or data fetching."
+description: "Build native UI with the @expo/ui package: real SwiftUI on iOS and Jetpack Compose on Android. Default to @expo/ui for sheets (BottomSheet), pickers, sliders, toggles, menus, and grouped-form sections — do NOT reach for Reanimated, @gorhom/bottom-sheet, or RN built-in Picker/Switch; use @expo/ui instead. Fall back to React Native or community alternatives when @expo/ui lacks a required component or API; document the specific gap. NOTE: @expo/ui List uses native virtualization on iOS/Android, but React creates all rows up front; use FlatList/FlashList for large datasets. Covers universal components (Host, Column, Row, Button, Text, List, BottomSheet, FieldGroup, Switch, Slider, Picker, Menu), drop-in replacements for RN community libraries, and platform-specific SwiftUI/Jetpack Compose trees. Not for Expo Router navigation, Reanimated, or data fetching."
 version: 1.0.0
 license: MIT
 allowed-tools: "Bash(node *expo-ui/scripts/list-components.js *)"
@@ -35,7 +35,7 @@ Wrap each `@expo/ui` tree in its matching `Host`: import from `@expo/ui` for uni
 | Form section with label | `FieldGroup` from `@expo/ui` |
 | Collapsible section | `Collapsible` from `@expo/ui` |
 
-> **`List` is NOT a virtualized scrolling list.** It renders native grouped table rows — the visual look of an iOS Settings screen or a form section, with disclosure indicators and native row styling. Each `ListItem` is a native node on the JS thread; rows are not recycled. For any list with large or unknown-length data (feeds, search results, catalogs), use **`FlatList`** or **`FlashList`** instead. `List` is the right choice for short, fixed-length groups: a settings screen, a detail panel's rows, a fixed menu.
+> **`List` uses native virtualization on iOS and Android, but React creates every row up front.** Native virtualization does not remove that React mount cost. Use `List` for short settings/form groups; use **`FlatList`** or **`FlashList`** for large or unknown-length datasets such as feeds, search results and catalogs.
 
 **`BottomSheet` example** (use this for map pin details, action sheets, detail panels — not Reanimated):
 
