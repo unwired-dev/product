@@ -296,7 +296,7 @@ export default function TabLayout() {
 }
 
 // app/(tabs)/(home)/_layout.tsx
-import Stack from "expo-router/stack";
+import { Stack } from "expo-router/stack";
 
 export default function HomeStack() {
   return (
