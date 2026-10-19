@@ -40,7 +40,7 @@ import { Platform } from 'react-native';
 const SwiftUIForm = Platform.OS === 'ios' ? require('../components/ProfileEditor.ios').default : null;
 ```
 
-Or more simply, put the `Platform.OS` guard and the SwiftUI import in the same route file (safe because Metro only bundles `.ios.tsx` imports on iOS builds when using platform extensions in `components/`).
+Keep platform-only imports inside the conditionally loaded component. A rendering guard does not isolate a static import; prefer the extensionless component import shown above so Metro selects the platform implementation.
 
 ## Instructions
 

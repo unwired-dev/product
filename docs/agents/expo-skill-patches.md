@@ -13,7 +13,8 @@ new version and retain any that upstream has not incorporated.
   [BottomSheet presents modally](https://docs.expo.dev/versions/latest/sdk/ui/drop-in-replacements/bottomsheet/),
   and [Picker omits some original props](https://docs.expo.dev/versions/latest/sdk/ui/drop-in-replacements/picker/).
 - Correct platform-route guidance and show a component fallback on other
-  platforms. [Expo Router permits platform routes when a non-platform sibling exists](https://docs.expo.dev/router/advanced/platform-specific-modules/).
+  platforms. Keep platform-only imports in the selected component; a rendering
+  guard does not isolate a static import. [Expo Router permits platform routes when a non-platform sibling exists](https://docs.expo.dev/router/advanced/platform-specific-modules/).
 - Use a JSX comment inside `RNHostView` so `Pressable` remains its first child.
 - Clarify that [`useNativeState` works without worklets](https://docs.expo.dev/versions/latest/sdk/ui/swift-ui/usenativestate/);
   synchronous UI-thread worklet updates require the worklet runtime.

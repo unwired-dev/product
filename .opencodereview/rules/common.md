@@ -140,6 +140,15 @@ For documentation, vocabulary, policy or .opencodereview changes, read docs/agen
   exceptions. Exclude dependencies, generated artifacts and the `graft/` cache
   from the sweep.
 
+- For vendored `.agents/skills/` bundles, check API-compatibility claims and
+  examples against version-matched declarations and primary framework guidance,
+  including platform-import isolation, required exports, component context,
+  state ownership and presenter prerequisites. Follow grouped declaration
+  re-exports in discovery helpers such as `expo-ui/scripts/list-components.js`
+  to verify they report exported values rather than module labels. Check repeated
+  guidance across references; an upstream pin does not establish accuracy.
+  Otherwise agents can generate broken code from the installed reference.
+
 #### R12 — Rule upkeep (conditional)
 
 These rules improve from the reviews they take part in. Apply this section when the task answers pull-request review feedback, repairs a defect that an earlier review of the same code let through, or produced a finding you rejected as a false positive.

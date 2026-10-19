@@ -31,13 +31,14 @@ export declare const Rectangle: unknown;
 export declare function Circle(): unknown;
 export interface ShapeProps {}
 export type ShapeValue = string;
-export * from './index';
+export * from './Cycle';
 `,
     );
     write(
       'build/swift-ui/Nested/index.d.ts',
       'export declare const Capsule: unknown;',
     );
+    write('build/swift-ui/Cycle.d.ts', "export * from './Shapes';");
     write(
       'build/swift-ui/modifiers/index.d.ts',
       '/**\n * Sets padding.\n */\nexport declare function padding(): unknown;',
