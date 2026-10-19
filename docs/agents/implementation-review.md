@@ -108,7 +108,7 @@ not itself restrict filesystem or Git-history access.
 2. When the task needs [design approval](#design-approval), complete it before
    any code edit.
 3. For standard UI work, complete the [component choice](native-components.md#choose-the-provided-implementation)
-   in the existing task plan before implementation, and exercise the smallest
+   in the existing issue or task plan before implementation, and exercise the smallest
    affected native journey before expanding the change. Include the selected API,
    remaining gaps and native evidence or deferred checks in the review handoff.
    Implement the requested behavior and run the relevant checks under the
