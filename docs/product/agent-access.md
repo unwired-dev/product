@@ -75,7 +75,8 @@ Mac. Different projects or assistants can use separate connections.
 
 Disabling a connection immediately blocks further access and preserves saved
 Drafts. Request execution must respect the current grant, including when a
-permission or selected Mailbox Connection has been removed.
+permission or selected Mailbox Connection has been removed. This applies to
+retries and previously saved results as well as first requests.
 
 ## Mac availability and account boundaries
 
@@ -138,9 +139,13 @@ synchronization. This includes sessions sharing one Agent Connection. The curren
 Draft remains intact, and the agent must reread it before attempting another edit.
 Existing cross-device Draft conflict preservation remains applicable.
 
-Retrying the same operation after a lost response returns its existing result.
-It does not create a duplicate Draft or apply an edit twice. A failed save never
-reports success.
+Retrying the same operation after a lost response suppresses a duplicate creation
+or edit. Returning a previously saved result still requires the current account,
+Agent Connection, Profile Lock, permission, and target-scope checks to pass.
+Disablement, permission or mailbox removal, locking, and sign-out cannot be
+bypassed by a retry. If access is no longer allowed, the retry returns the
+applicable access-denied or unavailable result, without revealing the saved
+result or repeating the mutation. A failed save never reports success.
 
 Sending, deleting, organizing, and other mailbox changes remain actions the user
 performs in Unwired in this version. Future versions can expose these actions
@@ -186,7 +191,10 @@ The implementation must demonstrate these observable behaviors:
 10. A stale agent edit preserves the current Draft and reports a conflict after
     any intervening revision change, including another session sharing the same
     Agent Connection.
-11. Retrying a creation or edit after a lost response produces one logical result.
+11. Retrying a creation or edit after a lost response never repeats the mutation.
+    A retry after connection disablement, permission or mailbox removal, Profile
+    Lock, or sign-out reveals no saved result and reports the applicable access
+    failure. Authorized retries return the existing result.
 12. Reading leaves read state unchanged. Agent requests cannot send, delete,
     organize mail, retrieve attachment contents, or change attachments.
 13. Activity history records permitted metadata, excludes sensitive content,
