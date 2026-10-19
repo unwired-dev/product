@@ -1,5 +1,9 @@
 # Implementation and review
 
+For UI work, apply [native component selection](native-components.md) during
+implementation and review. A custom standard control or interaction needs the
+documented API gap that policy requires; existing house code is not an exception.
+
 Every implementation hands off to separate review agents, in sequence, before
 delivery:
 
