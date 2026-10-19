@@ -191,6 +191,7 @@ Use `hidden` prop on `NativeTabs` to hide the entire tab bar dynamically:
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { SymbolView } from "expo-symbols";
 
 function MiniPlayer({
   isPlaying,

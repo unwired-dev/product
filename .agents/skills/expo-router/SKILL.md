@@ -25,9 +25,9 @@ references/
 
 ## Code Style
 
-- Always use kebab-case for file names, e.g. `comment-card.tsx`
+- Use kebab-case for ordinary file names, e.g. `comment-card.tsx`. Preserve Expo Router notation such as `_layout.tsx`, `[id].tsx`, `(group)`, and `+not-found.tsx`.
 - Always remove old route files when moving or restructuring navigation
-- Never use special characters in file names
+- Use special characters in route names only as required by Expo Router conventions.
 - Configure tsconfig.json with path aliases, and prefer aliases over relative imports for refactors.
 
 ## Routes

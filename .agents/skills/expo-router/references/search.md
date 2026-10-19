@@ -61,6 +61,7 @@ Reusable hook for search state management:
 import { useEffect, useState } from "react";
 import { useNavigation } from "expo-router";
 
+// hooks/use-search.ts
 export function useSearch(options: any = {}) {
   const [search, setSearch] = useState("");
   const navigation = useNavigation();
@@ -68,6 +69,7 @@ export function useSearch(options: any = {}) {
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
+      headerTransparent: false,
       headerSearchBarOptions: {
         ...options,
         onChangeText(e: any) {
@@ -102,6 +104,7 @@ function SearchScreen() {
 
   return (
     <FlatList
+      contentInsetAdjustmentBehavior="automatic"
       data={filteredItems}
       renderItem={({ item }) => <ItemRow item={item} />}
     />
@@ -167,7 +170,7 @@ function SearchScreen() {
 
 ## Search with Native Tabs
 
-When using NativeTabs with a search role, the search bar integrates with the tab bar:
+The separate search tab requires iOS 26+ and a build compiled with Xcode 26+. When using NativeTabs with a search role, the search bar integrates with the tab bar:
 
 ```tsx
 // app/_layout.tsx
@@ -184,17 +187,24 @@ When using NativeTabs with a search role, the search bar integrates with the tab
 
 ```tsx
 // app/(search)/_layout.tsx
-<Stack>
-  <Stack.Screen
-    name="index"
-    options={{
-      headerSearchBarOptions: {
-        placeholder: "Search...",
-        onChangeText: (e) => setSearch(e.nativeEvent.text),
-      },
-    }}
-  />
-</Stack>
+import { Stack } from "expo-router/stack";
+
+export default function SearchLayout() {
+  return <Stack />;
+}
+```
+
+Keep the search callback and state in the screen that consumes the query. The hook above installs the header search bar:
+
+```tsx
+// app/(search)/index.tsx
+import { Text } from "react-native";
+import { useSearch } from "@/hooks/use-search";
+
+export default function SearchScreen() {
+  const search = useSearch({ placeholder: "Search..." });
+  return <Text>Searching for: {search}</Text>;
+}
 ```
 
 ## Empty States

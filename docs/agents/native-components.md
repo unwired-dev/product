@@ -85,8 +85,9 @@ Expo to the Mac bundle. Load relevant references, rather than treating every
 skill as a reason to add dependencies, wrappers or a component framework.
 
 The two Expo bundles are vendored from the revision in `skills-lock.json`.
-Preserve their upstream files when updating them. The local `expo-ui` package
-manifest keeps its CommonJS discovery helper compatible with this ESM workspace.
+Preserve the pin and reapply the documented [local corrections](expo-skill-patches.md)
+when updating them. The local `expo-ui` package manifest keeps its CommonJS
+discovery helper compatible with this ESM workspace.
 
 ## Rewrite tracking
 
