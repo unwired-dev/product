@@ -35,10 +35,10 @@ work and the stages left undone. After all required
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
-threads. Implementation edits made while babysitting require another pinned
-review by every required reviewer before they are pushed. OCR uses the
-[incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints);
-the simplicity, thermo-nuclear and applicable design reviews retain the full task diff. Each
+threads. Implementation edits made while babysitting follow
+[review depth and invalidation](implementation-review.md#review-depth) before
+they are pushed. OCR reuse also follows the
+[incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints). Each
 pass ends once it has
 handled the feedback and gate state available now.
 
@@ -52,6 +52,9 @@ when the PR is merged or closed; [automatic merge](#automatic-merge) performs
 the merge. Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
 credential or permission is a blocker to report, not a reason to stop
 babysitting other gates.
+
+The implementer and reviewers do not approve or merge pull requests. The
+[automatic merger](#automatic-merge) owns merging under its trusted gates.
 
 ## Scheduled sweep
 

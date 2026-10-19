@@ -1,7 +1,7 @@
 # Identity and devices
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/domain/identity.md).
+The review agent owns the separate [architecture companion](../architecture/product/identity.md).
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/identity.md)
 

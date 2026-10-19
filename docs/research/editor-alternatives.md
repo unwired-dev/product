@@ -51,9 +51,13 @@ Markdown, or a vendor JSON format. Ordered saves, retryable failures, close/save
 coordination, stale-window conflict Drafts, and Private Sync must
 survive. Assistance stays explicit, on-device, revision-bound and separate until
 acceptance. Editor collaboration or vendor AI is not a substitute for those
-behaviors. The accepted assistance contract includes default-off enablement;
-the current Draft assistance guide identifies that gate as follow-up work in
-[#788](https://github.com/unwired-dev/product/issues/788).
+behaviors. The accepted assistance contract includes default-off enablement.
+At the 2026-10-10 review baseline, that gate was follow-up work in
+[#788](https://github.com/unwired-dev/product/issues/788). For its current
+behavior and consent requirements, use the
+[enablement contract](../message-summaries.md#mail-assistance-enablement)
+and [Draft assistance guide](../draft-assistance.md); the research baseline
+does not describe today's implementation status.
 [Draft durability](../drafts.md), [current Draft assistance](../draft-assistance.md),
 [document and asset definitions](../domain/messages-and-delivery.md),
 [assistance contract](../domain/assistance.md).
@@ -363,7 +367,7 @@ Check internal scrolling, system appearance and body-editor focus preservation
 through menu and native-bridge interactions; assistance remains preview-first
 and never starts from ordinary typing.
 
-Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
+Apply the [replacement performance targets](../agents/native-validation.md#performance-qualification)
 as pass/fail gates: in Release on the iPhone 17 reference device with a warm
 encrypted cache, warm Draft opening must reach rendered interactive content within
 200 ms at p95 from user selection; empty Draft opening must do so within 300 ms.

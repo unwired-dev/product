@@ -30,7 +30,8 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
 
-- Expo 57.0.30, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.28.
+- Mobile framework and test versions belong to `catalogs.mobile` in
+  [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). Shared tooling uses the default catalog.
 - Route parameters identify the selected message.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
@@ -40,8 +41,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   before custom equivalents. Compose mail content with React Native `StyleSheet`
   and framework-independent light/dark tokens in `packages/mail-core`; preserve
   accessible names, selection state and keyboard focus.
-- Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
-- TypeScript 7.0.2, `@effect/tsgo` 0.48.0, Oxlint 1.86.0 and Oxfmt 0.71.0.
+- Follow the [Effect conventions](agents/effect.md) with the catalog-pinned version.
+  React owns presentation state. Opening a message does not mutate mailbox read state.
+- TypeScript, the Effect patcher, Oxlint and Oxfmt versions belong to the shared catalog.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
   its diagnostics run once through Oxlint. The shared
@@ -83,22 +85,22 @@ and rejected import forms and the [boundary rules](agents/effect.md#enforcement)
 
 ### Compatibility pins
 
-Expo compatibility patches were refreshed on 2026-10-15. Native packages follow Expo 57's exact
+Native packages follow the selected Expo version's exact
 compatibility map, rather than independently upgrading the renderer or native
 peers. Keep the mobile Babel preset within the selected Expo package's declared
 dependency range; [`catalogs.mobile`](../pnpm-workspace.yaml) holds both pins.
-Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
+Keep React paired with the selected React Native renderer. Router's transitive
 native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
 
-Oxlint 1.86.0 is the newest version supported by this Effect patcher; update
-`@effect/tsgo`, Oxlint and `oxlint-tsgolint` together. TypeScript 7 is intentionally
+Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
+versions and update them together. TypeScript 7 is intentionally
 excluded from `expo install --check` because Expo recommends TypeScript 6 while
 the selected Effect tooling patches TypeScript 7. Jest remains on 29 for
 `jest-expo`'s watch plugin. Testing Library's `test-renderer` is pinned to 1.2.0;
-1.3 requires a newer React renderer. Node stays on the project's Node 24 line,
-and pnpm remains exactly 11.5.2.
+1.3 requires a newer React renderer. Node and pnpm versions belong to
+[the root toolchain](../README.md#local-development).
 
 ## Install and run
 
@@ -159,16 +161,9 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 
 ## Validate
 
-All workspace checks, including the locally retained legacy harness, run from the root:
-
-```sh
-mise exec -- pnpm turbo run lint lint:boundaries format check-types test
-mise exec -- pnpm fallow
-mise exec -- pnpm test:tooling
-```
-
-Lint and formatting run once from the root (`pnpm lint`, `pnpm format`). Run the
-remaining mobile checks from `apps/mobile`:
+Run the relevant [shared validation commands](../README.md#validation) from the
+root, including the pinned Fallow audit when required. The root diagnostic scan
+does not substitute for that gate. Run the additional mobile checks from `apps/mobile`:
 
 ```sh
 mise exec -- pnpm check-types

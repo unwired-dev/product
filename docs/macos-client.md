@@ -159,9 +159,11 @@ native setup or dependencies.
 
 ## Verification
 
+Run relevant [shared validation commands](../README.md#validation) once from the
+root, then the Mac-specific checks:
+
 ```sh
-mise exec -- pnpm lint
-mise exec -- pnpm format
+mise exec -- pnpm --filter @private-email/macos fallow
 mise exec -- pnpm --filter @private-email/macos check-types
 mise exec -- pnpm --filter @private-email/macos test
 mise exec -- pnpm --filter @private-email/macos build

@@ -59,11 +59,12 @@ their controls stop accepting input and leave VoiceOver immediately.
   text becomes recipients on **Save Draft**; an invalid address keeps the editor open.
 - **Send.** Stores the Draft as shown and queues it, then closes. A refusal, such as
   no recipients, keeps the editor open with its reason; the Draft stays stored.
-- **Leaving.** Opening **Account**, another Draft, **New Message** or received mail
+- **Leaving.** Opening another Draft, **New Message** or received mail
   asks the same question first; it leaves once the Draft is saved, deleted or
   unchanged. On Mac, Command-W, the window's close button and Quit ask too, and the
   window closes after **Save** or **Don’t Save**. Quit continues through any other
   open editors and then stops the app; **Cancel** or a failed finish cancels Quit.
+  **Account** follows the separate [Settings navigation contract](gmail-inbox.md#settings).
 - **Removal elsewhere.** A Draft deleted on another device while open keeps this
   editor's version; **Save Draft** stores it as a conflicting copy.
 - **Two windows.** When two Mac windows edit one Draft and one saves first, **Save**

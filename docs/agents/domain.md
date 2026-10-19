@@ -16,8 +16,9 @@ tests and documentation. Under the
 agent follows ADR links and reads the separate architecture files. The implementer leaves
 architecture interpretation and corrections to that agent.
 
-Check [the documentation index](../README.md) for current scope. ADR 0059 through
-0065 supersede earlier prototype behavior where stated. A glossary entry, old
+Check [the documentation index](../README.md) and the
+[power-user launch scope](../product/power-user-launch.md) for current scope.
+Reviewers verify the applicable decisions and explicit supersessions. A glossary entry, old
 "v1" rule or historical discussion does not establish replacement launch scope,
 implementation status or passing qualification. Surface conflicts explicitly.
 

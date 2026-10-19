@@ -56,9 +56,16 @@ implemented.
 
 ## Historical cross-device scheduling
 
-These prototype rules include delivery takeover by another device.
-[ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md)
-supersedes that ownership model for the replacement, including future scheduling.
+The superseded takeover rules and mechanism are in the
+[Scheduled Send archive](../archive/scheduled-send.md#historical-cross-device-scheduling).
+The replacement keeps delivery on its originating device, including future
+scheduling, under the [current Outbox contract](../outbox.md).
+
+## Future Scheduled Send and Send Reminder requirements
+
+These agreed future requirements do not authorize another device to take over
+delivery or establish that scheduling is implemented. Use the
+[launch scope](power-user-launch.md) and owning issues for delivery order.
 
 - A **Scheduled Send** is a synchronized Outbox commitment, while a **Send Reminder** remains attached to a Draft and never authorizes delivery
 - A Send Reminder synchronizes end-to-end encrypted; its Draft remains the content authority, and only the current reminder can be opened, cleared or rescheduled.
@@ -68,11 +75,11 @@ supersedes that ownership model for the replacement, including future scheduling
 - A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted and its Draft is durably retired; admission fails closed while offline or uncertain and leaves the message as a Draft
 
 - Scheduled Send delivery is best-effort at or after its absolute selected instant; it never promises exact background execution, and an item more than 24 hours late requires user attention instead of sending automatically
-- In the prototype, any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may deliver a Scheduled Send, but exactly one device may proceed to provider handoff.
 - Opening a Scheduled Send for editing, rescheduling, cancellation, mode conversion and delivery cannot create duplicate delivery commitments.
 - Cancelling a Scheduled Send restores an editable Draft, while cancelling a Send Reminder removes only the reminder; explicit mode conversion keeps exactly one synchronized state active
 - Scheduled Send never silently changes its selected Mailbox Connection, and **Send Now** remains subject to the **Undo Send Window**
-- Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments
+- Removing a Mailbox Connection everywhere warns the user, lists its Scheduled Sends and requires confirmation before cancelling them. Cancellation restores editable Drafts without silently choosing another sending connection.
+- Deleting the Product Account warns the user, lists every Scheduled Send and Send Reminder and requires confirmation to cancel them as part of deleting the account and its data.
 
 ## Authored content and delivery attempts
 
