@@ -100,8 +100,12 @@ refresh is required:
 - [`principle-subtract-before-you-add`](../../.agents/skills/principle-subtract-before-you-add/SKILL.md): remove unneeded complexity before adding code.
 
 The copies come from `rajzik/agent-config` at the revision in
-[`skills-lock.json`](../../skills-lock.json). Preserve the pins and bundled
-licenses when updating them.
+[`skills-lock.json`](../../skills-lock.json), the authoritative source for
+reproducing these bundled files. That source repository is private; normal
+implementation and review use the checked-in files without source-repository
+access. Ponytail's bundled `UPSTREAM.md` preserves `agent-config`'s earlier import
+from `DietrichGebert/ponytail`, including that original revision. Preserve the pins
+and bundled licenses and provenance when updating them.
 
 For framework or library research, also load `context7-mcp` when available and
 use its documentation tools. If unavailable, consult official documentation and
