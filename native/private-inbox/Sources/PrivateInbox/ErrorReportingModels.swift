@@ -72,10 +72,16 @@ struct ReportingReport: Codable, Sendable {
     "Native bridge failed", "Synthetic native crash",
   ]
   func valid(now: Date) -> Bool {
-    UUID(uuidString: id) != nil && createdAt.isFinite && createdAt.rounded(.down) == createdAt
-      && createdAt <= 9_007_199_254_740_991
-      && createdAt > now.timeIntervalSince1970 * 1000 - 86_400_000
+    valid && createdAt > now.timeIntervalSince1970 * 1000 - 86_400_000
       && createdAt <= now.timeIntervalSince1970 * 1000 + 60_000
+  }
+
+  var valid: Bool {
+    id.range(
+      of: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      options: [.regularExpression, .caseInsensitive]) != nil
+      && createdAt.isFinite && createdAt.rounded(.down) == createdAt
+      && createdAt >= 0 && createdAt <= 9_007_199_254_740_991
       && [
         "unhandled-js", "native-crash", "send-failed", "sync-failed", "sign-in-failed",
         "operation-failed", "backend-failed",
@@ -92,13 +98,21 @@ struct ReportingDocument: Codable {
   var queue: [ReportingReport] = []
   var deletion = "idle"
 
-  static func decode(_ text: String?, now: Date) -> Self {
-    guard let text, text.utf8.count <= 1_048_576,
+  static func decode(_ text: String?, now: Date) throws -> Self {
+    guard let text else { return Self() }
+    guard text.utf8.count <= 1_048_576,
       var document = try? JSONDecoder().decode(Self.self, from: Data(text.utf8)),
       document.version == 1,
-      ["idle", "pending", "offline", "failed", "complete", "missing"].contains(document.deletion)
-    else { return Self() }
-    document.queue = Array(document.queue.filter { $0.valid(now: now) }.suffix(100))
+      ["idle", "pending", "offline", "failed", "complete", "missing"].contains(document.deletion),
+      document.queue.count <= 100, document.queue.allSatisfy(\.valid)
+    else { throw ReportingError.unavailable }
+    // Codable ignores unknown keys and optional nulls; the shared document schema rejects both.
+    guard let original = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? NSDictionary,
+      let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document))
+        as? NSDictionary,
+      original.isEqual(encoded)
+    else { throw ReportingError.unavailable }
+    document.queue = document.queue.filter { $0.valid(now: now) }
     return document
   }
 

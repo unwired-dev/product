@@ -47,9 +47,12 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
-  it.each([true, false])(
-    'admits a startup error only with a previously enabled snapshot: %s',
-    async (enabled) => {
+  it.each([
+    { enabled: true, captures: 1 },
+    { enabled: false, captures: 0 },
+  ])(
+    'admits a startup error only with a previously enabled snapshot: $enabled',
+    async ({ enabled, captures }) => {
       expect.hasAssertions();
       const host = fixture({ enabled });
       const store = createErrorReporting(host.native, host.state());
@@ -58,13 +61,13 @@ describe('installation error reporting at the protected native boundary', () => 
         await store.load();
         expect(
           host.requests.filter((request) => request.operation === 'capture'),
-        ).toHaveLength(enabled ? 1 : 0);
+        ).toHaveLength(captures);
         await store.setEnabled(false);
         store.capture(new TypeError('Invalid time value'));
         await store.refresh();
         expect(
           host.requests.filter((request) => request.operation === 'capture'),
-        ).toHaveLength(enabled ? 1 : 0);
+        ).toHaveLength(captures);
       } finally {
         store.dispose();
       }
@@ -74,20 +77,24 @@ describe('installation error reporting at the protected native boundary', () => 
   it.each([
     {
       action: 'disable',
+      withdraw: (store: ReturnType<typeof createErrorReporting>) =>
+        store.setEnabled(false),
       snapshot: { kind: 'saving', enabled: false, deletion: 'idle' },
     },
-    { action: 'delete', snapshot: { kind: 'deleting', phase: 'pending' } },
+    {
+      action: 'delete',
+      withdraw: (store: ReturnType<typeof createErrorReporting>) =>
+        store.deleteReports(),
+      snapshot: { kind: 'deleting', phase: 'pending' },
+    },
   ])(
     'withdraws seeded startup consent before loading through $action',
-    async ({ action, snapshot }) => {
+    async ({ withdraw, snapshot }) => {
       expect.hasAssertions();
       const host = fixture({ enabled: true });
       const store = createErrorReporting(host.native, host.state());
       try {
-        const withdrawal =
-          action === 'disable'
-            ? store.setEnabled(false)
-            : store.deleteReports();
+        const withdrawal = withdraw(store);
         expect(store.getSnapshot()).toStrictEqual(snapshot);
         store.capture(new TypeError('Invalid time value'));
         await withdrawal;

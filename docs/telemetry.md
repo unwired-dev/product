@@ -42,6 +42,11 @@ starts retries. No raw errors are buffered while consent is unknown. Failures
 inside the minimal bootstrap's own dependencies remain outside its protection;
 release startup behavior still requires platform qualification.
 
+Native reads also validate the saved nested reporting document before starting
+collection. Invalid JSON, unsupported versions and malformed stored data block
+collection instead of being replaced with a fresh idle document. The installation
+identity and deletion credential remain unchanged.
+
 Original exception types, messages, stacks and cause chains may be reported where
 safe, together with a bounded recent history of navigation, operation steps,
 retries, timings and safe status codes. Breadcrumbs are attached to failures;
@@ -243,7 +248,10 @@ server and invalid-response failures show the retryable failed state. No console
 autocapture, session replay or independent breadcrumb upload is enabled. Capture delivery honors the receiver's retry delay, bounded to 24 hours, with a
 30-second fallback for a missing, zero or invalid delay. Refreshes still prune and save
 locally while enable and capture requests wait. Consent changes clear the old
-deadline; withdrawal and report deletion never wait for capture backoff. Queues
+deadline; withdrawal and report deletion never wait for capture backoff. Transport
+failures from enable or capture also impose the 30-second fallback. A stale failure
+cannot impose a delay after consent changes, and an accepted capture clears the
+delivery deadline. Queues
 are bounded and reports expire after 24 hours. Loss of diagnostics is acceptable;
 reporting failure must not change a mail operation's result.
 

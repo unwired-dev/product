@@ -138,6 +138,176 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
       session: session ?? URLSession(configuration: configuration), now: { date })
   }
 
+  @Test(
+    arguments: [
+      "malformed-json", "version", "shape", "unknown-field", "optional-null", "report-id",
+      "report-shape", "pending-queue", "pending-phase", "queue-limit", "oversized",
+    ], [false, true])
+  func malformedPersistedDocumentsStayUnavailableAcrossReadAndRelaunch(
+    _ corruption: String, _ wasEnabled: Bool
+  ) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let collector = ReportingTestCollector()
+    let store = store(memory, directory: directory, collector: collector)
+    let initial: [String: Any]
+    if wasEnabled {
+      initial = try store.consent(enabled: true, renewIdentity: false)
+    } else {
+      initial = store.read()
+    }
+    let generation = try #require(initial["generation"] as? Int)
+    if wasEnabled { collector.deliver(report(), from: 0) }
+    let reportObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report()))
+    var document: [String: Any] = ["version": 1, "queue": [reportObject], "deletion": "idle"]
+    switch corruption {
+    case "version": document["version"] = 2
+    case "shape": document.removeValue(forKey: "deletion")
+    case "unknown-field": document["unknown"] = true
+    case "optional-null":
+      var invalid = try #require(reportObject as? [String: Any])
+      invalid["message"] = NSNull()
+      document["queue"] = [invalid]
+    case "report-id":
+      var invalid = try #require(reportObject as? [String: Any])
+      invalid["id"] = "00000000-0000-0000-0000-000000000000"
+      document["queue"] = [invalid]
+    case "report-shape":
+      var invalid = try #require(reportObject as? [String: Any])
+      invalid["frames"] = [["kind": "javascript", "line": 1, "column": 1, "unknown": true]]
+      document["queue"] = [invalid]
+    case "pending-queue":
+      document["deletion"] = "pending"
+      document["queue"] = [["id": "retained-invalid-report"]]
+    case "pending-phase": document["deletion"] = "unknown"
+    case "queue-limit": document["queue"] = Array(repeating: reportObject, count: 101)
+    default: break
+    }
+    let malformed: String
+    if corruption == "malformed-json" {
+      malformed = "{"
+    } else if corruption == "oversized" {
+      malformed = String(repeating: " ", count: 1_048_577)
+    } else {
+      malformed = String(decoding: try JSONSerialization.data(withJSONObject: document), as: UTF8.self)
+    }
+    let before = try #require(memory.data)
+    var state = try #require(try JSONSerialization.jsonObject(with: before) as? [String: Any])
+    state["document"] = malformed
+    memory.data = try JSONSerialization.data(withJSONObject: state)
+    let retained = memory.data
+    try FileManager.default.createDirectory(at: store.cache, withIntermediateDirectories: true)
+    try Data("synthetic raw report".utf8).write(to: store.cache.appendingPathComponent("raw.json"))
+
+    for _ in 0..<2 {
+      let unavailable = store.read()
+      #expect(unavailable["enabled"] as? Bool == false)
+      #expect(unavailable["available"] as? Bool == false)
+      #expect(unavailable["nativeAvailable"] as? Bool == false)
+      #expect(!collector.active)
+      #expect(!FileManager.default.fileExists(atPath: store.cache.path))
+    }
+    if wasEnabled { collector.deliver(report(), from: 0) }
+    #expect(collector.callbacks.count == (wasEnabled ? 1 : 0))
+    let reopenedCollector = ReportingTestCollector()
+    let reopened = self.store(memory, directory: directory, collector: reopenedCollector)
+    try FileManager.default.createDirectory(at: reopened.cache, withIntermediateDirectories: true)
+    try Data("synthetic startup report".utf8).write(to: reopened.cache.appendingPathComponent("raw.json"))
+    #expect(reopened.read()["available"] as? Bool == false)
+    #expect(reopened.read()["enabled"] as? Bool == false)
+    #expect(reopenedCollector.callbacks.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: reopened.cache.path))
+    #expect(throws: ReportingError.unavailable) { try reopened.takeNative() }
+    #expect(throws: ReportingError.unavailable) {
+      try reopened.save(generation: generation, document: ReportingDocument().encoded())
+    }
+    #expect(throws: ReportingError.unavailable) {
+      try reopened.consent(enabled: true, renewIdentity: true, expectedGeneration: generation)
+    }
+    #expect(throws: ReportingError.unavailable) {
+      try reopened.consent(enabled: false, renewIdentity: false)
+    }
+    ReportingHTTPProtocol.recording.reset()
+    for operation in ["enable", "capture", "revoke", "delete", "status"] {
+      await #expect(throws: ReportingError.unavailable) {
+        try await reopened.request(operation: operation, body: "{}", generation: generation)
+      }
+    }
+    #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
+    #expect(memory.data == retained)
+  }
+
+  @Test(arguments: ["absent", "idle", "queued", "numeric", "expired"])
+  func validPersistedDocumentsStillStartCollectionOnRead(_ kind: String) throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let memory = ReportingMemory()
+    let seed = store(memory, directory: directory, collector: ReportingTestCollector())
+    _ = try seed.consent(enabled: true, renewIdentity: false)
+    let before = try #require(memory.data)
+    var state = try #require(try JSONSerialization.jsonObject(with: before) as? [String: Any])
+    var document = ReportingDocument()
+    if kind == "expired" {
+      document.queue = [report(createdAt: date.timeIntervalSince1970 * 1000 - 86_400_001)]
+    } else if kind == "queued" {
+      document.queue = [
+        ReportingReport(
+          id: UUID().uuidString, createdAt: date.timeIntervalSince1970 * 1000,
+          code: "native-crash", name: "NativeCrash", message: "Synthetic native crash",
+          frames: [
+            ReportingFrame(kind: "javascript", line: 1, column: 0),
+            ReportingFrame(
+              kind: "native", address: "0x1001", imageUuid: UUID().uuidString, imageAddress: "0x1000"),
+          ],
+          causes: [
+            ReportingCause(name: "TypeError", message: "Invalid array length"),
+            ReportingCause(name: "Error"),
+          ],
+          breadcrumbs: [
+            ReportingBreadcrumb(operation: "sync", stage: "failed", elapsedMs: 10, status: 503),
+            ReportingBreadcrumb(operation: "app", stage: "open"),
+          ])
+      ]
+    }
+    if kind == "absent" {
+      state["document"] = NSNull()
+    } else if kind == "numeric" {
+      state["document"] = """
+        {
+          "version": 1e0,
+          "queue": [{
+            "id": "12345678-1234-4234-8234-123456789abc",
+            "createdAt": 1.8e12,
+            "code": "native-crash",
+            "name": "NativeCrash",
+            "frames": [{"kind": "javascript", "line": 1e0, "column": 0.0}],
+            "causes": [],
+            "breadcrumbs": [{
+              "operation": "sync", "stage": "failed", "elapsedMs": 1e1, "status": 5.03e2
+            }]
+          }],
+          "deletion": "idle"
+        }
+        """
+    } else {
+      state["document"] = try document.encoded()
+    }
+    memory.data = try JSONSerialization.data(withJSONObject: state)
+    let retained = memory.data
+    let collector = ReportingTestCollector()
+    let reopened = store(memory, directory: directory, collector: collector)
+    let enabled = reopened.read()
+    #expect(enabled["available"] as? Bool == true)
+    #expect(enabled["enabled"] as? Bool == true)
+    #expect(collector.active && collector.callbacks.count == 1)
+    let decoded = try ReportingDocument.decode(enabled["document"] as? String, now: date)
+    #expect(decoded.queue.count == (["queued", "numeric"].contains(kind) ? 1 : 0))
+    #expect(reopened.read()["enabled"] as? Bool == true)
+    #expect(collector.callbacks.count == 1)
+    #expect(memory.data == retained)
+  }
+
   @Test func freshOffCASWithdrawalAndDeletionCredentialSurviveRelaunch() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -162,7 +332,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     let off = store.read()
     let current = try #require(off["generation"] as? Int)
     #expect(try store.save(generation: current, document: pending) == false)
-    let document = ReportingDocument.decode(off["document"] as? String, now: date)
+    let document = try ReportingDocument.decode(off["document"] as? String, now: date)
     #expect(document.queue.isEmpty && document.deletion == "pending")
     let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
     #expect(reopened.read()["enabled"] as? Bool == false)
@@ -220,7 +390,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(off["enabled"] as? Bool == false)
     #expect((off["generation"] as? Int ?? 0) > generation)
     #expect(reopenedCollector.callbacks.isEmpty)
-    let document = ReportingDocument.decode(off["document"] as? String, now: date)
+    let document = try ReportingDocument.decode(off["document"] as? String, now: date)
     #expect(document.deletion == "pending" && document.queue.isEmpty)
     collector.deliver(report(), from: 0)
     #expect((try reopened.takeNative()["reports"] as? [Any])?.isEmpty == true)
@@ -257,7 +427,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(off["enabled"] as? Bool == false)
     #expect(collector.callbacks.isEmpty)
     let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
-    let document = ReportingDocument.decode(reopened.read()["document"] as? String, now: date)
+    let document = try ReportingDocument.decode(reopened.read()["document"] as? String, now: date)
     #expect(document.deletion == "pending" && document.queue.isEmpty)
   }
 
@@ -289,7 +459,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: store.cache.path)
     let reopened = self.store(memory, directory: directory, collector: ReportingTestCollector())
     let off = reopened.read()
-    let document = ReportingDocument.decode(off["document"] as? String, now: date)
+    let document = try ReportingDocument.decode(off["document"] as? String, now: date)
     #expect(off["enabled"] as? Bool == false)
     #expect(document.deletion == "pending" && document.queue.isEmpty)
     #expect((try reopened.takeNative()["reports"] as? [Any])?.isEmpty == true)
@@ -332,7 +502,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     #expect(before["installationId"] as? String != after["installationId"] as? String)
     #expect(before["credential"] as? String != after["credential"] as? String)
     #expect((after["generation"] as? Int ?? 0) > generation)
-    #expect(ReportingDocument.decode(after["document"] as? String, now: date).deletion == "idle")
+    #expect(try ReportingDocument.decode(after["document"] as? String, now: date).deletion == "idle")
   }
 
   @Test func lateNativeCallbacksCannotSurviveWithdrawalOrReenable() throws {

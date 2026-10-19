@@ -104,7 +104,15 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     let markerGeneration = (try? String(contentsOf: marker, encoding: .utf8)).flatMap(Int.init)
     let pendingWithdrawal =
       hasMarker && (markerGeneration == nil || markerGeneration! >= value.generation)
-    var document = ReportingDocument.decode(value.document, now: now())
+    var document: ReportingDocument
+    do {
+      document = try ReportingDocument.decode(value.document, now: now())
+    } catch {
+      unreadable = true
+      stopCollection()
+      try? purgeCache()
+      throw ReportingError.unavailable
+    }
     let pendingDeletion = ["pending", "offline", "failed"].contains(document.deletion)
     if pendingDeletion { blockCollection() }
     if (pendingWithdrawal || !available || blocked) && value.enabled {
@@ -217,7 +225,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     if enabled, let expectedGeneration, expectedGeneration != value.generation {
       throw ReportingError.stale
     }
-    var document = ReportingDocument.decode(value.document, now: now())
+    var document = try ReportingDocument.decode(value.document, now: now())
     if enabled && ["pending", "offline", "failed"].contains(document.deletion) {
       throw ReportingError.disabled
     }
@@ -261,7 +269,7 @@ private final class ReportingHTTPDelegate: NSObject, URLSessionTaskDelegate, @un
     let pendingDeletion = ["pending", "offline", "failed"].contains(decoded.deletion)
     if pendingDeletion {
       if !["pending", "offline", "failed"].contains(
-        ReportingDocument.decode(value.document, now: now()).deletion)
+        try ReportingDocument.decode(value.document, now: now()).deletion)
       {
         try advance(&value)
       }

@@ -3641,7 +3641,7 @@ describe('gmail push relay', () => {
   });
 
   it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
-    expect.assertions(8);
+    expect.assertions(7);
 
     vi.useFakeTimers();
     apnsMock.connections.length = 0;
@@ -3811,11 +3811,9 @@ describe('gmail push relay', () => {
       const timedOutWakeup = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').unique(),
       );
-      expect(
-        await t.run((ctx) =>
-          ctx.db.query('errorReportingServiceHealth').unique(),
-        ),
-      ).toStrictEqual(healthBudget);
+      const retainedHealthBudget = await t.run((ctx) =>
+        ctx.db.query('errorReportingServiceHealth').unique(),
+      );
 
       const previousScheduledAt = timedOutWakeup!.scheduledAt;
       await t.run(async (ctx) => {
@@ -3839,6 +3837,7 @@ describe('gmail push relay', () => {
         scheduledAtChanged:
           refreshedWakeup?.scheduledAt !== previousScheduledAt,
         status: newerNotification.status,
+        retainedHealthBudget,
         timedOutAttemptCount: timedOutWakeup?.attemptCount,
         timedOutRetryWasRescheduled:
           previousScheduledAt > retainedWakeups[0]!.scheduledAt,
@@ -3846,6 +3845,7 @@ describe('gmail push relay', () => {
         attemptCount: 0,
         scheduledAtChanged: false,
         status: 202,
+        retainedHealthBudget: healthBudget,
         timedOutAttemptCount: 2,
         timedOutRetryWasRescheduled: true,
       });

@@ -24,7 +24,7 @@ export const native = () =>
 
 const reportingNative = () =>
   TurboModuleRegistry.getEnforcing<ReportingModule>('UnwiredErrorReporting');
-let initialReportingState: unknown;
+let initialReportingState: unknown = undefined;
 try {
   initialReportingState = reportingNative().getConstants().initialState;
 } catch {

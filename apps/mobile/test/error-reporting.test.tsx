@@ -207,55 +207,63 @@ describe('error reporting controls', () => {
 });
 
 describe('installation privacy access', () => {
-  it('uses Back to return from signed-out privacy to the retained Welcome or Sign In page', async () => {
-    expect.hasAssertions();
-    const synthetic = await createRegistrationScenario('registration-declined');
-    const registration = createRegistration(synthetic.vault);
-    await registration.restoreOnce();
-    const { store } = reporting({
-      kind: 'ready',
-      enabled: false,
-      deletion: 'idle',
-    });
-    await render(
-      <RegistrationGate
-        store={registration}
-        errorReporting={store}
-        microsoft={false}
-        preview={false}>
-        {null}
-      </RegistrationGate>,
-    );
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Privacy & Data' }),
-    );
-    await expect(
-      screen.findByText(/Available without signing in/u),
-    ).resolves.toBeVisible();
-    expect(screen.getByTestId('reporting-privacy-screen')).toBeVisible();
-    expect(
-      screen
-        .getAllByRole('header', {
-          name: /^(?:Privacy & Data|Error Reporting)$/u,
-        })
-        .map((header) => header.props.children),
-    ).toStrictEqual(['Privacy & Data', 'Error Reporting']);
-    expect(
-      screen.queryByRole('button', { name: 'Sign in with Google' }),
-    ).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
-    await expect(
-      screen.findByRole('button', { name: 'Continue' }),
-    ).resolves.toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Privacy & Data' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
-    await expect(
-      screen.findByRole('button', { name: 'Sign in with Google' }),
-    ).resolves.toBeVisible();
-  });
+  it.each([
+    {
+      destination: 'Welcome',
+      enter: async () => undefined,
+      back: 'Continue',
+    },
+    {
+      destination: 'Sign In',
+      enter: () =>
+        fireEvent.press(screen.getByRole('button', { name: 'Continue' })),
+      back: 'Sign in with Google',
+    },
+  ])(
+    'uses Back to return from signed-out privacy to the retained $destination page',
+    async ({ enter, back }) => {
+      expect.hasAssertions();
+      const synthetic = await createRegistrationScenario('registration-declined');
+      const registration = createRegistration(synthetic.vault);
+      await registration.restoreOnce();
+      const { store } = reporting({
+        kind: 'ready',
+        enabled: false,
+        deletion: 'idle',
+      });
+      await render(
+        <RegistrationGate
+          store={registration}
+          errorReporting={store}
+          microsoft={false}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      await enter();
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Privacy & Data' }),
+      );
+      await expect(
+        screen.findByText(/Available without signing in/u),
+      ).resolves.toBeVisible();
+      expect(screen.getByTestId('reporting-privacy-screen')).toBeVisible();
+      expect(
+        screen
+          .getAllByRole('header', {
+            name: /^(?:Privacy & Data|Error Reporting)$/u,
+          })
+          .map((header) => header.props.children),
+      ).toStrictEqual(['Privacy & Data', 'Error Reporting']);
+      expect(
+        screen.queryByRole('button', { name: 'Sign in with Google' }),
+      ).toBeNull();
+      await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+      await expect(
+        screen.findByRole('button', { name: back }),
+      ).resolves.toBeVisible();
+    },
+  );
 });
 
 function OpenPrivacy() {

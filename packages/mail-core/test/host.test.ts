@@ -201,7 +201,7 @@ describe('the host assembly', () => {
     const reporting = reportingFixture();
     const { host, native } = syntheticHost(reporting.native);
     const removalConsent: boolean[] = [];
-    const recordRemoval = native.recordRemoval;
+    const { recordRemoval } = native;
     vi.spyOn(native, 'recordRemoval').mockImplementation(async (operation) => {
       removalConsent.push(reporting.state().enabled);
       return recordRemoval(operation);

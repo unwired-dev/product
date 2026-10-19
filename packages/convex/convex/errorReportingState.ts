@@ -297,13 +297,11 @@ export const scheduleServiceHealth = internalMutation({
     if (previous !== null && now - previous.scheduledAt < 3_600_000) {
       return null;
     }
-    if (previous === null) {
-      await ctx.db.insert('errorReportingServiceHealth', { scheduledAt: now });
-    } else {
-      await ctx.db.patch('errorReportingServiceHealth', previous._id, {
-        scheduledAt: now,
-      });
-    }
+    await (previous === null
+      ? ctx.db.insert('errorReportingServiceHealth', { scheduledAt: now })
+      : ctx.db.patch('errorReportingServiceHealth', previous._id, {
+          scheduledAt: now,
+        }));
     await ctx.scheduler.runAfter(
       0,
       internal.errorReporting.captureServiceHealth,

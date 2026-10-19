@@ -211,8 +211,10 @@ export function createErrorReporting(
   let snapshot: ErrorReportingSnapshot = { kind: 'loading' };
   const initial = Schema.decodeUnknownOption(BridgeState, strict)(initialState);
   let state = Option.getOrUndefined(initial);
-  const initialDocument = Option.flatMap(initial, (value) =>
-    value.document === null ? Option.none() : decodeDocument(value.document),
+  const initialDocument = initial.pipe(
+    Option.flatMap((value) =>
+      value.document === null ? Option.none() : decodeDocument(value.document),
+    ),
   );
   let document: {
     version: 1;
@@ -353,7 +355,7 @@ export function createErrorReporting(
     while (document.queue.length > 0) {
       const { reports, body } = yield* captureBatch(metadata);
       const reply = yield* request('capture', body).pipe(
-        Effect.catchTag('SchemaError', () =>
+        Effect.catchTag(['ReportingFailure', 'SchemaError'], () =>
           Effect.succeed({ status: 'retry' as const, retryAfterMs: 30_000 }),
         ),
       );
@@ -409,7 +411,16 @@ export function createErrorReporting(
     if ((yield* Clock.currentTimeMillis) < retryAt) {
       return;
     }
-    const enabled = yield* request('enable');
+    const enabled = yield* request('enable').pipe(
+      Effect.tapErrorTag('ReportingFailure', () =>
+        Effect.gen(function* () {
+          const failedAt = yield* Clock.currentTimeMillis;
+          if (stillCollecting(expected)) {
+            retryAt = failedAt + 30_000;
+          }
+        }),
+      ),
+    );
     if (enabled.status !== 'enabled' || !stillCollecting(expected)) {
       return;
     }
@@ -508,12 +519,12 @@ export function createErrorReporting(
     expected,
     enabled,
     renew,
-  }: {
+  }: Readonly<{
     next: Option.Option<typeof BridgeState.Type>;
     expected: number;
     enabled: boolean;
     renew: boolean;
-  }) => {
+  }>) => {
     if (!isCurrent(expected)) {
       return;
     }
