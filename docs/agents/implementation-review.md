@@ -89,13 +89,19 @@ not itself restrict filesystem or Git-history access.
 
 ## Simplicity skills
 
-The implementer must load and apply these installed skills before implementation.
-The simplicity reviewer must independently do so before its review. Resolve them
-through the session catalogue:
+The implementer must load and apply these repository-pinned skills before
+implementation. The simplicity reviewer must independently do so before its
+review. Use a catalogue entry when it resolves to the bundled copy; otherwise
+read the linked `SKILL.md` files directly. No global installation or catalogue
+refresh is required:
 
-- `ponytail`: choose the smallest complete solution.
-- `principle-laziness-protocol`: remove unnecessary layers and indirection.
-- `principle-subtract-before-you-add`: remove unneeded complexity before adding code.
+- [`ponytail`](../../.agents/skills/ponytail/SKILL.md): choose the smallest complete solution.
+- [`principle-laziness-protocol`](../../.agents/skills/principle-laziness-protocol/SKILL.md): remove unnecessary layers and indirection.
+- [`principle-subtract-before-you-add`](../../.agents/skills/principle-subtract-before-you-add/SKILL.md): remove unneeded complexity before adding code.
+
+The copies come from `rajzik/agent-config` at the revision in
+[`skills-lock.json`](../../skills-lock.json). Preserve the pins and bundled
+licenses when updating them.
 
 For framework or library research, also load `context7-mcp` when available and
 use its documentation tools. If unavailable, consult official documentation and
