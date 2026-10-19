@@ -520,7 +520,7 @@ export function createErrorReporting(
     enabled,
     renew,
   }: Readonly<{
-    next: Option.Option<typeof BridgeState.Type>;
+    next: typeof BridgeState.Type | undefined;
     expected: number;
     enabled: boolean;
     renew: boolean;
@@ -529,11 +529,11 @@ export function createErrorReporting(
       return;
     }
     consentPending = false;
-    if (Option.isNone(next)) {
+    if (next === undefined) {
       publish();
       return;
     }
-    state = next.value;
+    state = next;
     collecting = enabled && consentEnabled(state);
     if (renew) {
       document.deletion = 'idle';
@@ -574,7 +574,9 @@ export function createErrorReporting(
     const consent = call(() =>
       native.errorReportingConsent(enabled, renew, generation),
     ).pipe(Effect.flatMap(decodeState));
-    const next = await runLogged(consent.pipe(Effect.option));
+    const next = Option.getOrUndefined(
+      await runLogged(consent.pipe(Effect.option)),
+    );
     await applyConsent({ next, expected, enabled, renew });
   };
   const deleteReports = async () => {

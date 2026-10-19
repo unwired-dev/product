@@ -13,62 +13,57 @@ jest.mock('@private-email/mail-core/registration-mode', () => ({
 }));
 /* oxlint-enable vitest/prefer-import-in-mock */
 
-function loadEntrypoint() {
+const loadEntrypoint = () => {
   try {
     jest.requireActual('../index.js');
     return { kind: 'loaded' };
   } catch (error) {
     return { kind: 'failed', error };
   }
-}
+};
 
-function restoreErrorUtils(
+const restoreErrorUtils = (
   descriptor: Readonly<PropertyDescriptor> | undefined,
-) {
+) => {
   if (descriptor === undefined) {
     Reflect.deleteProperty(globalThis, 'ErrorUtils');
   } else {
     Object.defineProperty(globalThis, 'ErrorUtils', descriptor);
   }
-}
+};
 
+/* oxlint-disable vitest/prefer-called-once -- Jest 29 has toHaveBeenCalledTimes but no once-only matcher. */
 /* oxlint-disable vitest/max-expects -- Each entrypoint journey preserves forwarding, direct handling and cleanup for the same exception. */
 // Saved handlers model both installed RN paths; native handling is mocked.
 describe.each([
   {
     name: 'a thrown string after normal startup',
     error: 'synthetic thrown string',
-    startupFails: false,
+    registration: () => ({ start: jest.fn() }),
     startupResult: { kind: 'loaded' },
   },
   {
     name: 'a TypeError after normal startup',
     error: new TypeError('Invalid time value'),
-    startupFails: false,
+    registration: () => ({ start: jest.fn() }),
     startupResult: { kind: 'loaded' },
   },
   {
     name: 'a TypeError after failed startup',
     error: new TypeError('Invalid time value'),
-    startupFails: true,
+    registration: () => {
+      throw new Error('synthetic startup failure');
+    },
     startupResult: {
       kind: 'failed',
       error: new Error('synthetic startup failure'),
     },
   },
-])('$name', ({ error, startupFails, startupResult }) => {
-  beforeEach(() => {
-    // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest 29 module mocks require string names.
-    jest.doMock('../src/registration.ts', () => {
-      if (startupFails) {
-        throw new Error('synthetic startup failure');
-      }
-      return { start: jest.fn() };
-    });
-  });
-
+])('$name', ({ error, registration, startupResult }) => {
   it('captures global and explicit exceptions with forwarding and cleanup', () => {
     expect.hasAssertions();
+    // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest 29 module mocks require string names.
+    jest.doMock('../src/registration.ts', registration);
     jest.isolateModules(() => {
       const manager = jest.requireActual<{
         default: { handleException: (value: unknown, fatal: boolean) => void };
@@ -100,19 +95,19 @@ describe.each([
         });
         expect(loadEntrypoint()).toStrictEqual(startupResult);
         globalHandler(error, true);
-        expect(errorReporting.capture.mock.calls).toHaveLength(1);
+        expect(errorReporting.capture).toHaveBeenCalledTimes(1);
         expect(forwarding).toHaveBeenCalledWith(error, true);
         expect(previous).toHaveBeenCalledWith(error, true);
         errorReporting.capture.mockClear();
         previous.mockClear();
         manager.handleException(error, false);
-        expect(errorReporting.capture.mock.calls).toHaveLength(1);
+        expect(errorReporting.capture).toHaveBeenCalledTimes(1);
         expect(previous).toHaveBeenCalledWith(error, false);
         errorReporting.capture.mockClear();
         previous.mockClear();
         forwarding.mockImplementation(previous);
         globalHandler(error, false);
-        expect(errorReporting.capture.mock.calls).toHaveLength(1);
+        expect(errorReporting.capture).toHaveBeenCalledTimes(1);
         expect(previous).toHaveBeenCalledWith(error, false);
         previous.mockImplementationOnce(() => {
           throw new Error('synthetic handler failure');
@@ -122,7 +117,7 @@ describe.each([
         );
         errorReporting.capture.mockClear();
         manager.handleException(error, false);
-        expect(errorReporting.capture.mock.calls).toHaveLength(1);
+        expect(errorReporting.capture).toHaveBeenCalledTimes(1);
       } finally {
         manager.handleException = original;
         restoreErrorUtils(descriptor);
@@ -130,3 +125,4 @@ describe.each([
     });
   });
 });
+/* oxlint-enable vitest/prefer-called-once */
