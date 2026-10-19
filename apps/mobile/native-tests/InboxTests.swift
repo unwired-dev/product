@@ -456,11 +456,14 @@ final class InboxTests: XCTestCase {
       let search = app.searchFields["Search senders and subjects"]
       search.tap()
       search.typeText("Rowan")
-      waitUntil { app.buttons["Close Search"].isHittable && rowan.isHittable }
+      let searchResult = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Unread. Rowan Hale. Garden plans for spring.")
+      ).firstMatch
+      waitUntil { app.buttons["Close Search"].isHittable && searchResult.isHittable }
       swipeBack(app)
       waitUntil { app.buttons["All inboxes"].isHittable }
       app.buttons["All inboxes"].tap()
-      waitUntil { search.value as? String == "Rowan" && rowan.isHittable }
+      waitUntil { search.value as? String == "Rowan" && searchResult.isHittable }
       XCTAssertTrue(app.buttons["Close Search"].isHittable)
       app.buttons["Close Search"].tap()
     } else {
