@@ -36,15 +36,12 @@ for every implementation, including later implementation fixes.
 - After implementing and running the relevant checks, spawn a separate review
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
-  Use the workflow's Open Code Review delegation step and resolved repository
-  rules for architecture checking inside that review agent. After its final
-  report, spawn a second review agent with the same arguments to run the global
-  `thermo-nuclear-code-quality-review` skill. When the task changes anything
-  user-visible, then spawn a third review agent with the same arguments for the
-  workflow's [design review](docs/agents/implementation-review.md#design-review).
+  Start with the workflow's [simplicity and reuse review](docs/agents/implementation-review.md#simplicity-and-reuse-review),
+  then spawn separate agents with the same arguments for Open Code Review,
+  thermo-nuclear code quality and, for user-visible changes, design review.
   Pause writes until every required final report; later implementer edits need
   another review. OCR follow-ups use the workflow's validated incremental
-  checkpoint; thermo-nuclear and applicable design reviews keep full task scope.
+  checkpoint; simplicity, thermo-nuclear and applicable design reviews keep full task scope.
 - Follow the workflow's [four-round safeguard](docs/agents/implementation-review.md#four-round-safeguard)
   for local reviews and reviewer fix loops. When either allowance is exhausted,
   the implementer must rethink and revise the solution before reviews continue.

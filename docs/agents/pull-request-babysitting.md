@@ -38,7 +38,7 @@ findings, repair required CI, reply with a disposition, and resolve handled
 threads. Implementation edits made while babysitting require another pinned
 review by every required reviewer before they are pushed. OCR uses the
 [incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints);
-the thermo-nuclear and applicable design reviews retain the full task diff. Each
+the simplicity, thermo-nuclear and applicable design reviews retain the full task diff. Each
 pass ends once it has
 handled the feedback and gate state available now.
 
