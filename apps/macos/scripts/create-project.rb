@@ -32,6 +32,11 @@ microsoft_client_id = ENV.fetch('UNWIRED_MICROSOFT_CLIENT_ID', '').downcase
 raise 'Invalid Microsoft application client ID' unless microsoft_client_id.empty? || microsoft_client_id.match?(/\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/)
 info['UnwiredMicrosoftClientID'] = microsoft_client_id
 info['UnwiredConvexURL'] = ENV.fetch('UNWIRED_CONVEX_URL', '')
+info['UnwiredErrorReportingQualification'] = ENV['UNWIRED_ERROR_REPORTING_QUALIFICATION'] == '1'
+info['UnwiredNativeErrorReportingQualified'] = ENV['UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED'] == '1'
+reporting_channel = ENV.fetch('UNWIRED_ERROR_REPORTING_CHANNEL', info['UnwiredErrorReportingQualification'] ? 'qualification' : 'production')
+raise 'Invalid error reporting channel' unless %w[production testflight qualification].include?(reporting_channel)
+info['UnwiredErrorReportingChannel'] = reporting_channel
 # The Cloud Pub/Sub topic Gmail watches publish to; without one no push route is registered.
 info.delete('UnwiredGmailTopic')
 info['UnwiredGmailTopic'] = ENV['UNWIRED_GMAIL_PUBSUB_TOPIC'] unless ENV.fetch('UNWIRED_GMAIL_PUBSUB_TOPIC', '').empty?

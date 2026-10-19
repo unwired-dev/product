@@ -1,16 +1,51 @@
+import type {
+  ReportingBreadcrumb,
+  ReportingCode,
+} from '@private-email/contracts/errorReporting';
+
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
+import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
 import type { NativeGmailMailboxes } from './mailboxes.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
 
+import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
+import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
 import { createMailboxes } from './mailboxes.ts';
 import { createOutbox } from './outbox.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
+
+const decodeReportingResponse = Schema.decodeUnknownOption(
+  Schema.Struct({
+    status: Schema.Int.check(Schema.isBetween({ minimum: 100, maximum: 599 })),
+    body: Schema.optionalKey(Schema.String),
+  }),
+);
+const failedEnvelope = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ status: Schema.Literal('error') })),
+);
+
+function reportingResponse(result: unknown, code: ReportingCode) {
+  const reply = decodeReportingResponse(result);
+  if (Option.isNone(reply)) {
+    return { failed: false };
+  }
+  const { status, body } = reply.value;
+  const failed =
+    status >= 400 ||
+    (code === 'backend-failed' &&
+      body !== undefined &&
+      Option.isSome(failedEnvelope(body)));
+  return { status, failed };
+}
 
 // The native module both Apple hosts register as `UnwiredRegistration`.
 export interface NativeHostModule
@@ -28,15 +63,84 @@ export interface NativeHostModule
 
 // The host's mail-core stores over its native module, which each call looks up when it runs, so
 // constructing the host requires nothing native.
-export function createHost(native: () => NativeHostModule) {
+export function createHost(
+  native: () => NativeHostModule,
+  reportingNative?: () => NativeErrorReporting,
+  initialReportingState?: unknown,
+) {
+  const reportingBridge = () => {
+    if (reportingNative === undefined) {
+      throw new Error('Reporting unavailable');
+    }
+    return reportingNative();
+  };
+  const errorReporting = createErrorReporting(
+    {
+      errorReportingRead: () => reportingBridge().errorReportingRead(),
+      errorReportingConsent: (enabled, renew, generation) =>
+        reportingBridge().errorReportingConsent(enabled, renew, generation),
+      errorReportingSave: (generation, document) =>
+        reportingBridge().errorReportingSave(generation, document),
+      errorReportingRequest: (operation, body, generation) =>
+        reportingBridge().errorReportingRequest(operation, body, generation),
+      errorReportingTakeNative: () =>
+        reportingBridge().errorReportingTakeNative(),
+    },
+    initialReportingState,
+  );
+  const observe = async <A>(
+    operation: ReportingBreadcrumb['operation'],
+    code: ReportingCode,
+    request: () => Promise<A>,
+  ): Promise<A> => {
+    const started = Date.now();
+    const elapsedMs = () =>
+      Math.min(86_400_000, Math.max(0, Date.now() - started));
+    errorReporting.breadcrumb({ operation, stage: 'start' });
+    try {
+      const result = await request();
+      const { status, failed } = reportingResponse(result, code);
+      errorReporting.breadcrumb({
+        operation,
+        stage: failed ? 'failed' : 'complete',
+        elapsedMs: elapsedMs(),
+        ...(status === undefined ? {} : { status }),
+      });
+      if (failed) {
+        errorReporting.capture({ name: 'OperationError' }, code);
+      }
+      return result;
+    } catch (error) {
+      errorReporting.breadcrumb({
+        operation,
+        stage: 'failed',
+        elapsedMs: elapsedMs(),
+      });
+      // Legacy transports also use unavailable for proven-unsent offline requests.
+      if (rejectionCode(error) !== 'unavailable') {
+        errorReporting.capture(error, code);
+      }
+      throw error;
+    }
+  };
+  const withdrawReporting = async <A>(request: () => Promise<A>) => {
+    // The store closes its local gate synchronously; native removal also purges
+    // before account cleanup. An unavailable reporting server cannot delay sign-out.
+    void errorReporting.setEnabled(false);
+    return request();
+  };
   const registration = createRegistration({
     registration: () => native().registration(),
-    signInIdentity: (provider, hint) => native().signInIdentity(provider, hint),
+    signInIdentity: (provider, hint) =>
+      observe('sign-in', 'sign-in-failed', () =>
+        native().signInIdentity(provider, hint),
+      ),
     renewIdentity: () => native().renewIdentity(),
     appleCredentialState: () => native().appleCredentialState(),
     reuseSession: () => native().reuseSession(),
     saveIdentity: (replacing) => native().saveIdentity(replacing),
-    connect: (mode) => native().connect(mode),
+    connect: (mode) =>
+      observe('sign-in', 'sign-in-failed', () => native().connect(mode)),
     createKeyRing: () => native().createKeyRing(),
     recordInitialization: (initialized) =>
       native().recordInitialization(initialized),
@@ -84,11 +188,13 @@ export function createHost(native: () => NativeHostModule) {
       native().markMailbox(connection, access),
     recordMailboxSetup: (reason) => native().recordMailboxSetup(reason),
     saveSignInProviders: (providers) => native().saveSignInProviders(providers),
-    recordRemoval: (operation) => native().recordRemoval(operation),
+    recordRemoval: (operation) =>
+      withdrawReporting(() => native().recordRemoval(operation)),
     prepareSignOut: () => native().prepareSignOut(),
-    endSession: () => native().endSession(),
-    purge: (notice) => native().purge(notice),
-    call: (request) => native().call(request),
+    endSession: () => withdrawReporting(() => native().endSession()),
+    purge: (notice) => withdrawReporting(() => native().purge(notice)),
+    call: (request) =>
+      observe('account', 'backend-failed', () => native().call(request)),
     removeMailbox: (connection) => native().removeMailbox(connection),
     routeMailboxes: () => native().routeMailboxes(),
     stopMailboxWatches: () => native().stopMailboxWatches(),
@@ -98,6 +204,7 @@ export function createHost(native: () => NativeHostModule) {
 
   // Mailbox or Draft work found this device removed and native code purged it.
   const removed = () => {
+    void errorReporting.setEnabled(false);
     void registration.deviceRemoved();
   };
 
@@ -145,26 +252,41 @@ export function createHost(native: () => NativeHostModule) {
       gmailRequest: (path, query, { signal, ...mailbox }) =>
         cancellable(mailbox, signal, (request) => {
           const scope = { ...mailbox, request };
-          return native().gmailRequest(path, query, scope);
+          return observe('sync', 'sync-failed', () =>
+            native().gmailRequest(path, query, scope),
+          );
         }),
       graphRequest: (url, { signal, ...mailbox }) =>
         cancellable(mailbox, signal, (request) => {
           const scope = { ...mailbox, request };
-          return native().graphRequest(url, scope);
+          return observe('sync', 'sync-failed', () =>
+            native().graphRequest(url, scope),
+          );
         }),
       gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
       graphModify: (change, mailbox) => native().graphModify(change, mailbox),
-      gmailSend: (message, mailbox) => native().gmailSend(message, mailbox),
-      graphSend: (message, mailbox) => native().graphSend(message, mailbox),
+      gmailSend: (message, mailbox) =>
+        observe('send', 'send-failed', () =>
+          native().gmailSend(message, mailbox),
+        ),
+      graphSend: (message, mailbox) =>
+        observe('send', 'send-failed', () =>
+          native().graphSend(message, mailbox),
+        ),
       openMailbox: (connection) => native().openMailbox(connection),
       imapFolders: (mailbox) => native().imapFolders(mailbox),
       imapSynchronize: (mailbox, request) =>
-        native().imapSynchronize(mailbox, request),
+        observe('sync', 'sync-failed', () =>
+          native().imapSynchronize(mailbox, request),
+        ),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
       imapModify: (mailbox, change) => native().imapModify(mailbox, change),
       imapSearch: (mailbox, request) => native().imapSearch(mailbox, request),
       imapIdle: (mailbox, request) => native().imapIdle(mailbox, request),
-      imapSend: (message, mailbox) => native().imapSend(message, mailbox),
+      imapSend: (message, mailbox) =>
+        observe('send', 'send-failed', () =>
+          native().imapSend(message, mailbox),
+        ),
       imapFileSent: (mailbox, request) =>
         native().imapFileSent(mailbox, request),
       imapFindSent: (mailbox, request) =>
@@ -261,12 +383,14 @@ export function createHost(native: () => NativeHostModule) {
     wakes,
     freshness,
     remoteContent,
+    errorReporting,
     // Restores Registration and reads the saved remote content policies once per process, however
     // many windows or screens open.
     start: () => {
       started ??= Promise.all([
         registration.restoreOnce(),
         remoteContent.load(),
+        errorReporting.load(),
       ]);
       return started;
     },

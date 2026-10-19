@@ -99,6 +99,47 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  native-reporting:
+    name: Error reporting native contracts
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: xcode-27
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Verify real release artifact preparation without upload
+        run: node --test scripts/reporting-artifacts.test.mjs
+      - name: Verify native reporting persistence and transport contracts
+        run: |
+          mkdir -p artifacts/error-reporting
+          swift test --package-path native/private-inbox --filter ErrorReportingTests \
+            2>&1 | tee artifacts/error-reporting/swift-tests.log
+          grep -Eq 'Test run with [1-9][0-9]* tests .* passed' artifacts/error-reporting/swift-tests.log
+      - name: Upload native reporting test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: error-reporting-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/error-reporting/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
   native-build:
     name: Expo native build
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

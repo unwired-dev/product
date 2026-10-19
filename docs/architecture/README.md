@@ -30,6 +30,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/draft-editor-evaluation.md](../draft-editor-evaluation.md)                 | [draft-editor-evaluation.md](draft-editor-evaluation.md)                 |
 | [Benchmark guide](../../tools/system-category-benchmark/README.md)               | [system-category-benchmark.md](system-category-benchmark.md)             |
 | [docs/expo-client.md](../expo-client.md)                                         | [expo-client.md](expo-client.md)                                         |
+| [docs/telemetry.md](../telemetry.md)                                             | [telemetry.md](telemetry.md)                                             |
 | [docs/testflight.md](../testflight.md)                                           | [testflight.md](testflight.md)                                           |
 | [docs/outbox.md](../outbox.md)                                                   | [outbox.md](outbox.md)                                                   |
 | [docs/gmail-inbox.md](../gmail-inbox.md)                                         | [gmail-inbox.md](gmail-inbox.md)                                         |

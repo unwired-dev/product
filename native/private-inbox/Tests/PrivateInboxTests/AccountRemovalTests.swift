@@ -39,7 +39,116 @@ private func holdsNothing(_ keys: DeviceKeychain, account: String) throws -> Boo
     && keys.read("mail-assistance." + account) == nil
 }
 
+private final class ReportingRemovalOfflineProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+  }
+  override func stopLoading() {}
+}
+
 extension PrivateInboxTests {
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_KEYCHAIN_TESTS"] == "1", "Requires an entitled native Keychain host.")) @MainActor
+  func accountPurgePreservesIndependentReportingDeletionCredential() async throws {
+    let service = "dev.unwired.reporting-removal.tests.\(UUID().uuidString)"
+    let accountKeys = DeviceKeychain(service: service + ".account")
+    let reportingKeys = DeviceKeychain(service: service + ".reporting")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? accountKeys.remove("registration")
+      try? reportingKeys.remove("installation")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ReportingRemovalOfflineProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let reporting = ErrorReportingStore(persistence: ReportingPersistence(keys: reportingKeys),
+      directory: directory, base: URL(string: "https://synthetic.convex.cloud")!, available: true,
+      nativeQualified: false,
+      metadata: ReportingMetadata(appNamespace: "dev.unwired.mail", platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification"),
+      collector: SentryReportingCollector(cache: directory.appendingPathComponent("collector")),
+      session: session)
+    _ = try reporting.consent(enabled: true, renewIdentity: false)
+    let beforeData = try #require(try reportingKeys.read("installation"))
+    let before = try #require(try JSONSerialization.jsonObject(with: beforeData) as? [String: Any])
+    let store = SyntheticProductSyncBackend().store(keys: accountKeys, google: SyntheticGoogleRegistrationProvider())
+    store.stopErrorReporting = { try reporting.disableForAccountRemoval() }
+    _ = try await store.signIn()
+    try await store.purge(notice: "signed-out")
+    let afterData = try #require(try reportingKeys.read("installation"))
+    let after = try #require(try JSONSerialization.jsonObject(with: afterData) as? [String: Any])
+    #expect(after["enabled"] as? Bool == false)
+    #expect(after["installationId"] as? String == before["installationId"] as? String)
+    #expect(after["credential"] as? String == before["credential"] as? String)
+    #expect(try accountKeys.read("registration") == nil)
+  }
+
+  @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_KEYCHAIN_TESTS"] == "1", "Requires an entitled native Keychain host.")) @MainActor
+  func accountPurgeWaitsForDurableReportingWithdrawalAndRetries() async throws {
+    let keys = removalDevice()
+    let account = "account-synthetic-product-subject"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      removeItems(keys, accounts: [account])
+      try? keys.remove("product-sync-device-key." + account)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ReportingRemovalOfflineProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    var reportingData: Data?
+    var locked = false
+    let reporting = ErrorReportingStore(
+      persistence: ReportingPersistence(
+        read: {
+          if locked { throw PrivateInboxError.locked }
+          return reportingData
+        },
+        write: {
+          if locked { throw PrivateInboxError.locked }
+          reportingData = $0
+        }),
+      directory: directory, base: URL(string: "https://synthetic.convex.cloud")!, available: true,
+      nativeQualified: false,
+      metadata: ReportingMetadata(appNamespace: "dev.unwired.mail", platform: "macos", appVersion: "1", build: "1", osVersion: "27", channel: "qualification"),
+      collector: SentryReportingCollector(cache: directory.appendingPathComponent("collector")),
+      session: session)
+    _ = try reporting.consent(enabled: true, renewIdentity: false)
+    let before = reportingData
+    let store = SyntheticProductSyncBackend().store(keys: keys, google: SyntheticGoogleRegistrationProvider())
+    _ = try await store.signIn()
+    var saved = try store.saved()
+    saved.accountRemoval = AccountRemovalState(operation: .signOut, acknowledged: true)
+    try store.save(saved)
+    store.stopErrorReporting = { try reporting.disableForAccountRemoval() }
+    try Data("blocked directory".utf8).write(to: directory)
+    locked = true
+    #expect(throws: (any Error).self) { try store.recordRemoval(.signOut) }
+    #expect(throws: (any Error).self) { try store.endSession() }
+    await #expect(throws: (any Error).self) { try await store.purge(notice: "signed-out") }
+    #expect(try store.load()?.accountRemoval?.acknowledged == true)
+    #expect(store.session != nil)
+    #expect(try keys.read("product-sync." + account) != nil)
+    #expect(reportingData == before)
+    #expect(reporting.read()["enabled"] as? Bool == false)
+    try FileManager.default.removeItem(at: directory)
+    try await store.purge(notice: "signed-out")
+    #expect(try holdsNothing(keys, account: account))
+    #expect(store.session == nil)
+    #expect(reportingData == before)
+    locked = false
+    #expect(reporting.read()["enabled"] as? Bool == false)
+    let afterData = try #require(reportingData)
+    let after = try #require(try JSONSerialization.jsonObject(with: afterData) as? [String: Any])
+    let beforeData = try #require(before)
+    let original = try #require(try JSONSerialization.jsonObject(with: beforeData) as? [String: Any])
+    #expect(after["installationId"] as? String == original["installationId"] as? String)
+    #expect(after["credential"] as? String == original["credential"] as? String)
+  }
+
   @Test(arguments: ["signed-out", "deleted", "revoked"]) @MainActor
   func purgingKeepsNothingOfTheProductAccount(_ notice: String) async throws {
     let keys = removalDevice()

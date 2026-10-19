@@ -149,7 +149,13 @@ const styles = StyleSheet.create({
 });
 
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
-export function Welcome({ onContinue }: { readonly onContinue: () => void }) {
+export function Welcome({
+  onContinue,
+  onPrivacy,
+}: {
+  readonly onContinue: () => void;
+  readonly onPrivacy?: () => void;
+}) {
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
@@ -158,12 +164,32 @@ export function Welcome({ onContinue }: { readonly onContinue: () => void }) {
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
+  const privacy =
+    onPrivacy === undefined ? null : (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('settings.destinations.privacy')}
+        onPress={onPrivacy}
+        style={{
+          minHeight: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+        <Text style={[textStyles.subheadline, ink]}>
+          {t('settings.destinations.privacy')}
+        </Text>
+      </Pressable>
+    );
   const action = (
-    <OnboardingAction
-      fill="brand"
-      label={t('onboarding.welcome.continue')}
-      onPress={onContinue}
-    />
+    <>
+      {ipad ? null : privacy}
+      <OnboardingAction
+        fill="brand"
+        label={t('onboarding.welcome.continue')}
+        onPress={onContinue}
+      />
+      {ipad ? privacy : null}
+    </>
   );
   return (
     <View

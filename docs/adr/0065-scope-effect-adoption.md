@@ -26,3 +26,25 @@ dependencies until cutover retires it.
 
 [Effect conventions](../agents/effect.md) define the patterns. Shared lint policy
 enforces them. Each exemption names the issue that removes it.
+
+## Declarative wire schemas in contracts
+
+The #1049 review decision panel selected permitting `effect/Schema` in
+`packages/contracts` solely for declarative wire validators and inferred types.
+Keep those schemas in dedicated entry points, separate from Convex validators;
+contracts still owns no application logic, services, transports or Effect execution.
+The client and receiver share one payload inventory instead of duplicating it in
+mail-core and Convex. No product requirement or other dependency boundary changed.
+
+Consequences: runtime consumers of the schema entry point include `effect/Schema`;
+type-only imports from the reporting types entry point are erased and add no
+runtime dependency. Keep the reporting types inferred from the canonical schemas
+so callers cannot use a second, weaker payload inventory. Other contracts entry
+points retain their existing dependencies. The decision record is linked from
+[issue #1049](https://github.com/unwired-dev/product/issues/1049#issuecomment-6252212464).
+
+Privacy and security: the receiver decodes with these schemas and rejects excess
+fields before projecting reports for PostHog. Changes to admitted fields, literals
+or bounds require privacy review because they can widen the outgoing inventory.
+The native projection and receiver projection remain independent enforcement
+boundaries; schema admission does not authorize forwarding unchecked input.

@@ -28,6 +28,9 @@ import type { DataModel } from "./dataModel.js";
  * `convex.config.ts`.
  */
 type Env = {
+  readonly POSTHOG_PROJECT_KEY: string | undefined;
+  readonly POSTHOG_PROJECT_ID: string | undefined;
+  readonly POSTHOG_PERSON_API_KEY: string | undefined;
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly APNS_KEY_ID: string | undefined;

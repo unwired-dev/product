@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as errorReporting from "../errorReporting.js";
+import type * as errorReportingState from "../errorReportingState.js";
 import type * as apns from "../apns.js";
 import type * as crons from "../crons.js";
 import type * as draftDelivery from "../draftDelivery.js";
@@ -33,6 +35,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  errorReporting: typeof errorReporting;
+  errorReportingState: typeof errorReportingState;
   apns: typeof apns;
   crons: typeof crons;
   draftDelivery: typeof draftDelivery;

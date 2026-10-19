@@ -18,7 +18,7 @@ One root pnpm workspace and lockfile serve two native hosts that cannot share a 
   dependency graph while JavaScript checks can still pass.
 - An install-script permission added or broadened to `true` in `allowBuilds` without a stated need and review of the package, or a package added to `minimumReleaseAgeExclude` without an exact version and a reason for the exception. The first runs install scripts; the second bypasses the release-age delay that protects against a freshly compromised release.
 - A new production dependency for something a few lines or an installed dependency already provides, or a runtime dependency placed in `devDependencies` (or the reverse).
-- A workspace dependency that inverts the layering: `contracts` depending on anything but `convex` validators, `mail-core` depending on a host, a renderer or the backend, or a host depending on `convex` server code or the legacy harness.
+- A workspace dependency that inverts the layering: `contracts` depending on anything beyond `convex` validators and ADR 0065's declarative `effect/Schema` wire-schema exception, `mail-core` depending on a host, a renderer or the backend, or a host depending on `convex` server code or the legacy harness.
 - A package `exports` entry removed or renamed while a consumer still imports it, or a new shared module left reachable only by deep relative import.
 
 #### Checks keep their teeth

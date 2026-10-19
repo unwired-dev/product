@@ -7,6 +7,7 @@ import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { env, httpAction } from './_generated/server.js';
+import { handle as errorReporting } from './errorReporting.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 import { keyRotationErrorCodes } from './productAccount.js';
 import {
@@ -550,5 +551,13 @@ http.route({
   method: 'POST',
   handler: httpAction(microsoftGraphPushResponse),
 });
+
+for (const operation of ['enable', 'capture', 'revoke', 'delete', 'status']) {
+  http.route({
+    path: `/api/error-reporting/${operation}`,
+    method: 'POST',
+    handler: errorReporting,
+  });
+}
 
 export default http;

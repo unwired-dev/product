@@ -16,6 +16,7 @@
     "./mailboxes": "./src/mailboxes.ts",
     "./freshness": "./src/freshness.ts",
     "./host": "./src/host.ts",
+    "./error-reporting": "./src/error-reporting.ts",
     "./testing/gmail-mailbox": "./src/testing/gmail-mailbox.ts",
     "./testing/graph-mailbox": "./src/testing/graph-mailbox.ts",
     "./testing/mock-storage": "./src/testing/mock-storage.ts",
@@ -58,13 +59,13 @@
     "@noble/ciphers": "catalog:",
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
+    "@private-email/contracts": "workspace:*",
     "@private-email/localization": "workspace:*",
     "effect": "catalog:",
     "parse5": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@private-email/contracts": "workspace:*",
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "postal-mime": "catalog:",
