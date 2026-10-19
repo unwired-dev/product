@@ -1,8 +1,8 @@
 # Private Email
 
-This product helps people manage email without sending message content to a
-server for AI processing. Its vocabulary belongs to one domain, organized by
-reading topic below.
+This product helps people manage email with built-in AI processing on trusted
+devices. Users may separately authorize External Agents to access their mail.
+Its vocabulary belongs to one domain, organized by reading topic below.
 
 Read the topic relevant to your task and its observable requirements. Only the
 review agent follows architecture and ADR links under the
@@ -24,6 +24,7 @@ scope. The review agent verifies it against
 | Categories, views, pins, cleanup and commitments        | [Organization](docs/domain/organization.md)                   | [Organization notes](docs/product/organization.md), [Mail Commitments](docs/product/mail-commitments.md) |
 | Encryption, storage, synchronization and notifications  | [Privacy and sync](docs/domain/privacy-and-sync.md)           | [Privacy and sync notes](docs/product/privacy-and-sync.md)                                               |
 | Compose, response, understanding and translation        | [Assistance](docs/domain/assistance.md)                       | [Assistance notes](docs/product/assistance.md)                                                           |
+| External agents and their connections                   | [Agent access](docs/domain/agent-access.md)                   | [Agent access requirements](docs/product/agent-access.md)                                                |
 | Mock sessions, scenarios, harnesses and evidence        | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md)               |
 
 ## Relationships

@@ -18,7 +18,7 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **Private email client**:
-An email client that connects to mail providers from trusted devices and keeps privacy-sensitive processing on those devices.
+An email client that connects to mail providers from trusted devices and keeps its own privacy-sensitive processing on those devices. Users may separately authorize an [External Agent](agent-access.md) to process their mail outside those devices.
 _Avoid_: Webmail, Apple Mail extension
 
 **True email client**:

@@ -41,6 +41,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 ## Post-launch requirements
 
 - [Mail Commitments: confirmed future-feature requirements](product/mail-commitments.md)
+- [Agent access: confirmed MCP mail access requirements](product/agent-access.md)
 
 ## Shared policies
 
