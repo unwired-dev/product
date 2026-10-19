@@ -64,6 +64,30 @@ layouts through the [native validation guide](native-validation.md). Component
 mocks cannot establish that a system gesture or presenter works; unavailable
 native checks remain deferred before release.
 
+## Skills
+
+Use each skill that applies to the task, resolving global skills through the
+session catalogue and missing skills through the existing discovery workflow:
+
+- React Native rendering, lists and native integration: `vercel-react-native-skills`.
+- Expo controls and presenters: the project-local [expo-ui skill](../../.agents/skills/expo-ui/SKILL.md).
+- Expo routes, native stacks, headers, search and sheets: the project-local [expo-router skill](../../.agents/skills/expo-router/SKILL.md).
+- Component APIs and refactors: `vercel-composition-patterns`, scoped to simplifying the components the task needs.
+- TypeScript models and contracts: `typescript-best-practices`.
+- Behavior and regression coverage: `functionality-testing`, with real native evidence where the behavior depends on the host.
+- Simplicity and minimal changes: `ponytail`, subject to this policy's provided-component preference.
+- Measured performance problems: Callstack's `react-native-best-practices`; resolve it through skill discovery when needed, rather than installing it for every task.
+
+Apply guidance to the host's installed versions. Repository component selection,
+design, Effect and dependency-boundary rules take precedence over generic skill
+examples. Expo guidance applies to the mobile host; it does not authorize adding
+Expo to the Mac bundle. Load relevant references, rather than treating every
+skill as a reason to add dependencies, wrappers or a component framework.
+
+The two Expo bundles are vendored from the revision in `skills-lock.json`.
+Preserve their upstream files when updating them. The local `expo-ui` package
+manifest keeps its CommonJS discovery helper compatible with this ESM workspace.
+
 ## Rewrite tracking
 
 Track the migration in [#1053](https://github.com/unwired-dev/product/issues/1053):

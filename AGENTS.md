@@ -31,7 +31,8 @@ for every implementation, including later implementation fixes.
 - Invoke the `ponytail` skill before implementing, and follow it and the
   [coding principles](#coding-principles) throughout the implementation.
 - For React, React Native or Expo work, also invoke `vercel-react-native-skills`
-  and `vercel-composition-patterns` before editing, and follow both.
+  and `vercel-composition-patterns` before editing, and follow both. Select the
+  other applicable skills using the [React Native skill guidance](docs/agents/native-components.md#skills).
 - After implementing and running the relevant checks, spawn a separate review
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.

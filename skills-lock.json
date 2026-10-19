@@ -31,6 +31,20 @@
       "source": "andrewgleave/skills",
       "sourceType": "github"
     },
+    "expo-router": {
+      "source": "expo/skills",
+      "ref": "7ddc1f5796996e5c7efe2fc3fa9168eb24e8dac1",
+      "sourceType": "github",
+      "skillPath": "plugins/expo/skills/expo-router/SKILL.md",
+      "computedHash": "512978d4ea35857932b79ee9b15a47d7ab78382dc1fcd275601b87e4c80c1e59"
+    },
+    "expo-ui": {
+      "source": "expo/skills",
+      "ref": "7ddc1f5796996e5c7efe2fc3fa9168eb24e8dac1",
+      "sourceType": "github",
+      "skillPath": "plugins/expo/skills/expo-ui/SKILL.md",
+      "computedHash": "b7cf8d50798a484d84d359c9361c08e80e74fa922a6cb4601e88ce2701f7c449"
+    },
     "github": {
       "computedHash": "339dd13ebe4fd3f72273bd12eec49356cdf235866ad2c7b75588eeddb3e993d2",
       "skillPath": "github/SKILL.md",
