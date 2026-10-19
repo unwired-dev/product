@@ -55,14 +55,14 @@ headerSearchBarOptions: {
 
 ## useSearch Hook
 
-Reusable hook for search state management:
+Reusable hook for search state management with an optional placeholder string. The effect depends on that scalar value and the navigation object, so search-state renders do not reinstall header callbacks:
 
 ```tsx
 import { useEffect, useState } from "react";
 import { useNavigation } from "expo-router";
 
 // hooks/use-search.ts
-export function useSearch(options: any = {}) {
+export function useSearch(placeholder = "Search") {
   const [search, setSearch] = useState("");
   const navigation = useNavigation();
 
@@ -71,22 +71,19 @@ export function useSearch(options: any = {}) {
       headerShown: true,
       headerTransparent: false,
       headerSearchBarOptions: {
-        ...options,
+        placeholder,
         onChangeText(e: any) {
           setSearch(e.nativeEvent.text);
-          options.onChangeText?.(e);
         },
         onSearchButtonPress(e: any) {
           setSearch(e.nativeEvent.text);
-          options.onSearchButtonPress?.(e);
         },
-        onCancelButtonPress(e: any) {
+        onCancelButtonPress() {
           setSearch("");
-          options.onCancelButtonPress?.(e);
         },
       },
     });
-  }, [options, navigation]);
+  }, [placeholder, navigation]);
 
   return search;
 }
@@ -96,7 +93,7 @@ export function useSearch(options: any = {}) {
 
 ```tsx
 function SearchScreen() {
-  const search = useSearch({ placeholder: "Search items..." });
+  const search = useSearch("Search items...");
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(search.toLowerCase())
@@ -208,7 +205,7 @@ import { Text } from "react-native";
 import { useSearch } from "@/hooks/use-search";
 
 export default function SearchScreen() {
-  const search = useSearch({ placeholder: "Search..." });
+  const search = useSearch("Search...");
   return <Text>Searching for: {search}</Text>;
 }
 ```
