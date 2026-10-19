@@ -453,7 +453,7 @@ final class InboxTests: XCTestCase {
       verifyInboxViewport(app)
       waitUntil { rowan.isHittable && abs(rowan.frame.minY - retainedRowY) <= 1 }
       XCTAssertEqual(rowan.frame.minY, retainedRowY, accuracy: 1)
-      let search = app.textFields["Search senders and subjects"]
+      let search = app.searchFields["Search senders and subjects"]
       search.tap()
       search.typeText("Rowan")
       waitUntil { app.buttons["Close Search"].isHittable && rowan.isHittable }
