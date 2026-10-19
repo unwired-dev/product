@@ -7,7 +7,7 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useRef } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, ScrollView, Text } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
 
@@ -68,25 +68,56 @@ function Mail() {
   );
 }
 
+async function openInbox() {
+  const fixture = createPersistentInbox(
+    makeMockInboxStorage(),
+    createMockMailSession('open-read-relaunch').mail.list,
+  );
+  jest.replaceProperty(
+    jest.requireMock<{ mailboxes: typeof mailboxes }>(
+      '../src/private-storage.ts',
+    ),
+    'mailboxes',
+    singleMailbox(fixture, 'preview'),
+  );
+  await render(<Mail />);
+  await screen.findByRole('button', {
+    name: /^Unread\. Oliver Park\. Saturday, by the river\?/u,
+  });
+}
+
+async function reopenInbox() {
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Back to Mailboxes' }),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'All inboxes' }));
+}
+
+const scrollEvent = (y: number) => ({
+  nativeEvent: {
+    contentOffset: { x: 0, y },
+    contentSize: { width: 390, height: 1000 },
+    layoutMeasurement: { width: 390, height: 400 },
+  },
+});
+
+function observeScrollCommands() {
+  // The preset has no native responder; substitute only that command boundary.
+  const responder = new ScrollView({});
+  jest
+    .spyOn(ScrollView.prototype, 'getScrollResponder')
+    .mockReturnValue(responder);
+  return jest.spyOn(responder, 'scrollTo');
+}
+
 describe('phone mail navigation', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
   /* oxlint-disable vitest/max-expects -- One native/button Back journey checks retained state and its scroll bridge. */
   it('retains search and filters through native and button Back while Mailboxes remains the predecessor', async () => {
     expect.hasAssertions();
-    const fixture = createPersistentInbox(
-      makeMockInboxStorage(),
-      createMockMailSession('open-read-relaunch').mail.list,
-    );
-    jest.replaceProperty(
-      jest.requireMock<{ mailboxes: typeof mailboxes }>(
-        '../src/private-storage.ts',
-      ),
-      'mailboxes',
-      singleMailbox(fixture, 'preview'),
-    );
-    await render(<Mail />);
-    await screen.findByRole('button', {
-      name: /^Unread\. Oliver Park\. Saturday, by the river\?/u,
-    });
+    await openInbox();
     expect(screen.queryByText('Mailboxes')).toBeNull();
     expect(
       screen.getByText('Mailboxes', { includeHiddenElements: true }),
@@ -141,4 +172,108 @@ describe('phone mail navigation', () => {
     );
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('restores a recreated list after both viewport and sufficient content layout, then stops restoring', async () => {
+    expect.hasAssertions();
+    const scrollTo = observeScrollCommands();
+    await openInbox();
+    await fireEvent.scroll(
+      screen.getByLabelText('Inbox messages'),
+      scrollEvent(120),
+    );
+    await reopenInbox();
+    const list = screen.getByLabelText('Inbox messages');
+    await fireEvent.scroll(list, scrollEvent(0));
+    await fireEvent(list, 'contentSizeChange', 390, 300);
+    await fireEvent(list, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 400 } },
+    });
+    expect(scrollTo).not.toHaveBeenCalled();
+    await fireEvent(list, 'contentSizeChange', 390, 1000);
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 120,
+      animated: false,
+    });
+    await fireEvent.scroll(list, scrollEvent(120));
+    await fireEvent(list, 'contentSizeChange', 390, 1300);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    await fireEvent.scroll(list, scrollEvent(240));
+    await fireEvent(list, 'contentSizeChange', 390, 1400);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a pending restore when the person starts scrolling and saves their new position', async () => {
+    expect.hasAssertions();
+    const scrollTo = observeScrollCommands();
+    await openInbox();
+    await fireEvent.scroll(
+      screen.getByLabelText('Inbox messages'),
+      scrollEvent(120),
+    );
+    await reopenInbox();
+    const list = screen.getByLabelText('Inbox messages');
+    await fireEvent.scroll(list, scrollEvent(0));
+    await fireEvent(list, 'scrollBeginDrag', scrollEvent(0));
+    await fireEvent(list, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 400 } },
+    });
+    await fireEvent(list, 'contentSizeChange', 390, 1000);
+    expect(scrollTo).not.toHaveBeenCalled();
+    await fireEvent.scroll(list, scrollEvent(240));
+    await reopenInbox();
+    const reopened = screen.getByLabelText('Inbox messages');
+    await fireEvent(reopened, 'contentSizeChange', 390, 1000);
+    await fireEvent(reopened, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 400 } },
+    });
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 240,
+      animated: false,
+    });
+    await fireEvent.scroll(reopened, scrollEvent(240));
+    await fireEvent(reopened, 'contentSizeChange', 390, 1200);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires a pending position when the search changes', async () => {
+    expect.hasAssertions();
+    const scrollTo = observeScrollCommands();
+    await openInbox();
+    await fireEvent.scroll(
+      screen.getByLabelText('Inbox messages'),
+      scrollEvent(120),
+    );
+    await reopenInbox();
+    await fireEvent.scroll(
+      screen.getByLabelText('Inbox messages'),
+      scrollEvent(0),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Search' }));
+    await fireEvent.changeText(
+      screen.getByLabelText('Search senders and subjects'),
+      'Oliver',
+    );
+    await screen.findByRole('button', {
+      name: /^Unread\. Oliver Park\. Saturday, by the river\?/u,
+    });
+    const list = screen.getByLabelText('Inbox messages');
+    await fireEvent(list, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 400 } },
+    });
+    await fireEvent(list, 'contentSizeChange', 390, 1000);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Search senders and subjects')).toHaveProp(
+      'value',
+      'Oliver',
+    );
+    await reopenInbox();
+    const reopened = screen.getByLabelText('Inbox messages');
+    await fireEvent(reopened, 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 400 } },
+    });
+    await fireEvent(reopened, 'contentSizeChange', 390, 1000);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
 });

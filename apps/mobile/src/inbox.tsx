@@ -589,7 +589,6 @@ export function Inbox({
   const { t } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
-  const presentation = useInboxPresentation({ onBack, children });
   const insets = useSafeAreaInsets();
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
@@ -643,6 +642,13 @@ export function Inbox({
   );
   const now = useNow();
   const filtering = useInboxFilter({ scope, mailboxes, listed, now });
+  const presentation = useInboxPresentation({
+    onBack,
+    children,
+    view,
+    search: searchState,
+    filtering,
+  });
   const inboxRows = filtering.rows;
   // Search keeps iPad's day groups beneath Top Results; iPhone lists matches without dividers.
   const dated = useMemo(
@@ -838,9 +844,13 @@ export function Inbox({
             )}
           </View>
           <SectionList
+            ref={presentation.handleList}
             accessibilityLabel={t('inbox.messages')}
             contentOffset={presentation.contentOffset}
+            onLayout={presentation.handleLayout}
+            onContentSizeChange={presentation.handleContentSizeChange}
             onScroll={presentation.handleScroll}
+            onScrollBeginDrag={presentation.handleScrollBeginDrag}
             contentContainerStyle={styles.list}
             sections={sections}
             stickySectionHeadersEnabled={false}
