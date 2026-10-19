@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 import { test } from 'node:test';
 
 test('Expo UI discovery lists exported shapes rather than their module name', () => {
-  const project = mkdtempSync(join(tmpdir(), 'expo-ui-discovery-'));
-  const pkg = join(project, 'node_modules/@expo/ui');
+  const project = mkdtempSync(path.join(tmpdir(), 'expo-ui-discovery-'));
+  const pkg = path.join(project, 'node_modules/@expo/ui');
   const write = (name, content) => {
-    const file = join(pkg, name);
-    mkdirSync(join(file, '..'), { recursive: true });
+    const file = path.join(pkg, name);
+    mkdirSync(path.join(file, '..'), { recursive: true });
     writeFileSync(file, content);
   };
   try {
@@ -54,17 +54,19 @@ export * from './Cycle';
         [script.pathname, project, ...flags],
         { encoding: 'utf8' },
       );
-      assert.match(output, /@expo\/ui 57\.0\.25/);
+      assert.match(output, /@expo\/ui 57\.0\.25/u);
       assert.match(
         output,
-        /Components: Button, Capsule, Circle, Rectangle, TextField/,
+        /Components: Button, Capsule, Circle, Rectangle, TextField/u,
       );
       assert.doesNotMatch(
         output,
-        /Components:.*(?:Shapes|Nested|Props|InternalButton)/,
+        /Components:.*(?:Shapes|Nested|Props|InternalButton)/u,
       );
-      assert.match(output, /padding/);
-      if (flags.length) assert.match(output, /Sets padding/);
+      assert.match(output, /padding/u);
+      if (flags.length) {
+        assert.match(output, /Sets padding/u);
+      }
     }
   } finally {
     rmSync(project, { recursive: true, force: true });
