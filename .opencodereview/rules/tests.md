@@ -143,6 +143,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A fake-clock store journey such as
+  `packages/mail-core/test/error-reporting-delivery.test.ts` freezing the real
+  async runner's continuation scheduler before awaiting `load` or `refresh`. Trace
+  the installed runner and timer implementation so the contract's clock and sleeps
+  stay controlled while the real collaboration can progress. Otherwise setup can
+  stall before retry or withdrawal assertions; a later clock advance or a larger
+  timeout does not prove those contracts.
+
 - A shell-runner fixture that replaces an interpreter through `PATH` but inherits
   an explicit interpreter override such as `RUBY`. Set the runner's actual
   override to the test-owned stub too; otherwise CI can invoke a real interpreter
