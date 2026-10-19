@@ -268,6 +268,11 @@ describe('phone mail navigation', () => {
       'value',
       'Oliver',
     );
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+      'contentOffset',
+      { x: 0, y: 0 },
+    );
     await reopenInbox();
     const reopened = screen.getByLabelText('Inbox messages');
     await fireEvent(reopened, 'layout', {

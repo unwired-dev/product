@@ -42,11 +42,16 @@ export function useInboxPresentation({
   readonly onBack: (() => void) | undefined;
   readonly children: InboxLayout | undefined;
   readonly view: MailboxView;
-  readonly search: Readonly<{ searching: boolean; searched: string }>;
+  readonly search: Readonly<{
+    searching: boolean;
+    searched: string;
+    searchesAll: boolean;
+  }>;
   readonly filtering: Readonly<{ on: boolean; filter: InboxFilter }>;
 }) {
   const query = search.searching ? search.searched : undefined;
   const filter = filtering.on ? filtering.filter : undefined;
+  const all = search.searchesAll;
   const scrollPosition = useRef(top);
   const savedPosition = useRef(top);
   const list = useRef<List | null>(null);
@@ -55,20 +60,24 @@ export function useInboxPresentation({
     view,
     query,
     filter,
+    all,
     offset: top,
   });
-  const contentOffset =
+  const sameScope =
     snapshot.view === view &&
     snapshot.query === query &&
-    snapshot.filter === filter
-      ? snapshot.offset
-      : top;
+    snapshot.filter === filter &&
+    snapshot.all === all;
+  if (!sameScope) {
+    setSnapshot({ view, query, filter, all, offset: top });
+  }
+  const contentOffset = sameScope ? snapshot.offset : top;
 
   useLayoutEffect(() => {
     restoring.current = undefined;
     savedPosition.current = top;
     scrollPosition.current = top;
-  }, [view, query, filter]);
+  }, [view, query, filter, all]);
 
   const handleList = useCallback<RefCallback<List>>((current) => {
     list.current = current;
@@ -112,7 +121,7 @@ export function useInboxPresentation({
           const offset = restoring.current?.target ?? scrollPosition.current;
           const saved = { x: Math.max(0, offset.x), y: Math.max(0, offset.y) };
           savedPosition.current = saved;
-          setSnapshot({ view, query, filter, offset: saved });
+          setSnapshot({ view, query, filter, all, offset: saved });
           onBack();
         };
   const handleScroll: ScrollViewProps['onScroll'] = ({ nativeEvent }) => {

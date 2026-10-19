@@ -719,7 +719,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   may retain only a snapshot. Keep iPad Inbox updates inside its split column so
   state retention does not recreate the reader Slot. Require observable retained
   search/filter state and native scrolled-row evidence, labelled separately from
-  a component scroll-offset bridge assertion.
+  a component scroll-offset bridge assertion. For recreated `SectionList` content
+  in `inbox-presentation.ts`, verify restoration after viewport and sufficient
+  content layout, freeze its target until actual native offset confirmation, and
+  retire pending work when the person drags or the view, query, search scope or
+  active filter changes. Retire the saved prop snapshot too, so returning to an
+  earlier scope cannot revive its offset. A starting `contentOffset` prop alone
+  can be clamped before layout and does not establish a restored native position.
 
 - Mobile `app/_layout.tsx.MailShell` subscribing to unrelated Account updates or
   updating composer keyboard geometry while no composer is open. Trace the
