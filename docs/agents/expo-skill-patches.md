@@ -8,6 +8,8 @@ new version and retain any that upstream has not incorporated.
 
 ## Expo UI
 
+- Use the exported `@expo/ui/community/datetime-picker` subpath consistently.
+
 - Allow alternatives for a documented missing API, including accessibility and
   presentation requirements. Replacement imports are not automatically equivalent:
   [BottomSheet presents modally](https://docs.expo.dev/versions/latest/sdk/ui/drop-in-replacements/bottomsheet/),
@@ -31,6 +33,8 @@ new version and retain any that upstream has not incorporated.
 - Preserve special route filenames and distinguish screen default exports from
   [special-file contracts such as `+native-intent`](https://docs.expo.dev/router/advanced/native-intent/).
 - Use the named `Stack` export and import `SymbolView` in its example.
+- Use `NativeTabs.Trigger.Label` and `NativeTabs.Trigger.Icon` in the route and
+  search examples, with the SDK 55–57 `NativeTabs` import.
 - Give sheet content an opaque background, use automatic list insets with header
   search, and keep search state with the screen that consumes it.
 - State that the separate search tab requires iOS 26+ and Xcode 26+.

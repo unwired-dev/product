@@ -30,7 +30,7 @@ Every `@expo/ui` tree — universal or platform-specific — must be wrapped in 
 | Grouped native list rows (settings/form-style) | `List` + `ListItem` from `@expo/ui` — **not** `FlatList` (see note below) |
 | Toggle | `Switch` from `@expo/ui` |
 | Slider | `Slider` from `@expo/ui` |
-| Date/time picker | `@expo/ui/community/datetimepicker` |
+| Date/time picker | `@expo/ui/community/datetime-picker` |
 | Menu | `Menu` from `@expo/ui` |
 | Form section with label | `FieldGroup` from `@expo/ui` |
 | Collapsible section | `Collapsible` from `@expo/ui` |

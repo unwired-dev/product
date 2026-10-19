@@ -174,15 +174,21 @@ The separate search tab requires iOS 26+ and a build compiled with Xcode 26+. Wh
 
 ```tsx
 // app/_layout.tsx
-<NativeTabs>
-  <NativeTabs.Trigger name="(home)">
-    <Label>Home</Label>
-    <Icon sf="house.fill" />
-  </NativeTabs.Trigger>
-  <NativeTabs.Trigger name="(search)" role="search">
-    <Label>Search</Label>
-  </NativeTabs.Trigger>
-</NativeTabs>
+import { NativeTabs } from "expo-router/unstable-native-tabs";
+
+export default function TabLayout() {
+  return (
+    <NativeTabs>
+      <NativeTabs.Trigger name="(home)">
+        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="house.fill" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(search)" role="search">
+        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
+  );
+}
 ```
 
 ```tsx
