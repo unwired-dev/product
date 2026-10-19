@@ -1,6 +1,6 @@
 # Platform-specific Android UI: `@expo/ui/jetpack-compose`
 
-> **Android only.** Code that imports from `@expo/ui/jetpack-compose` will crash on iOS with "Unable to get view config" errors. Always place this code in an `.android.tsx` component file or guard it with `Platform.OS === 'android'`. `Host` must be imported from `@expo/ui` (the universal root), not from `@expo/ui/jetpack-compose`.
+> **Android only.** Code that imports from `@expo/ui/jetpack-compose` will crash on iOS with "Unable to get view config" errors. Always place this code in an `.android.tsx` component file or guard it with `Platform.OS === 'android'`. Import `Host` from `@expo/ui/jetpack-compose` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
 
 Use this layer only when the universal `@expo/ui` components don't cover what you need on Android (see `./universal.md` first). This requires a platform-specific tree.
 
@@ -55,8 +55,7 @@ const ComposeList = Platform.OS === 'android' ? require('../components/ProductLi
 - Every Jetpack Compose tree must be wrapped in `Host`. Use `<Host matchContents>` for intrinsic sizing, or `<Host style={{ flex: 1 }}>` when you need explicit size (e.g. as a parent of `LazyColumn`). Example:
 
 ```jsx
-import { Host } from "@expo/ui";                              // Host always from universal root
-import { Column, Button, Text } from "@expo/ui/jetpack-compose";
+import { Host, Column, Button, Text } from "@expo/ui/jetpack-compose";
 import { fillMaxWidth, paddingAll } from "@expo/ui/jetpack-compose/modifiers";
 
 <Host matchContents>

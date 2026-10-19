@@ -8,6 +8,10 @@ new version and retain any that upstream has not incorporated.
 
 ## Expo UI
 
+- Import `Host` from the matching UI layer. Universal trees use the package root;
+  SwiftUI and Compose trees use their platform subpath so platform-only props
+  remain available.
+
 - Use the exported `@expo/ui/community/datetime-picker` subpath consistently.
 
 - Allow alternatives for a documented missing API, including accessibility and

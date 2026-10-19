@@ -1,6 +1,6 @@
 # Platform-specific iOS UI: `@expo/ui/swift-ui`
 
-> **iOS only.** Code that imports from `@expo/ui/swift-ui` will crash on Android with "Unable to get view config" errors. Always place this code in an `.ios.tsx` component file or guard it with `Platform.OS === 'ios'`. `Host` must be imported from `@expo/ui` (the universal root), not from `@expo/ui/swift-ui`.
+> **iOS only.** Code that imports from `@expo/ui/swift-ui` will crash on Android with "Unable to get view config" errors. Always place this code in an `.ios.tsx` component file or guard it with `Platform.OS === 'ios'`. Import `Host` from `@expo/ui/swift-ui` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
 
 Use this layer only when the universal `@expo/ui` components don't cover what you need on iOS (see `./universal.md` first). This requires a platform-specific tree.
 
@@ -59,8 +59,7 @@ Keep platform-only imports inside the conditionally loaded component. A renderin
 - `RNHostView` is specifically for embedding RN components inside a SwiftUI tree. Example:
 
 ```jsx
-import { Host } from "@expo/ui";                       // Host always from universal root
-import { VStack, RNHostView } from "@expo/ui/swift-ui"; // platform components from swift-ui
+import { Host, VStack, RNHostView } from "@expo/ui/swift-ui";
 import { Pressable } from "react-native";
 
 <Host matchContents>

@@ -18,7 +18,7 @@ allowed-tools: "Bash(node *expo-ui/scripts/list-components.js *)"
 npx expo install @expo/ui
 ```
 
-Every `@expo/ui` tree — universal or platform-specific — must be wrapped in `Host`.
+Wrap each `@expo/ui` tree in its matching `Host`: import from `@expo/ui` for universal trees, `@expo/ui/swift-ui` for SwiftUI trees, or `@expo/ui/jetpack-compose` for Compose trees. The platform Hosts expose their platform-specific props.
 
 ## Use @expo/ui by default — don't reach for RN alternatives first
 
@@ -76,7 +76,7 @@ Work down this list and stop at the first layer that meets the need:
 
 2. **Platform-specific (SwiftUI / Jetpack Compose).** Import from `@expo/ui/swift-ui` or `@expo/ui/jetpack-compose`. Use **only** when the universal layer is missing a component or modifier you need, or when you need platform-specific behavior or optimization. **Downside:** you write two trees and split them into `.ios.tsx` / `.android.tsx` files (or branch on `Platform.OS`) — more code to maintain.
 
-   > **`@expo/ui/swift-ui` is iOS-only. `@expo/ui/jetpack-compose` is Android-only.** Importing either in a file that runs on the other platform will crash at runtime with "Unable to get view config" errors. Isolate platform-specific trees in `.ios.tsx` / `.android.tsx` files placed in `components/` (preferred for reusable components). Expo Router also supports platform-specific route files inside `app/` when a non-platform route with the same name exists. Alternatively, guard platform-specific rendering with `Platform.OS` in a regular route file. `Host` must always be imported from `@expo/ui` (the universal package root), not from the platform-specific sub-packages. → `./references/swift-ui.md` and `./references/jetpack-compose.md`
+   > **`@expo/ui/swift-ui` is iOS-only. `@expo/ui/jetpack-compose` is Android-only.** Importing either in a file that runs on the other platform will crash at runtime with "Unable to get view config" errors. Isolate platform-specific trees in `.ios.tsx` / `.android.tsx` files placed in `components/` (preferred for reusable components). Expo Router also supports platform-specific route files inside `app/` when a non-platform route with the same name exists. Alternatively, guard platform-specific rendering with `Platform.OS` in a regular route file. Import `Host` from the same platform sub-package as the native tree; reserve the root `Host` for universal trees. → `./references/swift-ui.md` and `./references/jetpack-compose.md`
 
 **Already using an RN community UI library?** Check each replacement’s supported props and platform behavior before migrating. `@expo/ui` also ships **drop-in replacements** — compatibility adapters for popular libraries (`@gorhom/bottom-sheet`, `@react-native-community/datetimepicker`, and more), imported from `@expo/ui/community/<name>`. This is a migration side-path for replacing an existing dependency, not a step in the universal-vs-platform decision above. → `./references/drop-in-replacements.md`
 
