@@ -39,16 +39,18 @@ connections with 50 initially available messages each, completed backfill and
 cached-body samples. Use the current launch-provider scope rather than a
 historical Gmail-only fixture.
 
-| Interaction                                                       | Budget                       |
-| ----------------------------------------------------------------- | ---------------------------- |
-| App entry, sidebar and message list                               | p95 at most 1 second         |
-| Cached mailbox or Mail View switch, cached body and warm composer | p95 at most 200 ms           |
-| Empty composer                                                    | p95 at most 300 ms           |
-| Typing and formatting feedback                                    | Next rendered frame          |
-| Main-thread stall                                                 | No stall of 100 ms or longer |
+| Interaction                                                         | Budget                       |
+| ------------------------------------------------------------------- | ---------------------------- |
+| App-launch entry to first rendered sidebar and initial message list | p95 at most 1 second         |
+| Cached mailbox or Mail View switch, cached body and warm composer   | p95 at most 200 ms           |
+| Empty composer                                                      | p95 at most 300 ms           |
+| Typing and formatting feedback                                      | Next rendered frame          |
+| Main-thread stall                                                   | No stall of 100 ms or longer |
 
-Measure provider/network latency separately and keep the app interactive while
-it waits. Nominate iPad and Mac reference hardware and establish their baselines;
+Measure cached switches and body/composer opening from user selection to
+rendered interactive content. Measure provider/network latency separately and
+keep the app interactive while it waits. Nominate iPad and Mac reference hardware
+and establish their baselines;
 unmeasured baselines remain required qualification. Hosted-runner speed does not
 relax a device budget. Record the device, fixture, build, command and measurement
 evidence; these targets do not claim a passing measurement. The reviewer verifies

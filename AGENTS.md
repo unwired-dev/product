@@ -91,7 +91,9 @@ user-visible change according to them.
 - Use the installed skills that match the task and their applicable references.
   When a needed capability is missing, use `find-skills`, vet the candidate with
   `skill-inspector` or by reading its instructions and scripts, then install it
-  using the project toolchain. Use `task-observer` for requested workflow
+  using the project toolchain. If `find-skills` is absent, install it with
+  `mise exec -- pnpm dlx skills add vercel-labs/skills@find-skills`.
+  Use `task-observer` for requested workflow
   improvement or a repeated workflow problem that warrants an observation.
 
 ## Verify
@@ -116,7 +118,7 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   [triage labels](docs/agents/issue-tracker.md#triage-labels) and native blocking dependencies.
 - An implementation request authorizes commit, push, PR delivery and monitoring
   within its explicit limits. Follow the canonical
-  [PR delivery and babysitting policy](docs/agents/pull-request-babysitting.md#implementer-pr-delivery).
+  [repository policy](docs/agents/pull-request-babysitting.md) for PR delivery and babysitting.
 - Report verification results and unavailable checks accurately.
 
 ## Effect

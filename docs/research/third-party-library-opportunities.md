@@ -44,9 +44,10 @@ and evidence:
 | Existing mobile swipe actions | [#811](https://github.com/unwired-dev/product/issues/811), [Catch Up](../catch-up.md)                                       |
 
 The current [mail-core manifest](../../packages/mail-core/package.json) lists
-`postal-mime`, `@exodus/bytes` and the CSS parser libraries as runtime
-dependencies; the [Convex manifest](../../packages/convex/package.json) lists
-`jose`. These entries establish dependency availability only. They do not prove
+`@exodus/bytes` and the CSS parser libraries as runtime dependencies, while
+`postal-mime` remains a development dependency. The
+[Convex manifest](../../packages/convex/package.json) lists `jose` as a runtime
+dependency. These entries establish dependency availability only. They do not prove
 complete migration, the Legend List trial, deployed compatibility or native
 qualification. Keep the limitations of each dated probe distinct from later
 implementation evidence.
