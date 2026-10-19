@@ -121,16 +121,22 @@ are not fabricated or reported as complete.
 ## Creating and editing Drafts
 
 The first version supports new-message, Reply, and Reply All Drafts. Agents can
-set the subject, body, recipients, and a sending mailbox within their granted
-scope. Forwarding and attachment changes are outside this version's scope.
+set the subject, body, recipients, and a Sending Identity belonging to a granted
+Mailbox Connection in the same Profile. New messages default to the Profile's
+Default Sending Identity when it is within that scope; replies preserve the
+Sending Identity that received the source message. An unavailable or out-of-scope
+identity is reported without silently substituting another identity, following
+the existing [Sending Identity rules](messages-and-delivery.md#sending-identities-and-recipient-entry).
+Forwarding and attachment changes are outside this version's scope.
 
 These are ordinary editable Unwired Drafts, available for the user to review and
 send. An agent can initially edit only Drafts created by its own Agent Connection.
 
-An agent's edit fails with a conflict if the user has edited the Draft since the
-agent read it. The user's changes remain intact, and the agent must reread the
-current Draft before attempting another edit. Existing cross-device Draft
-conflict preservation remains applicable.
+An agent's edit fails with a conflict if the Draft revision has changed since the
+agent read it, whether changed by the user, another agent session, or
+synchronization. This includes sessions sharing one Agent Connection. The current
+Draft remains intact, and the agent must reread it before attempting another edit.
+Existing cross-device Draft conflict preservation remains applicable.
 
 Retrying the same operation after a lost response returns its existing result.
 It does not create a duplicate Draft or apply an edit twice. A failed save never
@@ -172,9 +178,14 @@ The implementation must demonstrate these observable behaviors:
    fetch uncached bodies; partial results and omitted content are explicit.
 8. Provider unavailability permits clearly identified cached reads and local
    Draft work. It does not produce a false complete-search or successful-save result.
-9. Agents create new-message, Reply, and Reply All Drafts with an in-scope sending
-   mailbox, and cannot edit another connection's or the user's existing Drafts.
-10. A stale agent edit preserves the user's current Draft and reports a conflict.
+9. Agents create new-message, Reply, and Reply All Drafts with an in-scope Sending
+   Identity. New messages use the Profile default and replies preserve the
+   receiving identity; unavailable or out-of-scope identities are reported without
+   silent substitution. Agents cannot edit another connection's or the user's
+   existing Drafts.
+10. A stale agent edit preserves the current Draft and reports a conflict after
+    any intervening revision change, including another session sharing the same
+    Agent Connection.
 11. Retrying a creation or edit after a lost response produces one logical result.
 12. Reading leaves read state unchanged. Agent requests cannot send, delete,
     organize mail, retrieve attachment contents, or change attachments.
