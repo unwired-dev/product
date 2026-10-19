@@ -85,6 +85,8 @@ scheduled delivery are not implicit first-release requirements.
 - [Reviewed Mail Commitments](../adr/0072-allow-reviewed-post-launch-mail-commitments.md) and
   [their architecture companion](product/mail-commitments.md), separate from
   the confirmed power-user launch.
+- [External Agent access, separate from On-Device Mail Assistance](../adr/0073-separate-external-agent-access-from-on-device-assistance.md),
+  a separately authorized post-launch milestone.
 
 ## Existing reviewer-only sources
 
