@@ -11,13 +11,15 @@ extension RegistrationStore {
   // unanswered request must not reconnect a device that may already have unregistered.
   func recordRemoval(_ operation: AccountRemovalState.Operation?) throws {
     guard operation != .revoked else { throw RegistrationError.unavailable }
+    if operation != nil { try stopErrorReporting() }
     var saved = try saved()
     saved.accountRemoval = operation.map { AccountRemovalState(operation: $0) }
     try save(saved)
   }
 
   // Ends this process's Product Sign-In while a removal waits for its answer.
-  func endSession() {
+  func endSession() throws {
+    try stopErrorReporting()
     session = nil
   }
 

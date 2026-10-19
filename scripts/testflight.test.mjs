@@ -141,6 +141,7 @@ if (command === 'pnpm' && args.includes('exec')) {
   process.exit(result.status ?? 1);
 }
 if (command === 'xcodebuild') {
+  if (process.env.UNWIRED_ERROR_REPORTING_CHANNEL !== 'testflight') throw Error('TestFlight archive lacks its reporting channel');
   record('commands', args[0]);
   if (process.env.ASC_PRIVATE_KEY) console.log(process.env.ASC_PRIVATE_KEY);
   if (args[0] === '-exportArchive') {

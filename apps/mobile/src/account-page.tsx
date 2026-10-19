@@ -47,10 +47,12 @@ export function AccountPage({
 export function AccountHeader({
   title,
   onBack,
+  backLabel,
   accessory,
 }: {
   readonly title: string;
   readonly onBack?: (() => void) | undefined;
+  readonly backLabel?: string;
   readonly accessory?: ReactNode;
 }) {
   const colors = usePalette();
@@ -79,7 +81,7 @@ export function AccountHeader({
                 cornerRadius={22}
                 style={{ boxShadow: colors.smallGlassShadow }}>
                 <Pressable
-                  accessibilityLabel={t('settings.back')}
+                  accessibilityLabel={backLabel ?? t('settings.back')}
                   accessibilityRole="button"
                   onPress={onBack}
                   style={styles.back}>

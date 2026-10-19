@@ -24,7 +24,8 @@ export type SettingsDestination =
   | 'account'
   | 'mailboxes'
   | 'language'
-  | 'privacy';
+  | 'privacy'
+  | 'errorReporting';
 
 // The groups below the account item, in the design's order.
 const sections = [
@@ -293,7 +294,9 @@ export function SettingsWorkspace({
   destination,
   onDestination,
   accessory,
+  onWelcome,
   children,
+  detail,
 }: {
   // The Product Account the account item names.
   readonly account: string;
@@ -303,8 +306,10 @@ export function SettingsWorkspace({
   ) => void;
   // Shown in the header, such as an activity indicator and the way back to the Inbox.
   readonly accessory?: ReactNode;
+  readonly onWelcome?: () => void;
   // The selected destination's groups.
   readonly children: ReactNode;
+  readonly detail?: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -319,67 +324,92 @@ export function SettingsWorkspace({
         <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
           <Glass cornerRadius={21} />
           <ScrollView contentContainerStyle={styles.sidebarList}>
-            <Pressable
-              accessibilityLabel={t('settings.destinations.account')}
-              accessibilityRole="button"
-              accessibilityState={{ selected: selected === 'account' }}
-              onPress={() => {
-                onDestination('account');
-              }}
-              style={({ pressed }) => [
-                styles.account,
-                (selected === 'account' || pressed) && {
-                  backgroundColor: colors.accentSelectionSubtle,
-                },
-              ]}>
-              <AccountMonogram
-                name={account}
-                size={37}
-              />
-              <View style={styles.grow}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    type.title,
-                    { fontWeight: '600', color: colors.textPrimary },
+            {onWelcome === undefined ? (
+              <>
+                <Pressable
+                  accessibilityLabel={t('settings.destinations.account')}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selected === 'account' }}
+                  onPress={() => {
+                    onDestination('account');
+                  }}
+                  style={({ pressed }) => [
+                    styles.account,
+                    (selected === 'account' || pressed) && {
+                      backgroundColor: colors.accentSelectionSubtle,
+                    },
                   ]}>
-                  {account}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[type.detail, { color: colors.textSecondary }]}>
-                  {t('settings.destinations.account')}
-                </Text>
-              </View>
-            </Pressable>
-            {sections.map((section) => (
-              <Fragment key={section.title}>
-                <Text
-                  accessibilityRole="header"
-                  style={[
-                    styles.sectionHeader,
-                    { color: colors.textSecondary },
-                  ]}>
-                  {t(`settings.sections.${section.title}`)}
-                </Text>
-                {section.items.map((item) => (
-                  <SidebarItem
-                    key={item.id}
-                    icon={item.icon}
-                    label={t(`settings.destinations.${item.id}`)}
-                    selected={selected === item.id}
-                    onPress={() => {
-                      onDestination(item.id);
-                    }}
+                  <AccountMonogram
+                    name={account}
+                    size={37}
                   />
+                  <View style={styles.grow}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        type.title,
+                        { fontWeight: '600', color: colors.textPrimary },
+                      ]}>
+                      {account}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[type.detail, { color: colors.textSecondary }]}>
+                      {t('settings.destinations.account')}
+                    </Text>
+                  </View>
+                </Pressable>
+                {sections.map((section) => (
+                  <Fragment key={section.title}>
+                    <Text
+                      accessibilityRole="header"
+                      style={[
+                        styles.sectionHeader,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {t(`settings.sections.${section.title}`)}
+                    </Text>
+                    {section.items.map((item) => (
+                      <SidebarItem
+                        key={item.id}
+                        icon={item.icon}
+                        label={t(`settings.destinations.${item.id}`)}
+                        selected={
+                          selected === item.id ||
+                          (selected === 'errorReporting' &&
+                            item.id === 'privacy')
+                        }
+                        onPress={() => {
+                          onDestination(item.id);
+                        }}
+                      />
+                    ))}
+                  </Fragment>
                 ))}
-              </Fragment>
-            ))}
+              </>
+            ) : (
+              <>
+                <SidebarItem
+                  icon="chevron.left"
+                  label={t('errorReporting.backToWelcome')}
+                  selected={false}
+                  onPress={onWelcome}
+                />
+                <SidebarItem
+                  icon="hand.raised"
+                  label={t('settings.destinations.privacy')}
+                  selected
+                  onPress={() => undefined}
+                />
+              </>
+            )}
           </ScrollView>
         </View>
         <View style={styles.grow}>
           <AccountHeader
-            title={t(`settings.destinations.${selected}`)}
+            title={t(
+              `settings.destinations.${onWelcome === undefined ? selected : 'privacy'}`,
+            )}
             accessory={accessory}
           />
           {content}
@@ -450,6 +480,68 @@ export function SettingsWorkspace({
       </ScrollView>
     </View>
   );
+  const back = () => {
+    if (onWelcome === undefined) {
+      onDestination(destination === 'errorReporting' ? 'privacy' : undefined);
+    } else {
+      onWelcome();
+    }
+  };
+  const page = (
+    <View style={styles.page}>
+      <AccountHeader
+        title={t(`settings.destinations.${destination ?? 'account'}`)}
+        backLabel={t(
+          onWelcome === undefined ? 'settings.back' : 'onboarding.back',
+        )}
+        onBack={back}
+        accessory={accessory}
+      />
+      {content}
+    </View>
+  );
+  if (onWelcome !== undefined) {
+    return page;
+  }
+  const destinationPage =
+    destination !== 'privacy' ? (
+      page
+    ) : (
+      <ScreenStack style={styles.page}>
+        <BackScreen
+          screenId="privacy-settings"
+          activityState={2}
+          freezeOnBlur={false}
+          accessibilityElementsHidden={detail !== undefined}
+          headerConfig={{ hidden: true }}>
+          {page}
+        </BackScreen>
+        {detail === undefined ? null : (
+          <BackScreen
+            screenId="error-reporting"
+            testID="error-reporting-detail"
+            activityState={2}
+            headerConfig={{ hidden: true }}
+            gestureEnabled>
+            <BackNavigation
+              onBack={() => {
+                onDestination('privacy');
+              }}>
+              <AccountHeader
+                title={t('errorReporting.title')}
+                onBack={() => {
+                  onDestination('privacy');
+                }}
+                accessory={accessory}
+              />
+              <ScrollView contentContainerStyle={styles.content}>
+                {detail}
+              </ScrollView>
+            </BackNavigation>
+          </BackScreen>
+        )}
+      </ScreenStack>
+    );
   return (
     <ScreenStack style={styles.page}>
       <BackScreen
@@ -469,17 +561,8 @@ export function SettingsWorkspace({
           gestureEnabled>
           <BackNavigation
             testID="settings-back-navigation"
-            onBack={() => {
-              onDestination(undefined);
-            }}>
-            <AccountHeader
-              title={t(`settings.destinations.${destination}`)}
-              onBack={() => {
-                onDestination(undefined);
-              }}
-              accessory={accessory}
-            />
-            {content}
+            onBack={back}>
+            {destinationPage}
           </BackNavigation>
         </BackScreen>
       )}
@@ -577,12 +660,14 @@ function Hairline() {
 export function SettingsRow({
   icon,
   title,
+  disabled = false,
   subtitle,
   subtitleTone,
   children,
 }: {
   readonly icon?: string;
   readonly title: string;
+  readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
@@ -599,7 +684,7 @@ export function SettingsRow({
           color={colors.accentInk}
         />
       )}
-      <View style={styles.rowText}>
+      <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
         <Text style={[type.title, { color: colors.textPrimary }]}>{title}</Text>
         {subtitle === undefined ? null : (
           <Text

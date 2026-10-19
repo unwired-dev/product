@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./testing": "./testing.ts"
+  },
   "scripts": {
     "check-types": "tsc --noEmit",
     "dev": "convex dev --env-file ../../.env.local",

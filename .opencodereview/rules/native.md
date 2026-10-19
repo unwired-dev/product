@@ -12,6 +12,59 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   method name can make scrolling win the Back gesture. Preserve nested destination
   priority and qualify actual arbitration separately with native interaction.
 
+#### Error reporting lifecycle
+
+- `ReportingDocument.decode` or `ErrorReportingStore.load` treating a present
+  malformed nested document as fresh idle before native collector startup. Validate
+  its complete shape, version, bounds and report fields against the shared contract,
+  including excess keys and explicit null optionals, before collection or persistence.
+  Distinguish absent state and valid expired reports from malformed state. Stop/cancel
+  collection and fail unavailable without rewriting consent, pending deletion,
+  identity or deletion credentials; otherwise startup can collect before the shared
+  decoder rejects it or corrupt storage can erase deletion authority.
+- `ErrorReportingStore.disableForAccountRemoval` acknowledging withdrawal after
+  both consent persistence and a new marker write fail. Require successful
+  disabled custody or a freshly written wildcard withdrawal marker; an older
+  marker can predate the enabled generation. Propagate failure through
+  `stopErrorReporting`, `recordRemoval`, `endSession` and `purge` before account
+  mutation, while stopping collection immediately and preserving the independent
+  deletion credential. Otherwise cleanup succeeds and restart restores reporting.
+- `ErrorReportingStore.save` or `load` allowing a durably pending deletion to
+  collect before the shared withdrawal bridge completes. Treat that document as
+  a collection gate and purge both queues. Atomically disable and advance the
+  generation on the first pending save even when already off, reject pending
+  enables, and fence older idle saves as well as enables before withdrawal or
+  reopen. Otherwise queued old work can restore collection or erase the intent.
+  Preserve intent when purge rejects after the generation commits; otherwise
+  termination can resume collection or lose deletion.
+- `SentryReportingCollector.project` truncating SDK wire-ordered frames from the
+  front. Check the pinned converter's order and retain the innermost 64 without
+  reversing again. Verify distinct SDK frames beyond the limit in serialized
+  order, including the crash site; otherwise truncation removes diagnostic and
+  grouping evidence even though a count-only projection test passes.
+
+- `ErrorReportingStore.read` treating a transient unreadable Keychain as durable
+  withdrawal. Stop/cancel collection and fail closed during the failure, then
+  recover stored consent without advancing its generation after a successful
+  read. Preserve explicit withdrawal markers and failed-write blocking across
+  lock/unlock and restart; otherwise a background read silently opts a person out
+  or availability recovery resurrects revoked reporting.
+
+- `ErrorReportingStore.request` transmitting a fresh installation's capability for
+  revoke, delete or status when it never opted in. Use durable `everEnabled`, not
+  an empty queue, to establish prior reporting authority. Complete never-enabled
+  deletion locally without registering an installation. Preserve actual opted-in
+  remote deletion and deletion credentials across account purge, and keep
+  the generation/withdrawal marker effective through failed Keychain writes. Require
+  the observed generation on bridged enables so a late enable cannot undo a later
+  withdrawal;
+  otherwise opting out itself registers an installation or a restart restores consent.
+- `SentryReportingCollector` allowing any SDK HTTP request, including close's flush,
+  forwarding an SDK dictionary instead of its approved projection, or starting when
+  the per-platform qualification flag is false. Check the disconnected session,
+  beforeSend drop, raw-cache purge and late generation callbacks together; otherwise
+  native reports bypass the consent or safe-payload boundary.
+
 #### Bundled localization resources
 
 - `UnwiredLanguagePreferences.catalog` relying on a Debug assertion before using

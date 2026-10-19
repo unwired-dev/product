@@ -3768,16 +3768,26 @@ describe('gmail push relay', () => {
       await vi.waitUntil(() => apnsMock.requests.length > 0);
       await vi.advanceTimersByTimeAsync(0);
       await failedDelivery;
+      const healthJobs = await t.run((ctx) =>
+        ctx.db.system.query('_scheduled_functions').collect(),
+      );
+      const healthBudget = await t.run((ctx) =>
+        ctx.db.query('errorReportingServiceHealth').unique(),
+      );
       const retainedWakeups = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
+        healthJobs: healthJobs
+          .filter((job) => job.name === 'errorReporting:captureServiceHealth')
+          .map((job) => job.args),
         attemptCount: retainedWakeups[0]!.attemptCount,
         requestCount: apnsMock.requests.length,
         retainedWakeupCount: retainedWakeups.length,
         retryWasRescheduled:
           retainedWakeups[0]!.scheduledAt > pendingWakeups[0]!.scheduledAt,
       }).toStrictEqual({
+        healthJobs: [[{}]],
         attemptCount: 1,
         requestCount: 1,
         retainedWakeupCount: 1,
@@ -3800,6 +3810,9 @@ describe('gmail push relay', () => {
       apnsMock.stallResponseBody = false;
       const timedOutWakeup = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+      const retainedHealthBudget = await t.run((ctx) =>
+        ctx.db.query('errorReportingServiceHealth').unique(),
       );
 
       const previousScheduledAt = timedOutWakeup!.scheduledAt;
@@ -3824,6 +3837,7 @@ describe('gmail push relay', () => {
         scheduledAtChanged:
           refreshedWakeup?.scheduledAt !== previousScheduledAt,
         status: newerNotification.status,
+        retainedHealthBudget,
         timedOutAttemptCount: timedOutWakeup?.attemptCount,
         timedOutRetryWasRescheduled:
           previousScheduledAt > retainedWakeups[0]!.scheduledAt,
@@ -3831,6 +3845,7 @@ describe('gmail push relay', () => {
         attemptCount: 0,
         scheduledAtChanged: false,
         status: 202,
+        retainedHealthBudget: healthBudget,
         timedOutAttemptCount: 2,
         timedOutRetryWasRescheduled: true,
       });

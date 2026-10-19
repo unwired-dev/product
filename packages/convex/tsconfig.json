@@ -9,5 +9,10 @@
     "types": ["node", "vitest/globals", "vite/client"]
   },
   "exclude": ["./convex/_generated"],
-  "include": ["convex/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "convex/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts",
+    "testing.ts"
+  ]
 }

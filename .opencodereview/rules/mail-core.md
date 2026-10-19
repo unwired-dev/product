@@ -9,6 +9,67 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Reporting consent and failure observation
+
+- `error-reporting.ts.flush` or `deliverQueue` discarding a capture retry delay or
+  letting native enable/capture transport rejections bypass backoff. Decode bounded
+  integer hints using the native reply contract and retain a 30-second fallback for
+  transport failures, or refresh, polling and new captures can flood the receiver.
+  Scope the Clock deadline to the current consent revision and native generation,
+  checking that revision again after the Clock read before installing a deadline. Keep
+  pruning, validated native drain, queue bounds and saving active while waiting;
+  withdrawal and deletion must remain available. Clear stale deadlines on
+  consent or generation changes and fence late replies before installing one,
+  or retry traffic ignores receiver backoff or delays a renewed installation.
+- `host.ts` withdrawing reporting around `prepareSignOut` before that preflight
+  permits removal. A refused Recovery Key preflight leaves the account active;
+  preserve consent and queued reports until actual removal starts, while retaining
+  native/host withdrawal at recorded removal, session end and purge.
+- `error-reporting.ts.flush` enabling the receiver on every empty poll or Settings
+  refresh. Merge native reports, expire/persist the queue and recheck its current
+  generation/revision before networking; only queued delivery needs an enable.
+  Otherwise idle installations consume quota and battery without reporting errors.
+
+- `error-reporting.ts.deleteReports` waiting for withdrawal before publishing deletion
+  intent. Close re-enablement synchronously before native/network waits, including
+  a second Mac window; otherwise a delayed revoke allows fresh collection during
+  deletion. Preserve that intent when an older save is refused after withdrawal.
+  Persist the empty pending document before crossing the withdrawal bridge,
+  preserve it during consent-pending refreshes, and still withdraw if saving
+  fails. If a prior native transition committed before its acknowledgement, refresh
+  the decoded generation and retry a refused intent save without restoring consent.
+  Keep status retries from completing deletion before native withdrawal is
+  acknowledged.
+  Verify interruption and generation-commit-then-purge rejection through
+  reopen; publishing alone loses the remote deletion request after termination.
+  Distinguish known offline failures from retryable server/invalid-response
+  failures instead of presenting every retry as offline.
+- `host.ts.observe` treating resolved provider HTTP failures or a Convex
+  `status:error` envelope as successful work. Inspect only validated status fields,
+  preserve the original operation result, and omit ambiguous native `unavailable`
+  rejections that can mean expected offline; otherwise real failures disappear or
+  routine offline use becomes error statistics. Never retain response text, paths,
+  arguments or account/mailbox context in the report.
+
+- In `createErrorReporting.setEnabled`, publish native-acknowledged consent before
+  waiting for remote queue delivery, and fence duplicate enable/identity-renewal
+  actions while consent is pending. A known available startup snapshot must permit
+  synchronous withdrawal and deletion before ordinary async loading, while enabling
+  still waits for reconciliation. Otherwise seeded consent keeps collecting after
+  an early disable or delete. A slow delivery must not leave Settings showing Off
+  while native collection is enabled or rotate deletion identity twice.
+
+- Deletion retries must recheck the current pending/offline/failed state inside
+  serialized work and discard replies after a consent revision changes. A stale
+  retry callback must not delete a renewed identity or bypass withdrawal.
+
+- `error-reporting.ts.frames` forwarding JavaScript throw-site-first order into
+  PostHog. Retain the innermost 64 admitted frames before reversing them to
+  outermost-retained-first wire order, and trace the receiver for any further
+  reordering. Verify the serialized public capture with a multi-frame stack
+  beyond the retention limit; otherwise grouping can select the wrong call site
+  or truncation can discard the throw site.
+
 #### Shared runtime compatibility
 
 - Shared modules, including `testing/synthetic-convex.ts`, using Node-supported

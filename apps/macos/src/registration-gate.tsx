@@ -1,5 +1,6 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
+import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type {
   InboxChoice,
   MailboxConnection,
@@ -15,6 +16,7 @@ import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   Fragment,
   createContext,
+  useContext,
   useEffect,
   useMemo,
   useState,
@@ -28,6 +30,11 @@ import type { SettingsDestination } from './settings.tsx';
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
 import { Button, Notice } from './design.tsx';
+import {
+  ErrorReportingContext,
+  ErrorReportingDestination,
+  ErrorReportingSettings,
+} from './error-reporting.tsx';
 import { Label } from './label.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -41,6 +48,7 @@ import { TrustCard } from './onboarding.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
+  errorReporting as deviceErrorReporting,
   microsoftMail,
   registration,
   remoteContent as deviceRemoteContent,
@@ -96,6 +104,7 @@ function useMailAssistanceAccount(
 }
 
 function useRegistrationActivation(store: Registration, preview = false) {
+  const reporting = useContext(ErrorReportingContext);
   useEffect(() => {
     if (preview) {
       return;
@@ -105,15 +114,16 @@ function useRegistrationActivation(store: Registration, preview = false) {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void store.resume();
+        void reporting.refresh();
       }
     });
     return () => {
       subscription.remove();
     };
-  }, [preview, store]);
+  }, [preview, store, reporting]);
 }
 
-export function RegistrationGate({
+function RegistrationGateContent({
   children,
   store = registration,
   microsoft = microsoftMail(),
@@ -234,7 +244,7 @@ export function RegistrationGate({
 
 // The Settings window's gate: the connected Inbox's Settings, which it closes once no Inbox can
 // open, as when the Product Account signs out or storage locks.
-export function SettingsGate({
+function SettingsGateContent({
   store = registration,
   microsoft = microsoftMail(),
   remoteContent = deviceRemoteContent,
@@ -266,16 +276,37 @@ export function SettingsGate({
     snapshot.kind === 'signed-out' ? undefined : snapshot.productAccountId,
     request,
   );
+  const privacyAccess =
+    snapshot.kind === 'signed-out' &&
+    request.account === undefined &&
+    request.destination === 'errorReporting';
   const open =
-    screen.destination !== 'locked' &&
-    screen.choices !== undefined &&
-    snapshot.kind !== 'signed-out';
+    privacyAccess ||
+    (screen.destination !== 'locked' &&
+      screen.choices !== undefined &&
+      snapshot.kind !== 'signed-out');
   useEffect(() => {
     if (!open) {
       onClose();
     }
   }, [open, onClose]);
   if (!open) {
+    return null;
+  }
+  if (privacyAccess) {
+    return (
+      <AccountPage onInbox={onInbox}>
+        <SettingsWindow
+          account=""
+          destination="errorReporting"
+          onDestination={() => undefined}
+          onWelcome={onClose}>
+          <ErrorReportingSettings signedOut />
+        </SettingsWindow>
+      </AccountPage>
+    );
+  }
+  if (snapshot.kind === 'signed-out') {
     return null;
   }
   return (
@@ -392,6 +423,10 @@ function SettingsPage({
           </>
         ) : null}
         {destination === 'language' ? <LanguageSelector /> : null}
+        <ErrorReportingDestination
+          destination={destination}
+          onDestination={setDestination}
+        />
         {actions.settings ? (
           <AccountSettings
             assistance={assistance}
@@ -549,5 +584,31 @@ function RegistrationPage({
         <LanguageSelector />
       </View>
     </ScrollView>
+  );
+}
+
+export function RegistrationGate({
+  errorReporting = deviceErrorReporting,
+  ...props
+}: Parameters<typeof RegistrationGateContent>[0] & {
+  readonly errorReporting?: ErrorReporting;
+}) {
+  return (
+    <ErrorReportingContext.Provider value={errorReporting}>
+      <RegistrationGateContent {...props} />
+    </ErrorReportingContext.Provider>
+  );
+}
+
+export function SettingsGate({
+  errorReporting = deviceErrorReporting,
+  ...props
+}: Parameters<typeof SettingsGateContent>[0] & {
+  readonly errorReporting?: ErrorReporting;
+}) {
+  return (
+    <ErrorReportingContext.Provider value={errorReporting}>
+      <SettingsGateContent {...props} />
+    </ErrorReportingContext.Provider>
   );
 }

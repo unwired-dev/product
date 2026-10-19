@@ -6,6 +6,9 @@ import { v } from 'convex/values';
 // the code reading each value reports its own missing configuration.
 const app = defineApp({
   env: {
+    POSTHOG_PROJECT_KEY: v.optional(v.string()),
+    POSTHOG_PROJECT_ID: v.optional(v.string()),
+    POSTHOG_PERSON_API_KEY: v.optional(v.string()),
     APNS_KEY_ID: v.optional(v.string()),
     APNS_PRIVATE_KEY: v.optional(v.string()),
     APNS_TEAM_ID: v.optional(v.string()),

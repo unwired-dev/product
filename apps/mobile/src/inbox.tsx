@@ -41,6 +41,7 @@ import {
   useOpenDraft,
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
+import { ErrorReportingContext } from './error-reporting.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import { useInboxPresentation } from './inbox-presentation.ts';
@@ -568,14 +569,17 @@ export function Inbox({
   view = allInboxes,
   onView = keepView,
 }: InboxProps) {
+  const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
     if (onSelectBehindComposer !== undefined) {
+      reporting.breadcrumb({ operation: 'reader', stage: 'open' });
       onSelectBehindComposer(selection);
       return;
     }
     if (await leave()) {
+      reporting.breadcrumb({ operation: 'reader', stage: 'open' });
       onSelect(selection);
     }
   };

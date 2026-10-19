@@ -266,6 +266,10 @@ which dominates the duration, is not paid serially:
 - `Expo native storage checks` runs the runner's failure-handling contract, the
   [private storage checks](private-inbox-storage.md#verification) and ordinary
   project generation with a cleared scenario, independently of the build.
+- `Error reporting native contracts` independently checks release reporting
+  artifact preparation and the selected Swift reporting persistence and transport
+  contracts. These checks do not qualify live-vendor reporting or native cold start;
+  see the [reporting qualification gates](telemetry.md).
 
 No signing credentials, provider accounts or running Metro server are required.
 
@@ -275,18 +279,21 @@ retry. The build and journey jobs each have a 25-minute timeout; the interaction
 step has a separate 18-minute limit for harness compilation, one simulator startup
 and its journey, including the bounded infrastructure retry. The storage job has
 a 34-minute timeout; its native integration step has a 26-minute limit, including
-the bounded infrastructure retry and cleanup. Superseded pull-request runs are cancelled.
+the bounded infrastructure retry and cleanup. The reporting job has a
+25-minute timeout. Superseded pull-request runs are cancelled.
 Logs and XCTest result bundles, including screenshots, run ownership, simulator
 IDs and exit results, are uploaded with seven-day retention, including on failure,
 as `expo-native-e2e-<device>-<scenario>-<run id>-<attempt>`,
 `expo-native-build-<scenario>-<run id>-<attempt>` and
-`expo-native-checks-<run id>-<attempt>`. Re-running a failed journey job reuses
+`expo-native-checks-<run id>-<attempt>`. Reporting logs use
+`error-reporting-native-<run id>-<attempt>` with the same retention and failure
+upload policy. Re-running a failed journey job reuses
 the matching scenario's app from the original build while that artifact is
 retained.
 
 These journeys use synthetic Mock Mail Sessions. They do not qualify the separate
 native Mac host or real provider integration. If maintainers elect to require the
-native checks for merging, branch protection must select all seven exact check
+native checks for merging, branch protection must select all eight exact check
 names separately:
 
 - `Expo native build (open-read-relaunch)`
@@ -296,6 +303,7 @@ names separately:
 - `Expo native E2E (iPad, open-read-relaunch)`
 - `Expo native E2E (iPad, registration-thread)`
 - `Expo native storage checks`
+- `Error reporting native contracts`
 
 A failed build skips all journey jobs, and GitHub accepts skipped required
 checks, so requiring only the journeys would not enforce successful builds.

@@ -4,6 +4,14 @@ The backend is an opaque store and relay. It authenticates Product Accounts and 
 
 Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it overrides general Convex knowledge.
 
+#### Diagnostic health admission
+
+- APNs failure handling scheduling a vendor health action for every failed
+  recipient. Apply the identity-free project-wide durable budget before scheduling,
+  atomically with admission, including concurrent actions and failed vendor sends.
+  Keep admission failures isolated from delivery and stale-token cleanup; otherwise
+  an outage exhausts diagnostic quota or changes mail behavior.
+
 #### Authentication and authorization
 
 - A public `query`, `mutation`, `action` or `httpAction` that reads or writes account data without establishing the caller and the authorization required by that operation. Trace `convex/productAccountAuth.ts` helpers (`requireProductAccount`, `requireAuthenticatedTrustedDevice`, `requireTrustedDeviceProof`, `requireTrustedDevice`) or the owning equivalent boundary. Account bootstrap in `productAccount.connect` derives verified `ctx.auth` identity and checks deletion before creating the account; it cannot require an existing account. Provider HTTP routes use their owning verifier. Follow the handler through authentication and each ownership check before protected data is returned or changed.

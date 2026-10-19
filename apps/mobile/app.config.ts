@@ -62,6 +62,21 @@ if (
   throw new TypeError('Invalid release build configuration');
 }
 
+const reportingQualification =
+  env.UNWIRED_ERROR_REPORTING_QUALIFICATION === '1';
+const nativeReportingQualified =
+  env.UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED === '1';
+const reportingChannel: unknown =
+  env.UNWIRED_ERROR_REPORTING_CHANNEL ??
+  (reportingQualification ? 'qualification' : 'production');
+if (
+  !Schema.is(Schema.Literals(['production', 'testflight', 'qualification']))(
+    reportingChannel,
+  )
+) {
+  throw new TypeError('Invalid error reporting channel');
+}
+
 const config: ExpoConfig = {
   name: 'Unwired Mail',
   slug: 'unwired-mail',
@@ -88,6 +103,9 @@ const config: ExpoConfig = {
       GIDClientID: googleClientID,
       UnwiredMicrosoftClientID: microsoftClientID.toLowerCase(),
       UnwiredConvexURL: convexURL,
+      UnwiredErrorReportingQualification: reportingQualification,
+      UnwiredNativeErrorReportingQualified: nativeReportingQualified,
+      UnwiredErrorReportingChannel: reportingChannel,
       ...(gmailTopic ? { UnwiredGmailTopic: gmailTopic } : {}),
       UIBackgroundModes: ['remote-notification'],
       ...(commit ? { UnwiredCommit: commit } : {}),

@@ -14,7 +14,8 @@ export type SettingsDestination =
   | 'account'
   | 'mailboxes'
   | 'language'
-  | 'privacy';
+  | 'privacy'
+  | 'errorReporting';
 
 // The sidebar's groups below the account item, in the design's order.
 const sections = [
@@ -244,6 +245,7 @@ export function SettingsWindow({
   destination,
   onDestination,
   accessory,
+  onWelcome,
   children,
 }: {
   // The Product Account the account item names.
@@ -252,6 +254,7 @@ export function SettingsWindow({
   readonly onDestination: (destination: SettingsDestination) => void;
   // Shown beside the destination's title, such as an activity indicator.
   readonly accessory?: ReactNode;
+  readonly onWelcome?: () => void;
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
@@ -263,72 +266,100 @@ export function SettingsWindow({
       <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
         <Glass cornerRadius={18} />
         <ScrollView contentContainerStyle={styles.sidebarList}>
-          <Pressable
-            accessibilityLabel={t('settings.destinations.account')}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            focusable
-            onBlur={() => {
-              setAccountFocused(false);
-            }}
-            onFocus={() => {
-              setAccountFocused(true);
-            }}
-            onPress={() => {
-              onDestination('account');
-            }}
-            style={({ pressed }) => [
-              styles.account,
-              (selected || pressed) && {
-                backgroundColor: colors.accentSelectionSubtle,
-              },
-              {
-                borderColor: accountFocused ? colors.accentInk : 'transparent',
-              },
-            ]}>
-            <AccountMonogram
-              name={account}
-              size={32}
-            />
-            <View style={styles.itemText}>
-              <Text
-                numberOfLines={1}
-                style={[
-                  textStyles.bodyEmphasized,
-                  { color: colors.textPrimary },
+          {onWelcome === undefined ? (
+            <>
+              <Pressable
+                accessibilityLabel={t('settings.destinations.account')}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                focusable
+                onBlur={() => {
+                  setAccountFocused(false);
+                }}
+                onFocus={() => {
+                  setAccountFocused(true);
+                }}
+                onPress={() => {
+                  onDestination('account');
+                }}
+                style={({ pressed }) => [
+                  styles.account,
+                  (selected || pressed) && {
+                    backgroundColor: colors.accentSelectionSubtle,
+                  },
+                  {
+                    borderColor: accountFocused
+                      ? colors.accentInk
+                      : 'transparent',
+                  },
                 ]}>
-                {account}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[
-                  textStyles.subheadline,
-                  { color: colors.textSecondary },
-                ]}>
-                {t('settings.destinations.account')}
-              </Text>
-            </View>
-          </Pressable>
-          {sections.map((section) => (
-            <Fragment key={section.title}>
-              <Label
-                accessibilityRole="header"
-                style={[styles.sectionHeader, { color: colors.textSecondary }]}>
-                {t(`settings.sections.${section.title}`)}
-              </Label>
-              {section.items.map((item) => (
-                <SidebarItem
-                  key={item.id}
-                  icon={item.icon}
-                  label={t(`settings.destinations.${item.id}`)}
-                  selected={destination === item.id}
-                  onPress={() => {
-                    onDestination(item.id);
-                  }}
+                <AccountMonogram
+                  name={account}
+                  size={32}
                 />
+                <View style={styles.itemText}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      textStyles.bodyEmphasized,
+                      { color: colors.textPrimary },
+                    ]}>
+                    {account}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      textStyles.subheadline,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t('settings.destinations.account')}
+                  </Text>
+                </View>
+              </Pressable>
+              {sections.map((section) => (
+                <Fragment key={section.title}>
+                  <Label
+                    accessibilityRole="header"
+                    style={[
+                      styles.sectionHeader,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t(`settings.sections.${section.title}`)}
+                  </Label>
+                  {section.items.map((item) => (
+                    <SidebarItem
+                      key={item.id}
+                      icon={item.icon}
+                      label={t(`settings.destinations.${item.id}`)}
+                      selected={
+                        destination === item.id ||
+                        (destination === 'errorReporting' &&
+                          item.id === 'privacy')
+                      }
+                      onPress={() => {
+                        onDestination(item.id);
+                      }}
+                    />
+                  ))}
+                </Fragment>
               ))}
-            </Fragment>
-          ))}
+            </>
+          ) : (
+            <>
+              <SidebarItem
+                icon="chevron.left"
+                label={t('errorReporting.backToWelcome')}
+                selected={false}
+                onPress={onWelcome}
+              />
+              <SidebarItem
+                icon="hand.raised"
+                label={t('settings.destinations.privacy')}
+                selected
+                onPress={() => undefined}
+              />
+            </>
+          )}
         </ScrollView>
       </View>
       <ScrollView
@@ -340,7 +371,9 @@ export function SettingsWindow({
               textStyles.title3Emphasized,
               { color: colors.textPrimary },
             ]}>
-            {t(`settings.destinations.${destination}`)}
+            {t(
+              `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
+            )}
           </Label>
           {accessory}
         </View>
@@ -437,12 +470,14 @@ function Hairline() {
 export function SettingsRow({
   icon,
   title,
+  disabled = false,
   subtitle,
   subtitleTone,
   children,
 }: {
   readonly icon?: string;
   readonly title: string;
+  readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
@@ -458,7 +493,7 @@ export function SettingsRow({
           color={colors.accentInk}
         />
       )}
-      <View style={styles.rowText}>
+      <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
         <Label style={[textStyles.body, { color: colors.textPrimary }]}>
           {title}
         </Label>

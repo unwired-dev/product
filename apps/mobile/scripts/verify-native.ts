@@ -92,6 +92,7 @@ const pinned = [
 assert.deepEqual(
   pinned.map(({ url }) => url),
   [
+    'https://github.com/getsentry/sentry-cocoa.git',
     'https://github.com/Cocoanetics/SwiftMail.git',
     'https://github.com/apple/swift-log.git',
   ],

@@ -175,8 +175,23 @@ ${anchor}`,
     }
     return result;
   });
+  const withErrorReporting = withAppDelegate(withPushWakes, (result) => {
+    const marker = 'UnwiredErrorReporting.start()';
+    if (!result.modResults.contents.includes(marker)) {
+      const launch =
+        'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
+      if (!result.modResults.contents.includes(launch)) {
+        throw new Error('Error reporting requires the Expo Swift AppDelegate');
+      }
+      result.modResults.contents = result.modResults.contents.replace(
+        launch,
+        `${marker}\n    ${launch}`,
+      );
+    }
+    return result;
+  });
   // The workspace builds exactly the Swift package graph Private Inbox resolved.
-  const withResolvedPackages = withDangerousMod(withPushWakes, [
+  const withResolvedPackages = withDangerousMod(withErrorReporting, [
     'ios',
     (result) => {
       const destination = path.join(

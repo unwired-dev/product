@@ -11,6 +11,7 @@ import { ScreenStack } from 'react-native-screens';
 
 import { BackScreen } from './back-navigation.tsx';
 import { Button } from './design.tsx';
+import { PrivacyAccess } from './error-reporting.tsx';
 import { ImapForm } from './imap-setup.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
@@ -27,10 +28,12 @@ import { usePalette } from './theme.ts';
 
 // Before a Product Account: Welcome, then Sign In. A notice about a removed device or account
 // opens Sign In directly with that notice.
-export function SignedOutPage({
+function SignedOutContent({
   screen,
   store,
+  onPrivacy,
 }: {
+  readonly onPrivacy: () => void;
   readonly screen: RegistrationScreen;
   readonly store: Registration;
 }) {
@@ -52,6 +55,7 @@ export function SignedOutPage({
   }
   const welcome = (
     <Welcome
+      onPrivacy={onPrivacy}
       onContinue={() => {
         setWelcomed(true);
       }}
@@ -105,6 +109,10 @@ export function SignedOutPage({
           }}
         />
       ) : null}
+      <Button
+        label={t('settings.destinations.privacy')}
+        onPress={onPrivacy}
+      />
       <LanguageSelector />
     </SignIn>
   );
@@ -212,5 +220,25 @@ export function FirstMailbox({
         store.addMailbox('gmail', true),
       )}
     </>
+  );
+}
+
+export function SignedOutPage(
+  props: Omit<Parameters<typeof SignedOutContent>[0], 'onPrivacy'>,
+) {
+  const [privacy, setPrivacy] = useState(false);
+  return (
+    <PrivacyAccess
+      open={privacy}
+      onClose={() => {
+        setPrivacy(false);
+      }}>
+      <SignedOutContent
+        {...props}
+        onPrivacy={() => {
+          setPrivacy(true);
+        }}
+      />
+    </PrivacyAccess>
   );
 }

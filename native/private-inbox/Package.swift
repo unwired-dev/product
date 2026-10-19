@@ -6,6 +6,10 @@ let package = Package(
   platforms: [.macOS("27.0"), .iOS("27.0")],
   products: [.library(name: "PrivateInbox", targets: ["PrivateInbox"])],
   dependencies: [
+    // Sentry 9.30.2 is a permanently disconnected native crash collector.
+    .package(
+      url: "https://github.com/getsentry/sentry-cocoa.git",
+      revision: "4bb2282661ee6ca2212aa01d19a1214394cd3c45"),
     // SwiftMail 1.16.0. It pins swift-nio-imap to a revision, so SwiftPM accepts it only by
     // revision; the hosts and the storage probe pin the same commit.
     .package(
@@ -20,6 +24,7 @@ let package = Package(
     .target(
       name: "PrivateInbox",
       dependencies: [
+        .product(name: "Sentry", package: "sentry-cocoa"),
         .product(name: "SwiftMail", package: "SwiftMail"),
         .product(name: "Logging", package: "swift-log"),
       ]),

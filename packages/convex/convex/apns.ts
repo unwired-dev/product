@@ -323,6 +323,9 @@ const handleDeliveryResult = Effect.fnUntraced(function* (
     'APNs wakeup delivery failed:',
     sendFailureDiagnostic(result.failure),
   );
+  yield* call(() =>
+    ctx.runMutation(internal.errorReportingState.scheduleServiceHealth, {}),
+  ).pipe(Effect.ignore);
   if (recipient === undefined || !isStaleTokenFailure(result.failure)) {
     return;
   }

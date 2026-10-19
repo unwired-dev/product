@@ -2,7 +2,20 @@ import { signInProviderValidator } from '@private-email/contracts/productAccount
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
+import { reportingStateValidator } from './errorReportingModel.js';
+
 export default defineSchema({
+  errorReportingServiceHealth: defineTable({ scheduledAt: v.number() }),
+  errorReportingInstallations: defineTable({
+    installationId: v.string(),
+    credentialDigest: v.string(),
+    generation: v.number(),
+    deliveryAttempted: v.boolean(),
+    state: reportingStateValidator,
+  }).index('by_installationId', ['installationId']),
+  errorReportingDeliveries: defineTable({
+    installationId: v.string(),
+  }).index('by_installationId', ['installationId']),
   productAccounts: defineTable({
     createdAt: v.number(),
     deviceCredentialEnforcementActivatedAt: v.optional(v.number()),

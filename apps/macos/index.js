@@ -1,8 +1,9 @@
 import 'fast-text-encoding';
-import './src/delivery.ts';
+import './src/reporting-bootstrap.js';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { AppRegistry } from 'react-native';
 
+import './src/delivery.ts';
 import { keepGmailFresh } from './src/freshness.ts';
 import { start } from './src/registration.ts';
 import { InboxWindow, SettingsWindowRoot } from './src/window.tsx';

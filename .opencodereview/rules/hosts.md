@@ -90,6 +90,23 @@ shared-store ownership. Its Mac-only request and presentation state may remain i
 non-React `categorization-spike-client.ts` adapter. This exception adds no shared
 product behavior or production adoption. See `docs/architecture/macos-client.md`.
 
+#### Exception forwarding
+
+- `index.js` installing reporting hooks after application imports have evaluated,
+  or early hooks using a store whose consent stays unknown until asynchronous
+  restoration. Trace the bootstrap's actual import graph and the native startup
+  snapshot through the shared strict decoder. Install hooks before registration
+  side effects, delivery, freshness, routing and windows, and admit startup errors
+  only for a valid available enabled idle snapshot. Missing, locked or malformed
+  state must stay off without buffering raw errors. Preserve ordinary async
+  reconciliation and generation fences; entry mocks do not qualify native cold start.
+- Both `reporting-bootstrap.js` hooks capturing the same synchronous global-to-ExceptionsManager
+  forwarding twice. Check primitive values as well as objects, preserve saved
+  handlers and their fatal flag, and clear any forwarding guard when a handler
+  throws. Trace the installed RN classic and always-available paths plus Expo
+  wrappers before removing a hook; otherwise statistics double-count primitives
+  or direct-runtime global exceptions disappear.
+
 #### React correctness
 
 - `evaluation-composer.tsx` treating the latest page-state revision as proof that
@@ -132,6 +149,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   outer View's minimum height reserves layout space without enlarging that target.
   Qualify any separate enlarged touch handler with
   native interaction evidence rather than treating component events as proof.
+
+- `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
+  label after changing its return target. Trace the callback to the retained
+  destination, including signed-out privacy opened from Welcome or Sign In;
+  use a generic Back label when entry points differ, while preserving ordinary
+  Settings-return labels. Otherwise VoiceOver announces a destination the action
+  does not open. Exercise the route through the labeled action and check the
+  screen it restores.
 
 - `settings.tsx.settingsButton` giving a short visible title whose words are
   absent from its target-specific accessible name. Trace every `options.title`

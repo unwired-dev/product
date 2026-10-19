@@ -46,6 +46,18 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Secrets and release
 
+- `reporting-artifacts.mjs` upload coordinates disagreeing with the receiver's
+  `$app_namespace`, `$app_version` or `$app_build`. Read the namespace, version and
+  build from the archive, validate the fixed public namespace inventory, and trace
+  all three through native metadata, canonical schema, receiver and both symbol
+  upload commands. Assert actual emitted artifacts and vendor payload properties;
+  otherwise valid maps/dSYMs cannot resolve against the reported release.
+
+- `reporting-artifacts.mjs.appRelease` assuming every executable has an adjacent
+  Info.plist. Exercise iOS's flat bundle and Mac's Contents/MacOS executable with
+  Contents/Info.plist using real matching Mach-O/dSYM artifacts; otherwise the
+  documented Mac symbol-preparation path fails before qualification can begin.
+
 - `scripts/testflight-signing.zsh` suppressing native `security` failures without
   a fixed operation name and exit code, or printing raw diagnostics to recover
   that information. The former makes protected setup failures untraceable; the
