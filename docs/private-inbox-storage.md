@@ -284,6 +284,15 @@ every entry without touching mail or bodies. Removing a connection, and every
 account purge, remove its entries with its directory. Entries are not yet scoped
 by [Mail Profile](#mail-profiles).
 
+Under the required [Profile-scoped cache contract](product/privacy-and-sync.md#local-storage-and-background-freshness),
+a lookup after a connection move includes the destination Profile. An entry bound
+to the source Profile is therefore a cache miss in the destination Profile, even
+though the connection's Inbox, body cache and connection-bound encrypted-record
+identities stay in place. Any new remote request still needs authorization under
+the effective remote-content policy or one-message consent. This isolation remains
+required before multiple Profiles are enabled; the current native cache does not
+yet provide it.
+
 ## Draft storage
 
 [Drafts](drafts.md) are encrypted for their Product Account with a device-only key

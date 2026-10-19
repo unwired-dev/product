@@ -49,3 +49,7 @@ current replacement work from prototype maintenance and historical plans.
 ## Authorized Remote Content Cache
 
 The remote-content limit is a shared quota only: entries use Product Account-, Mail Profile-, Mailbox Connection-, stable-message-, and resource-revision-scoped encryption and identity, never deduplicate across Profiles, become inaccessible with Profile Lock, and follow existing Profile-removal deletion rules.
+
+The [operational storage contract](../../private-inbox-storage.md#authorized-remote-content-cache)
+separates connection-bound mail preservation from Profile-bound remote-entry
+eligibility on a connection move and records the current native-cache limitation.
