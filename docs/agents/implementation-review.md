@@ -126,7 +126,9 @@ not itself restrict filesystem or Git-history access.
 
    Include the checkout path, user request and issue/specification, starting
    commit, implementation summary, task-owned files, pre-existing changes, checks
-   and their results, and known limitations. Tell it to read this workflow, run the
+   and their results, known limitations, and the current attempt, round count and
+   rethink history under the [four-round safeguard](#four-round-safeguard).
+   Tell it to read this workflow, run the
    Open Code Review delegation step below, apply the repository rules and their
    required architecture-source reading, review the implementation, fix validated issues,
    and rerun the relevant checks. Include the actual comparison to review:
@@ -161,8 +163,10 @@ not itself restrict filesystem or Git-history access.
    [design review](#design-review). Keep implementer writes paused until its
    final report. For other tasks, record "design review: not applicable" with
    the reason in your final report and the PR.
-8. The required reviews form one implementation review. Additional implementation
-   edits, including fixes after review or PR feedback, require another pinned
+8. The required reviews form one implementation review. Apply the
+   [four-round safeguard](#four-round-safeguard) before repeating this sequence.
+   Additional implementation edits, including fixes after review or PR feedback,
+   require another pinned
    review by every required reviewer. OCR uses its validated checkpoint; the
    thermo-nuclear and applicable design reviews keep the full task comparison.
    Changes made by later reviewers are not covered by an earlier OCR checkpoint;
@@ -174,6 +178,66 @@ not itself restrict filesystem or Git-history access.
    cannot renew checkout ownership. Stop any pre-existing review watcher before
    returning the checkout; a later review starts as a new delegated task with a
    fresh pinned handoff.
+
+## Four-round safeguard
+
+The implementer owns the review allowance. Apply it to initial implementation,
+later fixes and PR babysitting. Keep the attempt number, rounds used, total task
+rounds, findings and rethink history in the task issue and every reviewer handoff;
+include the history in the PR description. Restore this record when resuming work
+or changing agents, threads or worktrees.
+
+### Count local review rounds
+
+- One round is the required OCR, thermo-nuclear and applicable design sequence
+  for an implementation. Reusing a valid OCR report still counts the sequence
+  once; individual reviewers do not each consume a round.
+- Record a round when its first reviewer begins substantive review. A failed,
+  interrupted or partial round with substantive review counts. A retry that only
+  repairs infrastructure, such as a reviewer failing to start, does not consume
+  another round. Retain findings from interrupted rounds in the next handoff.
+- If the fourth round satisfies every required review gate for the final
+  artifact, continue delivery normally. If another round is needed after four
+  rounds, perform the mandatory rethink below before starting it. Later-reviewer
+  edits that need an earlier review repeated still require another round.
+- A successful implementation review ends the attempt. Later PR feedback starts
+  a fresh four-round allowance and retains the task's earlier history.
+
+### Bound reviewer fix loops
+
+Each reviewer may perform at most four unsuccessful internal fix-and-check
+cycles in its pass. A cycle consists of applying fixes, running the relevant
+checks and reviewing the corrected result. Count substantive failed or
+interrupted cycles; infrastructure-only retries do not consume another cycle.
+Carry the count into any replacement reviewer continuing that pass.
+
+If the fourth cycle still leaves findings or failed checks, stop reviewer writes
+and return an incomplete final report to the implementer. Include the cycle
+count, attempted fixes, remaining findings and check results, and explicitly
+request the mandatory rethink. This triggers the rethink even if fewer than four
+outer rounds have run. A failed or incomplete OCR pass records no successful
+checkpoint. A successful fourth cycle may complete normally.
+
+### Mandatory rethink
+
+Before further implementation edits or review after either limit is reached:
+
+1. Record why the preceding rounds or cycles failed, including recurring
+   findings, ineffective fixes and the assumptions behind the current approach.
+2. Challenge those assumptions, consider an alternative approach, and write a
+   revised plan explaining the concrete change in approach and the checks that
+   will prove it resolves the failures. Preserve valid work and replace the parts
+   responsible for the failures. Renaming the attempt or repeating the same
+   patch-and-review loop does not satisfy this step. Use the
+   [decision panel](#decision-panel) for unresolved choices, respecting the
+   implementer's reading boundary and existing design approval requirements.
+3. Implement the revised plan and run its relevant checks. Only then record a
+   new attempt with a fresh four-round allowance and fresh reviewer cycle counts.
+   Retain the original task baseline, all prior findings, total rounds and rethink
+   history. Keep OCR checkpoint reuse subject to its existing validity rules.
+4. Resume the required reviews in order. Apply this safeguard again if the
+   revised approach exhausts its allowance. A rethink never waives review gates
+   or authorizes delivery with unresolved findings.
 
 ## Reviewer responsibilities
 
@@ -203,8 +267,11 @@ not itself restrict filesystem or Git-history access.
    even when a review skill's default output is only a findings report.
 5. Run the checks appropriate to the fixes, inspect the final diff, and review
    the corrected result again. Repeat until there are no unresolved issues within
-   the authorized scope. Reviewer fixes remain within this review and do not
-   spawn another implementation reviewer.
+   the authorized scope, subject to the
+   [four-round safeguard's reviewer cycle limit](#bound-reviewer-fix-loops).
+   Reviewer fixes remain within this review and do not spawn another
+   implementation reviewer. Return control to the implementer when the cycle
+   limit requires a rethink.
 6. After a successful OCR pass, record its checkpoint under
    [incremental OCR checkpoints](#incremental-ocr-checkpoints). Return the
    reviewed scope, checkpoint commit (or why none was recorded), full/incremental
