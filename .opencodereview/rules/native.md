@@ -4,6 +4,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Error reporting lifecycle
 
+- `ReportingDocument.decode` or `ErrorReportingStore.load` treating a present
+  malformed nested document as fresh idle before native collector startup. Validate
+  its complete shape, version, bounds and report fields against the shared contract,
+  including excess keys and explicit null optionals, before collection or persistence.
+  Distinguish absent state and valid expired reports from malformed state. Stop/cancel
+  collection and fail unavailable without rewriting consent, pending deletion,
+  identity or deletion credentials; otherwise startup can collect before the shared
+  decoder rejects it or corrupt storage can erase deletion authority.
 - `ErrorReportingStore.disableForAccountRemoval` acknowledging withdrawal after
   both consent persistence and a new marker write fail. Require successful
   disabled custody or a freshly written wildcard withdrawal marker; an older

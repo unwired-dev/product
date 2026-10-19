@@ -11,10 +11,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Reporting consent and failure observation
 
-- `error-reporting.ts.deliverQueue` discarding a capture retry delay, allowing
-  refresh, polling or a new capture to send enable/capture before its deadline.
-  Decode bounded integer hints using the native reply contract and retain a
-  Clock deadline for the current consent revision and native generation. Keep
+- `error-reporting.ts.flush` or `deliverQueue` discarding a capture retry delay or
+  letting native enable/capture transport rejections bypass backoff. Decode bounded
+  integer hints using the native reply contract and retain a 30-second fallback for
+  transport failures, or refresh, polling and new captures can flood the receiver.
+  Scope the Clock deadline to the current consent revision and native generation,
+  checking that revision again after the Clock read before installing a deadline. Keep
   pruning, validated native drain, queue bounds and saving active while waiting;
   withdrawal and deletion must remain available. Clear stale deadlines on
   consent or generation changes and fence late replies before installing one,

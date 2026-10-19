@@ -38,6 +38,12 @@ bootstrap before registration side effects, delivery, freshness, routing or wind
 
 Only a valid available enabled idle snapshot permits startup capture. Missing,
 locked, unavailable or malformed state stays off without retaining raw errors.
+Native load validates a present nested document before collector startup or any
+persistence. Malformed data stops/cancels collection and purges raw cache best
+effort, without rewriting consent, generation, pending deletion or the installation
+credential. Only absence permits a fresh document; structurally valid expired
+reports are pruned separately. Strict shape checks retain supported numeric forms
+and present or omitted optional fields while rejecting excess keys and null optionals.
 The ordinary asynchronous load still reconciles native state and starts polling;
 startup capture retains native generation/CAS and synchronous withdrawal fences.
 The bootstrap's own dependencies remain outside its hooks' protection. Real
@@ -48,7 +54,10 @@ required under #1050; substituted entry/store tests do not establish it.
 
 The shared store keeps a Clock deadline for capture retries. Native-compatible
 integer hints span zero through 24 hours; missing, zero or malformed capture
-hints use the 30-second polling interval. Before the deadline, flush still
+hints use the 30-second polling interval. Native enable and capture transport
+rejections also impose that fallback. The enable error path preserves its original
+failure and rechecks the consent revision after reading Clock before installing the
+deadline. Before the deadline, flush still
 prunes, drains validated native reports, bounds and saves the queue, but sends
 neither enable nor capture. Acceptance clears the deadline. Consent revision and
 native generation changes invalidate it; late replies cannot restore it after
