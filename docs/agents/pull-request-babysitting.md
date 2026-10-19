@@ -40,7 +40,14 @@ review by every required reviewer before they are pushed. OCR uses the
 [incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints);
 the thermo-nuclear and applicable design reviews retain the full task diff. Each
 pass ends once it has
-handled the feedback and gate state available now. Babysitting as a whole ends
+handled the feedback and gate state available now.
+
+The [four-round safeguard](implementation-review.md#four-round-safeguard) applies
+to these local review sequences and reviewer fix loops. Feedback after a
+successful implementation review starts a fresh allowance, retaining earlier
+findings and rethink history.
+
+Babysitting as a whole ends
 when the PR is merged or closed; [automatic merge](#automatic-merge) performs
 the merge. Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
 credential or permission is a blocker to report, not a reason to stop

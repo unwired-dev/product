@@ -45,6 +45,9 @@ for every implementation, including later implementation fixes.
   Pause writes until every required final report; later implementer edits need
   another review. OCR follow-ups use the workflow's validated incremental
   checkpoint; thermo-nuclear and applicable design reviews keep full task scope.
+- Follow the workflow's [four-round safeguard](docs/agents/implementation-review.md#four-round-safeguard)
+  for local reviews and reviewer fix loops. When either allowance is exhausted,
+  the implementer must rethink and revise the solution before reviews continue.
 - Never pause implementation for a user decision. Send it to the workflow's
   [decision panel](docs/agents/implementation-review.md#decision-panel)
   (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins. The
