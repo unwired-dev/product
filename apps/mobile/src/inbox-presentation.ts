@@ -1,11 +1,10 @@
-import type {
-  InboxFilter,
-  MailboxView,
-} from '@private-email/mail-core/mailboxes';
+import type { InboxFilter } from '@private-email/mail-core/mailboxes';
 import type { ReactElement, ReactNode, RefCallback } from 'react';
 import type { ScrollViewProps, SectionList } from 'react-native';
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+
+import type { MailboxView } from './sidebar.tsx';
 
 type Position = NonNullable<ScrollViewProps['contentOffset']>;
 type Size = Readonly<{ width: number; height: number }>;
