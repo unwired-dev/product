@@ -47,6 +47,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Implementation handoff, incremental OCR checkpoints, thermo-nuclear and design review agents](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
+- [Native component selection and UI rewrite tracking](agents/native-components.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
 - [Effect conventions and lint enforcement](agents/effect.md)
 - [Effect service constructors, methods and layers](agents/effect-services.md)

@@ -201,8 +201,11 @@ This document records the agreed native design target, including planned screens
 such as Catch Up. It does not describe shipped coverage or change release scope;
 the feature guides and launch specification own those requirements. Layout
 dimensions describe the Figma reference mockups. Both clients read the color,
-type, spacing and radius tokens from `packages/mail-core/src/theme.ts`, and
-render SF Symbols and Liquid Glass through the shared views in `native/design`.
+type, spacing and radius tokens from `packages/mail-core/src/theme.ts`.
+Use provided native, React Native and Expo components under the
+[component selection policy](docs/agents/native-components.md). Existing
+`native/design` views are current implementation details, not a requirement to
+retain custom bridges when a supported provided component covers the interaction.
 
 The visual reference for screens and components is the Figma file
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T).
@@ -213,6 +216,12 @@ Dimensions in the frontmatter use `px` because the DESIGN.md format requires CSS
 units. The Figma frames are drawn at 1×, so 1px equals 1pt on Apple platforms.
 The linked product requirements and feature guides govern behavior, controls and
 defaults wherever an earlier reference mockup differs.
+
+Native controls own their standard behavior and motion. Component recipes and
+dimensions below describe design intent and supported customization; they do
+not require rebuilding system controls or overriding their intrinsic metrics.
+When adoption changes the visible design, update the Figma reference and obtain
+the existing design approval before implementing the migration.
 
 ## Overview
 

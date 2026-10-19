@@ -68,6 +68,9 @@ State assumptions, surface confusion, and name tradeoffs before implementing.
 Write the minimum code that solves the problem, with nothing speculative.
 
 - Build only the requested features.
+- For UI, follow [native component selection](docs/agents/native-components.md):
+  use native, React Native and Expo-provided components before custom equivalents,
+  including existing house components. Document concrete API gaps for exceptions.
 - Inline single-use code instead of abstracting it.
 - Add flexibility or configuration only when requested.
 - Handle only errors that can actually occur.

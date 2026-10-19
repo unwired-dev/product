@@ -35,7 +35,11 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
   development clients after adding or updating it.
-- Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
+- Follow [native component selection](agents/native-components.md) for controls,
+  navigation and presentation. Use provided React Native and Expo components
+  before custom equivalents. Compose mail content with React Native `StyleSheet`
+  and framework-independent light/dark tokens in `packages/mail-core`; preserve
+  accessible names, selection state and keyboard focus.
 - Use Effect 4.0.0 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.48.0, Oxlint 1.86.0 and Oxfmt 0.71.0.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
