@@ -89,8 +89,9 @@ not itself restrict filesystem or Git-history access.
 
 ## Simplicity skills
 
-Before implementation and before the simplicity and reuse review, both roles
-must load and apply these installed skills from the session catalogue:
+The implementer must load and apply these installed skills before implementation.
+The simplicity reviewer must independently do so before its review. Resolve them
+through the session catalogue:
 
 - `ponytail`: choose the smallest complete solution.
 - `principle-laziness-protocol`: remove unnecessary layers and indirection.
