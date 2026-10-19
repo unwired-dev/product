@@ -114,9 +114,8 @@ describe('retrying installation error reports at the protected native boundary',
         expect(host.requests).toHaveLength(2);
         await vi.advanceTimersByTimeAsync(1);
         await store.refresh();
-        expect(
-          host.requests.map((request) => request.operation),
-        ).toStrictEqual(['enable', 'capture', 'enable', 'capture']);
+        const sent = host.requests.map((request) => request.operation);
+        expect(sent).toStrictEqual(['enable', 'capture', 'enable', 'capture']);
         expect(host.state().document).not.toContain('"id"');
       } finally {
         store.dispose();
