@@ -272,7 +272,10 @@ describe('phone mail navigation', () => {
         screen.getByLabelText('Inbox messages'),
         scrollEvent(0),
       );
-      await fireEvent.press(screen.getByRole('button', { name: 'Search' }));
+      await fireEvent(
+        screen.getByLabelText('Search senders and subjects'),
+        'focus',
+      );
       await fireEvent.changeText(
         screen.getByLabelText('Search senders and subjects'),
         'Oliver',
