@@ -41,7 +41,7 @@ new version and retain any that upstream has not incorporated.
 ## Expo Router
 
 - Include Android icons in cross-platform NativeTabs examples and explicit
-  dimensions on the remote zoom-source image.
+  dimensions on remote images in zoom examples.
 
 - Preserve special route filenames and distinguish screen default exports from
   [special-file contracts such as `+native-intent`](https://docs.expo.dev/router/advanced/native-intent/).

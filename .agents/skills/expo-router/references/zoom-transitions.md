@@ -100,7 +100,12 @@ import { usePreventZoomTransitionDismissal } from "expo-router";
 
 export default function PhotoScreen() {
   usePreventZoomTransitionDismissal();
-  return <Image source={{ uri: "https://example.com/full.jpg" }} />;
+  return (
+    <Image
+      source={{ uri: "https://example.com/full.jpg" }}
+      style={{ width: "100%", aspectRatio: 4 / 3 }}
+    />
+  );
 }
 ```
 
