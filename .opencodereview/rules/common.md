@@ -85,6 +85,11 @@ Replacement new-Inbox notifications require permission and per-connection eligib
 
 #### R8 — Host and workspace boundaries (conditional)
 
+For UI changes, apply `docs/agents/native-components.md` before requiring an
+existing custom control or presentation mechanism. Preserve its observable
+contract, but do not require recreating that mechanism when a provided component
+meets it; otherwise review can force the custom infrastructure this policy retires.
+
 For mobile/Mac hosts, shared packages, native modules, bundles or dependency configuration, read ADRs 0059 and 0064, docs/architecture/expo-client.md, docs/architecture/macos-client.md and affected native/storage companions. Keep one root pnpm workspace/lockfile and its named host catalogs at the documented toolchain versions; do not force incompatible native renderers together. Shared application logic must not import React, React Native, Expo or native modules; hosts own views and adapters. Check real Metro bundle and autolinking boundaries, not just version declarations. AppKit owns Mac window identities, menus, focus routing and application lifetime; windows retain independent selection, closing the last window keeps the app active and explicit Quit stops execution. Replacement deployment floors remain iOS/iPadOS/macOS 27; prototype targets keep their own scope. Do not turn unavailable native qualification into a passed check or lower deployment targets.
 
 - When changing `.dependency-cruiser.cjs` or its regression fixtures in
