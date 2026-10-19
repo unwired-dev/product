@@ -40,6 +40,12 @@ new version and retain any that upstream has not incorporated.
 
 ## Expo Router
 
+- Route native UI guidance to the installed `expo-ui` skill, use repository
+  design tokens, and discover optional skills through the repository workflow.
+- Give the search-state example a scalar placeholder argument and scalar effect
+  dependency. Update its callers so each search render does not reinstall the
+  header callbacks through a fresh options object.
+
 - Include Android icons in cross-platform NativeTabs examples and explicit
   dimensions on remote images in zoom examples.
 

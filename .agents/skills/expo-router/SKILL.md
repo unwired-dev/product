@@ -7,7 +7,7 @@ license: MIT
 
 # Expo Router Navigation
 
-Navigation and routing for Expo Router apps. For screen styling, colors, controls, media, and visual effects, use the `expo-native-ui` skill; for motion and gestures, use `expo-animation`.
+Navigation and routing for Expo Router apps. For native controls and presenters, use the installed [expo-ui skill](../expo-ui/SKILL.md). Follow the repository's [design guidance](../../../DESIGN.md) for styling and colors. Resolve additional media or application-motion skills through the [skill-discovery workflow](../../../AGENTS.md#work).
 
 ## References
 
@@ -40,7 +40,7 @@ See `./references/route-structure.md` for detailed route conventions.
 
 ## Library Preferences
 
-- `Color` from `expo-router` for native semantic colors, not raw `PlatformColor` (type-safe, auto-adapts to light/dark). See `expo-native-ui` for the full color palette pattern.
+- `Color` from `expo-router` for native semantic colors, not raw `PlatformColor` (type-safe, auto-adapts to light/dark). Use the repository's [design tokens](../../../DESIGN.md) for the palette.
 - In SDK 56+, never import from `@react-navigation/*` directly — use `expo-router/react-navigation` instead (covers `@react-navigation/native`, `/core`, `/elements`, `/routers`)
 
 ## Behavior
