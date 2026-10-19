@@ -39,6 +39,10 @@ connections with 50 initially available messages each, completed backfill and
 cached-body samples. Use the current launch-provider scope rather than a
 historical Gmail-only fixture.
 
+Also build and label 250 local Threads in the Unified Inbox aggregation fixture,
+adapted to the current launch-provider scope. Its p95 must remain below 200 ms,
+with no main-thread stall of 100 ms or longer.
+
 | Interaction                                                         | Budget                       |
 | ------------------------------------------------------------------- | ---------------------------- |
 | App-launch entry to first rendered sidebar and initial message list | p95 at most 1 second         |
