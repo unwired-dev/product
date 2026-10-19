@@ -1,6 +1,17 @@
 # Expo and React Native client rewrite research
 
-## Scope update — 2026-10-11
+## Historical snapshot and current scope
+
+The interview, implementation status, qualification statements and ticket graph
+below are a 2026-09-09 research snapshot. Later amendments record their own dates;
+none of this body is a live implementation-status report. Current launch
+requirements belong to the [power-user launch specification](../product/power-user-launch.md),
+and [GitHub issues](https://github.com/unwired-dev/product/issues) own completion
+and dependencies. The [qualification record](../qualification/expo-react-native-client.md)
+retains dated evidence and still-required release checks; this historical label
+does not establish full replacement qualification.
+
+### Scope update, 2026-10-11
 
 The rewrite interview below preserves the earlier Gmail-beta scope and its
 original ticket graph. [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
@@ -25,7 +36,7 @@ recorded in [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platfor
 [ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md),
 [ADR 0063](../adr/0063-notify-for-new-inbox-mail-without-categorization.md), and
 [ADR 0064](../adr/0064-isolate-mobile-and-macos-native-dependencies.md).
-The replacement is not implemented. The approved first-release breakdown is
+At the research date, the replacement was not implemented. The approved first-release breakdown was
 published as 37 GitHub Issues, beginning with
 [the mobile mock Inbox (#592)](https://github.com/unwired-dev/product/issues/592)
 and ending with
@@ -316,6 +327,11 @@ checks passed, but no native build or runtime qualification has run. No database
 reset has run.
 
 ## Verification targets
+
+For current qualification instructions, use the operational
+[performance qualification contract](../agents/native-validation.md#performance-qualification).
+The targets and Gmail-only fixture discussion below preserve the research-date
+baseline; current provider scope follows the launch specification.
 
 Use the applicable product targets in
 [ADR 0018](../adr/0018-local-mail-performance-budget.md) as starting requirements,

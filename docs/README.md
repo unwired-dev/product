@@ -1,8 +1,10 @@
 # Documentation index
 
-The Expo rewrite is approved and ticketed. The Expo mock Inbox and the existing
-SwiftUI and Mac Catalyst prototype, plus the native Mac mock Inbox, are executable. Read documents according to
-their scope below; publication of a plan does not prove implementation or release.
+The maintained Expo and native Mac clients include production-provider features
+and explicit Mock Mail Sessions. Feature guides below own their current behavior
+and limitations. The launch specification owns target scope; GitHub issues own
+completion status. The retained SwiftUI and Mac Catalyst prototype has a separate
+maintenance route. Publication of a plan does not prove implementation or release.
 
 ## Replacement requirements and operations
 
@@ -45,11 +47,11 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, simplicity/reuse review, OCR checkpoints, code quality and design reviews](agents/implementation-review.md)
+- [Implementation handoff, simplicity review, review depth and decisions](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Native component selection and UI rewrite tracking](agents/native-components.md)
-- [Test admission, retirement, and feedback budgets](agents/testing.md)
+- [Test admission, retirement, and feedback budgets](agents/testing.md), with [shared validation commands](../README.md#validation)
 - [Effect conventions and lint enforcement](agents/effect.md)
 - [Effect service constructors, methods and layers](agents/effect-services.md)
 - [Native validation and resource ownership](agents/native-validation.md)

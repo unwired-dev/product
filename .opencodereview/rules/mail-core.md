@@ -136,8 +136,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   separation can hide the selected Inbox message or Draft even when every text
   role passes AA. A focus-only border does not identify persistent selection.
   Distinguish an introduced regression from an existing non-text contrast
-  limitation under R0; send a fix requiring new component behavior or a change
-  to the locked design scope through the workflow's decision panel.
+  limitation under R0; a fix requiring new component behavior or a change
+  to the locked design scope needs the workflow's authorized decision and
+  applicable design approval.
 - A change to `theme.ts.palette.separator` that checks only decorative dividers
   and overlooks its use as the sole outline of controls in the mobile and Mac
   hosts. Trace boundary roles to their actual adjacent surfaces and compare each
@@ -151,7 +152,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   compare before rounding, and round only reported values. Check independent
   numeric floors too; rounding must not turn a lower value into a pass. If a
   rounded baseline summary conflicts with the locked mapping or baseline
-  requirement, report the discrepancy and use the workflow's decision panel.
+  requirement, report the discrepancy and follow the workflow's decision
+  authority rules; an advisory panel cannot change the accepted requirement.
 
 #### Untrusted boundaries fail closed
 

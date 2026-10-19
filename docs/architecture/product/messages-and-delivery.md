@@ -43,15 +43,12 @@ current replacement work from prototype maintenance and historical plans.
 
 ## Historical cross-device scheduling
 
-- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted, its Draft tombstone commits, and its opaque operational schedule is activated; admission fails closed while offline or uncertain and leaves the message as a Draft
-
-- A Send Reminder synchronizes end-to-end encrypted as an additive revisioned record with a cancellation tombstone; its Draft remains the content authority, and only the current reminder revision can be opened, cleared, or rescheduled
-
-- For Scheduled Send, the backend may read only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details; recipients, subject, body, assets, selected Mailbox Connection, and provider results remain end-to-end encrypted, and provider credentials remain device-local
-
-- Any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may acquire the one active **Scheduled Send Claim**; provider handoff fences every other device until its result is reconciled
-
-- Opening a Scheduled Send for editing first acquires a synchronized edit fence; editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
+The [prototype mechanism](../../archive/scheduled-send.md#historical-cross-device-scheduling)
+is archived. Current delivery remains on its originating device under
+[ADR 0062](../../adr/0062-keep-queued-delivery-on-its-originating-device.md).
+The [operational delivery contract](../../product/messages-and-delivery.md#historical-cross-device-scheduling)
+owns agreed future Send Reminder requirements; archiving the old protocol does
+not remove them or authorize cross-device takeover.
 
 ## Reader loading
 

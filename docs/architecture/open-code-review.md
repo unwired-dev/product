@@ -10,22 +10,24 @@ changes how review instructions are resolved, not an accepted decision or launch
 
 The baseline is the implementation-review workflow and architecture index before
 the rule migration, at commit `a39270a7e51c0240d39055d98d38829792c574ab`.
-Every prior review obligation retains the owner below; the workflow no longer
-carries a second architecture checklist beside OCR.
+The table records the retained architecture responsibilities. Review categories
+and repeat conditions follow the current [workflow](../agents/implementation-review.md);
+the historical migration baseline does not override later authorized process changes.
+The workflow carries no second architecture checklist beside OCR.
 
-| Existing responsibility                                                                                                      | Resolved rule or retained operational owner                                                                                           |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Read applicable guides, architecture index, domain policy and relevant companions                                            | R1; reading boundaries remain in the workflow and agent guides                                                                        |
-| Read ADR 0059–0065 and affected earlier/later decisions; apply explicit supersession and preserve historical scope           | R1, with conditional source routing in R4–R10                                                                                         |
-| Check applicable privacy, encryption, identity isolation, transport and delivery guarantees                                  | R4–R7; R1 requires the full applicable sources, including affected decisions not enumerated here                                      |
-| Review the pinned comparison against specification and standards; inspect collaborating modules and test coverage            | R1–R2; workflow validates incremental OCR follow-ups while retaining full-task first OCR, thermo-nuclear and applicable design passes |
-| Independently validate findings and fix confirmed issues, preserving unrelated work and affected documentation/tests         | R3; reviewer remains the fixing owner                                                                                                 |
-| Run appropriate checks, inspect and rereview the corrected result; refresh coverage after edits                              | R3; workflow retains OCR commands and ownership pause                                                                                 |
-| Report coverage, findings/dispositions, changed files, results, unavailable checks and decision blockers                     | R3; workflow also requires applicable rule-section and source dispositions                                                            |
-| Extract architecture, update moved links and preserve every requirement/decision without leaking it to implementers          | R1 and R11; workflow retains reviewer ownership                                                                                       |
-| Preserve replacement qualification and release scope, without treating prototype or mock evidence as proof                   | R1, R8 and R10                                                                                                                        |
-| Keep OCR/host review evidence distinct from required CI                                                                      | R3 and R10; workflow retains the independent delivery gates                                                                           |
-| Explicit OpenAI/Codex `gpt-6.1-sol`/`high` reviewer, no global/provider configuration changes, and paused implementer writes | Retained workflow spawn/ownership contract; rules do not select the model or alter host settings                                      |
+| Existing responsibility                                                                                                      | Resolved rule or retained operational owner                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Read applicable guides, architecture index, domain policy and relevant companions                                            | R1; reading boundaries remain in the workflow and agent guides                                              |
+| Read ADR 0059–0065 and affected earlier/later decisions; apply explicit supersession and preserve historical scope           | R1, with conditional source routing in R4–R10                                                               |
+| Check applicable privacy, encryption, identity isolation, transport and delivery guarantees                                  | R4–R7; R1 requires the full applicable sources, including affected decisions not enumerated here            |
+| Review the pinned comparison against specification and standards; inspect collaborating modules and test coverage            | R1–R2; workflow owns review categories, pinned comparisons, incremental OCR and retained-coverage decisions |
+| Independently validate findings and fix confirmed issues, preserving unrelated work and affected documentation/tests         | R3; reviewer remains the fixing owner                                                                       |
+| Run appropriate checks, inspect and rereview the corrected result; refresh coverage after edits                              | R3; workflow retains OCR commands and ownership pause                                                       |
+| Report coverage, findings/dispositions, changed files, results, unavailable checks and decision blockers                     | R3; workflow also requires applicable rule-section and source dispositions                                  |
+| Extract architecture, update moved links and preserve every requirement/decision without leaking it to implementers          | R1 and R11; workflow retains reviewer ownership                                                             |
+| Preserve replacement qualification and release scope, without treating prototype or mock evidence as proof                   | R1, R8 and R10                                                                                              |
+| Keep OCR/host review evidence distinct from required CI                                                                      | R3 and R10; workflow retains the independent delivery gates                                                 |
+| Explicit OpenAI/Codex `gpt-6.1-sol`/`high` reviewer, no global/provider configuration changes, and paused implementer writes | Retained workflow spawn/ownership contract; rules do not select the model or alter host settings            |
 
 ## Conditional source routing
 

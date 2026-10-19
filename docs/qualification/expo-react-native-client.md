@@ -1,6 +1,8 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-10-04. Status: **Expo bootstrap builds and launches on
+Summary reviewed: 2026-10-04. Individual evidence entries below retain their own
+dates, checked revisions and limitations; newer entries do not imply a fresh
+review of the whole summary. Summary status: **Expo bootstrap builds and launches on
 iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
 full replacement qualification remains incomplete**.
 

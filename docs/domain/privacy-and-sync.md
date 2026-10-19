@@ -1,7 +1,7 @@
 # Privacy, storage and synchronization
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/domain/privacy-and-sync.md).
+The review agent owns the separate [architecture companion](../architecture/product/privacy-and-sync.md).
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/privacy-and-sync.md) · [opt-in telemetry requirements](../telemetry.md)
 

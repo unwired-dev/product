@@ -1,36 +1,42 @@
 # Implementation and review
 
-For UI work, apply [native component selection](native-components.md) during
-implementation and review. A custom standard control or interaction needs the
-documented API gap that policy requires; existing house code is not an exception.
+Use this workflow for implementation, later fixes and PR feedback. For UI work,
+apply [native component selection](native-components.md). Preserve unrelated work,
+review the final artifact independently and keep review, CI and release evidence
+as separate gates.
 
-Every implementation hands off to separate review agents, in sequence, before
-delivery:
+## Review depth
 
-1. The **simplicity reviewer** runs the [simplicity and reuse review](#simplicity-and-reuse-review),
-   researching simpler provided solutions before the later reviews.
-2. After that reviewer's final report, the **OCR reviewer** runs the [Open Code Review delegation](#open-code-review-delegation)
-   and the repository rules, including architecture checks.
-3. After the OCR reviewer's final report, the **thermo-nuclear reviewer** runs
-   the [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
-   on the result.
-4. When the task changes anything user-visible, after the thermo-nuclear
-   reviewer's final report, the **design reviewer** runs the
-   [design review](#design-review) of the app against the design.
+Every implementation starts with a separate
+[simplicity and reuse review](#simplicity-and-reuse-review). After its final report,
+run the applicable independent documentation or OCR review, then any required
+maintainability and design reviews in that order. Record the applicable rows and
+their reasons in the handoff. Later review depth follows the changed contract
+rather than the task's size or file count.
 
-All review agents always use `gpt-6.1-sol` with `high` reasoning, regardless of
-the implementer's model or reasoning effort. Pass both settings explicitly.
-If that configuration or agent spawning is unavailable, report the review as
-blocked. An implementer self-review or a different model does not satisfy it.
+| Change                                                                                                            | Required review                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Documentation only                                                                                                | Independent documentation review, formatting, links and examples. Operational policy, command and configuration guidance also verifies its affected contracts. |
+| Code or runtime configuration                                                                                     | Independent OCR standards and architecture review under [delegation](#open-code-review-delegation).                                                            |
+| New package, public interface or cross-module ownership boundary, or an explicitly requested maintainability pass | The independent review above, followed by the [thermo-nuclear maintainability review](#thermo-nuclear-code-quality-review).                                    |
+| Anything people see or hear in a maintained client                                                                | The applicable reviews above, followed by [design review](#design-review) of the affected screens and states.                                                  |
 
-The reviewer uses [Alibaba Open Code Review](https://github.com/alibaba/open-code-review)
-in [delegation mode](https://github.com/alibaba/open-code-review/blob/main/pages/src/content/docs/en/integrations/delegate.md).
-OCR supplies file selection and repository review rules, including architecture
-checks; the OpenAI/Codex host performs the review using those resolved rules. Scope `gpt-6.1-sol` and `high` to this review agent's spawn arguments.
-Use an OpenAI/Codex host that exposes that model; if it is unavailable, report the
-review as blocked. Leave the implementer's model, host defaults and saved OCR
-provider/model configuration unchanged. Delegation needs no OCR API key or
-provider configuration, and `gpt-6.1-sol` here is the host model identifier.
+A documentation review checks the requested behavior, source ownership, scope,
+examples and affected operational contracts. It uses reviewer-only sources when
+needed to verify a requirement; it does not require product tests merely because
+prose changed. Changes to OCR rules or selection configuration also validate
+rule resolution through the delegation commands.
+
+All review agents use `gpt-6.1-sol` with `high` reasoning and a fresh context.
+Pass both settings explicitly. An unavailable required reviewer leaves that
+review incomplete; implementer self-review does not replace it. Leave the
+implementer's model, host defaults and saved OCR provider configuration unchanged.
+OCR delegation needs no API key; the host performs the review with resolved rules.
+
+After a fix, repeat the reviews whose conclusions the fix can invalidate. Review
+the delta and its interactions, and record why any completed conclusions remain
+valid. Retain the original task baseline and prior reports. An earlier report
+cannot cover a later change merely because its original pass succeeded.
 
 ## Subagent model policy
 
@@ -39,7 +45,7 @@ to implementation, review, research and other delegated work through native
 subagent tools or T3 delegation, including nested delegation. Pass this policy
 to each child agent. Skills and tool defaults must follow it.
 
-The [decision panel](#decision-panel) is the only exception. Keep its prescribed
+The optional advisory [decision panel](#decision-panel) is the only exception. Keep its prescribed
 `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` panelists; the Claude panelist
 remains read-only and does not receive implementation or review work. Outside
 that panel, ChatGPT/Codex must not start Claude or other non-GPT subagents.
@@ -81,6 +87,14 @@ separate files that the implementer can read in full. Keep architecture and desi
 files. If a guide still mixes them, delegate its separation to the reviewer
 before reading the architectural content.
 
+Every active implementation requirement has one implementer-readable owner with
+its host and release scope. Architecture and ADRs retain mechanisms, rationale
+and historical decisions, and link to that operational contract. During extraction,
+preserve the applicable requirement and scope in the operational owner. Reviewers
+correct a missing operational requirement there rather than introduce it only as
+a late review finding. Operational validation names every still-required release
+check; qualification records retain the detailed evidence and unavailable status.
+
 The reviewer owns architecture extraction and edits, updates links to moved
 sections, and preserves every requirement and decision. Hand back actionable
 outcomes and verification results without copying architecture documents into
@@ -115,103 +129,61 @@ over generic skill examples for both roles.
 
 ## Implementer handoff
 
-1. Before editing, set up the task branch in this order:
-   1. Record `git status --short` and classify each existing staged, unstaged
-      or untracked change as task-owned or unrelated. Unrelated work stays
-      untouched and out of task commits.
-   2. Select the branch: the head of the task's open same-repository PR against
-      `main` when one exists, converted to draft now if the request forbids
-      merging but allows PR changes (a fork head is a delivery blocker to
-      report);
-      otherwise an existing branch that already holds this task's work;
-      otherwise a new task branch from the latest `main`.
-   3. Work where that branch is usable without moving unrelated changes: this
-      checkout, the worktree that already has it checked out (record and
-      classify its status too), or a new worktree. Carry only the task-owned
-      changes there, for example as a patch, and leave unrelated ones behind.
-   4. Record the starting commit: the branch head, or for a reused PR or branch
-      with commits no completed review covered, its merge-base with `main`.
-2. When the task needs [design approval](#design-approval), complete it before
-   any code edit.
-3. For standard UI work, complete the [component choice](native-components.md#choose-the-provided-implementation)
-   in the existing issue or task plan before implementation, and exercise the smallest
-   affected native journey before expanding the change. Include the selected API,
-   remaining gaps and native evidence or deferred checks in the review handoff.
-   Implement the requested behavior and run the relevant checks under the
-   [testing policy](testing.md). Documentation changes use formatting and local
-   link checks.
-4. Spawn the simplicity reviewer with these explicit arguments:
+1. Before editing, record `git status --short` and classify staged, unstaged and
+   untracked changes as task-owned or unrelated. Select the task's existing
+   same-repository PR branch against `main`, otherwise its existing task branch,
+   otherwise a new branch from the latest `main`. Work in this checkout or an
+   isolated worktree without moving unrelated edits. Record the starting commit;
+   for existing task commits without completed review, use the merge-base with
+   `main`. A fork PR head is a delivery blocker. A request forbidding merging
+   makes an existing ready PR a draft before further work.
+2. Identify acceptance criteria, [review depth](#review-depth) and relevant
+   checks under the [testing policy](testing.md). Complete any required
+   [design approval](#design-approval) before code edits.
+3. Load and apply the [simplicity skills](#simplicity-skills) before implementation.
+   For standard UI work, record the
+   [component choice](native-components.md#choose-the-provided-implementation)
+   before implementing, and exercise the smallest affected native journey before
+   expanding the change. Implement and run the selected checks. Documentation
+   changes use formatting, local links and any affected example, command or
+   workflow contracts.
+4. Pin the actual comparison and hand off first to a separate simplicity reviewer
+   with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
+   Include the checkout, request and issue, acceptance criteria, original starting
+   commit, summary, task-owned files, pre-existing changes, checks/results,
+   limitations and [round history](#four-round-safeguard). For UI, include the
+   selected API, remaining gaps and native evidence or deferred checks. Include
+   prior findings, their dispositions and any completed review conclusions
+   proposed for reuse.
+   For uncommitted work, include staged/unstaged diffs and task-owned untracked
+   files. A commit-only diff does not cover them. Give the simplicity reviewer
+   the original starting commit and full task comparison. After its final report,
+   hand the resulting snapshot, evidence and report to the independent
+   documentation or OCR reviewer selected under [review depth](#review-depth).
+   For OCR, create a local task snapshot after the simplicity pass and pass the
+   exact checkpoint plan's `from`, `to`, mode, reason and prior report under
+   [incremental checkpoints](#incremental-ocr-checkpoints). Snapshot commits are
+   authorized before review; pushing still waits for the required reviews.
+5. Pause implementer writes while a reviewer owns the checkout and wait for its
+   final report before the next pass. Run applicable maintainability and design
+   passes after the independent documentation or OCR review, giving each the
+   original task comparison, evidence and earlier reports. Use the same explicit
+   model, reasoning and fresh-context settings for every reviewer. Never run two
+   writing reviewers at once. Record inapplicable passes with their reason,
+   including design review when no client-visible behavior changed.
+6. Apply the [review-depth rule](#review-depth) to later fixes and PR feedback.
+   Identify invalidated conclusions explicitly. OCR reuse must satisfy its
+   checkpoint helper; an unchanged valid checkpoint can reuse its completed
+   report without an empty pass. Each new review sequence starts with a full-task
+   simplicity pass. Other reviewers retain the original baseline and prior reports
+   to assess the delta and affected interactions. Later-reviewer fixes return to
+   the implementer for invalidation assessment and any required earlier passes
+   before delivery. An unavailable or incomplete required pass blocks delivery.
 
-   ```json
-   {
-     "task_name": "simplicity_review",
-     "model": "gpt-6.1-sol",
-     "reasoning_effort": "high",
-     "fork_turns": "none",
-     "message": "<self-contained review handoff>"
-   }
-   ```
-
-   Include the checkout path, user request and issue/specification, starting
-   commit, implementation summary, task-owned files, pre-existing changes, checks
-   and their results, known limitations, and the current attempt, round count and
-   rethink history under the [four-round safeguard](#four-round-safeguard).
-   Tell it to read this workflow, run the [simplicity and reuse review](#simplicity-and-reuse-review),
-   fix validated in-scope findings and rerun the relevant checks. Include the
-   actual comparison to review:
-
-   - For uncommitted work, inspect the staged and unstaged diffs and task-owned
-     untracked files. A commit-only diff does not cover this work.
-   - Keep the original starting commit and full task comparison for the
-     simplicity, thermo-nuclear and design reviewers. After the simplicity pass,
-     prepare the OCR handoff under
-     [incremental OCR checkpoints](#incremental-ocr-checkpoints): create a local
-     task snapshot commit, prepare a plan, and include its exact `from`/`to`,
-     mode, reason and prior report in the handoff. The first OCR pass is full;
-     later passes review only the changes since the completed checkpoint.
-     Local snapshot commits are authorized before review; pushing and PR
-     delivery still wait for every required review.
-
-5. Pause all implementer writes to the shared checkout while the simplicity reviewer
-   owns it. Wait for its final report.
-6. Then spawn the OCR reviewer with the same explicit arguments and
-   `"task_name": "implementation_review"`. Include the simplicity report and
-   resulting snapshot, checks and checkpoint plan. Tell it to run the
-   [Open Code Review delegation](#open-code-review-delegation), apply the resolved
-   repository rules and required architecture sources, fix validated findings and
-   rerun the relevant checks. Keep implementer writes paused until its final report.
-7. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
-   `"task_name": "thermo_nuclear_review"`. Write it a separate self-contained
-   message with the same context and comparison, plus both earlier final
-   reports. Tell it to read this workflow and follow the
-   [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
-   instead of the OCR delegation step. Keep the comparison pinned to the
-   starting commit so it covers the implementation and the OCR reviewer's fixes.
-   Keep implementer writes paused until its final report. Never run two
-   reviewers at once.
-8. When the task changes anything user-visible, then spawn the design reviewer
-   with the same explicit arguments and `"task_name": "design_review"`. Write it
-   a separate self-contained message with the same context and comparison, all
-   earlier final reports, the changed screens and states, and the Figma sections
-   you implemented against. Tell it to read this workflow and follow the
-   [design review](#design-review). Keep implementer writes paused until its
-   final report. For other tasks, record "design review: not applicable" with
-   the reason in your final report and the PR.
-9. The required reviews form one implementation review. Apply the
-   [four-round safeguard](#four-round-safeguard) before repeating this sequence.
-   Additional implementation edits, including fixes after review or PR feedback,
-   require another pinned
-   review by every required reviewer. OCR uses its validated checkpoint; the
-   simplicity, thermo-nuclear and applicable design reviews keep the full task comparison.
-   Changes made by later reviewers are not covered by an earlier OCR checkpoint;
-   before delivery, restart with a new simplicity reviewer and repeat the
-   required reviews in sequence. An unchanged valid OCR checkpoint can
-   reuse its completed report without spawning an empty OCR pass. Give every
-   reviewer and its children the same ownership boundary: no PR
-   watchers, scheduled work, or writes after their final report. A notification
-   cannot renew checkout ownership. Stop any pre-existing review watcher before
-   returning the checkout; a later review starts as a new delegated task with a
-   fresh pinned handoff.
+A final report ends reviewer and child-agent write ownership. Reviewers do not
+start PR watchers or schedules, and a notification does not renew ownership. Stop
+any existing review watcher before returning the checkout. A later review starts
+with a new pinned handoff. The implementer alone owns delivery and monitoring.
 
 ## Four-round safeguard
 
@@ -223,9 +195,9 @@ or changing agents, threads or worktrees.
 
 ### Count local review rounds
 
-- One round is the required simplicity, OCR, thermo-nuclear and applicable design sequence
-  for an implementation. Reusing a valid OCR report still counts the sequence
-  once; individual reviewers do not each consume a round.
+- One round is the simplicity pass and applicable independent, maintainability
+  and design review sequence. Reusing a valid completed report still counts the
+  sequence once; individual reviewers do not each consume a round.
 - Record a round when its first reviewer begins substantive review. A failed,
   interrupted or partial round with substantive review counts. A retry that only
   repairs infrastructure, such as a reviewer failing to start, does not consume
@@ -263,7 +235,7 @@ Before further implementation edits or review after either limit is reached:
    will prove it resolves the failures. Preserve valid work and replace the parts
    responsible for the failures. Renaming the attempt or repeating the same
    patch-and-review loop does not satisfy this step. Use the
-   [decision panel](#decision-panel) for unresolved choices, respecting the
+   [decision authority policy](#decision-panel) for unresolved choices, respecting the
    implementer's reading boundary and existing design approval requirements.
 3. Implement the revised plan and run its relevant checks. Only then record a
    new attempt with a fresh four-round allowance and fresh reviewer cycle counts.
@@ -275,26 +247,27 @@ Before further implementation edits or review after either limit is reached:
 
 ## Reviewer responsibilities
 
-1. Read applicable agent guides and this workflow. Run the
-   [Open Code Review delegation step](#open-code-review-delegation) for the
-   handoff's actual comparison before reviewing the implementation.
-2. Apply the resolved repository rules as the architecture and standards
+1. Read applicable agent guides, the handoff and this workflow. Perform the
+   documentation or OCR review selected under [review depth](#review-depth).
+   For OCR, run [delegation](#open-code-review-delegation) for the actual comparison
+   before reviewing. For documentation, check the affected source contracts,
+   links, examples and policy consistency.
+2. For OCR, apply the resolved repository rules as the architecture and standards
    checklist within that review pass, including their mandatory source-reading
    and scope/supersession checks. Architecture docs remain authoritative;
    resolving a rule is not evidence that its checks passed. The
    [reviewer-only coverage map](../architecture/open-code-review.md) records the
    migration of the former architecture checklist and source routing.
-3. Review the selected OCR range against the task's requested behavior and
-   resolved rules. An incremental range narrows changed-code coverage, not the
+3. Review the selected task comparison against the requested behavior. For OCR,
+   apply the resolved rules. An incremental range narrows changed-code coverage, not the
    context needed to assess it: inspect affected callers, invariants and
    collaborating modules, and verify prior findings against the new result.
    A full pass covers the entire task.
    Use the installed `code-review` guidance where applicable, with the handoff's
    actual comparison and specification. For OCR-excluded task-owned files, apply
    the same repository checklist through the appropriate artifact review.
-   When the task touches React, React Native or Expo code, invoke
-   `vercel-react-native-skills` and `vercel-composition-patterns` and review
-   that code against both.
+   For React, React Native or Expo code, follow the
+   [native skill selection](native-components.md#skills).
 4. Independently validate each finding. Fix confirmed issues directly in the
    checkout, preserving unrelated work. Update affected tests and documentation,
    including architecture docs when needed. This assignment includes fixes,
@@ -306,16 +279,15 @@ Before further implementation edits or review after either limit is reached:
    Reviewer fixes remain within this review and do not spawn another
    implementation reviewer. Return control to the implementer when the cycle
    limit requires a rethink.
-6. After a successful OCR pass, record its checkpoint under
-   [incremental OCR checkpoints](#incremental-ocr-checkpoints). Return the
-   reviewed scope, checkpoint commit (or why none was recorded), full/incremental
-   mode and reason, OCR version, preview mode and refs, file coverage,
-   applicable rule sections and source references with their dispositions,
-   findings and their dispositions, files changed,
-   checks and results, unavailable checks, and the
-   [decision panel](#decision-panel) outcome for any finding that would change
-   product scope or an architectural decision. Do not silently alter product scope or architectural decisions
-   to make an implementation pass.
+6. After a successful OCR pass, record its checkpoint when available under
+   [incremental OCR checkpoints](#incremental-ocr-checkpoints). Every pass returns the
+   reviewed comparison and file coverage, findings/dispositions, files changed,
+   checks/results, unavailable checks, retained coverage and the
+   [authorized decision](#decision-panel) for any finding that would change
+   product scope or an architectural decision. Advisory votes do not authorize
+   changing either merely to make an implementation pass.
+   An OCR report also includes checkpoint or fallback, full/incremental mode and
+   reason, OCR version, preview refs and applicable rule/source dispositions.
 7. The final report ends reviewer and child-agent write ownership. Do not start
    PR watchers or recurring tasks in review threads. Stop any existing review
    watcher before reporting, and do not act on later PR notifications or resume
@@ -326,8 +298,9 @@ Before further implementation edits or review after either limit is reached:
 This first pass audits the full task diff and affected callers for unnecessary
 custom mechanisms, speculative flexibility, duplicated framework behavior and
 layers that add more work than they remove. It researches the smallest complete
-solution before OCR checks the resulting implementation. It shares reviewer
-reading access, write ownership, finding validation and the four-cycle limit.
+solution before the independent documentation or OCR review checks the result.
+It shares reviewer reading access, write ownership, finding validation and the
+four-cycle limit.
 It does not record an OCR checkpoint.
 
 1. Load and apply the shared [simplicity skills](#simplicity-skills).
@@ -354,30 +327,35 @@ It does not record an OCR checkpoint.
    is unproven, record the limitation; do not claim a proven replacement.
    A no-change outcome is valid when the current solution is already simplest.
 5. Validate and apply confirmed behavior-preserving fixes before handing off.
-   Resolve repository rules with `ocr delegate rule` for every file before fixing
-   it, and honor the required architecture sources. Send product or architecture
-   changes to the decision panel and visible design changes through design
-   approval. Run relevant checks; return scope, sources, alternatives, findings
-   and dispositions, deletions, final snapshot, checks and deferred work. OCR
-   then reviews the implementation including these fixes.
+   For code fixes, resolve repository rules with `ocr delegate rule` for every
+   file before fixing it, and honor the required architecture sources.
+   Documentation fixes verify their affected operational contracts under
+   [review depth](#review-depth). Follow [decision authority](#decision-panel)
+   for product or architecture changes and [design approval](#design-approval)
+   for visible design changes. Run relevant checks; return scope, sources,
+   alternatives, findings and dispositions, deletions, final snapshot, checks and
+   deferred work. The next independent documentation or OCR review covers the
+   result, including these fixes.
 
 ## Thermo-nuclear code quality review
 
-The thermo-nuclear reviewer has the same responsibilities, reading access, write
-ownership and final-report boundary as the OCR reviewer above, with this review
-pass in place of the OCR delegation step:
+This separate maintainability pass applies only under [review depth](#review-depth).
+Its reviewer has the same reading access, write ownership and final-report
+boundary as the independent reviewer, with this pass in place of OCR delegation:
 
 1. Read the global `thermo-nuclear-code-quality-review` skill's `SKILL.md` from
    the host's global skill install and follow it. The skill disables model
    invocation, so read the file instead of invoking it. If the skill is not
    installed, report the review as blocked.
-2. Review the full task diff from the pinned starting commit, including both
-   earlier reviewers' fixes and task-owned uncommitted files. A documentation-only task
-   records that no code changed and reviews any scripts or config it touched.
+2. On its first pass, review the full task diff from the original starting commit,
+   including earlier fixes and task-owned uncommitted files. On a follow-up,
+   review the changed range and interactions that can invalidate its previous
+   conclusions, recording retained coverage. Review any scripts or configuration
+   touched by documentation work; no code changed is a valid disposition.
 3. Validate each finding and apply behavior-preserving fixes directly. Resolve
    rules with `ocr delegate rule` for every file the fixes touch and keep the
    result within those rules. A fix that would change product scope or an
-   architectural decision goes to the [decision panel](#decision-panel).
+   architectural decision follows [decision authority](#decision-panel).
 4. Rerun the relevant checks and review the corrected result again. Return the
    reviewed scope, findings and their dispositions, files changed, checks and
    results, unavailable checks, and any panel outcomes.
@@ -412,8 +390,8 @@ styles, copy, icons, motion, notifications or accessibility labels.
    a product requirement or feature guide, including the stale mockups DESIGN.md
    lists, the requirement governs: apply it and record a design follow-up. A fix
    that would change product scope, a state the design does not cover, or a
-   conflict that documented authority does not resolve goes to the
-   [decision panel](#decision-panel); list design follow-ups in the report.
+   conflict that documented authority does not resolve follows
+   [decision authority](#decision-panel); list design follow-ups in the report.
 5. When a capture target is unavailable, compare the changed code with the frames
    statically and record each missing capture as deferred. Missing Figma access
    leaves the design review blocked.
@@ -436,8 +414,8 @@ provided their visual design stays unchanged.
    macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,
    the file's components and variables, and SF Symbols.
 2. Ask the user to review: link each changed frame, summarize what changed and
-   why, and list open questions. Stop and wait for the answer. This is the one
-   user decision that does not go to the [decision panel](#decision-panel).
+   why, and list open questions. Stop and wait for the answer. This explicit design approval cannot be
+   replaced by an advisory panel.
 3. Apply requested changes in Figma and ask again. Start code only after the
    user explicitly approves, and record the approval and approved frame links
    in the issue and the PR description.
@@ -449,42 +427,42 @@ without approved frames.
 
 ## Decision panel
 
-Implementation and review continue without waiting for the user, except for
-[design approval](#design-approval). Any other decision
-that would otherwise pause the work for a user answer goes to a three-model
-panel instead: ambiguous or missing requirements, scope and product choices,
-competing approaches, and review findings that would change product scope or an
-architectural decision. Access the agent lacks (credentials, accounts, devices,
-paid services) is an unavailable prerequisite, not a decision; report it as such.
-Issue identification, `in progress` takeovers and explicit user limits stay with
-the user.
+The implementer chooses reversible implementation details within the issue's
+acceptance criteria and repository constraints. Record material assumptions and
+the checks that verify them. An existing authorized requirement takes precedence
+over a model's preferred approach.
 
-1. Frame the question with the context a fresh agent needs: the issue or
-   request, the relevant code and constraints, and exactly two concrete,
-   mutually exclusive options with their consequences. Resolve questions with
-   more alternatives through a short series of binary ballots.
-2. Delegate it in parallel to three read-only panelists with `high` reasoning:
-   `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`. Each receives the same
-   self-contained prompt, no conversation history, and the implementer's
-   reading boundary. Each returns one option and a short rationale, and makes
-   no edits.
-3. The option with at least two matching votes wins; apply it and continue.
-   Three valid votes on two options always produce a majority.
-4. Record each decision (question, options, votes, rationales and outcome) in
-   the final report and the PR description so the user can override it later.
+Changes to product scope, user-visible behavior beyond the authorized request,
+privacy guarantees or an accepted architectural decision need an explicit
+authorized decision. A task that already authorizes that change does not require
+another permission request. When authority is missing, present the concrete
+choice to the owner and continue independent work while it is pending. Credentials,
+accounts, devices and paid services are prerequisites, not decisions a vote can
+supply. Explicit user limits, issue identification and claim takeovers stay with
+the user. [Figma approval](#design-approval) remains required where applicable.
 
-Use a bounded deadline for each round. Unavailable, failed or timed-out
-panelists and invalid votes do not count. Two matching votes still suffice. If
-there is no majority, retry once with the same options and the available
-rationales, attempting all three models again. If two matching votes remain
-unavailable, report the model prerequisite as blocked; never apply an option
-without a majority. Continue independent work while the prerequisite is blocked.
+Use a read-only advisory panel only when requested or when a disputed technical
+tradeoff cannot be resolved from code and requirements. The panel advises; its
+votes alone do not change requirements or grant authority.
+
+1. Give each panelist the same self-contained question, relevant constraints,
+   concrete alternatives and consequences, with no conversation history and the
+   implementer's reading boundary.
+2. Delegate in parallel with explicit `high` reasoning to `claude-fable-5-1`,
+   `gpt-6.1-sol` and `gpt-6-astra`. Keep the Claude panelist read-only. Each returns
+   a recommendation and rationale, making no edits.
+3. Set a bounded deadline. Record recommendations, disagreements, unavailable
+   panelists and the chosen approach. Do not manufacture a consensus from failed
+   or invalid responses. Model availability does not block a reversible choice
+   already within the implementer's authority.
 
 ## Incremental OCR checkpoints
 
-Only the OCR pass is incremental. The first review covers the full task;
-subsequent reviews cover changes since the last successfully completed OCR
-snapshot. Simplicity, thermo-nuclear and design reviews retain their full task scope.
+The OCR helper validates reuse of its completed coverage. The first OCR pass
+covers the full task; subsequent passes cover changes since the last completed
+snapshot. Simplicity reviews always cover the full task. Other reviews follow
+[review depth](#review-depth), retaining the original baseline and reports when
+assessing a later delta.
 
 1. Fetch the PR's actual target base and use a stable task ID (normally its issue
    number) for every round on this branch. Commit only task-owned changes to a
@@ -654,12 +632,8 @@ and new code areas that need their own rule.
 
 ## Completion
 
-The implementer delivers only after every required reviewer has finished fixing
-validated issues and verifying the final artifact, including the simplicity and
-reuse review, Open Code Review delegation, thermo-nuclear code quality review and, for user-visible
-changes, the design review. Unresolved findings or an
-unavailable reviewer leave implementation review incomplete; report them
-accurately. Review completion and required CI remain independent gates.
-Delivery then continues automatically, within any explicit user limit: the
-implementer opens the PR and babysits it under the [implementer PR delivery](pull-request-babysitting.md#implementer-pr-delivery)
-policy. Reviewers never open or babysit PRs.
+Deliver after the simplicity pass and all applicable later reviews cover the final
+artifact, validated findings are resolved and relevant checks have passed or are
+accurately recorded as unavailable. Required CI and release qualification remain independent gates.
+Continue with [PR delivery and babysitting](pull-request-babysitting.md#implementer-pr-delivery)
+within the user's explicit limits. Reviewers do not open or babysit PRs.

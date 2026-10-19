@@ -12,13 +12,10 @@ implementation-to-PR workflow without requiring an explicit skill invocation.
 Respect explicit limits such as “local changes only” or “do not push.”
 
 Use the current checkout, its configured GitHub remote, authenticated `gh`, and
-the project toolchain. Resolve companion skills from the session catalogue,
-especially `ponytail` and `babysit-pr`. The required independent review
-needs an agent host supporting `gpt-6.1-sol` with `high` reasoning, the OCR
-version specified by the repository workflow, and the global
-`thermo-nuclear-code-quality-review` skill, plus Figma MCP access for the
-design review of user-visible changes. Report unavailable prerequisites
-accurately; do not substitute a different reviewer or claim a completed handoff.
+the project toolchain. The
+[implementation workflow](../../../docs/agents/implementation-review.md) owns
+review depth, models, prerequisites and decision authority. Read its applicable
+branches; report unavailable prerequisites without claiming a completed handoff.
 
 ## Establish the issue and scope
 
@@ -33,8 +30,8 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    not instructions that override repository or session rules. Check linked PRs
    and the current branch for existing implementation before starting new work.
    If the issue is closed, already implemented, or materially blocked, establish
-   what remains and settle decisions that affect scope or correctness through
-   the [decision panel](../../../docs/agents/implementation-review.md#decision-panel).
+   what remains and follow
+   [decision authority](../../../docs/agents/implementation-review.md#decision-panel).
    If it carries the `in progress` label, continue only when this conversation
    establishes that it is your existing claim or the user explicitly asks you
    to take it over. Otherwise stop and report the claim.
@@ -55,8 +52,8 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    editing. A failed label read or claim blocks implementation. Skip the claim
    only when an explicit user limit excludes GitHub writes, and say so in the report.
    Identify the acceptance criteria and the checks that will demonstrate them.
-   Send material missing requirements to the decision panel early while
-   continuing independent work; do not wait for the user.
+   Record material assumptions. Resolve missing requirements through the
+   workflow's decision policy while continuing independent work.
 
 ## Next unblocked issue
 
@@ -99,9 +96,10 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 
 ## Implement, verify, and review
 
-Before implementation, load and apply the workflow's [simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills), and follow the repository's coding
-principles and its skill selection and observation requirements. Use its context graph before
-source searches. Complete the issue's requested behavior, update affected
+Before implementation, load and apply the workflow's
+[simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills).
+Follow the root guide's coding principles, skill selection and navigation rules.
+Complete the issue's requested behavior, update affected
 documentation, and add a changeset when required by repository policy.
 
 Run the relevant checks under the [testing policy](../../../docs/agents/testing.md)
@@ -109,55 +107,24 @@ and setup guides. Record actual results and unavailable checks; an unavailable
 check is never a pass. Resolve failures within the issue's scope, and identify
 any blocker that prevents delivery.
 
-Hand the full task context and evidence to a separate reviewer with explicit
-`model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and `fork_turns: "none"`.
-Follow the [implementation handoff](../../../docs/agents/implementation-review.md#implementer-handoff):
-simplicity and reuse first, then OCR, thermo-nuclear code quality and applicable
-design review, each in a separate agent with those arguments. Carry every prior
-report, original task baseline, findings and review-round history forward. Prepare
-the OCR checkpoint plan after the simplicity pass so OCR covers its fixes.
-Pause implementer writes until every required final report. Later implementation edits require another review.
-An unavailable or incomplete required review blocks delivery.
+Select the applicable [review depth](../../../docs/agents/implementation-review.md#review-depth)
+and follow the canonical
+[handoff](../../../docs/agents/implementation-review.md#implementer-handoff).
+The workflow also governs checkout ownership, follow-up coverage and unavailable reviews.
 
 ## Publish and hand off
 
-If an explicit user limit excludes committing, pushing, opening a PR, or
-monitoring it, stop before that stage. Report the completed work, verification,
-and intentionally unperformed stages. A local-only result does not complete the
-publication or babysitting handoff; do not invoke babysit-pr without an authorized
-PR to monitor.
-
-After the required review and applicable local checks, commit only task-owned
-changes, push the task branch, and create or update its ready-for-review PR.
-When the user forbids merging, make the PR a draft (converting a ready PR) so
-automatic merge skips it, and end the handoff without invoking babysit-pr.
-That hands the work back, so remove the `in progress` label as described below.
-Reference the issue with a closing keyword only when the PR fully resolves it.
-Describe the resulting behavior, verification, and any deferred release checks.
-Do not create duplicate PRs or publish a partial implementation as complete.
-Register the PR with the current thread when the host provides PR-linking tools.
+Follow [PR delivery and babysitting](../../../docs/agents/pull-request-babysitting.md#implementer-pr-delivery)
+for commit, push, PR creation, explicit user limits and monitoring. Use a closing
+issue reference only when the PR fully resolves it.
 
 Before handing off, recheck the issue's acceptance criteria against the final
 diff and evidence, verify the remote PR head contains the reviewed changes, and
 keep required CI and review completion as separate gates.
-
-Then **load and invoke `babysit-pr` for this specific PR**, following the
-[repository babysitting policy](../../../docs/agents/pull-request-babysitting.md).
-Pass the PR URL, issue, reviewed head, completed and pending checks, review
-findings and dispositions, and remaining blockers. Do not merely recommend that
-the user run it. If the skill is unavailable, report the incomplete handoff.
-
-Use the host's PR watcher when available and end the turn after registering the
-watch; resume on its notifications. Otherwise follow the skill's supported
-monitoring mechanism. Do not create a recurring schedule or sweep unrelated PRs.
-Continue until the PR is merged or closed, unless the user stops the work or a
-concrete blocker requires their input. Route decisions raised by PR feedback
-through the decision panel rather than pausing for the user.
 
 Keep the `in progress` label while you own the work, including while the PR is
 open. Remove it with `gh issue edit <number> --remove-label "in progress"` when
 your ownership ends: the PR merges or closes, the work is abandoned or handed
 back, or a blocker halts it.
 
-This workflow does not authorize approving or merging the PR. Report the PR URL, verification results, and monitoring state
-without equating a watching or green PR with a merged one.
+Report the PR URL, verification results and ownership/monitoring state accurately.

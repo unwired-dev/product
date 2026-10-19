@@ -2,8 +2,8 @@
 
 Historical Swift-prototype document, archived on 2026-09-09. Preserve this
 record as implementation and decision history. The accepted replacement scope
-is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+is defined by the [power-user launch specification](../product/power-user-launch.md)
+and [originating-device delivery decision](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
 The status and future-tense plans below belong to the prototype and do not
 establish replacement behavior or qualification.
 
@@ -25,6 +25,28 @@ Let a person choose a future time from any new-message, reply, reply-all, or for
 Both choices share one Send Later surface. Automatic delivery appears for an authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based connection, and any compatible trusted device that holds the same Mailbox Authorization and a separate revocable Scheduled Delivery Authorization may deliver it. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
 
 Scheduled Send means delivery at or after one absolute future instant, not exact-time delivery. The allowed range is one minute through one year. A delivery that cannot begin within 24 hours becomes Needs Attention and requires Send Now, reschedule, edit, or cancel.
+
+## Historical cross-device scheduling
+
+The following mechanism was consolidated here from the extracted architecture
+companion on 2026-10-19. It preserves the prototype protocol, including its
+metadata privacy boundary. Current delivery ownership and agreed future Send
+Reminder behavior remain in the [delivery contract](../product/messages-and-delivery.md#historical-cross-device-scheduling);
+this archive does not authorize replacement takeover or cancel future reminders.
+
+- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted, its Draft tombstone commits, and its opaque operational schedule is activated; admission fails closed while offline or uncertain and leaves the message as a Draft
+
+- A Send Reminder synchronizes end-to-end encrypted as an additive revisioned record with a cancellation tombstone; its Draft remains the content authority, and only the current reminder revision can be opened, cleared, or rescheduled
+
+- For Scheduled Send, the backend may read only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details; recipients, subject, body, assets, selected Mailbox Connection, and provider results remain end-to-end encrypted, and provider credentials remain device-local
+
+- Any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may acquire the one active **Scheduled Send Claim**; provider handoff fences every other device until its result is reconciled
+
+- Opening a Scheduled Send for editing first acquires a synchronized edit fence; editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
+
+- In the prototype, any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may deliver a Scheduled Send, but exactly one device may proceed to provider handoff.
+
+- Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments
 
 ## Architecture
 

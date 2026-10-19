@@ -46,3 +46,11 @@ current replacement work from prototype maintenance and historical plans.
 - Removed installation identifiers and credential proofs remain refused through the account-scoped tombstone and minimal revocation targets. A new identifier gets the ordinary Pending Device path. ADR 0066 supersedes the account-wide unseen-identifier refusal, its migration gate and mutation, and its identifier history. No existing-user migration is required; development data with the removed fields must be cleared before deploying the new schema.
 
 - Removal through a retained Trusted Device ID deletes both live Trusted Devices and any Pending Device sharing its account-scoped installation identifier. Admission rechecks that identifier's tombstone before creating a Trusted Device and deletes a refused pending record, so signing out and returning to wait cannot bypass removal through approval or the replacement Recovery Key.
+
+## Profile Record Scope
+
+The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
+
+## Trusted Device Credential
+
+The Trusted Device Credential digest, not the credential, is stored by the backend.

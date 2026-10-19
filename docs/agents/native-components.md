@@ -56,7 +56,7 @@ Use DESIGN.md's tokens where the component supports customization. Prefer its
 system appearance and behavior over rebuilding it to reproduce a mockup's
 dimensions or animation curve. Product requirements still govern behavior and
 Draft safety. Resolve requirement changes through the existing
-[decision process](implementation-review.md#decision-panel) and reconcile the
+[decision authority policy](implementation-review.md#decision-panel) and reconcile the
 relevant documents. A visible design change follows the existing
 [Figma design approval](implementation-review.md#design-approval) before UI code.
 This policy does not authorize dropping required behavior to fit a component.
@@ -91,16 +91,18 @@ presentation workaround.
 
 ## Skills
 
-Use each skill that applies to the task, resolving global skills through the
-session catalogue and missing skills through the existing discovery workflow:
+For React, React Native or Expo implementation and review, load
+`vercel-react-native-skills` and `vercel-composition-patterns` before editing.
+Select further skills by the task below. Resolve installed skills through the
+session catalogue; discover and vet a missing skill only for a needed capability.
 
 - React Native rendering, lists and native integration: `vercel-react-native-skills`.
 - Expo controls and presenters: the project-local [expo-ui skill](../../.agents/skills/expo-ui/SKILL.md).
 - Expo routes, native stacks, headers, search and sheets: the project-local [expo-router skill](../../.agents/skills/expo-router/SKILL.md).
-- Component APIs and refactors: `vercel-composition-patterns`, scoped to simplifying the components the task needs.
+- Component APIs and refactors: apply `vercel-composition-patterns` only to the components the task needs.
 - TypeScript models and contracts: `typescript-best-practices`.
 - Behavior and regression coverage: `functionality-testing`, with real native evidence where the behavior depends on the host.
-- Simplicity and minimal changes: `ponytail`, subject to this policy's provided-component preference.
+- Simplicity and minimal changes: apply `ponytail` under the root guide, subject to this policy's provided-component preference.
 - Measured performance problems: Callstack's `react-native-best-practices`; resolve it through skill discovery when needed, rather than installing it for every task.
 
 Apply guidance to the host's installed versions. Repository component selection,
@@ -116,15 +118,9 @@ discovery helper compatible with this ESM workspace.
 
 ## Rewrite tracking
 
-Track the migration in [#1053](https://github.com/unwired-dev/product/issues/1053):
-
-- [Mobile navigation, headers and search (#1055)](https://github.com/unwired-dev/product/issues/1055), after the actively claimed swipe-back fix #976.
-- [Mobile sheets and popovers (#1056)](https://github.com/unwired-dev/product/issues/1056), after navigation and the existing Move picker issue #973.
-- [Mobile controls and action menus (#1057)](https://github.com/unwired-dev/product/issues/1057), after the presentation migration.
-- [Mac controls and presentations (#1058)](https://github.com/unwired-dev/product/issues/1058), independently within the Mac host.
-- [Shared bridge/motion cleanup and qualification (#1059)](https://github.com/unwired-dev/product/issues/1059), after the client migrations.
-
-The issues own migration scope and native blocking dependencies. Existing native
+The [migration epic #1053](https://github.com/unwired-dev/product/issues/1053)
+and its child issues own current scope, claims and native blocking dependencies.
+Existing native
 menus, file/photo pickers, sharing and window integration can already satisfy
 this policy; preserve them unless a provided equivalent removes maintenance.
 The comparison with T3 Code is evidence for the migration, not a requirement to

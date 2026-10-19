@@ -98,7 +98,9 @@ retryable after relaunch.
 Every Mailbox Connection belongs to exactly one Mail Profile. A connection listed
 without one belongs to the Default Profile.
 No connection, Draft, Outbox or encrypted-record identity, credential or cache
-moves or changes. A Draft and
+moves or changes. The Default Profile retains deployed Product Account-scoped
+storage identifiers; a new Profile receives a distinct opaque namespace that
+cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile stays unavailable in the apps until
 [#647](https://github.com/unwired-dev/product/issues/647) enables it. Its last
@@ -281,6 +283,15 @@ current presentation only. **Clear remote content** on the account page removes
 every entry without touching mail or bodies. Removing a connection, and every
 account purge, remove its entries with its directory. Entries are not yet scoped
 by [Mail Profile](#mail-profiles).
+
+Under the required [Profile-scoped cache contract](product/privacy-and-sync.md#local-storage-and-background-freshness),
+a lookup after a connection move includes the destination Profile. An entry bound
+to the source Profile is therefore a cache miss in the destination Profile, even
+though the connection's Inbox, body cache and connection-bound encrypted-record
+identities stay in place. Any new remote request still needs authorization under
+the effective remote-content policy or one-message consent. This isolation remains
+required before multiple Profiles are enabled; the current native cache does not
+yet provide it.
 
 ## Draft storage
 

@@ -16,10 +16,7 @@ domain discussions were moved here on 2026-09-28. Use
 | [Official provider SDKs](official-mail-provider-sdks.md)                            | Apple/Swift SDK research predating the new independent native host graphs.                                                            |
 | [Domain discussions](domain-discussions.md)                                         | Earlier example dialogues and ambiguity resolutions; topic glossaries and accepted ADRs now own the active definitions and decisions. |
 
-Future IMAP/SMTP work starts at [#629](https://github.com/unwired-dev/product/issues/629),
-Microsoft work at [#633](https://github.com/unwired-dev/product/issues/633), and
-Profile work at [#644](https://github.com/unwired-dev/product/issues/644).
-[Send Reminders #658](https://github.com/unwired-dev/product/issues/658) and
-[scheduled delivery #659](https://github.com/unwired-dev/product/issues/659)
-follow the new delivery boundary. See [all tickets](../qualification/expo-rewrite-ticket-coverage.md)
-for the complete agreed scope.
+Use the [power-user launch specification](../product/power-user-launch.md) for
+current provider, Profile and deferred-feature scope, and
+[GitHub issues](https://github.com/unwired-dev/product/issues) for completion
+and dependencies. The archive is not a live roadmap.

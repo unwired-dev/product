@@ -2,9 +2,9 @@
 
 Private email client and Convex backend.
 
-The repository contains the SwiftUI and Mac Catalyst prototype and an Expo mock
-Inbox for iPhone and iPad, plus a native React Native Mac mock Inbox. The approved
-replacement targets a [power-user Apple launch](docs/product/power-user-launch.md)
+The maintained clients are Expo for iPhone and iPad and native React Native macOS.
+The SwiftUI and Mac Catalyst prototype remains available. The maintained clients target a
+[power-user Apple launch](docs/product/power-user-launch.md)
 with Gmail, IMAP/SMTP and Microsoft mail. Android and Windows remain later slices.
 Google and Apple Product Sign-In replace Apple-only login.
 
@@ -18,9 +18,9 @@ its evidence through the architecture index.
 
 ## Current checkout
 
-- `apps/mobile`: Expo Apple and Google onboarding and selected mock Inbox in the root workspace.
-- `apps/macos`: AppKit React Native macOS Apple and Google onboarding and mock Inbox windows.
-- `packages/mail-core`: framework-independent mock mailbox and theme tokens.
+- `apps/mobile`: Expo client; see its [current feature guides](docs/README.md).
+- `apps/macos`: AppKit React Native macOS client and windows.
+- `packages/mail-core`: framework-independent mail, identity, sync and assistance logic, plus theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
@@ -31,7 +31,7 @@ One root workspace and lockfile use a shared catalog and named `mobile` and `mac
 
 ## Local development
 
-Use mise, Node 24, and the exact pnpm version in `package.json`, currently 11.5.2.
+Use the mise-managed Node 24 line and exact `packageManager` version in `package.json`.
 The mise-managed Ruby is required for Mac Podfile verification and tooling tests.
 Expo builds need the Xcode toolchain and simulator runtime documented in
 [Expo setup](docs/expo-client.md#install-and-run).
@@ -45,7 +45,7 @@ mise exec -- pnpm install
 For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
 For Mac, follow [native Mac setup](docs/macos-client.md).
 
-For [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
+For optional [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
 initialize the local graph from the repository root:
 
 ```sh
@@ -54,6 +54,8 @@ graft init --agents agents --no-global --no-mcp
 ```
 
 This adds Graft instructions to `AGENTS.md` and builds the ignored `graft/` cache.
+Preserve the repository's scoped [navigation policy](AGENTS.md#graft-code-navigation)
+when regenerating tool-managed instructions.
 `.worktreeinclude` includes the cache when creating worktrees. Run `graft build`
 to regenerate it when needed.
 
@@ -90,6 +92,11 @@ and developer-specific deployment values out of source control.
 
 ## Validation
 
+This is the canonical shared-command list. Select relevant evidence under the
+[testing policy](docs/agents/testing.md); host guides add only their platform checks.
+Manifests, `pnpm-workspace.yaml` and `.mise.toml` own current dependency/toolchain
+versions. Keep compatibility and upgrade constraints in the host guides.
+
 ```sh
 mise exec -- pnpm lint
 mise exec -- pnpm lint:boundaries
@@ -97,10 +104,24 @@ mise exec -- pnpm format
 mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test
 mise exec -- pnpm test:tooling
+mise exec -- pnpm test:native-runner
 mise exec -- node scripts/check-changesets.mjs
 mise exec -- node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
-mise exec -- pnpm exec fallow audit --gate new-only --changed-since origin/main --format json --quiet
 ```
+
+The blocking Fallow audit is a separate comparison against a pinned commit.
+For a local comparison with the latest fetched `main`:
+
+```sh
+git fetch origin main
+comparison_base="$(git rev-parse origin/main)"
+mise exec -- pnpm exec fallow audit --gate new-only --changed-since "$comparison_base" --format json --quiet
+```
+
+To reproduce a CI run, set `comparison_base` to that run's PR base SHA or push
+predecessor SHA instead. A later `origin/main` may differ. The root `pnpm fallow`
+alias is a diagnostic inventory scan; it does not run this blocking audit gate.
+The [CI workflow](.github/workflows/ci.yml) owns the automated comparison.
 
 `pnpm lint` and `pnpm format` run Oxlint and Oxfmt once from the root over the
 whole repository; the app configurations apply to their own files. `pnpm lint:fix`

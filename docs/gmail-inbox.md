@@ -14,6 +14,9 @@ opens instead while a Recovery Key needs confirming or entering, a device approv
 waiting on either side, the mailbox is not yet saved to private sync, or a sign-out or
 deletion is unfinished; there **Open Inbox** can leave that setup for later.
 
+## Settings
+
+This section owns Settings navigation for all mailbox providers and both editors.
 Settings, and a connected Inbox's account page, are grouped as in the design:
 **Account & Devices** (the account, Private Sync, the Recovery Key, device approval,
 Trusted Devices, sign-in methods, sign-out and deletion), **Email Accounts**
