@@ -50,7 +50,7 @@ export default function Layout() {
 
 > Requires Expo SDK 55 or later.
 
-Use `flex: 1` to allow the content to fill available space, enabling footer positioning:
+Use `flex: 1` to fill the available space. Give the sheet root an opaque background; replace the example’s white with the host theme’s background color:
 
 ```tsx
 // app/about.tsx
@@ -75,6 +75,7 @@ export default function AboutSheet() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#fff",
   },
   content: {
     flex: 1,
@@ -190,6 +191,7 @@ export default function ConfirmSheet() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#fff",
   },
   content: {
     flex: 1,

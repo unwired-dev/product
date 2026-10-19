@@ -1,6 +1,6 @@
 # Drop-in replacements for RN community libraries
 
-`@expo/ui` ships API-compatible replacements for popular React Native community libraries, powered by native `@expo/ui` components (Jetpack Compose on Android, SwiftUI on iOS). Use these when migrating an existing app off a community UI dependency — the API matches the library being replaced, so the swap is usually just the import path.
+`@expo/ui` ships compatibility adapters for popular React Native community libraries, powered by native components. Before changing imports, check the installed SDK’s types, compatibility notes, accessibility props, and presentation behavior against the caller’s requirements. These adapters are not always behavior-equivalent: the bottom-sheet replacement uses modal presentation and cannot preserve a persistent inline peek; the Picker replacement does not support every original prop, including `accessibilityLabel`. Keep an alternative when a documented API gap prevents preserving required behavior.
 
 ## Available replacements
 

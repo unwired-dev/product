@@ -6,13 +6,23 @@ Use this layer only when the universal `@expo/ui` components don't cover what yo
 
 ### File placement with Expo Router
 
-**Do not put `.ios.tsx` files inside `app/` or `src/app/`.** Expo Router does not support platform-extension suffixes for route files and will throw a "no fallback sibling" Render Error.
+Expo Router supports `.ios.tsx` route files inside `app/` or `src/app/` when a non-platform file with the same route name also exists. A platform-specific route without that fallback can cause a "no fallback sibling" error.
 
-Place platform-specific component files in `components/` (or any directory outside the route tree), then import them from a regular route file:
+Prefer reusable platform-specific components outside the route tree. Supply a non-platform component for the other platforms, then import by extensionless path from the route:
 
 ```
+src/components/ProfileEditor.tsx          ← React Native fallback on other platforms
 src/components/ProfileEditor.ios.tsx   ← SwiftUI tree lives here
 src/app/profile-editor.tsx             ← regular Expo Router route, imports the component
+```
+
+`src/components/ProfileEditor.tsx`:
+```tsx
+import { Text } from 'react-native';
+
+export default function ProfileEditor() {
+  return <Text>Profile</Text>;
+}
 ```
 
 `src/app/profile-editor.tsx`:
@@ -56,7 +66,7 @@ import { Pressable } from "react-native";
 <Host matchContents>
   <VStack>
     <RNHostView matchContents>
-      // Here, `Pressable` is an RN component so it is wrapped in `RNHostView`.
+      {/* Here, `Pressable` is an RN component so it is wrapped in `RNHostView`. */}
       <Pressable />
     </RNHostView>
   </VStack>
@@ -67,7 +77,7 @@ import { Pressable } from "react-native";
 
 ## useNativeState
 
-`useNativeState` creates observable state that updates synchronously on the UI thread via worklets, enabling immediate native state changes without waiting for a React render cycle. Requires `react-native-worklets` — without it updates still go through React and flickering remains. Best for real-time interactions where synchronous updates matter, e.g. a text field that masks or formats input as the user types.
+`useNativeState` creates observable state shared with native views and works without `react-native-worklets`. Synchronous UI-thread updates from worklets require that package. Use worklets when updates must stay synchronous, such as masking text as the user types; without the runtime, do not assume worklet timing or flicker-free formatting.
 
 - `ObservableState.value` is readable/writable from worklets; `onChange` fires a worklet listener on state change.
 - Docs — https://docs.expo.dev/versions/latest/sdk/ui/swift-ui/usenativestate/index.md

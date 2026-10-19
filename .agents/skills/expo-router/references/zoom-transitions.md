@@ -75,9 +75,13 @@ Without a target, the zoom animates to fill the entire destination screen.
 For manual control over where the zoom lands on the destination, use `alignmentRect` instead of `Link.AppleZoomTarget`:
 
 ```tsx
-<Link.AppleZoom alignmentRect={{ x: 0, y: 0, width: 200, height: 300 }}>
-  <Image source={{ uri: "https://example.com/thumb.jpg" }} />
-</Link.AppleZoom>
+<Link href="/photo" asChild>
+  <Link.AppleZoom alignmentRect={{ x: 0, y: 0, width: 200, height: 300 }}>
+    <Pressable>
+      <Image source={{ uri: "https://example.com/thumb.jpg" }} />
+    </Pressable>
+  </Link.AppleZoom>
+</Link>
 ```
 
 Coordinates are in the destination screen's coordinate space. Prefer `Link.AppleZoomTarget` when possible — use `alignmentRect` only when the target element isn't available as a React component.
@@ -116,7 +120,9 @@ This is useful when the destination contains a zoomable scroll view — the syst
 
 ## Combining with Link.Preview
 
-Zoom transitions work alongside long-press previews:
+Zoom transitions work alongside long-press previews only when the destination is presented modally. Configure the destination in its Stack layout, for example `<Stack.Screen name="photo" options={{ presentation: "fullScreenModal" }} />`. The dismissal-prevention hook above has no effect on modal screens.
+
+Source link:
 
 ```tsx
 <Link href="/photo" asChild>

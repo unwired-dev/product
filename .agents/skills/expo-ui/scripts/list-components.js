@@ -43,8 +43,9 @@ try {
 // TypeScript type names that are not components — skip anything matching these suffixes
 const TYPE_SUFFIX = /(?:Props|Ref|Handle|Params|Config|Options|Type|Types|Value|Values|Colors|Style|Styles|Event|Events|Alignment|Animation|Spec)$/;
 
-function extractComponents(indexFile) {
-  if (!fs.existsSync(indexFile)) return [];
+function extractComponents(indexFile, visited = new Set()) {
+  if (!fs.existsSync(indexFile) || visited.has(indexFile)) return [];
+  visited.add(indexFile);
   const src = fs.readFileSync(indexFile, 'utf8');
   const names = [];
   for (const line of src.split('\n')) {
@@ -55,7 +56,11 @@ function extractComponents(indexFile) {
       // Skip non-component re-exports (types, utils, state internals)
       if (/^(types|utils|index|State|hooks|colors|layout-types|MaterialSymbols)/.test(name)) continue;
       if (TYPE_SUFFIX.test(name)) continue;
-      names.push(name);
+      const specifier = line.match(/^export \* from ['"]([^'"]+)['"]/)[1];
+      const target = path.resolve(path.dirname(indexFile), specifier);
+      const declaration = [target + '.d.ts', path.join(target, 'index.d.ts')]
+        .find(file => fs.existsSync(file));
+      if (declaration) names.push(...extractComponents(declaration, visited));
     }
     // export { Name, ... } from './Something'  — pick up named re-exports too
     const n = line.match(/^export \{([^}]+)\}/);
@@ -63,10 +68,12 @@ function extractComponents(indexFile) {
       for (const part of n[1].split(',')) {
         // Skip `type Foo` re-exports
         if (/^\s*type\s/.test(part)) continue;
-        const id = part.trim().split(/\s+as\s+/)[0].trim();
+        const id = part.trim().split(/\s+as\s+/).at(-1).trim();
         if (id && /^[A-Z]/.test(id) && !TYPE_SUFFIX.test(id)) names.push(id);
       }
     }
+    const declaration = line.match(/^export (?:declare )?(?:const|function|class) ([A-Z][a-zA-Z0-9_]*)/);
+    if (declaration && !TYPE_SUFFIX.test(declaration[1])) names.push(declaration[1]);
   }
   return [...new Set(names)].sort();
 }

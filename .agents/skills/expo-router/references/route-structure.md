@@ -7,7 +7,7 @@
 - Routes can never be named `(foo).tsx` - use `(foo)/index.tsx` instead
 - Use `(group)` routes to simplify the public URL structure
 - NEVER co-locate components, types, or utilities in the app directory - these should be in separate directories like `components/`, `utils/`, etc.
-- The app directory should only contain route and `_layout` files; every file should export a default component
+- Screen routes and `_layout` files export a default component. Special files follow their own export contracts: for example, `+native-intent.tsx` exports `redirectSystemPath`, not a default component. Keep unrelated helpers outside the route tree.
 - Ensure the app always has a route that matches "/" so the app is never blank
 - ALWAYS use `_layout.tsx` files to define stacks
 
@@ -123,7 +123,7 @@ This requires a specialized layout with explicit anchor routes:
 ```tsx
 // app/(index,settings)/_layout.tsx
 import { useMemo } from "react";
-import Stack from "expo-router/stack";
+import { Stack } from "expo-router/stack";
 
 export const unstable_settings = {
   index: { anchor: "index" },
