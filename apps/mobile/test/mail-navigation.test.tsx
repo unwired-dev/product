@@ -6,13 +6,15 @@ import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { useRef } from 'react';
-import { Pressable, ScrollView, Text } from 'react-native';
+import { useRef, useState } from 'react';
+import { ScrollView } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { MailNavigation } from '../src/mail-navigation.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Substitute only URL delivery; the native destination composition is real.
 jest.mock('expo-router', () => {
@@ -44,6 +46,7 @@ jest.mock('react-native-screens/experimental', () => ({
 
 function Mail() {
   const navigation = useRef<SplitHostCommands>(null);
+  const [view, setView] = useState<MailboxView>({});
   return (
     <InboxProvider>
       <MailNavigation
@@ -51,14 +54,17 @@ function Mail() {
         composer={null}
         topColumnForCollapsing="supplementary"
         primary={
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="All inboxes"
-            onPress={() => navigation.current?.show('supplementary')}>
-            <Text>Mailboxes</Text>
-          </Pressable>
+          <Mailboxes
+            view={view}
+            onView={(next) => {
+              setView(next);
+              navigation.current?.show('supplementary');
+            }}
+          />
         }
         inbox={{
+          view,
+          onView: setView,
           selected: undefined,
           onSelect: () => undefined,
           onBack: () => navigation.current?.show('primary'),

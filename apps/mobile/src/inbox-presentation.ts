@@ -48,6 +48,7 @@ export function useInboxPresentation({
   }>;
   readonly filtering: Readonly<{ on: boolean; filter: InboxFilter }>;
 }) {
+  const { mailbox, folder } = view;
   const query = search.searching ? search.searched : undefined;
   const filter = filtering.on ? filtering.filter : undefined;
   const all = search.searchesAll;
@@ -56,19 +57,21 @@ export function useInboxPresentation({
   const list = useRef<List | null>(null);
   const restoring = useRef<Restoration | undefined>(undefined);
   const [snapshot, setSnapshot] = useState({
-    view,
+    mailbox,
+    folder,
     query,
     filter,
     all,
     offset: top,
   });
   const sameScope =
-    snapshot.view === view &&
+    snapshot.mailbox === mailbox &&
+    snapshot.folder === folder &&
     snapshot.query === query &&
     snapshot.filter === filter &&
     snapshot.all === all;
   if (!sameScope) {
-    setSnapshot({ view, query, filter, all, offset: top });
+    setSnapshot({ mailbox, folder, query, filter, all, offset: top });
   }
   const contentOffset = sameScope ? snapshot.offset : top;
 
@@ -77,7 +80,7 @@ export function useInboxPresentation({
     savedPosition.current = top;
     scrollPosition.current = top;
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A changed list scope retires its saved native position.
-  }, [view, query, filter, all]);
+  }, [mailbox, folder, query, filter, all]);
 
   const handleList = useCallback<RefCallback<List>>((current) => {
     list.current = current;
@@ -121,7 +124,7 @@ export function useInboxPresentation({
           const offset = restoring.current?.target ?? scrollPosition.current;
           const saved = { x: Math.max(0, offset.x), y: Math.max(0, offset.y) };
           savedPosition.current = saved;
-          setSnapshot({ view, query, filter, all, offset: saved });
+          setSnapshot({ mailbox, folder, query, filter, all, offset: saved });
           onBack();
         };
   const handleScroll: ScrollViewProps['onScroll'] = ({ nativeEvent }) => {
