@@ -202,10 +202,12 @@ describe('phone mail navigation', () => {
       });
       await fireEvent.scroll(list, scrollEvent(120));
       await fireEvent(list, 'contentSizeChange', 390, 1300);
-      expect(scrollTo.mock.calls).toHaveLength(1);
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest does not provide toHaveBeenCalledOnce.
+      expect(scrollTo).toHaveBeenCalledTimes(1);
       await fireEvent.scroll(list, scrollEvent(240));
       await fireEvent(list, 'contentSizeChange', 390, 1400);
-      expect(scrollTo.mock.calls).toHaveLength(1);
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest does not provide toHaveBeenCalledOnce.
+      expect(scrollTo).toHaveBeenCalledTimes(1);
     } finally {
       restore();
     }
@@ -243,7 +245,8 @@ describe('phone mail navigation', () => {
       });
       await fireEvent.scroll(reopened, scrollEvent(240));
       await fireEvent(reopened, 'contentSizeChange', 390, 1200);
-      expect(scrollTo.mock.calls).toHaveLength(1);
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest does not provide toHaveBeenCalledOnce.
+      expect(scrollTo).toHaveBeenCalledTimes(1);
     } finally {
       restore();
     }
