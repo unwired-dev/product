@@ -2,11 +2,15 @@ import { createErrorReporting } from '@private-email/mail-core/error-reporting';
 
 import { reportingFixture as fixture } from './error-reporting-fixture.ts';
 
+// Keep Effect's scheduler real while controlling wall time and polling delays.
 /* oxlint-disable vitest/max-expects -- Each journey proves retry timing and consent boundaries through the public store. */
 describe('retrying installation error reports at the protected native boundary', () => {
   it('keeps refresh, polling and new captures local until the receiver retry deadline', async () => {
     expect.hasAssertions();
-    vi.useFakeTimers({ now: 1_800_000_000_000 });
+    vi.useFakeTimers({
+      now: 1_800_000_000_000,
+      toFake: ['Date', 'setTimeout', 'clearTimeout'],
+    });
     const expiringId = '93159d67-bd21-41d6-82d1-5cd770af1706';
     const host = fixture({
       enabled: true,
@@ -95,7 +99,10 @@ describe('retrying installation error reports at the protected native boundary',
     'uses the polling interval for an unusable retry delay: %j',
     async (reply) => {
       expect.hasAssertions();
-      vi.useFakeTimers({ now: 1_800_000_000_000 });
+      vi.useFakeTimers({
+        now: 1_800_000_000_000,
+        toFake: ['Date', 'setTimeout', 'clearTimeout'],
+      });
       const host = fixture({ enabled: true });
       const original = host.native.errorReportingRequest;
       vi.spyOn(host.native, 'errorReportingRequest')
@@ -127,7 +134,10 @@ describe('retrying installation error reports at the protected native boundary',
 
   it('deletes during backoff and starts renewed consent without the old deadline', async () => {
     expect.hasAssertions();
-    vi.useFakeTimers({ now: 1_800_000_000_000 });
+    vi.useFakeTimers({
+      now: 1_800_000_000_000,
+      toFake: ['Date', 'setTimeout', 'clearTimeout'],
+    });
     const host = fixture({ enabled: true });
     const original = host.native.errorReportingRequest;
     vi.spyOn(host.native, 'errorReportingRequest')
@@ -168,7 +178,10 @@ describe('retrying installation error reports at the protected native boundary',
 
   it('does not restore an in-flight retry delay after withdrawal and re-enabling', async () => {
     expect.hasAssertions();
-    vi.useFakeTimers({ now: 1_800_000_000_000 });
+    vi.useFakeTimers({
+      now: 1_800_000_000_000,
+      toFake: ['Date', 'setTimeout', 'clearTimeout'],
+    });
     const host = fixture({ enabled: true });
     const entered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
@@ -242,7 +255,10 @@ describe('retrying installation error reports at the protected native boundary',
   ])('$operation transport failures', ({ failNext, failedAttempts }) => {
     it('maintains the local queue until the fallback deadline and clears it after acceptance', async () => {
       expect.hasAssertions();
-      vi.useFakeTimers({ now: 1_800_000_000_000 });
+      vi.useFakeTimers({
+        now: 1_800_000_000_000,
+        toFake: ['Date', 'setTimeout', 'clearTimeout'],
+      });
       const expiringId = '93159d67-bd21-41d6-82d1-5cd770af1706';
       const host = fixture({
         enabled: true,
@@ -330,7 +346,10 @@ describe('retrying installation error reports at the protected native boundary',
       'allows $action during transport backoff',
       async ({ withdraw, snapshot }) => {
         expect.hasAssertions();
-        vi.useFakeTimers({ now: 1_800_000_000_000 });
+        vi.useFakeTimers({
+          now: 1_800_000_000_000,
+          toFake: ['Date', 'setTimeout', 'clearTimeout'],
+        });
         const host = fixture({ enabled: true });
         failNext(host.native, async () => {
           throw new Error('private transport secret');
@@ -360,7 +379,10 @@ describe('retrying installation error reports at the protected native boundary',
 
     it('does not restore a stale failure deadline after renewed consent acknowledges', async () => {
       expect.hasAssertions();
-      vi.useFakeTimers({ now: 1_800_000_000_000 });
+      vi.useFakeTimers({
+        now: 1_800_000_000_000,
+        toFake: ['Date', 'setTimeout', 'clearTimeout'],
+      });
       const host = fixture({ enabled: true });
       const entered = Promise.withResolvers<undefined>();
       const release = Promise.withResolvers<undefined>();
