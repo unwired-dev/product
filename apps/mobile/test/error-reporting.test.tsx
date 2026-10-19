@@ -223,7 +223,9 @@ describe('installation privacy access', () => {
     'uses Back to return from signed-out privacy to the retained $destination page',
     async ({ enter, back }) => {
       expect.hasAssertions();
-      const synthetic = await createRegistrationScenario('registration-declined');
+      const synthetic = await createRegistrationScenario(
+        'registration-declined',
+      );
       const registration = createRegistration(synthetic.vault);
       await registration.restoreOnce();
       const { store } = reporting({

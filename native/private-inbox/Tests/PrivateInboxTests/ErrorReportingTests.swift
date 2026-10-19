@@ -231,7 +231,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
     ReportingHTTPProtocol.recording.reset()
     for operation in ["enable", "capture", "revoke", "delete", "status"] {
       await #expect(throws: ReportingError.unavailable) {
-        try await reopened.request(operation: operation, body: "{}", generation: generation)
+        _ = try await reopened.request(operation: operation, body: "{}", generation: generation)
       }
     }
     #expect(ReportingHTTPProtocol.recording.captured().isEmpty)
