@@ -494,9 +494,17 @@ final class InboxTests: XCTestCase {
       let sender = app.staticTexts["rowan@example.invalid"].firstMatch
       XCTAssertTrue(sender.waitForExistence(timeout: 10))
       XCTAssertTrue(app.buttons["Archive"].isHittable)
-      XCTAssertTrue(
+      guard
         app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
-          .firstMatch.waitForExistence(timeout: 15))
+          .firstMatch.waitForExistence(timeout: 15)
+      else {
+        let failure = XCTAttachment(screenshot: app.screenshot())
+        failure.name = "Dark production reader, missing HTML on open \(attempt)"
+        failure.lifetime = .keepAlways
+        add(failure)
+        XCTFail("Expected the reader's seed order HTML within 15 seconds on open \(attempt)")
+        return
+      }
       let reader = XCTAttachment(screenshot: app.screenshot())
       reader.name = "Dark production reader, open \(attempt)"
       reader.lifetime = .keepAlways

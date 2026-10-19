@@ -15,6 +15,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native journey such as `InboxTests.threadJourney` continuing after its
+  required HTML body never appears. Fail and exit that journey after the bounded
+  prerequisite wait, preserving the content expectation and a failure capture;
+  otherwise later taps and waits can turn the real assertion failure into a job
+  timeout with incomplete result evidence. Do not increase the wait or classify
+  a persistent reader loader as infrastructure failure.
+
 - A full-viewport native assertion such as `InboxTests.threadJourney` measuring
   an inset `SafeAreaView` instead of its owning native screen. Trace the installed
   safe-area component's margin/padding behavior and compare the full-screen owner
