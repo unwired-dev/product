@@ -642,7 +642,7 @@ export function Inbox({
   );
   const now = useNow();
   const filtering = useInboxFilter({ scope, mailboxes, listed, now });
-  const presentation = useInboxPresentation({
+  const { handleList, ...presentation } = useInboxPresentation({
     onBack,
     children,
     view,
@@ -844,7 +844,7 @@ export function Inbox({
             )}
           </View>
           <SectionList
-            ref={presentation.handleList}
+            ref={handleList}
             accessibilityLabel={t('inbox.messages')}
             contentOffset={presentation.contentOffset}
             onLayout={presentation.handleLayout}

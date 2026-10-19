@@ -6,7 +6,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import type { MailboxView } from './sidebar.tsx';
 
-type Position = NonNullable<ScrollViewProps['contentOffset']>;
+type Position = Readonly<NonNullable<ScrollViewProps['contentOffset']>>;
 type Size = Readonly<{ width: number; height: number }>;
 type List = Pick<SectionList<unknown>, 'getScrollResponder'>;
 type Restoration = Readonly<{
@@ -76,6 +76,7 @@ export function useInboxPresentation({
     restoring.current = undefined;
     savedPosition.current = top;
     scrollPosition.current = top;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A changed list scope retires its saved native position.
   }, [view, query, filter, all]);
 
   const handleList = useCallback<RefCallback<List>>((current) => {
