@@ -28,8 +28,8 @@ for every implementation, including later implementation fixes.
 - Search the repository as the implementer with `scripts/implementer-grep`
   (`git grep` arguments, pathspecs after `--`), which always excludes those
   sources. Do not use `grep -r`, `rg` or bare `git grep` across the checkout.
-- Invoke the `ponytail` skill before implementing, and follow it and the
-  [coding principles](#coding-principles) throughout the implementation.
+- Before implementing, load and apply the workflow's [simplicity skills](docs/agents/implementation-review.md#simplicity-skills)
+  and follow the [coding principles](#coding-principles) throughout the implementation.
 - For React, React Native or Expo work, also invoke `vercel-react-native-skills`
   and `vercel-composition-patterns` before editing, and follow both. Select the
   other applicable skills using the [React Native skill guidance](docs/agents/native-components.md#skills).

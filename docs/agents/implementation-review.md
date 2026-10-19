@@ -87,6 +87,21 @@ outcomes and verification results without copying architecture documents into
 the implementer's context. File separation supports this reading policy; it does
 not itself restrict filesystem or Git-history access.
 
+## Simplicity skills
+
+Before implementation and before the simplicity and reuse review, both roles
+must load and apply these installed skills from the session catalogue:
+
+- `ponytail`: choose the smallest complete solution.
+- `principle-laziness-protocol`: remove unnecessary layers and indirection.
+- `principle-subtract-before-you-add`: remove unneeded complexity before adding code.
+
+For framework or library research, also load `context7-mcp` when available and
+use its documentation tools. If unavailable, consult official documentation and
+installed source directly. Confirm APIs against the supported host/version.
+Repository component selection, scope and safety requirements take precedence
+over generic skill examples for both roles.
+
 ## Implementer handoff
 
 1. Before editing, set up the task branch in this order:
@@ -304,8 +319,7 @@ solution before OCR checks the resulting implementation. It shares reviewer
 reading access, write ownership, finding validation and the four-cycle limit.
 It does not record an OCR checkpoint.
 
-1. Resolve the installed `ponytail`, `principle-laziness-protocol` and
-   `principle-subtract-before-you-add` skills through the session catalogue.
+1. Load and apply the shared [simplicity skills](#simplicity-skills).
    Read the applicable requirements and reviewer-only architecture constraints
    before judging whether a mechanism is unnecessary.
    Apply the repository's component-selection and safety requirements over generic
@@ -313,8 +327,7 @@ It does not record an OCR checkpoint.
    duplication; research libraries when the task actually needs that capability.
 2. For each material custom mechanism, check the standard library, platform,
    framework and already-installed dependencies first. Research current official
-   documentation and source for the supported host/version. Use `context7-mcp`
-   when available, or consult primary sources directly. If those options have a
+   documentation and source for the supported host/version. If those options have a
    concrete gap, check maintained, proven libraries before retaining custom code.
    Compare required behavior, compatibility and integration/maintenance cost;
    popularity alone does not prove suitability. Avoid a new dependency where

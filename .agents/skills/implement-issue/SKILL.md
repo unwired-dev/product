@@ -99,7 +99,7 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 
 ## Implement, verify, and review
 
-Invoke `ponytail` before implementation, and follow the repository's coding
+Before implementation, load and apply the workflow's [simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills), and follow the repository's coding
 principles and its skill selection and observation requirements. Use its context graph before
 source searches. Complete the issue's requested behavior, update affected
 documentation, and add a changeset when required by repository policy.
