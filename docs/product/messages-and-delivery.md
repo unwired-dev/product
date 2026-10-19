@@ -78,6 +78,8 @@ delivery or establish that scheduling is implemented. Use the
 - Opening a Scheduled Send for editing, rescheduling, cancellation, mode conversion and delivery cannot create duplicate delivery commitments.
 - Cancelling a Scheduled Send restores an editable Draft, while cancelling a Send Reminder removes only the reminder; explicit mode conversion keeps exactly one synchronized state active
 - Scheduled Send never silently changes its selected Mailbox Connection, and **Send Now** remains subject to the **Undo Send Window**
+- Removing a Mailbox Connection everywhere warns the user, lists its Scheduled Sends and requires confirmation before cancelling them. Cancellation restores editable Drafts without silently choosing another sending connection.
+- Deleting the Product Account warns the user, lists every Scheduled Send and Send Reminder and requires confirmation to cancel them as part of deleting the account and its data.
 
 ## Authored content and delivery attempts
 
