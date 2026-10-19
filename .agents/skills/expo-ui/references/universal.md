@@ -30,7 +30,7 @@ import { Host, Column, Button, Text } from '@expo/ui';
 | Disclosure & presentation | `BottomSheet`, `Collapsible` |
 | Collections & forms | `List` (with `ListItem`), `FieldGroup` |
 
-> **`List` is not suitable for large lists.** Each `ListItem` is a JSX node processed on the JS thread — for large datasets this causes noticeable slowdowns.
+> **`List` uses native virtualization on iOS and Android, but React creates every row up front.** Large lists can therefore be slow to mount. Use a data-driven `FlatList` or `FlashList` for large datasets.
 
 ## TextInput and useNativeState
 

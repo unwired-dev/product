@@ -181,7 +181,7 @@ export default function TabLayout() {
     <NativeTabs>
       <NativeTabs.Trigger name="(home)">
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="house.fill" />
+        <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(search)" role="search">
         <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
