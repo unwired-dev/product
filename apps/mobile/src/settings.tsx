@@ -504,9 +504,7 @@ export function SettingsWorkspace({
     return page;
   }
   const destinationPage =
-    destination !== 'privacy' ? (
-      page
-    ) : (
+    destination === 'privacy' ? (
       <ScreenStack style={styles.page}>
         <BackScreen
           screenId="privacy-settings"
@@ -541,6 +539,8 @@ export function SettingsWorkspace({
           </BackScreen>
         )}
       </ScreenStack>
+    ) : (
+      page
     );
   return (
     <ScreenStack style={styles.page}>
