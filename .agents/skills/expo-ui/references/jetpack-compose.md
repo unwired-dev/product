@@ -1,6 +1,6 @@
 # Platform-specific Android UI: `@expo/ui/jetpack-compose`
 
-> **Android only.** Code that imports from `@expo/ui/jetpack-compose` will crash on iOS with "Unable to get view config" errors. Always place this code in an `.android.tsx` component file or guard it with `Platform.OS === 'android'`. Import `Host` from `@expo/ui/jetpack-compose` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
+> **Android only.** Code that imports from `@expo/ui/jetpack-compose` will crash on iOS with "Unable to get view config" errors. Use a platform-resolved `.android.tsx` component with a non-platform fallback, or load the component through a `require` guarded by `Platform.OS === 'android'`. Keep platform-only imports inside that component; guarding only its JSX does not prevent module evaluation. Import `Host` from `@expo/ui/jetpack-compose` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
 
 Use this layer only when the universal `@expo/ui` components don't cover what you need on Android (see `./universal.md` first). This requires a platform-specific tree.
 
@@ -31,13 +31,15 @@ import ProductList from '../components/ProductList';
 export default ProductList;
 ```
 
-Alternatively, keep everything in one regular route file and branch on `Platform.OS`:
+Alternatively, conditionally load the platform component from a regular route file:
 
 ```tsx
 // src/app/product-list.tsx
 import { Platform } from 'react-native';
 const ComposeList = Platform.OS === 'android' ? require('../components/ProductList.android').default : null;
 ```
+
+Keep platform-only imports inside the conditionally loaded component. A rendering guard does not isolate a static import; prefer the extensionless component import shown above so Metro selects the platform implementation.
 
 ## Instructions
 
