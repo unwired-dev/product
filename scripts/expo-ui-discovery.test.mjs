@@ -21,6 +21,7 @@ test('Expo UI discovery lists wildcard and multiline exports from paths with spa
     writeFileSync(file, content);
   };
   try {
+    writeFileSync(path.join(project, 'package.json'), '{"type":"module"}');
     write('package.json', '{"version":"57.0.25"}');
     write(
       'build/swift-ui/index.d.ts',
@@ -68,7 +69,7 @@ export {
     const scriptPath = path.join(
       project,
       'skill with spaces',
-      'list-components.cjs',
+      'list-components.js',
     );
     mkdirSync(path.dirname(scriptPath), { recursive: true });
     copyFileSync(
@@ -77,6 +78,10 @@ export {
         import.meta.url,
       ),
       scriptPath,
+    );
+    copyFileSync(
+      new URL('../.agents/skills/expo-ui/package.json', import.meta.url),
+      path.join(path.dirname(scriptPath), 'package.json'),
     );
     const script = pathToFileURL(scriptPath);
     for (const flags of [[], ['--docs']]) {
