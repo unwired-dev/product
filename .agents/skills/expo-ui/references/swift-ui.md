@@ -1,6 +1,6 @@
 # Platform-specific iOS UI: `@expo/ui/swift-ui`
 
-> **iOS only.** Code that imports from `@expo/ui/swift-ui` will crash on Android with "Unable to get view config" errors. Always place this code in an `.ios.tsx` component file or guard it with `Platform.OS === 'ios'`. Import `Host` from `@expo/ui/swift-ui` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
+> **iOS only.** Code that imports from `@expo/ui/swift-ui` will crash on Android with "Unable to get view config" errors. Use a platform-resolved `.ios.tsx` component with a non-platform fallback, or load the component through a `require` guarded by `Platform.OS === 'ios'`. Keep platform-only imports inside that component; guarding only its JSX does not prevent module evaluation. Import `Host` from `@expo/ui/swift-ui` for platform-specific Host props; use the root `@expo/ui` Host for universal trees.
 
 Use this layer only when the universal `@expo/ui` components don't cover what you need on iOS (see `./universal.md` first). This requires a platform-specific tree.
 
@@ -31,7 +31,7 @@ import ProfileEditor from '../components/ProfileEditor';
 export default ProfileEditor;
 ```
 
-Alternatively, keep everything in one regular route file and branch on `Platform.OS`:
+Alternatively, conditionally load the platform component from a regular route file:
 
 ```tsx
 // src/app/profile-editor.tsx
