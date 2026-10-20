@@ -3,6 +3,7 @@ import type {
   Registration,
 } from '@private-email/mail-core/registration';
 
+import { typography } from '@private-email/mail-core/theme';
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { AppState, Switch, Text } from 'react-native';
 
@@ -10,7 +11,7 @@ import type { SettingsButton } from './settings.tsx';
 
 import { useLocalization } from './localization.ts';
 import { notifications } from './registration.ts';
-import { SettingsGroup, SettingsRow } from './settings.tsx';
+import { settingsColumns, SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 type NotificationSettingsStore = Omit<typeof notifications, 'arrived'>;
@@ -33,7 +34,11 @@ function Authorization({
   const { t } = useLocalization();
   const colors = usePalette();
   const value = (text: string) => (
-    <Text style={[textStyles.body, { color: colors.textSecondary }]}>
+    <Text
+      style={[
+        settingsColumns ? typography.ipadList.body : textStyles.body,
+        { color: colors.textSecondary },
+      ]}>
       {text}
     </Text>
   );
