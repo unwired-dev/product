@@ -368,6 +368,8 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   var mailboxAuthorization: (grant: MailboxGrant, receipt: GmailRegistrationReceipt?)?
   // Wake hints waiting for JavaScript; removing a route drops its own.
   var stopErrorReporting: @MainActor () throws -> Void = {}
+  // The platform host withdraws delivered mail alerts at every native cleanup entry point.
+  var withdrawNotifications: @MainActor (String?) -> Void = { _ in }
   var wakes = PushWakes.shared
   // Rechecked after asynchronous credentials/trust work, immediately before provider handoff.
   var deliveryAllowed: @MainActor () -> Bool = {
@@ -843,6 +845,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     // Credentials leave the durable record before cleanup suspends; its locator stays retryable.
     // TypeScript then synchronizes the removal to Product Sync.
     try save(saved)
+    withdrawNotifications(id)
     _ = try await retryMailboxCleanup(saved)
   }
 
@@ -856,6 +859,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) async throws {
+    withdrawNotifications(nil)
     try stopErrorReporting()
     forgetMailboxAccess()
     session = nil

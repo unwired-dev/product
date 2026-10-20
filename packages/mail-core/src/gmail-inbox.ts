@@ -34,7 +34,11 @@ import type {
   RetainedRemote,
 } from './remote-content-loader.ts';
 
-import { rejectionCode, runLogged } from './diagnostics.ts';
+import {
+  rejectionCode,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import {
   allMail,
   canOrganize,
@@ -806,6 +810,21 @@ const sameProgress = (left: PendingAction, right: PendingAction) =>
       attempt.at === right.attempts?.[index]?.at,
   );
 
+// The later of two Gmail history IDs already considered for notifications, as a document field:
+// a view listing can rewind the checkpoint, never this boundary.
+const latestNotificationHistory = (
+  ...ids: ReadonlyArray<string | undefined>
+): Pick<MailboxDocument, 'notificationHistoryId'> => {
+  const known = ids.filter((id) => id !== undefined);
+  return known.length === 0
+    ? {}
+    : {
+        notificationHistoryId: known.reduce((later, id) =>
+          BigInt(id) > BigInt(later) ? id : later,
+        ),
+      };
+};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -822,6 +841,10 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
+      ...latestNotificationHistory(
+        saved.notificationHistoryId,
+        next.notificationHistoryId,
+      ),
       pending: [
         // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
         ...(saved.pending ?? []).filter(
@@ -1167,6 +1190,7 @@ export function createGmailInbox(
   native: NativeGmailMailbox,
   {
     removed,
+    arrived,
     shared = createBodyLoads(),
     connection = '',
     provider = 'gmail',
@@ -1174,6 +1198,11 @@ export function createGmailInbox(
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
+    // Called once a committed history page brought unread messages newly into the Inbox. Listing,
+    // backfill and messages moved into the Inbox never arrive.
+    arrived?:
+      | ((messages: readonly GmailMessage[]) => void | Promise<void>)
+      | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
     // Microsoft mail is read, organized and sent through Graph.
@@ -1294,6 +1323,9 @@ export function createGmailInbox(
   type ListedView = ViewEntry &
     Readonly<{ listing: NonNullable<ViewEntry['listing']> }>;
 
+  // The new Inbox mail the page being committed brought; the next commit reports it.
+  let arrivals: readonly GmailMessage[] = [];
+
   // Reads and reconciles one page for the Inbox or another Gmail view. Callers own their
   // checkpoint publication and recovery when Gmail rejects a page token.
   const readListingPage = Effect.fnUntraced(function* (
@@ -1402,6 +1434,22 @@ export function createGmailInbox(
       changed,
       document.views !== undefined,
     );
+    const observed = document.notificationHistoryId ?? checkpoint.historyId;
+    const added = new Set(
+      records.flatMap((record) =>
+        BigInt(record.id) > BigInt(observed)
+          ? (record.messagesAdded ?? []).map(({ message }) => message.id)
+          : [],
+      ),
+    );
+    arrivals = fetched.flatMap(([id, message]) =>
+      message !== undefined &&
+      added.has(id) &&
+      message.unread &&
+      inInbox(labelsOf(message))
+        ? [message]
+        : [],
+    );
     // History cannot name the unchanged older message that now fits after an entry leaves, so
     // a full view that lost one is listed again.
     const refilled = new Set<string>();
@@ -1427,6 +1475,7 @@ export function createGmailInbox(
     });
     const updated: MailboxDocument = {
       ...next,
+      ...latestNotificationHistory(observed, historyId),
       ...(next.views === undefined
         ? {}
         : {
@@ -1612,6 +1661,13 @@ export function createGmailInbox(
       document.messages.some(({ labels }) => labels === undefined)
     ) {
       return startListing(scope, document).pipe(Effect.asSome);
+    }
+    // Seed older caches before a view listing can rewind their history checkpoint.
+    if (document.notificationHistoryId === undefined) {
+      return Effect.succeedSome({
+        ...document,
+        notificationHistoryId: checkpoint.historyId,
+      });
     }
     const opened = openedView(document, checkpoint.historyId);
     if (opened !== undefined) {
@@ -3592,13 +3648,28 @@ export function createGmailInbox(
       if (document !== undefined) {
         ({ cache, document } = yield* sendPending(cache, document));
       }
+      arrivals = [];
       const next = yield* advance(cache, document, step);
       if (Option.isNone(next)) {
         break;
       }
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
+      const brought = arrivals;
       ({ cache, document } = yield* commitOver(cache, document, next.value));
+      if (brought.length > 0) {
+        // Awaited so a background opportunity covers posting; its failure never ends synchronization.
+        yield* Effect.tryPromise(() =>
+          Promise.resolve(arrived?.(brought)),
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.logError(
+              'New mail notifications failed:',
+              rejectionDiagnostic(error),
+            ),
+          ),
+        );
+      }
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

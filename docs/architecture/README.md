@@ -34,6 +34,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/testflight.md](../testflight.md)                                           | [testflight.md](testflight.md)                                           |
 | [docs/outbox.md](../outbox.md)                                                   | [outbox.md](outbox.md)                                                   |
 | [docs/gmail-inbox.md](../gmail-inbox.md)                                         | [gmail-inbox.md](gmail-inbox.md)                                         |
+| [docs/new-mail-notifications.md](../new-mail-notifications.md)                   | [new-mail-notifications.md](new-mail-notifications.md)                   |
 | [docs/imap-mailboxes.md](../imap-mailboxes.md)                                   | [imap-mailboxes.md](imap-mailboxes.md)                                   |
 | [docs/google-registration.md](../google-registration.md)                         | [google-registration.md](google-registration.md)                         |
 | [docs/localization.md](../localization.md)                                       | [localization.md](localization.md)                                       |

@@ -607,6 +607,57 @@ extension PrivateInboxTests {
   // (packages/mail-core/test/mail-profiles.test.ts): a definition or ownership opens only under the
   // identifier its own Profile or connection determines, and the Profile state TypeScript records
   // stays in protected registration across relaunch and replacement of key material.
+  @Test @MainActor func notificationPoliciesOpenOnlyUnderTheirConnectionsIdentifier() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    _ = try store.createKeyRing()
+    try store.recordInitialization(true)
+    let ring = try #require(try store.loadVault(account)).ring
+
+    let mailbox = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
+    let policy: [String: Any] = [
+      "kind": "notifications", "record": mailbox, "epoch": "epoch-1", "version": 1.0,
+      "enabled": true,
+    ]
+    let sealed = try store.sealProfileRecord(policy)
+    #expect(
+      sealed["payloadIdentifier"] as? String
+        == (try ring.identifier("mailbox-notifications", mailbox)))
+    let opened = try store.openProfileRecords([
+      sealed,
+      // Served as the connection's ownership, or for another connection, it opens nowhere.
+      [
+        "payloadIdentifier": try ring.identifier("mailbox-profile", mailbox),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+      [
+        "payloadIdentifier": try ring.identifier("mailbox-notifications", "mailbox.other"),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+    ])
+    let open = try #require(opened[0] as? [String: Any])
+    #expect(open["kind"] as? String == "notifications" && open["enabled"] as? Bool == true)
+    #expect(open["epoch"] as? String == "epoch-1")
+    #expect(opened.dropFirst().allSatisfy { $0 is NSNull })
+    for malformed: [String: Any] in [
+      ["kind": "notifications", "record": mailbox, "epoch": "epoch-1", "version": 1.0],
+      [
+        "kind": "notifications", "record": "draft.other", "epoch": "epoch-1", "version": 1.0,
+        "enabled": true,
+      ],
+    ] {
+      #expect(throws: RegistrationError.unavailable) { try store.sealProfileRecord(malformed) }
+    }
+  }
+
   @Test @MainActor func profileRecordsOpenOnlyUnderTheirOwnIdentifier() async throws {
     let keys = device()
     let account = "account-synthetic-product-subject"

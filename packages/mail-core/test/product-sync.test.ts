@@ -341,8 +341,9 @@ describe('product sync', () => {
       { cursor: '100', numItems: 100 },
       { cursor: '200', numItems: 100 },
     ]);
-    // Plus one empty page each of Profile definitions and connection ownership.
-    expect(sync.listedPages).toBe(5);
+    // Plus one empty page each of Profile definitions, connection ownership and notification
+    // policies.
+    expect(sync.listedPages).toBe(6);
   });
 
   // Replaces ProductSyncTests.writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt.

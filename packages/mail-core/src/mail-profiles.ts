@@ -106,6 +106,29 @@ export const profileOwners = (value: RegistrationRecord) => {
   );
 };
 
+// This device's connections whose current incarnation has New Mail Notifications turned on in
+// Product Sync. Unreadable Profile state or keys turn every connection's notifications off.
+export const notifyingConnections = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return new Set<string>();
+  }
+  return new Set(
+    value.mailboxes.flatMap(({ id, epoch }) => {
+      const record = vault.mailboxes.find(
+        (mailbox) => mailbox.id === id,
+      )?.record;
+      return state.notifications?.some(
+        (policy) =>
+          policy.record === record && policy.epoch === epoch && policy.enabled,
+      ) === true
+        ? [id]
+        : [];
+    }),
+  );
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier and name, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -152,7 +175,13 @@ const readProfile = (
 const withRecord = (
   state: ProfileState,
   record: ProfileRecord,
-  updatedAt: number,
+  {
+    updatedAt,
+    payloadIdentifier,
+  }: Readonly<{
+    updatedAt: number;
+    payloadIdentifier?: string | undefined;
+  }>,
 ): ProfileState => {
   if (record.kind === 'profile') {
     const known = state.profiles.find(({ id }) => id === record.id);
@@ -163,6 +192,24 @@ const withRecord = (
         known === undefined
           ? [...state.profiles, profile]
           : state.profiles.map((item) => (item === known ? profile : item)),
+    };
+  }
+  if (record.kind === 'notifications') {
+    const { kind: _, ...policy } = record;
+    return {
+      ...state,
+      notifications: [
+        ...(state.notifications ?? []).filter(
+          ({ record: known }) => known !== record.record,
+        ),
+        {
+          ...policy,
+          updatedAt,
+          ...(payloadIdentifier === undefined
+            ? {}
+            : { identifier: payloadIdentifier }),
+        },
+      ],
     };
   }
   const owner: Owner = {
@@ -181,12 +228,37 @@ const withRecord = (
   };
 };
 
+// Unmapped older policies also turn off when a notification record no longer opens here.
+// Keep each version floor and row revision; an unreadable read never authorizes a write.
+const withoutUnreadablePolicy = (
+  state: ProfileState,
+  identifier: string | undefined,
+): ProfileState =>
+  identifier?.startsWith('mailbox-notifications.') === true &&
+  state.notifications?.some(
+    (policy) =>
+      (policy.identifier === identifier || policy.identifier === undefined) &&
+      policy.enabled,
+  ) === true
+    ? {
+        ...state,
+        notifications: state.notifications.map((policy) =>
+          policy.identifier === identifier || policy.identifier === undefined
+            ? { ...policy, enabled: false }
+            : policy,
+        ),
+      }
+    : state;
+
 // Convex's row revision cannot make an older authenticated record newer than one already read.
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
   const version =
     record.kind === 'profile'
       ? state.profiles.find(({ id }) => id === record.id)?.version
-      : state.owners.find((owner) => owner.record === record.record)?.version;
+      : (record.kind === 'mailbox'
+          ? state.owners
+          : (state.notifications ?? [])
+        ).find((known) => known.record === record.record)?.version;
   return version !== undefined && record.version < version;
 };
 
@@ -212,11 +284,17 @@ const merged = (
   let next = state;
   let replayed = false;
   for (const [index, record] of opened.entries()) {
-    if (record !== null) {
+    const stored = records[index];
+    if (record === null) {
+      next = withoutUnreadablePolicy(next, stored?.payloadIdentifier);
+    } else {
       replayed ||= olderRecord(next, record);
       next = olderRecord(next, record)
         ? next
-        : withRecord(next, record, records[index]?.updatedAt ?? 0);
+        : withRecord(next, record, {
+            updatedAt: stored?.updatedAt ?? 0,
+            payloadIdentifier: stored?.payloadIdentifier,
+          });
     }
   }
   return { next, replayed };
@@ -363,7 +441,11 @@ export function createMailProfileProgram<E>(
         readable: learned.readable && next.readable,
       };
     });
-    for (const prefix of ['profile.', 'mailbox-profile.']) {
+    for (const prefix of [
+      'profile.',
+      'mailbox-profile.',
+      'mailbox-notifications.',
+    ]) {
       yield* list(prefix, read);
     }
     return learned;
@@ -602,5 +684,37 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
-  return { synchronize, create, rename, remove, move };
+  // Turns New Mail Notifications on or off for the current incarnation of one of this device's
+  // connections. The change needs Product Sync: one that does not commit leaves the stored policy.
+  const notify = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    enabled: boolean,
+  ) {
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    const current = state.notifications?.find(
+      (policy) => policy.record === record,
+    );
+    if (current?.epoch === epoch && current.enabled === enabled) {
+      return;
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'notifications',
+          record,
+          epoch,
+          version: (current?.version ?? 0) + 1,
+          enabled,
+        },
+        expectedUpdatedAt: current?.updatedAt,
+      },
+    ]);
+  });
+
+  return { synchronize, create, rename, remove, move, notify };
 }

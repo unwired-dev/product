@@ -136,6 +136,7 @@ final class UnwiredRegistration: NSObject {
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
       return store
     #else
@@ -177,6 +178,7 @@ final class UnwiredRegistration: NSObject {
             previous: previous)
         })
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
       return store
     #endif
@@ -281,7 +283,7 @@ final class UnwiredRegistration: NSObject {
     return try ProductRegistrationReceipt(connected: reply)
   }
 
-  private func perform(
+  func perform(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> Any
@@ -307,7 +309,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   // An operation that resolves without a value.
-  private func performStep(
+  func performStep(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> Void

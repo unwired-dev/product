@@ -32,6 +32,7 @@
     "./testing/registration-vault": "./src/testing/registration-vault.ts",
     "./message-body": "./src/message-body.ts",
     "./remote-content": "./src/remote-content.ts",
+    "./notifications": "./src/notifications.ts",
     "./link-inspection": "./src/link-inspection.ts",
     "./assistance": "./src/assistance.ts",
     "./assistance-enablement": "./src/assistance-enablement.ts",

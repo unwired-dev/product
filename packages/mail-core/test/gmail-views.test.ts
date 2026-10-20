@@ -275,19 +275,28 @@ describe('browsing Gmail views other than the Inbox', () => {
     }
     const interrupted = interruptedView(gmail, travel);
     const { native } = interrupted;
-    const inbox = createGmailInbox(native);
+    const arrivals: string[] = [];
+    const arrived = (messages: ReadonlyArray<{ id: string }>) => {
+      arrivals.push(...messages.map(({ id }) => id));
+    };
+    const inbox = createGmailInbox(native, { arrived });
     await inbox.load();
     await inbox.openView(travel);
     expect(view(inbox, travel).status).toBe('failed');
     expect(ids(view(inbox, travel).messages)).toContain(interrupted.arrived());
+    expect(arrivals).toStrictEqual([interrupted.arrived()]);
 
-    const relaunched = createGmailInbox(native);
+    const relaunched = createGmailInbox(native, { arrived });
     await relaunched.load();
     expect(view(relaunched, travel).status).toBe('current');
     expect(ids(view(relaunched, travel).messages)).toContain(
       interrupted.arrived(),
     );
     expect(view(relaunched, travel).messages).toHaveLength(52);
+    expect(arrivals).toStrictEqual([interrupted.arrived()]);
+    const later = gmail.deliver({ subject: 'New after replay' });
+    await relaunched.load();
+    expect(arrivals).toStrictEqual([interrupted.arrived(), later]);
   });
 
   it('keeps a message visible when moving it to its current label', async () => {

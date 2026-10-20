@@ -19,6 +19,7 @@ import type {
   ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
+import type { NotificationMailbox } from './notifications.ts';
 import type {
   MailGrantProvider,
   MailProvider,
@@ -313,6 +314,8 @@ const visible = <S extends Readonly<{ kind: string; address?: string }>>(
 ) => (state.kind === 'ready' && state.address !== address ? loading : state);
 
 type OpenMailbox = Readonly<{
+  account: string;
+  epoch: string;
   id: string;
   provider: MailProvider;
   address: string;
@@ -328,6 +331,8 @@ const openMailboxes = (
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')
         .map(({ id, provider, address, profile, epoch }) => ({
+          account: account.productAccountId,
+          epoch: epoch ?? 'legacy',
           id,
           provider,
           address,
@@ -356,7 +361,20 @@ type Opened = Readonly<
 export function createMailboxes(
   native: NativeGmailMailboxes,
   registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
-  { removed }: Readonly<{ removed?: () => void }> = {},
+  {
+    removed,
+    arrived,
+  }: Readonly<{
+    removed?: () => void;
+    // New Inbox mail for a Gmail connection whose New Mail Notifications are on, while it still
+    // belongs to the same Product Account and incarnation.
+    // `eligible` answers again later, so posting can recheck after its own asynchronous work.
+    arrived?: (
+      mailbox: NotificationMailbox,
+      messages: readonly GmailMessage[],
+      eligible: () => boolean,
+    ) => void | Promise<void>;
+  }> = {},
 ) {
   const shared = createBodyLoads();
   const inboxes = new Map<string, Opened>();
@@ -443,7 +461,26 @@ export function createMailboxes(
     mailboxLoading: 'automatic' | 'explicit',
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
-    for (const { id, provider, address, owner } of added) {
+    for (const {
+      id,
+      provider,
+      address,
+      owner,
+      account: productAccount,
+      epoch,
+    } of added) {
+      // Notifications follow the connection while it keeps this owner and its switch is on.
+      const eligible = () => {
+        const { snapshot: account } = registration.getSnapshot();
+        return (
+          openMailboxes(account).some(
+            (mailbox) => mailbox.id === id && mailbox.owner === owner,
+          ) &&
+          mailboxesOf(account).some(
+            (mailbox) => mailbox.id === id && mailbox.notifications === true,
+          )
+        );
+      };
       const opened =
         provider === 'imap'
           ? {
@@ -458,6 +495,18 @@ export function createMailboxes(
               provider,
               inbox: createGmailInbox(bound(native, id), {
                 removed,
+                arrived:
+                  provider === 'gmail' && arrived !== undefined
+                    ? (messages) => {
+                        if (eligible()) {
+                          return arrived(
+                            { account: productAccount, connection: id, epoch },
+                            messages,
+                            eligible,
+                          );
+                        }
+                      }
+                    : undefined,
                 shared,
                 connection: id,
                 provider,

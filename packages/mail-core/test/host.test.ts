@@ -3,6 +3,7 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
+import { mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -12,6 +13,8 @@ import {
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
 import {
+  createSyntheticDevice,
+  createSyntheticProductSyncBackend,
   createSyntheticVault,
   syntheticMailboxes,
 } from '../src/testing/registration-vault.ts';
@@ -26,9 +29,13 @@ const required = <Value>(value: Value | undefined): Value => {
 
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
-function syntheticHost(reporting?: NativeErrorReporting) {
+function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const gmail = createSyntheticGmail();
-  const { vault } = createSyntheticVault();
+  const shared = createSyntheticDevice();
+  if (productSync) {
+    shared.backend.productSync = createSyntheticProductSyncBackend();
+  }
+  const { vault } = createSyntheticVault(shared);
   const base = syntheticConnections({
     [syntheticMailboxes['alex@example.invalid']]: gmail,
   });
@@ -39,6 +46,11 @@ function syntheticHost(reporting?: NativeErrorReporting) {
   const attachments = Promise.withResolvers<string>();
   const cancelled: string[] = [];
   const counts = { lookups: 0, registration: 0, settings: 0, wakes: 0 };
+  // This device's notification permission and previews, and what it posted.
+  const device = { authorization: 'undetermined', previews: false };
+  const notified: unknown[] = [];
+  // While set, settings reads wait for it, as a slow native reply would.
+  const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
     ...vault,
     ...base,
@@ -78,13 +90,34 @@ function syntheticHost(reporting?: NativeErrorReporting) {
     },
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
+    notificationSettings: async () => {
+      settingsGate.started?.();
+      await settingsGate.held;
+      return { ...device };
+    },
+    requestNotifications: () => {
+      device.authorization = 'authorized';
+      return Promise.resolve({ ...device });
+    },
+    setNotificationPreviews: (previews) => {
+      device.previews = previews;
+      return Promise.resolve({ ...device });
+    },
+    openNotificationSettings: () => Promise.resolve(null),
+    postNotifications: (posted) => {
+      notified.push(...posted);
+      return Promise.resolve(null);
+    },
+    nextOpenedNotification: () => Promise.withResolvers<unknown>().promise,
+    stopOpenedNotifications: () => Promise.resolve(null),
+    restoreOpenedNotification: () => Promise.resolve(null),
   };
   const host = createHost(
     () => {
       counts.lookups += 1;
       return native;
     },
-    reporting === undefined ? undefined : () => reporting,
+    { reportingNative: reporting === undefined ? undefined : () => reporting },
   );
   return {
     host,
@@ -93,6 +126,8 @@ function syntheticHost(reporting?: NativeErrorReporting) {
     attachments: attachments.promise,
     cancelled,
     counts,
+    notified,
+    settingsGate,
   };
 }
 
@@ -115,6 +150,147 @@ describe('the host assembly', () => {
     await download;
     close();
     expect(cancelled).toStrictEqual([request]);
+  });
+
+  it('posts New Mail Notifications only for a connection turned on, with generic content until previews are chosen', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+
+    // Off by default.
+    gmail.deliver({ subject: 'Before notifications' });
+    await host.gmailMailboxes.load();
+    await host.registration.notifyMailbox(connection, true);
+    const account = host.registration.getSnapshot().snapshot;
+    const scope = {
+      account: 'account-synthetic-product-subject',
+      epoch: required(required(mailboxesOf(account)[0]).epoch),
+    };
+    // Without permission nothing is posted.
+    gmail.deliver({ subject: 'Before permission' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    await host.notifications.request();
+    const generic = gmail.deliver({ subject: 'Quarterly plan' });
+    await host.gmailMailboxes.load();
+    await host.notifications.setPreviews(true);
+    const previewed = gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio review',
+    });
+    await host.gmailMailboxes.load();
+    // Synchronization waits for posting after its commit.
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(2);
+    });
+    expect(notified).toStrictEqual([
+      {
+        id: `${connection}.${generic}`,
+        title: 'New Mail',
+        body: '',
+        connection,
+        message: generic,
+        ...scope,
+        previews: false,
+      },
+      {
+        id: `${connection}.${previewed}`,
+        title: 'Maya Chen',
+        body: 'Studio review',
+        connection,
+        message: previewed,
+        ...scope,
+        previews: true,
+      },
+    ]);
+
+    // Turned off again, the connection posts nothing.
+    await host.registration.notifyMailbox(connection, false);
+    gmail.deliver({ subject: 'After notifications' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(2);
+  });
+
+  it('posts nothing for a connection turned off or removed while posting waited', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.notifications.request();
+    await host.registration.notifyMailbox(connection, true);
+    const held = () => {
+      const { promise, resolve } = Promise.withResolvers<undefined>();
+      const started = Promise.withResolvers<undefined>();
+      settingsGate.held = promise;
+      settingsGate.started = () => started.resolve(undefined);
+      return {
+        started: started.promise,
+        release: () => {
+          settingsGate.held = undefined;
+          settingsGate.started = undefined;
+          resolve(undefined);
+        },
+      };
+    };
+
+    let gate = held();
+    gmail.deliver({ subject: 'Turned off meanwhile' });
+    let loading = host.gmailMailboxes.load();
+    await gate.started;
+    await host.registration.notifyMailbox(connection, false);
+    gate.release();
+    await loading;
+
+    await host.registration.notifyMailbox(connection, true);
+    gate = held();
+    gmail.deliver({ subject: 'Removed meanwhile' });
+    loading = host.gmailMailboxes.load();
+    await gate.started;
+    await host.registration.removeMailbox(connection);
+    gate.release();
+    await loading;
+    expect(notified).toStrictEqual([]);
+  });
+
+  it('keeps a background freshness opportunity alive until notification posting settles', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.notifications.request();
+    await host.registration.notifyMailbox(connection, true);
+    const held = Promise.withResolvers<undefined>();
+    const started = Promise.withResolvers<undefined>();
+    settingsGate.held = held.promise;
+    settingsGate.started = () => started.resolve(undefined);
+    gmail.deliver({ subject: 'Background arrival' });
+    let completed = false;
+    const refreshing = (async () => {
+      await host.freshness.refresh();
+      completed = true;
+    })();
+    await started.promise;
+    // A registration round can complete independently while notification settings still wait.
+    await host.registration.restore();
+    expect(completed).toBe(false);
+    held.resolve(undefined);
+    await refreshing;
+    expect(notified).toHaveLength(1);
+    expect(completed).toBe(true);
   });
 
   it('reports resolved provider HTTP failures without changing send or synchronization outcomes', async () => {

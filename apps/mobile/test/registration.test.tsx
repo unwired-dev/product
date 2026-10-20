@@ -6,6 +6,7 @@ import type { RegistrationScenario } from '@private-email/mail-core/testing/regi
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { createNotifications } from '@private-email/mail-core/notifications';
 import {
   createRegistration,
   mailboxesOf,
@@ -41,6 +42,7 @@ import type { MailboxView } from '../src/sidebar.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { started } from './started.ts';
@@ -2464,6 +2466,72 @@ describe('product registration', () => {
       shown(replacement, 'recoveryKey'),
     );
     expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+  });
+
+  it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    const device = { authorization: 'denied', previews: false };
+    const native: string[] = [];
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: (previews) => {
+          device.previews = previews;
+          return Promise.resolve({ ...device });
+        },
+        openNotificationSettings: () => {
+          native.push('system settings');
+          return Promise.resolve(null);
+        },
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await openSettings('Notifications');
+    await expect(screen.findByText('Off')).resolves.toBeVisible();
+    await openSettings('Open Settings…');
+    const previews = screen.getByRole('switch', {
+      name: 'Show Sender and Subject',
+    });
+    await act(async () => {
+      await fireEvent(previews, 'valueChange', true);
+    });
+    synthetic.backend.offline = true;
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('switch', { name: 'Gmail · alex@example.invalid' }),
+        'valueChange',
+        true,
+      );
+    });
+    await expect(
+      screen.findByText('Notifications could not be changed. Try again later.'),
+    ).resolves.toBeVisible();
+    expect({
+      native,
+      previews: screen.getByRole('switch', { name: 'Show Sender and Subject' })
+        .props.value,
+      mailbox: screen.getByRole('switch', {
+        name: 'Gmail · alex@example.invalid',
+      }).props.value,
+    }).toStrictEqual({
+      native: ['system settings'],
+      previews: true,
+      mailbox: false,
+    });
   });
 
   it('opens Settings over the Inbox, which keeps its state for the way back, and closes it on sign-out', async () => {

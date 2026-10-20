@@ -491,6 +491,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-inbox.ts` reporting every replayed `messagesAdded` as a new arrival.
+  Interrupted view listings can rewind the shared history checkpoint. Preserve
+  the already-considered arrival boundary through commits, rebases and relaunch,
+  and exercise a resumed listing with an arrival callback; otherwise opening a
+  label repeats a delivered alert. A stable notification identifier does not
+  prevent the operating system from alerting again for a delivered request.
+- `host.ts` detaching the Promise returned by notification posting. Keep the
+  synchronization and background-wake completion alive through settings and
+  posting, or iOS can suspend the process after the history checkpoint advances
+  but before its alert reaches the system.
+
 - `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
   another cached view without enforcing `cacheLimit` before commit/publication.
   Check `everyView` additions and `settleObserved` callers with a full destination

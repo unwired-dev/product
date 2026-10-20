@@ -39,7 +39,8 @@ const SetupReasonSchema = Schema.Literals([
 export type SetupReason = typeof SetupReasonSchema.Type;
 
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
-// A Mail Profile definition or a connection's ownership as native code seals and opens it.
+// A Mail Profile definition, a connection's ownership or its New Mail Notification policy as native
+// code seals and opens it.
 export const ProfileRecordSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('profile'),
@@ -56,6 +57,15 @@ export const ProfileRecordSchema = Schema.Union([
     epoch: Schema.NonEmptyString,
     version: Version,
     profile: Schema.NonEmptyString,
+  }),
+  // Whether one incarnation of a connection notifies for new Inbox mail; a Mail Workflow
+  // Preference of the Profile that owns it.
+  Schema.Struct({
+    kind: Schema.Literal('notifications'),
+    record: Schema.NonEmptyString,
+    epoch: Schema.NonEmptyString,
+    version: Version,
+    enabled: Schema.Boolean,
   }),
 ]);
 export type ProfileRecord = typeof ProfileRecordSchema.Type;
@@ -84,6 +94,20 @@ export const ProfileStateSchema = Schema.Struct({
       version: Version,
       updatedAt: Schema.Finite,
     }),
+  ),
+  // Each connection's synchronized notification policy, by its descriptor record.
+  notifications: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        record: Schema.NonEmptyString,
+        epoch: Schema.NonEmptyString,
+        enabled: Schema.Boolean,
+        version: Version,
+        updatedAt: Schema.Finite,
+        // The record's opaque Product Sync identifier, so a later unreadable read can turn it off.
+        identifier: Schema.optionalKey(Schema.NonEmptyString),
+      }),
+    ),
   ),
 });
 export type ProfileState = typeof ProfileStateSchema.Type;

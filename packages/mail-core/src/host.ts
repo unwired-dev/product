@@ -2,7 +2,9 @@ import type {
   ReportingBreadcrumb,
   ReportingCode,
 } from '@private-email/contracts/errorReporting';
+import type { Translate } from '@private-email/localization';
 
+import { english } from '@private-email/localization';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -10,6 +12,7 @@ import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
 import type { NativeGmailMailboxes } from './mailboxes.ts';
+import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
@@ -19,6 +22,7 @@ import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
 import { createMailboxes } from './mailboxes.ts';
+import { createNotifications } from './notifications.ts';
 import { createOutbox } from './outbox.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
@@ -56,17 +60,26 @@ export interface NativeHostModule
     NativeDraftSync,
     NativeDeliveryClaim,
     NativeWakes,
-    NativeRemoteContent {
+    NativeRemoteContent,
+    NativeNotifications {
   // Cancels a Gmail or Microsoft Graph read by its request name.
   readonly cancelGmailRequest: (request: string) => void;
 }
 
 // The host's mail-core stores over its native module, which each call looks up when it runs, so
-// constructing the host requires nothing native.
+// constructing the host requires nothing native. `translate` gives notification text the
+// application's current language.
 export function createHost(
   native: () => NativeHostModule,
-  reportingNative?: () => NativeErrorReporting,
-  initialReportingState?: unknown,
+  {
+    reportingNative,
+    initialReportingState,
+    translate = () => english,
+  }: Readonly<{
+    reportingNative?: (() => NativeErrorReporting) | undefined;
+    initialReportingState?: unknown;
+    translate?: () => Translate;
+  }> = {},
 ) {
   const reportingBridge = () => {
     if (reportingNative === undefined) {
@@ -217,6 +230,19 @@ export function createHost(
     },
   };
 
+  // This device's notification settings and the New Mail Notifications it posts.
+  const notifications = createNotifications(
+    {
+      notificationSettings: () => native().notificationSettings(),
+      requestNotifications: () => native().requestNotifications(),
+      setNotificationPreviews: (previews) =>
+        native().setNotificationPreviews(previews),
+      openNotificationSettings: () => native().openNotificationSettings(),
+      postNotifications: (posted) => native().postNotifications(posted),
+    },
+    translate,
+  );
+
   let nextRead = 0;
 
   // One provider read native code can cancel by its request name when `signal` aborts.
@@ -318,7 +344,10 @@ export function createHost(
         native().commitRemoteContent(mailbox, resource, admission),
     },
     registration,
-    { removed },
+    {
+      removed,
+      arrived: notifications.arrived,
+    },
   );
 
   // The signed-in Product Account's encrypted Drafts on this device, synchronized through Product
@@ -384,6 +413,7 @@ export function createHost(
     freshness,
     remoteContent,
     errorReporting,
+    notifications,
     // Restores Registration and reads the saved remote content policies once per process, however
     // many windows or screens open.
     start: () => {

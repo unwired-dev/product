@@ -1,6 +1,7 @@
 import type { NativeRegistrationVault } from '@private-email/mail-core/registration-flow';
 
 import * as Schema from 'effect/Schema';
+import * as Struct from 'effect/Struct';
 
 import { readingProfile } from '../src/mailboxes.ts';
 import {
@@ -60,6 +61,39 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
     throw new Error('No ownership');
   }
   return ownership;
+};
+// Every stored notification policy as ciphertext this device can no longer open.
+const forgetPolicyKeys = (sync: ReturnType<typeof setup>['sync']) => {
+  for (const [ciphertext, { record }] of sync.sealedProfiles) {
+    if (record.kind === 'notifications') {
+      sync.sealedProfiles.delete(ciphertext);
+    }
+  }
+};
+// A saved policy from before notification records retained their opaque identifier.
+const forgetPolicyIdentifiers = (
+  device: ReturnType<typeof setup>['device'],
+) => {
+  const saved = device.record;
+  if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
+    throw new Error('No Profile state');
+  }
+  saved.profiles = {
+    ...saved.profiles,
+    notifications: saved.profiles.notifications?.map((policy) =>
+      Struct.omit(policy, ['identifier']),
+    ),
+  };
+};
+// The only notification policy stored for the account.
+const policyOf = (sync: ReturnType<typeof setup>['sync']) => {
+  const policy = storedProfiles(sync, account).find(
+    ({ kind }) => kind === 'notifications',
+  );
+  if (policy?.kind !== 'notifications') {
+    throw new Error('No notification policy');
+  }
+  return policy;
 };
 // Another device's Profile whose ciphertext this device cannot open.
 const unreadableProfile = (sync: ReturnType<typeof setup>['sync']) => {
@@ -354,6 +388,134 @@ describe('mail profiles', () => {
       kind: 'connected',
     });
     expect(owners(await flow.restore())).toStrictEqual([defaultProfile]);
+  });
+
+  it('turns New Mail Notifications on only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, mailboxId } = await connected();
+    const id = await mailboxId();
+    const notifying = (snapshot: unknown) =>
+      mailboxesOf(decode(snapshot)).map(
+        ({ notifications }) => notifications === true,
+      );
+    const policies = () =>
+      storedProfiles(sync, account).filter(
+        ({ kind }) => kind === 'notifications',
+      );
+    // Off until turned on.
+    expect(notifying(await flow.restore())).toStrictEqual([false]);
+
+    const enabled = await flow.notifyMailbox(id, true);
+    expect(notifying(enabled)).toStrictEqual([true]);
+    expect(policies()).toStrictEqual([
+      {
+        kind: 'notifications',
+        record: expect.any(String),
+        epoch: expect.any(String),
+        version: 1,
+        enabled: true,
+      },
+    ]);
+    await expect(relaunch().restore()).resolves.toStrictEqual(enabled);
+
+    // A change needs Product Sync; one that does not commit leaves the stored policy.
+    sync.offline = true;
+    await expect(flow.notifyMailbox(id, false)).rejects.toBeDefined();
+    sync.offline = false;
+    expect(notifying(await flow.restore())).toStrictEqual([true]);
+
+    // Another device turns them off first: this write changes nothing and reports the conflict.
+    const policy = policyOf(sync);
+    await flow.notifyMailbox(id, false);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...policy, version: 3, enabled: false });
+    };
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
+
+    // A policy record this device can no longer open turns its notifications off.
+    await flow.notifyMailbox(id, true);
+    forgetPolicyKeys(sync);
+    expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
+
+    // Removed and added again, the connection's notifications start off.
+    await flow.removeMailbox(id);
+    await flow.addMailbox('gmail', false);
+    expect(notifying(await flow.restore())).toStrictEqual([false]);
+  });
+
+  it('keeps unreadable notification policies off and read-only across older saved state', async () => {
+    expect.hasAssertions();
+    const { flow, device, sync, records, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    forgetPolicyIdentifiers(device);
+    const sealed = new Map(sync.sealedProfiles);
+    forgetPolicyKeys(sync);
+    const before = [...records().entries()];
+    const refreshed = decode(await flow.refreshPrivateSync());
+    expect(mailboxesOf(refreshed)[0]?.notifications).not.toBe(true);
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect([...records().entries()]).toStrictEqual(before);
+
+    for (const [ciphertext, policy] of sealed) {
+      sync.sealedProfiles.set(ciphertext, policy);
+    }
+    expect(
+      mailboxesOf(decode(await flow.refreshPrivateSync()))[0]?.notifications,
+    ).toBe(true);
+
+    // A mapped policy also stays read-only, for both switch directions.
+    forgetPolicyKeys(sync);
+    expect(
+      mailboxesOf(decode(await flow.refreshPrivateSync()))[0]?.notifications,
+    ).not.toBe(true);
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    await expect(flow.notifyMailbox(id, false)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect([...records().entries()]).toStrictEqual(before);
+  });
+
+  it('publishes a learned notification opt-out when an unreadable policy refuses a change', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    const store = createRegistration(vault);
+    await store.restore();
+    forgetPolicyKeys(sync);
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    await store.notifyMailbox(id, false);
+    const state = store.getSnapshot();
+    expect(state).toMatchObject({ notificationFailure: id });
+    expect(mailboxesOf(state.snapshot)[0]?.notifications).not.toBe(true);
+  });
+
+  it('quietly reports a refused notification change on its connection, not as a Profile failure', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    const policy = policyOf(sync);
+    const store = createRegistration(vault);
+    await store.restore();
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...policy, version: 2 });
+    };
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    await store.notifyMailbox(id, false);
+    expect(store.getSnapshot()).toMatchObject({ notificationFailure: id });
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it('removes only a Profile that owns no live connection', async () => {

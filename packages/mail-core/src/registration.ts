@@ -124,6 +124,8 @@ export type RegistrationState = Readonly<{
   // Why an IMAP mailbox could not be added beside others; nothing changed.
   imapFailure?: ImapFailure;
   profileFailure?: ProfileFailure;
+  // The connection whose New Mail Notifications could not be changed; its policy is unchanged.
+  notificationFailure?: string;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -215,6 +217,11 @@ class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
   },
 ) {}
 
+class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
+  'NotificationRefused',
+  { connection: Schema.String, snapshot: RegistrationSnapshotSchema },
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -286,6 +293,12 @@ const enrollmentFailed = (
 
 export function createRegistration(vault: NativeRegistrationVault) {
   const native = createRegistrationFlow(vault);
+  const notificationRefusal = (connection: string) =>
+    request(native.snapshot()).pipe(
+      Effect.flatMap((snapshot) =>
+        Effect.fail(new NotificationRefused({ connection, snapshot })),
+      ),
+    );
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
     busy: true,
@@ -327,6 +340,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | EnrollmentCodeInvalid
       | LinkRefused
       | ProfileRefused
+      | NotificationRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -428,6 +442,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 profileFailure: failure,
+              })),
+            NotificationRefused: ({ connection, snapshot }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(snapshot),
+                notificationFailure: connection,
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -589,6 +608,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(request(native.removeProfile(profile)), profileRefusal),
     moveMailbox: (connection: string, profile: string) =>
       execute(request(native.moveMailbox(connection, profile)), profileRefusal),
+    notifyMailbox: (connection: string, enabled: boolean) =>
+      execute(
+        // A refusal, such as another device's write first, is reported on the connection's row.
+        request(native.notifyMailbox(connection, enabled)).pipe(
+          Effect.catchTags({
+            ProfileRefused: () => notificationRefusal(connection),
+            RegistrationFailed: (error) =>
+              Effect.logError('Registration failed:', error.diagnostic).pipe(
+                Effect.andThen(notificationRefusal(connection)),
+              ),
+          }),
+        ),
+        (snapshot) => ({
+          ...settled(snapshot),
+          notificationFailure: connection,
+        }),
+      ),
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(
