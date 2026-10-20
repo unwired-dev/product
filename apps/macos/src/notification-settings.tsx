@@ -4,10 +4,11 @@ import type {
 } from '@private-email/mail-core/registration';
 
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
-import { AppState, Switch, Text } from 'react-native';
+import { AppState, Switch } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
+import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { notifications } from './registration.ts';
 import { SettingsGroup, SettingsRow } from './settings.tsx';
@@ -33,9 +34,9 @@ function Authorization({
   const { t } = useLocalization();
   const colors = usePalette();
   const value = (text: string) => (
-    <Text style={[textStyles.body, { color: colors.textSecondary }]}>
+    <Label style={[textStyles.body, { color: colors.textSecondary }]}>
       {text}
-    </Text>
+    </Label>
   );
   const shown = {
     authorized: () => value(t('notifications.allowed')),
