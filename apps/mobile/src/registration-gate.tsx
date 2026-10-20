@@ -295,6 +295,7 @@ function SettingsCover({
   readonly children: ReactNode;
 }) {
   const covered = settings !== undefined;
+  const [mailShown, setMailShown] = useState(false);
   if (!settingsColumns) {
     return (
       <ScreenStack style={styles.page}>
@@ -302,12 +303,17 @@ function SettingsCover({
           screenId="mail"
           activityState={2}
           freezeOnBlur={false}
-          headerConfig={{ hidden: true }}>
+          headerConfig={{ hidden: true }}
+          onAppear={() => {
+            setMailShown(true);
+          }}>
           <View
             accessibilityElementsHidden={covered}
             importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
             style={styles.page}>
-            {children}
+            {/* react-native-screens 4.26 gives a split view its columns only when it mounts inside the
+                window, which this screen joins after its own first mount (#1111). */}
+            {mailShown ? children : null}
           </View>
         </ScreenStackItem>
         {covered ? (

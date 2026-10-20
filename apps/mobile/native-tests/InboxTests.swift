@@ -189,12 +189,14 @@ final class InboxTests: XCTestCase {
         .staticText, identifier: "No folders match your search."
       ).firstMatch
       XCTAssertGreaterThanOrEqual(folders.frame.height, 44)
+      // Layout rounding can leave a flush note a fraction of a point past the list's edge.
+      let shown = { folders.frame.insetBy(dx: 0, dy: -0.5).contains(noMatch.frame) }
       // A default swipe across a short viewport can become a tap-length gesture.
-      for _ in 0..<5 where !folders.frame.contains(noMatch.frame) {
+      for _ in 0..<5 where !shown() {
         folders.swipeUp(velocity: .slow)
         XCTAssertTrue(keyboard.exists)
       }
-      XCTAssertTrue(folders.frame.contains(noMatch.frame))
+      XCTAssertTrue(shown())
       XCTAssertTrue(noMatch.isHittable)
       XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
