@@ -843,8 +843,10 @@ with page JavaScript disabled. Fit the view to the detail column and bound its
 height. Invalid or failed measurement uses the retained readable-text fallback.
 Normal-height documents stay pinned to the top of WebKit and use the
 reader's outer vertical scroll; horizontal overflow cannot introduce a second
-vertical scroll. Only a document above the presentation height cap scrolls
-vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a
+vertical scroll. Desktop-width tables and blocked image placeholders narrow to
+the column. Content that still needs more width, such as unwrappable text,
+scrolls horizontally inside WebKit instead of being clipped. Only a document
+above the presentation height cap scrolls vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a
 document above it stays fully reachable by scrolling inside the view.
 
 Rich and plain text remain selectable. VoiceOver can read content in order,

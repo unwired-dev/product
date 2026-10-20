@@ -882,8 +882,8 @@ describe('rich-reader review regressions', () => {
       '<img src="https://images.example/photo" width="400" height="200"><img src="https://images.example/styled" style="width:50%;height:80px"><img src="https://images.example/pixel" width="1" height="1">',
     );
     expect(result.remoteNodes).toStrictEqual([
-      '<span class="blocked-image" data-remote="0" style="display: inline-block; max-width: 100%; width: 400px; height: 200px" role="img" aria-label="Image not loaded">Image</span>',
-      '<span class="blocked-image" data-remote="1" style="display: inline-block; max-width: 100%; width: 50%; height: 80px" role="img" aria-label="Image not loaded">Image</span>',
+      '<span class="blocked-image" data-remote="0" style="display: inline-block; width: min(100%, 400px); height: 200px" role="img" aria-label="Image not loaded">Image</span>',
+      '<span class="blocked-image" data-remote="1" style="display: inline-block; width: min(100%, 50%); height: 80px" role="img" aria-label="Image not loaded">Image</span>',
     ]);
     expect(result.remoteImages).toStrictEqual([
       'https://images.example/photo',
@@ -1436,12 +1436,19 @@ describe('rich-reader review regressions', () => {
     const result = sanitizeHtml(
       '<a href="https://phish.invalid">https://bank.invalid<span style="display:inline-block;width:10000px;text-align:right"> masking text</span></a>' +
         '<span style="display:inline-block;min-width:10000px;text-align:center">Centered</span>' +
-        '<div style="width:600px">Desktop width</div>',
+        '<div style="width:600px">Desktop width</div>' +
+        // WebKit ignores the reader's max-width on a table, which clipped text in #965.
+        '<table width="600"><tr><td>Desktop table</td></tr></table>' +
+        '<table width="100%" style="width:300px"><tr><td>Styled table</td></tr></table>',
     );
     expect(result.links[0]?.text).toBe('https://bank.invalid masking text');
     expect(result.document).toContain('width: min(100%, 10000px)');
     expect(result.document).toContain('min-width: min(100%, 10000px)');
-    expect(result.document).toContain('width: min(100%, 600px)');
+    expect(result.document).toContain('<div style="width: min(100%, 600px)">');
+    expect(result.document).toContain(
+      '<table width="600" style="width: min(100%, 600px)"><tbody><tr><td>Desktop table</td></tr></tbody></table>' +
+        '<table width="100%" style="width: 300px">',
+    );
   });
 
   it('collects only the unique Content-IDs resolution may attempt, counting every occurrence', () => {

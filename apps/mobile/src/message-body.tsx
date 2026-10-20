@@ -21,7 +21,7 @@ import {
   messageLinkAt,
 } from '@private-email/mail-core/link-inspection';
 import {
-  decodeMessageContentHeight,
+  decodeMessageContentSize,
   decodeRemoteImagePositions,
 } from '@private-email/mail-core/message-body';
 import { setStringAsync } from 'expo-clipboard';
@@ -523,6 +523,8 @@ function RichDocument({
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
   const [height, setHeight] = useState<number>();
+  // Wider content, such as unwrappable text, scrolls sideways inside the view.
+  const [wide, setWide] = useState(false);
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
@@ -607,17 +609,20 @@ function RichDocument({
           mediaPlaybackRequiresUserAction
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent) => {
-            const measured = decodeMessageContentHeight(event.nativeEvent);
+            const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
-              setHeight(measured);
+              setHeight(measured.height);
+              setWide(measured.width > (width.current ?? Infinity));
             }
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}
-          scrollEnabled={height !== undefined && height > heightCap}
+          // Without bounce, a sideways scroll keeps a normal-height document pinned vertically.
+          bounces={height !== undefined && height > heightCap}
+          scrollEnabled={height !== undefined && (height > heightCap || wide)}
           setSupportMultipleWindows={false}
           source={source}
           nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}

@@ -22,7 +22,7 @@ export { unescapeHtml } from './readable-text.ts';
 export type { MessagePresentation } from './message-presentation.ts';
 export {
   contentIdsOf,
-  decodeMessageContentHeight,
+  decodeMessageContentSize,
   decodeRemoteImagePositions,
   presentation,
 } from './message-presentation.ts';
