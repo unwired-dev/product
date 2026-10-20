@@ -302,7 +302,7 @@ export function GlassGroup({
       {children}
     </Glass>
   );
-  // A popover anchor measures a plain host view.
+  // shortcut: Expo resolves another React Ref type; drop this host anchor when its types align.
   return ref === undefined ? (
     group
   ) : (

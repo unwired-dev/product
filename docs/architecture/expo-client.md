@@ -31,10 +31,11 @@ Catalogs centralize versions; bundle checks
 and native autolinking still have to establish each host's renderer boundary.
 
 The design config plugin compiles the first-party views in `native/design` into
-the app target. Each host wraps the shared SF Symbol and Liquid Glass view
-managers through Fabric's legacy-view interop, without adding an autolinked
-dependency. Native visual, Dynamic Type and accessibility qualification remains
-required; JavaScript tests and bundle checks do not establish that evidence.
+the app target. Both hosts wrap the shared SF Symbol view manager through
+Fabric's legacy-view interop. Mobile Liquid Glass uses `expo-glass-effect`;
+the Mac retains its AppKit glass view manager without importing Expo. Native
+visual, Dynamic Type and accessibility qualification remains required;
+JavaScript tests and bundle checks do not establish that evidence.
 
 ## Native E2E in CI
 
