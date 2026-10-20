@@ -227,21 +227,17 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
-  // Organizing that becomes unavailable, or a reader that stops showing its message, takes the
-  // toolbar away; it leaves no panel or dismissal behind to reopen later.
-  useEffect(
-    () => () => {
-      onPanel(undefined);
-    },
-    [onPanel],
-  );
-  const panelOpen = more.open || folders?.open;
-  // Move can become unavailable while the toolbar's other actions remain.
+  // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
+  // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
+  const shown = more.open || folders?.open === true;
   useEffect(() => {
-    if (!panelOpen) {
-      onPanel(undefined);
+    if (!shown) {
+      return undefined;
     }
-  }, [panelOpen, onPanel]);
+    return () => {
+      onPanel(undefined);
+    };
+  }, [shown, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
   const thread = {
     actions: [
