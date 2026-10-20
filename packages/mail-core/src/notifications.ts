@@ -282,6 +282,7 @@ export function followOpenedNotifications(
     open: (
       target: Readonly<NonNullable<ReturnType<typeof openedTarget>>>,
       reply: boolean,
+      current: () => boolean,
     ) => void;
   }>,
 ) {
@@ -296,7 +297,11 @@ export function followOpenedNotifications(
       const target =
         allowed && !stopped ? openedTarget(snapshot(), opened) : undefined;
       if (target !== undefined) {
-        open(target, opened.action === 'reply');
+        open(
+          target,
+          opened.action === 'reply',
+          () => openedTarget(snapshot(), opened) !== undefined,
+        );
       }
     }
     if (stopped) {

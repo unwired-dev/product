@@ -202,11 +202,20 @@ const waiting = new WeakMap<object, () => void>();
  * @param {object} registry The window's command registry.
  * @param {CommandId} id The command.
  * @param {string} target The message, as `commandTarget` names it.
+ * @param {Function} current Whether the originating owner still admits the
+ *   command.
  */
 export const runWhenOffered = (
   registry: Pick<CommandRegistry, 'subscribe' | 'getSnapshot'>,
-  id: CommandId,
-  target: string,
+  {
+    id,
+    target,
+    current = () => true,
+  }: Readonly<{
+    id: CommandId;
+    target: string;
+    current?: () => boolean;
+  }>,
 ) => {
   waiting.get(registry)?.();
   let unsubscribe: (() => void) | undefined = undefined;
@@ -216,6 +225,10 @@ export const runWhenOffered = (
     unsubscribe?.();
   };
   const attempt = () => {
+    if (!current()) {
+      stop();
+      return;
+    }
     const offered = mergeCommands(registry.getSnapshot()).find(
       (command) =>
         command.id === id &&

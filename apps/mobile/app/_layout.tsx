@@ -27,6 +27,7 @@ import type { MailboxView } from '../src/sidebar.tsx';
 import {
   CommandPaletteProvider,
   useCommandRegistry,
+  useCommandPalette,
 } from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
@@ -86,12 +87,14 @@ pollGmailWhileActive();
 function OpenedNotifications() {
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
+  const { close } = useCommandPalette();
   useEffect(() => {
     if (!previewInbox) {
       return followOpenedNotifications(native(), '', {
         snapshot: () => registration.getSnapshot().snapshot,
         leave,
-        open: (target, reply) => {
+        open: (target, reply, current) => {
+          close();
           router.navigate({
             pathname: '/message/[id]',
             params: {
@@ -101,16 +104,19 @@ function OpenedNotifications() {
             },
           });
           if (reply) {
-            runWhenOffered(
-              registry,
-              'reply',
-              commandTarget(target.mailbox, { id: target.id, subject: '' }).id,
-            );
+            runWhenOffered(registry, {
+              id: 'reply',
+              target: commandTarget(target.mailbox, {
+                id: target.id,
+                subject: '',
+              }).id,
+              current,
+            });
           }
         },
       });
     }
-  }, [leave, registry]);
+  }, [leave, registry, close]);
   return null;
 }
 
@@ -238,8 +244,7 @@ function MailShell() {
   }
 
   return (
-    <CommandPaletteProvider>
-      <OpenedNotifications />
+    <>
       <StatusBar style="auto" />
       <View
         testID="mail-shell"
@@ -422,7 +427,7 @@ function MailShell() {
           </View>
         )}
       </View>
-    </CommandPaletteProvider>
+    </>
   );
 }
 
@@ -433,9 +438,12 @@ export default function RootLayout() {
   return (
     <RegistrationGate>
       <InboxProvider>
-        <ProfileScope profile={readingProfile(profileId)}>
-          <MailShell />
-        </ProfileScope>
+        <CommandPaletteProvider>
+          <OpenedNotifications />
+          <ProfileScope profile={readingProfile(profileId)}>
+            <MailShell />
+          </ProfileScope>
+        </CommandPaletteProvider>
       </InboxProvider>
     </RegistrationGate>
   );

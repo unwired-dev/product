@@ -214,7 +214,7 @@ function WindowContents({
       return followOpenedNotifications(native(), windowId, {
         snapshot: () => registration.getSnapshot().snapshot,
         leave,
-        open: (target, reply) => {
+        open: (target, reply, current) => {
           if (target.profile === profile) {
             setComposing(undefined);
             setView({});
@@ -223,11 +223,14 @@ function WindowContents({
             onOpenProfile(target);
           }
           if (reply) {
-            runWhenOffered(
-              registry,
-              'reply',
-              commandTarget(target.mailbox, { id: target.id, subject: '' }).id,
-            );
+            runWhenOffered(registry, {
+              id: 'reply',
+              target: commandTarget(target.mailbox, {
+                id: target.id,
+                subject: '',
+              }).id,
+              current,
+            });
           }
         },
       });

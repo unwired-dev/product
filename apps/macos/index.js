@@ -10,6 +10,11 @@ import { InboxWindow, SettingsWindowRoot } from './src/window.tsx';
 
 AppRegistry.registerComponent('UnwiredMail', () => InboxWindow);
 AppRegistry.registerComponent('UnwiredSettings', () => SettingsWindowRoot);
+// Starts the process-owned stores for a background launch without mounting an Inbox.
+function Background() {
+  return null;
+}
+AppRegistry.registerComponent('UnwiredBackground', () => Background);
 // Every window's gate shows the Registration and remote content settings the host restores once
 // here.
 if (!previewInbox) {

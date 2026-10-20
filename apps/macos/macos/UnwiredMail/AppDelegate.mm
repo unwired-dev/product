@@ -26,6 +26,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
+@property(nonatomic, strong) NSView *backgroundRoot;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
 @property(nonatomic, strong) NSNumber *settingsRequestSerial;
@@ -73,8 +74,14 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [self recordLifecycle:@"launch"];
   // Ad-hoc builds lack the APNs entitlement; registration fails there and the interval poll remains.
   [NSApp registerForRemoteNotifications];
-  [self newWindow:nil];
-  [NSApp activateIgnoringOtherApps:YES];
+  if ([notification.userInfo[NSApplicationLaunchIsDefaultLaunchKey] boolValue]) {
+    [self newWindow:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+  } else {
+    // Notification actions start JavaScript without showing a window. A tap or Reply opens one.
+    self.backgroundRoot = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredBackground"
+        initialProperties:nil];
+  }
 }
 
 - (void)application:(NSApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken

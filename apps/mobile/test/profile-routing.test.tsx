@@ -1,16 +1,22 @@
 import { ok } from 'node:assert/strict';
 
+import type { CommandRegistry } from '@private-email/mail-core/commands';
 import type { router as ExpoRouter } from 'expo-router';
 import type {
   createElement as ReactCreateElement,
   ReactNode,
   Ref,
   useImperativeHandle as ReactUseImperativeHandle,
+  useLayoutEffect as ReactUseLayoutEffect,
   useSyncExternalStore as ReactUseSyncExternalStore,
 } from 'react';
 import type { KeyboardEvent, View as NativeView } from 'react-native';
 import type { useWindowDimensions } from 'react-native';
 
+import {
+  commandTarget,
+  runWhenOffered,
+} from '@private-email/mail-core/commands';
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
@@ -32,6 +38,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type ComposeRoute from '../app/compose/[draft].tsx';
 import type MessageRoute from '../app/message/[id].tsx';
 import type ThreadRoute from '../app/thread/[id].tsx';
+import type { useCommandRegistry as UseCommandRegistry } from '../src/command-palette.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 
 import RootLayout from '../app/_layout.tsx';
@@ -82,11 +89,16 @@ jest.mock('expo-router/unstable-split-view', () => {
     usePathname: () => string;
     useGlobalSearchParams: () => { draft?: string };
   }>('expo-router');
-  const { useImperativeHandle } = jest.requireActual<{
+  const { useImperativeHandle, useLayoutEffect } = jest.requireActual<{
+    useLayoutEffect: typeof ReactUseLayoutEffect;
     useImperativeHandle: typeof ReactUseImperativeHandle;
   }>('react');
   // The columns the shell asked the split view to show, in order.
   const shown: string[] = [];
+  const commands: { registry?: CommandRegistry } = {};
+  const { useCommandRegistry } = jest.requireActual<{
+    useCommandRegistry: typeof UseCommandRegistry;
+  }>('../src/command-palette.tsx');
   function SplitView({
     children,
     testID,
@@ -101,6 +113,10 @@ jest.mock('expo-router/unstable-split-view', () => {
         shown.push(column);
       },
     }));
+    const registry = useCommandRegistry();
+    useLayoutEffect(() => {
+      commands.registry = registry;
+    }, [registry]);
     const pathname = usePathname();
     const { draft } = useGlobalSearchParams();
     let detail = pathname === '/thread/[id]' ? Thread : Secondary;
@@ -110,7 +126,7 @@ jest.mock('expo-router/unstable-split-view', () => {
     return createElement(View, { testID }, children, createElement(detail));
   }
   SplitView.Column = View;
-  return { SplitView, shown };
+  return { SplitView, shown, commands };
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
@@ -188,9 +204,10 @@ const route = jest.requireMock<{
   setParams: (params: Readonly<Record<string, unknown>>) => void;
   router: typeof ExpoRouter;
 }>('expo-router');
-const split = jest.requireMock<{ shown: string[] }>(
-  'expo-router/unstable-split-view',
-);
+const split = jest.requireMock<{
+  shown: string[];
+  commands: { registry?: CommandRegistry };
+}>('expo-router/unstable-split-view');
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -702,6 +719,84 @@ describe('profile-scoped mobile routes', () => {
       }
     },
   );
+
+  it('starts a waited-for notification Reply after navigation replaces the current Profile', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: 'garden',
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: 'work',
+      provider: 'gmail',
+    } as const;
+    const account = {
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: JSON.stringify([connection]),
+      },
+      busy: false,
+      failed: false,
+    } as const;
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      { subscribe: () => () => undefined, getSnapshot: () => account },
+    );
+    jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const id = showMail('work');
+    route.setParams({});
+    const app = await render(
+      <AccountContext
+        value={{
+          mailboxes: [connection],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+        }}>
+        <RootLayout />
+      </AccountContext>,
+    );
+    try {
+      const { registry } = split.commands;
+      ok(registry);
+      // The notification requests Reply before its destination reader has mounted.
+      await act(() => {
+        runWhenOffered(registry, {
+          id: 'reply',
+          target: commandTarget('garden', { id, subject: '' }).id,
+        });
+        route.router.replace({
+          pathname: '/message/[id]',
+          params: { profileId: 'work', mailbox: 'garden', id },
+        });
+      });
+      await expect(
+        screen.findByLabelText('Message body'),
+      ).resolves.toBeVisible();
+      expect(drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        drafts: [
+          expect.objectContaining({
+            connection: 'garden',
+            response: expect.objectContaining({ kind: 'reply', message: id }),
+          }),
+        ],
+      });
+    } finally {
+      await app.unmount();
+      jest.replaceProperty(
+        jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+        'drafts',
+        jest.requireActual<{ drafts: typeof drafts }>('../src/registration.ts')
+          .drafts,
+      );
+    }
+  });
 
   it('returns a cold-opened Thread to its Work Profile Inbox when Back has no history', async () => {
     expect.hasAssertions();
