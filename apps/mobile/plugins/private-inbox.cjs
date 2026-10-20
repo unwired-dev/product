@@ -100,6 +100,23 @@ function addSwiftPackages(project, target, manifest) {
   }
 }
 
+// Calls a shared native class's `start()` as the Expo Swift AppDelegate finishes launching, once.
+const startAtLaunch = (config, marker, name) =>
+  withAppDelegate(config, (result) => {
+    const launch =
+      'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
+    if (!result.modResults.contents.includes(marker)) {
+      if (!result.modResults.contents.includes(launch)) {
+        throw new Error(`${name} requires the Expo Swift AppDelegate`);
+      }
+      result.modResults.contents = result.modResults.contents.replace(
+        launch,
+        `${marker}\n    ${launch}`,
+      );
+    }
+    return result;
+  });
+
 module.exports = function privateInbox(config) {
   const withGooglePod = withPodfile(config, (result) => {
     const declaration =
@@ -133,9 +150,9 @@ module.exports = function privateInbox(config) {
   // Content-free Gmail wakes reach the shared native queue; JavaScript settles each one.
   const withPushWakes = withAppDelegate(withGoogleCallback, (result) => {
     const marker = 'UnwiredPushWakes.registerDeviceToken(deviceToken)';
-    const launch =
-      'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
     if (!result.modResults.contents.includes(marker)) {
+      const launch =
+        'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
       const anchor = '  // Universal Links';
       if (
         !result.modResults.contents.includes(launch) ||
@@ -173,34 +190,19 @@ module.exports = function privateInbox(config) {
 ${anchor}`,
         );
     }
-    // An incremental prebuild can already have push wakes without notification handling.
-    const notifications = 'UnwiredNotifications.start()';
-    if (!result.modResults.contents.includes(notifications)) {
-      if (!result.modResults.contents.includes(launch)) {
-        throw new Error('Notifications require the Expo Swift AppDelegate');
-      }
-      result.modResults.contents = result.modResults.contents.replace(
-        launch,
-        `${notifications}\n    ${launch}`,
-      );
-    }
     return result;
   });
-  const withErrorReporting = withAppDelegate(withPushWakes, (result) => {
-    const marker = 'UnwiredErrorReporting.start()';
-    if (!result.modResults.contents.includes(marker)) {
-      const launch =
-        'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
-      if (!result.modResults.contents.includes(launch)) {
-        throw new Error('Error reporting requires the Expo Swift AppDelegate');
-      }
-      result.modResults.contents = result.modResults.contents.replace(
-        launch,
-        `${marker}\n    ${launch}`,
-      );
-    }
-    return result;
-  });
+  // Each install is independent, so an incremental prebuild that already has the others adds it.
+  const withNotifications = startAtLaunch(
+    withPushWakes,
+    'UnwiredNotifications.start()',
+    'Notifications',
+  );
+  const withErrorReporting = startAtLaunch(
+    withNotifications,
+    'UnwiredErrorReporting.start()',
+    'Error reporting',
+  );
   // The workspace builds exactly the Swift package graph Private Inbox resolved.
   const withResolvedPackages = withDangerousMod(withErrorReporting, [
     'ios',

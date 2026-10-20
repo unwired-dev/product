@@ -806,6 +806,21 @@ const sameProgress = (left: PendingAction, right: PendingAction) =>
       attempt.at === right.attempts?.[index]?.at,
   );
 
+// The later of two Gmail history IDs already considered for notifications, as a document field:
+// a view listing can rewind the checkpoint, never this boundary.
+const latestNotificationHistory = (
+  ...ids: ReadonlyArray<string | undefined>
+): Pick<MailboxDocument, 'notificationHistoryId'> => {
+  const known = ids.filter((id) => id !== undefined);
+  return known.length === 0
+    ? {}
+    : {
+        notificationHistoryId: known.reduce((later, id) =>
+          BigInt(id) > BigInt(later) ? id : later,
+        ),
+      };
+};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -822,12 +837,10 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
-      ...(saved.notificationHistoryId !== undefined &&
-      (next.notificationHistoryId === undefined ||
-        BigInt(saved.notificationHistoryId) >
-          BigInt(next.notificationHistoryId))
-        ? { notificationHistoryId: saved.notificationHistoryId }
-        : {}),
+      ...latestNotificationHistory(
+        saved.notificationHistoryId,
+        next.notificationHistoryId,
+      ),
       pending: [
         // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
         ...(saved.pending ?? []).filter(
@@ -1418,8 +1431,6 @@ export function createGmailInbox(
       document.views !== undefined,
     );
     const observed = document.notificationHistoryId ?? checkpoint.historyId;
-    const notificationHistoryId =
-      BigInt(observed) > BigInt(historyId) ? observed : historyId;
     const added = new Set(
       records.flatMap((record) =>
         BigInt(record.id) > BigInt(observed)
@@ -1460,7 +1471,7 @@ export function createGmailInbox(
     });
     const updated: MailboxDocument = {
       ...next,
-      notificationHistoryId,
+      ...latestNotificationHistory(observed, historyId),
       ...(next.views === undefined
         ? {}
         : {

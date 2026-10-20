@@ -9,6 +9,7 @@ import type { RegistrationSnapshot } from './registration-snapshot.ts';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
+import { createSubscribable } from './subscribable.ts';
 
 // What the operating system lets this device show, and whether a New Mail Notification may show
 // its sender and subject. Native code keeps both as Device-Local Preferences; previews start off.
@@ -124,14 +125,9 @@ export function createNotifications(
   translate: () => Translate,
 ) {
   // Unknown until the first read settles.
-  let settings: NotificationSettings | undefined = undefined;
-  const listeners = new Set<() => void>();
-  const publish = (next: NotificationSettings) => {
-    settings = next;
-    for (const listener of listeners) {
-      listener();
-    }
-  };
+  const settings = createSubscribable<NotificationSettings | undefined>(
+    undefined,
+  );
   const update = (request: () => Promise<unknown>, failure: string) =>
     runLogged(
       logged(
@@ -139,20 +135,15 @@ export function createNotifications(
         settingsOf(request).pipe(
           Effect.tap((next) =>
             Effect.sync(() => {
-              publish(next);
+              settings.set(next);
             }),
           ),
         ),
       ),
     );
   return {
-    getSnapshot: () => settings,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getSnapshot: settings.getSnapshot,
+    subscribe: settings.subscribe,
     // Also after activation: the person can change permission in the system's settings.
     load: () =>
       update(
@@ -256,6 +247,21 @@ export function followOpenedNotifications(
   nextReader += 1;
   const reader = String(nextReader);
   let stopped = false;
+  // One tap: a retired reader hands it back; otherwise the composer may leave first, and the
+  // target must still be valid afterwards.
+  const handle = async (opened: OpenedNotification) => {
+    if (!stopped && openedTarget(snapshot(), opened) !== undefined) {
+      const allowed = await leave();
+      const target =
+        allowed && !stopped ? openedTarget(snapshot(), opened) : undefined;
+      if (target !== undefined) {
+        open(target);
+      }
+    }
+    if (stopped) {
+      await native.restoreOpenedNotification(opened);
+    }
+  };
   const follow = async () => {
     for (;;) {
       if (stopped) {
@@ -273,23 +279,7 @@ export function followOpenedNotifications(
       }
       const decoded = Schema.decodeUnknownOption(Opened)(received);
       if (Option.isSome(decoded)) {
-        if (stopped) {
-          await native.restoreOpenedNotification(decoded.value);
-          return;
-        }
-        if (openedTarget(snapshot(), decoded.value) !== undefined) {
-          const allowed = await leave();
-          if (stopped) {
-            await native.restoreOpenedNotification(decoded.value);
-            return;
-          }
-          const target = allowed
-            ? openedTarget(snapshot(), decoded.value)
-            : undefined;
-          if (target !== undefined) {
-            open(target);
-          }
-        }
+        await handle(decoded.value);
       }
     }
   };
