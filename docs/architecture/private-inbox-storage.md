@@ -117,7 +117,8 @@ current representation and lifecycle. Convex `draftDelivery.ts`, `scheduledSend.
 continue using the Product Account namespace, which is the Default Profile's
 Profile Record Scope. Push wakes remain content-free and synchronization remains
 account-wide, including inactive Profiles once they exist. Recipient suggestions
-and user-visible notifications are not implemented in the replacement yet.
+remain unimplemented. [New Mail Notifications](new-mail-notifications.md) now
+follow each connection's synchronized policy and current ownership.
 
 The implementation decision panel (`claude-fable-5-1`, `gpt-6.1-sol`,
 `gpt-6-astra`) chose this TypeScript-only batch over threading an always-default

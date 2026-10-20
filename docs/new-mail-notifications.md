@@ -21,8 +21,8 @@ sender or rule filtering, and #908 restyles content, grouping and actions.
 - **Per Mailbox** has a switch for each Gmail Mailbox Connection. Every connection
   starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
-  synchronizes end-to-end encrypted to every Trusted Device as a sealed
-  `mailbox-notifications.` record bound to the connection's incarnation. A change
+  synchronizes end-to-end encrypted to every Trusted Device, bound to the
+  connection's current incarnation. A change
   needs Private Sync and fails closed: offline, or when another device changed it
   first, the stored choice stays and the row says so. Removing and adding a mailbox
   again starts it off. IMAP and Microsoft connections are not listed yet
@@ -32,8 +32,9 @@ sender or rule filtering, and #908 restyles content, grouping and actions.
 
 Only unread messages that Gmail's history reports as added to the Inbox after the
 mailbox finished its first listing notify. A Gmail synchronization that commits a
-history page reports that page's new arrivals once, after the commit. A failed or
-repeated synchronization therefore reports nothing twice. Listing,
+history page reports that page's new arrivals once, after the commit. Resuming an
+interrupted label listing preserves which arrivals were already considered.
+A failed or repeated synchronization therefore reports nothing twice. Listing,
 interrupted backfill, listing again after Gmail expired the history, messages moved
 back into the Inbox, mail read or archived elsewhere before this device synchronized,
 and cache refills never notify. Push wakes, background refresh, activation and the
@@ -42,11 +43,13 @@ decides on its own to alert.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch
-is on. Native posting then runs after any removal in progress and skips a connection
-this device no longer holds. Revoked devices,
+is on. Native posting must recheck the originating Product Account and connection
+incarnation before handing an alert to the system. An acknowledged preview opt-out
+also suppresses queued sender/subject content. Revoked devices,
 removed connections and other Product Accounts therefore post nothing. Each
-notification carries only the opaque connection and message identifiers, under an
-identifier that replaces rather than repeats an earlier one for the same message.
+notification carries only opaque account, connection, incarnation and message
+identifiers. Background synchronization waits for notification posting before
+finishing the operating system's opportunity.
 Removing a connection withdraws its delivered notifications; signing out or a purge
 withdraws all of them.
 
@@ -54,16 +57,21 @@ withdraws all of them.
 
 On iPhone and iPad a tap opens the message in its connection's current Mail Profile
 once Registration admits the mail shell. On the Mac the key Inbox window, or another
-open one, comes forward and selects the message in its Inbox. With no window open, a
-new one opens. A connection that is gone, or whose Profile is unknown, opens nothing.
+open one, comes forward and selects the message in its current Profile. With no window open, a
+new one opens. Both hosts honor the open Draft's Save/Discard/Cancel exit before
+navigating and recheck the destination afterwards. A connection that is gone,
+belongs to another account, has been recreated, or whose Profile is unknown, opens nothing.
 Native code queues a tap that launches the app until JavaScript reads it.
+An authorization screen retains that tap until the mail shell can receive it.
 
 ## Validate
 
 `packages/mail-core/test/gmail-inbox.test.ts` covers arrival classification and
-commit ordering. `host.test.ts` covers gating, permission and generic and preview
+commit ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
+`host.test.ts` covers gating, background completion, permission and generic and preview
 content. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
-writes. `notifications.test.ts` covers tap routing. The app suites cover both
+writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards
+and retired readers. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, needs a
 build with APNs and a protected Gmail mailbox. It stays a required release check.
