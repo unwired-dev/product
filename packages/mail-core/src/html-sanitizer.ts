@@ -1312,14 +1312,40 @@ const citeAttribute = (element: Element) => {
     : '';
 };
 
+const withProperties = (
+  style: FilteredStyle,
+  entries: ReadonlyArray<readonly [string, string]>,
+): FilteredStyle => {
+  const retained = new Map(style.retained);
+  for (const [name, value] of entries) {
+    // Overrides must follow shorthands even when the sender already supplied a longhand.
+    retained.delete(name);
+    retained.set(name, value);
+  }
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([key, value]) => `${key}: ${value}`).join('; '),
+  };
+};
+
 // The element's admitted attributes, each value validated, and its filtered style.
-const attributes = (element: Element, style: FilteredStyle) => {
+const attributes = (element: Element, filtered: FilteredStyle) => {
   const allowed = new Set([
     'dir',
     'lang',
     'title',
     ...(elementAttributes[element.tagName] ?? []),
   ]);
+  // WebKit ignores max-width on tables, so a desktop width attribute narrows like a CSS width.
+  const width = attributeOf(element, 'width')?.trim().replace(/^\d+$/u, '$&px');
+  const style =
+    element.tagName === 'table' &&
+    !filtered.retained.has('width') &&
+    /^\d{1,5}px$/iu.test(width ?? '') &&
+    farRight(width, bodyFontPixels)
+      ? withProperties(filtered, [['width', `min(100%, ${width})`]])
+      : filtered;
   return (
     element.attrs.map(keptAttribute(element.tagName, allowed)).join('') +
     citeAttribute(element) +
@@ -1562,7 +1588,7 @@ const readerStyle =
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
   'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}a{color:#245cca}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
-  '.blocked-image{display:inline-block;border:1px dashed #a3afbf;border-radius:4px;' +
+  '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed #a3afbf;border-radius:4px;' +
   'padding:2px 6px;color:#596574;font-size:max(4px,.85em)}';
 
 // Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
@@ -1570,23 +1596,6 @@ const readerStyle =
 // inline images shown, as `data:` sources the app generated from validated bytes.
 // An image description as readable text, spaced from its neighbours.
 const altText = (alt: string) => (alt === '' ? '' : ` ${alt} `);
-
-const withProperties = (
-  style: FilteredStyle,
-  entries: ReadonlyArray<readonly [string, string]>,
-): FilteredStyle => {
-  const retained = new Map(style.retained);
-  for (const [name, value] of entries) {
-    // Overrides must follow shorthands even when the sender already supplied a longhand.
-    retained.delete(name);
-    retained.set(name, value);
-  }
-  return {
-    ...style,
-    retained,
-    css: [...retained].map(([key, value]) => `${key}: ${value}`).join('; '),
-  };
-};
 
 const whiteSpaceIn = (
   value: string | undefined,
@@ -1782,10 +1791,14 @@ export function sanitizeHtml(
       if (value === undefined && length.test(declared)) {
         value = /^\d+$/u.test(declared) ? `${declared}px` : declared;
       }
-      return value === undefined ||
-        (name === 'height' && farRight(value, fontPixels))
-        ? []
-        : [`${name}: ${value}`];
+      if (value === undefined) {
+        return [];
+      }
+      // Unlike max-width, a bounded width lets a table cell's placeholder narrow with its column.
+      if (name === 'width') {
+        return [`width: min(100%, ${value})`];
+      }
+      return farRight(value, fontPixels) ? [] : [`height: ${value}`];
     });
 
   const placeholder = (
@@ -1804,9 +1817,7 @@ export function sanitizeHtml(
     const geometry =
       remoteIndex === undefined ? [] : placeholderGeometry(element, style);
     const values = [
-      ...(geometry.length === 0
-        ? []
-        : ['display: inline-block', 'max-width: 100%', ...geometry]),
+      ...(geometry.length === 0 ? [] : ['display: inline-block', ...geometry]),
       ...(fontPixels < minimumTextPixels ? [`font-size: ${fontPixels}px`] : []),
       ...(style.retained.has('visibility') ? ['visibility: visible'] : []),
     ];

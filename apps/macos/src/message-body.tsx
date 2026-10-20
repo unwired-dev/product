@@ -21,7 +21,7 @@ import {
   messageLinkAt,
 } from '@private-email/mail-core/link-inspection';
 import {
-  decodeMessageContentHeight,
+  decodeMessageContentSize,
   decodeRemoteImagePositions,
 } from '@private-email/mail-core/message-body';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -649,10 +649,10 @@ function RichDocument({
           mediaPlaybackRequiresUserAction
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent) => {
-            const measured = decodeMessageContentHeight(event.nativeEvent);
+            const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
-              setHeight(measured);
+              setHeight(measured.height);
             }
           }}
           onError={onFailure}
