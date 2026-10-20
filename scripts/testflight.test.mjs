@@ -140,6 +140,9 @@ if (command === 'pnpm' && args.includes('exec')) {
   const result = spawnSync(${JSON.stringify(process.execPath)}, args.slice(args.indexOf('node') + 1), { cwd: value('--dir'), env: process.env, stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
+if (command === 'pnpm' && args.includes('native:generate') && args.includes('@private-email/macos')) {
+  fs.writeFileSync(path.join(base, 'generated-profile'), process.env.UNWIRED_MAC_PROFILE ?? '');
+}
 if (command === 'xcodebuild') {
   if (process.env.UNWIRED_ERROR_REPORTING_CHANNEL !== 'testflight') throw Error('TestFlight archive lacks its reporting channel');
   record('commands', args[0]);
@@ -155,6 +158,9 @@ if (command === 'xcodebuild') {
   if (scenario === 'interrupted') { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
   if (scenario === 'missing-app') process.exit(0);
   const host = value('-archivePath').includes('macos.xcarchive') ? 'macos' : 'ios';
+  const profile = args.find(arg => arg.startsWith('PROVISIONING_PROFILE_SPECIFIER='))?.slice('PROVISIONING_PROFILE_SPECIFIER='.length)
+    ?? (host === 'macos' ? fs.readFileSync(path.join(base, 'generated-profile'), 'utf8') : '');
+  if (args.includes('CODE_SIGN_STYLE=Automatic') && profile) { console.log('Conflicting automatic signing and manual provisioning profile'); process.exit(65); }
   const app = path.join(value('-archivePath'), 'Products/Applications/UnwiredMail.app');
   const info = path.join(app, host === 'ios' ? 'Info.plist' : 'Contents/Info.plist');
   fs.mkdirSync(path.dirname(info), { recursive: true });
@@ -192,6 +198,7 @@ for (const [scenario, platform, expected] of [
   ['success', 'both', 0],
   ['success', 'ios', 0],
   ['success', 'macos', 0],
+  ['local-profile', 'macos', 0],
   ['pod-retry', 'ios', 0],
   ['pod-failure', 'both', 1],
   ['archive-failure', 'ios', 1],
@@ -214,6 +221,9 @@ for (const [scenario, platform, expected] of [
     () => {
       const { directory, checkout, env } = fixture(scenario, { dotenv: true });
       try {
+        if (scenario === 'local-profile') {
+          env.UNWIRED_MAC_PROFILE = '/installed/development.provisionprofile';
+        }
         const result = spawnSync(
           '/bin/zsh',
           ['scripts/testflight.zsh', platform],
