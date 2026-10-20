@@ -228,19 +228,22 @@ const withRecord = (
   };
 };
 
-// A notification policy whose record no longer opens here turns off; its version floor stays.
+// Unmapped older policies also turn off when a notification record no longer opens here.
+// Keep each version floor and row revision; an unreadable read never authorizes a write.
 const withoutUnreadablePolicy = (
   state: ProfileState,
   identifier: string | undefined,
 ): ProfileState =>
-  identifier !== undefined &&
+  identifier?.startsWith('mailbox-notifications.') === true &&
   state.notifications?.some(
-    (policy) => policy.identifier === identifier && policy.enabled,
+    (policy) =>
+      (policy.identifier === identifier || policy.identifier === undefined) &&
+      policy.enabled,
   ) === true
     ? {
         ...state,
         notifications: state.notifications.map((policy) =>
-          policy.identifier === identifier
+          policy.identifier === identifier || policy.identifier === undefined
             ? { ...policy, enabled: false }
             : policy,
         ),
@@ -689,7 +692,10 @@ export function createMailProfileProgram<E>(
     enabled: boolean,
   ) {
     const { record, epoch } = yield* incarnationOf(value, connection);
-    const { state } = yield* refreshed(yield* known);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
     const current = state.notifications?.find(
       (policy) => policy.record === record,
     );

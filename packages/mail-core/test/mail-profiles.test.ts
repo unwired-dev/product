@@ -426,10 +426,55 @@ describe('mail profiles', () => {
     expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
 
     // Removed and added again, the connection's notifications start off.
-    await flow.notifyMailbox(id, true);
     await flow.removeMailbox(id);
     await flow.addMailbox('gmail', false);
     expect(notifying(await flow.restore())).toStrictEqual([false]);
+  });
+
+  it('keeps unreadable notification policies off and read-only across older saved state', async () => {
+    expect.hasAssertions();
+    const { flow, device, sync, records, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    const saved = device.record;
+    if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
+      throw new Error('No Profile state');
+    }
+    saved.profiles = {
+      ...saved.profiles,
+      notifications: saved.profiles.notifications?.map(
+        ({ identifier: _, ...policy }) => policy,
+      ),
+    };
+    const sealed = new Map(sync.sealedProfiles);
+    forgetPolicyKeys(sync);
+    const before = [...records().entries()];
+    const refreshed = decode(await flow.refreshPrivateSync());
+    expect(mailboxesOf(refreshed)[0]?.notifications).not.toBe(true);
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect([...records().entries()]).toStrictEqual(before);
+
+    for (const [ciphertext, policy] of sealed) {
+      sync.sealedProfiles.set(ciphertext, policy);
+    }
+    expect(
+      mailboxesOf(decode(await flow.refreshPrivateSync()))[0]?.notifications,
+    ).toBe(true);
+
+    // A mapped policy also stays read-only, for both switch directions.
+    forgetPolicyKeys(sync);
+    expect(
+      mailboxesOf(decode(await flow.refreshPrivateSync()))[0]?.notifications,
+    ).not.toBe(true);
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    await expect(flow.notifyMailbox(id, false)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect([...records().entries()]).toStrictEqual(before);
   });
 
   it('reports a refused notification change on its connection, not as a Profile failure', async () => {

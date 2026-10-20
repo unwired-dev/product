@@ -25,7 +25,10 @@ sender or rule filtering, and #908 restyles content, grouping and actions.
   connection's current incarnation. A change
   needs Private Sync and fails closed: offline, or when another device changed it
   first, the stored choice stays and the row says so. Removing and adding a mailbox
-  again starts it off. IMAP and Microsoft connections are not listed yet
+  again starts it off. A policy this device cannot open turns notifications off
+  locally, including older saved policies without their record identifier. Changes
+  wait until the synchronized records can be read; unreadable ciphertext is never
+  replaced. IMAP and Microsoft connections are not listed yet
   ([#1094](https://github.com/unwired-dev/product/issues/1094)).
 
 ## What notifies
