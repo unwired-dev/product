@@ -637,7 +637,7 @@ function ComposeButton({
     }
   };
   return (
-    <GlassGroup>
+    <GlassGroup pointerEvents="box-none">
       <ToolbarButton
         icon="square.and.pencil"
         label={t('drafts.newMessage')}
@@ -999,7 +999,7 @@ function MailboxMessage({
                 {toolbar}
               </View>
               {sender === undefined || onCompose === undefined ? null : (
-                <View>
+                <View pointerEvents="box-none">
                   <ComposeButton
                     mailbox={sender}
                     onCompose={onCompose}

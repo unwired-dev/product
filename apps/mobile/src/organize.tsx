@@ -286,7 +286,7 @@ function Toolbar({
       <View
         pointerEvents="box-none"
         style={styles.toolbar}>
-        <GlassGroup>
+        <GlassGroup pointerEvents="box-none">
           {archive === undefined ? null : (
             <ToolbarButton
               icon="archivebox"

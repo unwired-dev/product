@@ -873,6 +873,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `message-detail.tsx.PanelDismissal` or another outside-dismissal backdrop
+  relying on its bounds or sibling order without tracing foreground hit testing.
+  Inspect `MailboxMessage`'s toolbar wrappers and `organize.tsx.Toolbar` through
+  the installed renderer: passive full-width views, padding and gaps above a
+  sibling backdrop can consume a tap without reaching its handler. Preserve
+  interactive controls and panel rows while letting unused wrapper space reach
+  dismissal. Exercise body/link taps, toolbar whitespace, reopen and actions on
+  the affected device layouts; direct component presses do not prove geometric
+  hit testing. Otherwise a tap visibly outside the panel leaves it open or
+  activates covered content.
+
 - Mac `command-palette.tsx.CommandBar` opening from its native Command-P listener
   while `message-body.tsx.LinkConfirmationProvider` covers that window. The
   background's accessibility suppression does not disable native menu events:
