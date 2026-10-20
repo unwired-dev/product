@@ -376,26 +376,23 @@ export async function followNotificationActions(
     if (Option.isSome(decoded)) {
       const { id, action, ...opened } = decoded.value;
       try {
-        if (openedTarget(snapshot(), opened) !== undefined) {
-          await verify(async () => {
-            // Read after verification, which can remove the connection.
-            const target = openedTarget(snapshot(), opened);
-            const open =
-              target === undefined ? undefined : inbox(target.mailbox);
-            if (target === undefined || open === undefined) {
-              return;
-            }
-            await open.load();
-            const state = open.getSnapshot();
-            const message =
-              state.kind === 'ready'
-                ? listedMessage(state, target.id)
-                : undefined;
-            if (message !== undefined) {
-              await open.organize(message, gmailAction[action]);
-            }
-          }, 'explicit');
-        }
+        await verify(async () => {
+          // Read after verification, which restores a cold host or removes a stale connection.
+          const target = openedTarget(snapshot(), opened);
+          const open = target === undefined ? undefined : inbox(target.mailbox);
+          if (target === undefined || open === undefined) {
+            return;
+          }
+          await open.load();
+          const state = open.getSnapshot();
+          const message =
+            state.kind === 'ready'
+              ? listedMessage(state, target.id)
+              : undefined;
+          if (message !== undefined) {
+            await open.organize(message, gmailAction[action]);
+          }
+        }, 'explicit');
       } catch (error) {
         await runLogged(
           Effect.logError(

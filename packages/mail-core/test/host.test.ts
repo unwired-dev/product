@@ -258,9 +258,12 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(2);
   });
 
-  it('archives or marks as read the message a notification names, only while its connection is the one it named', async () => {
+  it('archives or marks as read the message a notification names after a cold launch, only while its connection is the one it named', async () => {
     expect.hasAssertions();
-    const { host, gmail, notificationActions } = syntheticHost(undefined, true);
+    const { host, native, gmail, notificationActions } = syntheticHost(
+      undefined,
+      true,
+    );
     await host.registration.register('google');
     await host.registration.addMailbox();
     const archived = gmail.deliver({ subject: 'Archive me', unread: true });
@@ -275,7 +278,12 @@ describe('the host assembly', () => {
       connection: mailbox.id,
       epoch: required(mailbox.epoch),
     };
-    host.followNotificationActions();
+    // A notification can launch a fresh host before Registration restores the saved account.
+    const launched = createHost(() => native);
+    expect(launched.registration.getSnapshot().snapshot.kind).toBe(
+      'signed-out',
+    );
+    launched.followNotificationActions();
 
     await notificationActions.send({
       id: 'archive',
