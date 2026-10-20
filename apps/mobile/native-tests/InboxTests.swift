@@ -1125,7 +1125,8 @@ final class InboxTests: XCTestCase {
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
   // entry the end of the list scrolls clear of the floating bar. The runner starts the simulator in
-  // Dark, where a surface that stops short shows against the black window; Light hides it.
+  // Dark unless UNWIRED_APPEARANCE is light; Dark shows a surface that stops short against the
+  // black window, Light hides it.
   private func verifyCompactInboxBottom(_ app: XCUIApplication, scrollToEnd: Bool) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let window = app.windows.firstMatch.frame
@@ -1147,7 +1148,8 @@ final class InboxTests: XCTestCase {
     }
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
-    XCTAssertLessThan(brightness, 384, "The journey runs in Dark")
+    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+    XCTAssertEqual(brightness < 384, appearance == "dark", "The journey runs in \(appearance)")
     XCTAssertTrue(
       zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
       "Bottom edge \(colors[1]) differs from the Inbox surface \(colors[0])")
