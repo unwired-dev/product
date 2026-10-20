@@ -87,9 +87,11 @@ belongs to another account, has been recreated, or whose Profile is unknown, ope
 Native code queues a tap that launches the app until JavaScript reads it.
 An authorization screen retains that tap until the mail shell can receive it.
 **Reply** opens the message the same way, then starts a reply as soon as the reader
-offers one, as its own Reply button would. It rechecks the originating Product Account and connection incarnation before starting.
-It stops waiting after a minute, when that ownership changes, or when a later Reply in the
-same window replaces it.
+offers one, as its own Reply button would. It rechecks the originating Product Account
+and connection incarnation before starting, and stops waiting after a minute, when that
+ownership changes, or when a later Reply in the same window replaces it. A Mac launch
+from a notification starts without a window: Archive and Mark as Read act without one,
+and a tap or Reply opens one. Every other launch opens an Inbox window as before.
 
 ## Validate
 
