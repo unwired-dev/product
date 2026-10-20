@@ -957,7 +957,14 @@ function MailboxMessage({
               onClose={onClose}
             />
           ) : null}
-          {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
+          {compact ? null : (
+            <View
+              // Its empty width leaves taps to the panel dismissal beneath.
+              pointerEvents="box-none"
+              style={styles.topToolbar}>
+              {toolbar}
+            </View>
+          )}
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
             contentContainerStyle={[
@@ -982,8 +989,15 @@ function MailboxMessage({
             onPanel={setPanel}
           />
           {compact ? (
-            <View style={styles.bottomToolbar}>
-              <View style={styles.bottomActions}>{toolbar}</View>
+            <View
+              // The gaps between its groups leave taps to the panel dismissal beneath.
+              pointerEvents="box-none"
+              style={styles.bottomToolbar}>
+              <View
+                pointerEvents="box-none"
+                style={styles.bottomActions}>
+                {toolbar}
+              </View>
               {sender === undefined || onCompose === undefined ? null : (
                 <View>
                   <ComposeButton

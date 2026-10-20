@@ -283,7 +283,9 @@ function Toolbar({
   }
   return (
     <>
-      <View style={styles.toolbar}>
+      <View
+        pointerEvents="box-none"
+        style={styles.toolbar}>
         <GlassGroup>
           {archive === undefined ? null : (
             <ToolbarButton
