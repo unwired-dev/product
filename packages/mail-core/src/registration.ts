@@ -217,6 +217,11 @@ class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
   },
 ) {}
 
+class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
+  'NotificationRefused',
+  { connection: Schema.String },
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -329,6 +334,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | EnrollmentCodeInvalid
       | LinkRefused
       | ProfileRefused
+      | NotificationRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -430,6 +436,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 profileFailure: failure,
+              })),
+            NotificationRefused: ({ connection }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                notificationFailure: connection,
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -595,13 +606,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(
         // A refusal, such as another device's write first, is reported on the connection's row.
         request(native.notifyMailbox(connection, enabled)).pipe(
-          Effect.catchTag('ProfileRefused', (refused) =>
-            Effect.fail(
-              new RegistrationFailed({
-                cause: refused,
-                diagnostic: `notification policy ${refused.failure}`,
-              }),
-            ),
+          Effect.catchTag('ProfileRefused', () =>
+            Effect.fail(new NotificationRefused({ connection })),
           ),
         ),
         (snapshot) => ({

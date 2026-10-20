@@ -477,7 +477,7 @@ describe('mail profiles', () => {
     expect([...records().entries()]).toStrictEqual(before);
   });
 
-  it('reports a refused notification change on its connection, not as a Profile failure', async () => {
+  it('quietly reports a refused notification change on its connection, not as a Profile failure', async () => {
     expect.hasAssertions();
     const { flow, sync, vault, mailboxId } = await connected();
     const id = await mailboxId();
@@ -489,9 +489,11 @@ describe('mail profiles', () => {
       sync.beforePut = undefined;
       storeProfile(sync, account, { ...policy, version: 2 });
     };
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
     await store.notifyMailbox(id, false);
     expect(store.getSnapshot()).toMatchObject({ notificationFailure: id });
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it('removes only a Profile that owns no live connection', async () => {
