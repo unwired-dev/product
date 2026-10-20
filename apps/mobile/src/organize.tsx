@@ -61,6 +61,15 @@ import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
+// The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
+export type ReaderPanel = 'folders' | 'more';
+
+// At most one panel is open. The reader holds which, so a tap outside the panel can close it.
+type PanelState = Readonly<{
+  panel: ReaderPanel | undefined;
+  onPanel: (panel: ReaderPanel | undefined) => void;
+}>;
+
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
@@ -123,8 +132,10 @@ export function MessageActions({
   id,
   folder,
   onClose,
+  panel,
+  onPanel,
   children,
-}: {
+}: PanelState & {
   readonly id: string;
   // The Gmail view the message was chosen in, when not the Inbox.
   readonly folder?: string | undefined;
@@ -144,14 +155,18 @@ export function MessageActions({
     <ImapMessageActions
       id={id}
       inbox={store}
-      onClose={onClose}>
+      onClose={onClose}
+      panel={panel}
+      onPanel={onPanel}>
       {children}
     </ImapMessageActions>
   ) : (
     <GmailMessageActions
       id={id}
       view={folder ?? inboxFolder}
-      onClose={onClose}>
+      onClose={onClose}
+      panel={panel}
+      onPanel={onPanel}>
       {children}
     </GmailMessageActions>
   );
@@ -186,8 +201,10 @@ function Toolbar({
   archive,
   folders,
   more,
+  onPanel,
   children,
 }: {
+  readonly onPanel: PanelState['onPanel'];
   readonly archive: (() => void) | undefined;
   readonly folders:
     | Readonly<
@@ -210,7 +227,18 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
-  const [shownPanel, setShownPanel] = useState<'folders' | 'more'>('more');
+  // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
+  // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
+  const shown = more.open || folders?.open === true;
+  useEffect(() => {
+    if (!shown) {
+      return undefined;
+    }
+    return () => {
+      onPanel(undefined);
+    };
+  }, [shown, onPanel]);
+  const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
   const thread = {
     actions: [
       ...(archive === undefined
@@ -268,8 +296,10 @@ function Toolbar({
   }
   return (
     <>
-      <View style={styles.toolbar}>
-        <GlassGroup>
+      <View
+        pointerEvents="box-none"
+        style={styles.toolbar}>
+        <GlassGroup pointerEvents="box-none">
           {archive === undefined ? null : (
             <ToolbarButton
               icon="archivebox"
@@ -388,8 +418,10 @@ function ImapMessageActions({
   inbox,
   id,
   onClose,
+  panel,
+  onPanel: setPanel,
   children,
-}: {
+}: PanelState & {
   readonly inbox: ImapInbox;
   readonly id: string;
   readonly onClose?: (() => void) | undefined;
@@ -398,8 +430,6 @@ function ImapMessageActions({
   const state = useInbox();
   const { t } = useLocalization();
   const mailbox = useMailbox();
-  // At most one panel is open: the folders to move to, or the remaining actions.
-  const [panel, setPanel] = useState<'folders' | 'more'>();
   const [origin, setOrigin] = useState(0);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
@@ -416,7 +446,7 @@ function ImapMessageActions({
   const targets = imapMoveTargets(message, state);
   const actions = imapQuickActions(t, message, state);
   const archive = actions.find(({ name }) => name === 'archive');
-  const toggle = (which: 'folders' | 'more') => {
+  const toggle = (which: ReaderPanel) => {
     setPanel(panel === which ? undefined : which);
   };
   return (
@@ -439,6 +469,7 @@ function ImapMessageActions({
         }
       />
       <Toolbar
+        onPanel={setPanel}
         archive={
           archive === undefined
             ? undefined
@@ -544,8 +575,10 @@ function GmailMessageActions({
   id,
   view: opened,
   onClose,
+  panel,
+  onPanel: setPanel,
   children,
-}: {
+}: PanelState & {
   readonly id: string;
   readonly view: string;
   readonly onClose?: (() => void) | undefined;
@@ -555,8 +588,6 @@ function GmailMessageActions({
   const store = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
-  // At most one panel is open: the labels or folders, or the remaining actions.
-  const [panel, setPanel] = useState<'folders' | 'more'>();
   const [origin, setOrigin] = useState(0);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
@@ -603,7 +634,7 @@ function GmailMessageActions({
     view,
   });
   const archive = actions.find(({ name }) => name === 'archive');
-  const toggle = (which: 'folders' | 'more') => {
+  const toggle = (which: ReaderPanel) => {
     setPanel(panel === which ? undefined : which);
   };
   return (
@@ -625,6 +656,7 @@ function GmailMessageActions({
         }
       />
       <Toolbar
+        onPanel={setPanel}
         archive={
           archive === undefined
             ? undefined

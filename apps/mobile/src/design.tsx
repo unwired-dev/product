@@ -284,9 +284,11 @@ export function GlassGroup({
   children,
   style,
   ref,
+  pointerEvents,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
+  readonly pointerEvents?: ViewProps['pointerEvents'];
   // Where a popover anchors to the group.
   readonly ref?: Ref<View> | undefined;
 }) {
@@ -295,6 +297,7 @@ export function GlassGroup({
   const group = (
     <Glass
       interactive
+      pointerEvents={pointerEvents}
       cornerRadius={
         typeof cornerRadius === 'number' ? cornerRadius : groupRadius
       }

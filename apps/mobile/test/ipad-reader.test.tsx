@@ -3,10 +3,12 @@ import type { Platform } from 'react-native';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { mailboxesOf } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
@@ -97,6 +99,39 @@ function Reader({
 }
 
 describe('iPad reader', () => {
+  it('retires an open Move panel when IMAP loses move capability', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    const uid = imap.deliver('INBOX', { subject: 'Project plans' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'imap-reader')}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox="imap-reader"
+            id={`7.${uid}.INBOX`}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
+    imap.server.capabilities.moves = false;
+    await act(inbox.load);
+    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    // Restoring the capability does not reopen the retired panel.
+    imap.server.capabilities.moves = true;
+    await act(inbox.load);
+    expect(
+      screen.getByRole('button', { name: 'Folders', expanded: false }),
+    ).toBeVisible();
+    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
   it.each([320, 1024])(
     'keeps direct response actions and the palette in the fixed header at %i points',
@@ -181,12 +216,16 @@ describe('iPad reader', () => {
         await fireEvent.press(
           screen.getByRole('button', { name: 'Hide labels' }),
         );
+        await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+        expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
         const { openMailbox } = gmail.native;
         gmail.native.openMailbox = async () => ({
           ...(await openMailbox()),
           availability: 'retry',
         });
         await act(inbox.load);
+        // Organizing that becomes unavailable takes its open panel and dismissal with it.
+        expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
         expect(
           isScrollable(
             screen.getByText(

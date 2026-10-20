@@ -1382,6 +1382,39 @@ describe('connected Gmail Inbox', () => {
     ).toBeVisible();
   });
 
+  it('closes More on a tap outside it without running an action', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
+    const plans = graph.deliver({ subject: 'Garden plans' });
+    await renderConnected(graph.native, 'microsoft-graph');
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Rowan Hale. Garden plans',
+      }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('button', { name: 'Report spam' })).toBeVisible();
+    await fireEvent.press(screen.getByTestId('reader-panel-dismissal'));
+    expect(
+      screen.getByRole('button', { name: 'More', expanded: false }),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    expect(graph.modifies).toStrictEqual([]);
+    expect(graph.folderOf(plans)).toBe('inbox');
+
+    // More reopens, and its actions still work.
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Mark as read' }),
+      );
+    });
+    expect(graph.modifies).toStrictEqual([
+      expect.objectContaining({ message: plans }),
+    ]);
+  });
+
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ address: 'casey@example.invalid' });

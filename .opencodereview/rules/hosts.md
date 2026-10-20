@@ -873,6 +873,28 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- Reader-owned panel state in `message-detail.tsx.MailboxMessage` outliving the
+  `organize.tsx.Toolbar` that presents it. Trace organizing eligibility, missing
+  messages and loading/error returns as well as navigation: retire the panel
+  when its presenter leaves, even if the reader itself stays mounted. Exercise
+  capability loss with a panel open and recovery through the real Inbox store;
+  otherwise an invisible dismissal layer consumes the next tap or the old panel
+  reopens after recovery.
+  Include an individual picker becoming unavailable while the toolbar remains,
+  such as IMAP losing its Move capability or final destination; toolbar-unmount
+  cleanup alone does not retire that panel.
+
+- `message-detail.tsx.PanelDismissal` or another outside-dismissal backdrop
+  relying on its bounds or sibling order without tracing foreground hit testing.
+  Inspect `MailboxMessage`'s toolbar wrappers and `organize.tsx.Toolbar` through
+  the installed renderer: passive full-width views, padding and gaps above a
+  sibling backdrop can consume a tap without reaching its handler. Preserve
+  interactive controls and panel rows while letting unused wrapper space reach
+  dismissal. Exercise body/link taps, toolbar whitespace, reopen and actions on
+  the affected device layouts; direct component presses do not prove geometric
+  hit testing. Otherwise a tap visibly outside the panel leaves it open or
+  activates covered content.
+
 - Mac `command-palette.tsx.CommandBar` opening from its native Command-P listener
   while `message-body.tsx.LinkConfirmationProvider` covers that window. The
   background's accessibility suppression does not disable native menu events:
