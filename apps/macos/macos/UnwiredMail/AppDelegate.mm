@@ -19,6 +19,11 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 + (void)start;
 @end
 
+// Shared Swift in native/private-inbox posts New Mail Notifications and keeps the ones opened.
+@protocol UnwiredNotifications
++ (void)start;
+@end
+
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
@@ -34,6 +39,12 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @end
 
 @implementation AppDelegate
+
+// Before launch finishes, so a notification that launches the application is kept.
+- (void)applicationWillFinishLaunching:(NSNotification *)notification
+{
+  [(Class<UnwiredNotifications>)NSClassFromString(@"UnwiredNotifications") start];
+}
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {

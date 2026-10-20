@@ -13,6 +13,7 @@ import type { TurboModule } from 'react-native';
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { createNotifications } from '@private-email/mail-core/notifications';
 import {
   createRegistration,
   mailboxesOf,
@@ -59,6 +60,7 @@ import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
@@ -1054,6 +1056,7 @@ describe('product registration', () => {
         selected: ['Email Accounts'],
         headers: [
           'Accounts',
+          'Automation',
           'Application',
           'Email Accounts',
           'Mailbox Connections',
@@ -1100,6 +1103,83 @@ describe('product registration', () => {
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('turns a mailbox’s New Mail Notifications on from Settings, asking for permission the first time', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: gmail.native },
+    });
+    const device = { authorization: 'undetermined', previews: false };
+    const requests: string[] = [];
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => {
+          requests.push('permission');
+          device.authorization = 'authorized';
+          return Promise.resolve({ ...device });
+        },
+        setNotificationPreviews: (previews) => {
+          device.previews = previews;
+          return Promise.resolve({ ...device });
+        },
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await settings('Notifications');
+    const mailbox = await settingsWindow().findByRole('switch', {
+      name: 'Gmail · alex@example.invalid',
+    });
+    // Off until turned on, with generic content by default.
+    expect({
+      mailbox: mailbox.props.value,
+      previews: settingsWindow().getByRole('switch', {
+        name: 'Show Sender and Subject',
+      }).props.value,
+    }).toStrictEqual({ mailbox: false, previews: false });
+    await act(async () => {
+      await fireEvent(mailbox, 'valueChange', true);
+    });
+    await expect(settingsWindow().findByText('Allowed')).resolves.toBeVisible();
+    expect({
+      requests,
+      notifying: mailboxesOf(store.getSnapshot().snapshot).map(
+        ({ notifications: on }) => on,
+      ),
+      shown: settingsWindow().getByRole('switch', {
+        name: 'Gmail · alex@example.invalid',
+      }).props.value,
+    }).toStrictEqual({
+      requests: ['permission'],
+      notifying: [true],
+      shown: true,
+    });
+  });
 
   it('brings the open Settings window to a requested destination and opens afresh after closing', async () => {
     expect.hasAssertions();

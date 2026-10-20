@@ -197,6 +197,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `UnwiredNotifications.postNotifications` admitting a captured preview or
+  connection solely from its provider-derived local identifier. Recheck the
+  originating Product Account, connection incarnation and current preview
+  consent inside the registration gate; serialize preview opt-out with posting
+  so acknowledged withdrawal cannot precede a queued content-bearing alert.
+- Notification cleanup attached only to an exported bridge wrapper. Trace
+  `RegistrationStore.purge`, connection cleanup and session end, including
+  revocation discovered by mailbox preflight; every native entry point must
+  withdraw its delivered alerts, or removed-account previews stay visible.
+
 - `Measurement.Sampler` or another native owner using an `unowned` capture in
   an escaping timer, task or queue callback. Trace every queue hop through stop,
   cancellation and owner release, including the outer timer handler. Cancelling

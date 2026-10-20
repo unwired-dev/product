@@ -31,6 +31,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Custom Category model benchmark for English and Czech (spike #829)](../tools/system-category-benchmark/CUSTOM.md)
 - [Sending Drafts through the Outbox](outbox.md)
+- [New Mail Notifications](new-mail-notifications.md)
 - [Command Palette: finding and running actions from any screen](command-palette.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Sync and the Recovery Key](private-product-sync.md)

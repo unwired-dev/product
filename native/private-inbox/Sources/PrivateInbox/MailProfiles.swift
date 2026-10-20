@@ -20,6 +20,16 @@ struct MailboxProfileRecord: Codable, Equatable {
   let profile: String
 }
 
+// Whether one incarnation of a Mailbox Connection notifies for new Inbox mail, a Mail Workflow
+// Preference of the Profile that owns it, named like its ownership.
+struct MailboxNotificationsRecord: Codable, Equatable {
+  static let schemaVersion = 1
+  let record: String
+  let epoch: String
+  let version: Int
+  let enabled: Bool
+}
+
 // Mail Profile definitions and connection ownership in Product Sync. TypeScript reads, merges and
 // writes them; native code seals and opens each record under an identifier bound to its Profile or
 // connection, and keeps TypeScript's Profile state in the account's device-only vault.
@@ -27,23 +37,33 @@ extension RegistrationStore {
   private enum ProfileRecord {
     case profile(MailProfileRecord)
     case mailbox(MailboxProfileRecord)
+    case notifications(MailboxNotificationsRecord)
 
     init?(_ value: [String: Any]) {
-      guard let kind = value["kind"] as? String, kind == "profile" || kind == "mailbox",
+      guard let kind = value["kind"] as? String,
         let version = (value["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1
       else { return nil }
-      if kind == "profile" {
+      if kind == "notifications" {
+        guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
+          let epoch = value["epoch"] as? String, !epoch.isEmpty,
+          let enabled = value["enabled"] as? Bool
+        else { return nil }
+        self = .notifications(
+          MailboxNotificationsRecord(record: record, epoch: epoch, version: version, enabled: enabled))
+      } else if kind == "profile" {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String
         guard name.map({ !$0.isEmpty }) ?? (value["name"] == nil) else { return nil }
         self = .profile(MailProfileRecord(id: id, version: version, name: name))
-      } else {
+      } else if kind == "mailbox" {
         guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
           let epoch = value["epoch"] as? String, !epoch.isEmpty,
           let profile = value["profile"] as? String, !profile.isEmpty, profile.count <= 200
         else { return nil }
         self = .mailbox(
           MailboxProfileRecord(record: record, epoch: epoch, version: version, profile: profile))
+      } else {
+        return nil
       }
     }
 
@@ -51,6 +71,8 @@ extension RegistrationStore {
       switch self {
       case .profile(let value): return try ring.identifier("profile", value.id)
       case .mailbox(let value): return try ring.identifier("mailbox-profile", value.record)
+      case .notifications(let value):
+        return try ring.identifier("mailbox-notifications", value.record)
       }
     }
 
@@ -58,6 +80,7 @@ extension RegistrationStore {
       switch self {
       case .profile: MailProfileRecord.schemaVersion
       case .mailbox: MailboxProfileRecord.schemaVersion
+      case .notifications: MailboxNotificationsRecord.schemaVersion
       }
     }
 
@@ -65,6 +88,7 @@ extension RegistrationStore {
       switch self {
       case .profile(let value): return try JSONEncoder().encode(value)
       case .mailbox(let value): return try JSONEncoder().encode(value)
+      case .notifications(let value): return try JSONEncoder().encode(value)
       }
     }
 
@@ -74,6 +98,7 @@ extension RegistrationStore {
       switch self {
       case .profile: object["kind"] = "profile"
       case .mailbox: object["kind"] = "mailbox"
+      case .notifications: object["kind"] = "notifications"
       }
       return object
     }
@@ -123,6 +148,14 @@ extension RegistrationStore {
           let value = try? JSONDecoder().decode(MailboxProfileRecord.self, from: plaintext)
         else { return nil }
         opened = .mailbox(value)
+      } else if identifier.hasPrefix("mailbox-notifications.") {
+        guard
+          let plaintext = try? vault.ring.open(
+            record: sealed, account: vault.productAccountId, identifier: identifier,
+            schemaVersion: MailboxNotificationsRecord.schemaVersion),
+          let value = try? JSONDecoder().decode(MailboxNotificationsRecord.self, from: plaintext)
+        else { return nil }
+        opened = .notifications(value)
       } else {
         return nil
       }

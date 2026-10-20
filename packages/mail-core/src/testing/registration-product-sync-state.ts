@@ -228,7 +228,8 @@ export function mailboxRecord(
   return record;
 }
 
-// The opaque identifier a ring stores a Mail Profile's definition or a connection's ownership under.
+// The opaque identifier a ring stores a Mail Profile's definition, a connection's ownership or its
+// notification policy under.
 function profileIdentifier(
   sync: SyntheticProductSync,
   ring: string,
@@ -237,7 +238,12 @@ function profileIdentifier(
   const [kind, name] =
     record.kind === 'profile'
       ? ['profile', record.id]
-      : ['mailbox-profile', record.record];
+      : [
+          record.kind === 'mailbox'
+            ? 'mailbox-profile'
+            : 'mailbox-notifications',
+          record.record,
+        ];
   const key = `${ring}\n${kind}\n${name}`;
   const known = sync.identifiers.get(key);
   if (known !== undefined) {

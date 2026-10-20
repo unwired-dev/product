@@ -21,6 +21,7 @@ export const createRegistrationFlow = (
 ): RegistrationFlow => {
   const flow = registrationPrograms(vault);
   return {
+    snapshot: () => Effect.runPromise(flow.snapshot()),
     restore: () => Effect.runPromise(flow.restore()),
     signIn: (provider) => Effect.runPromise(flow.signIn(provider)),
     addMailbox: (provider, chooseAccount) =>
@@ -36,6 +37,8 @@ export const createRegistrationFlow = (
     removeProfile: (profile) => Effect.runPromise(flow.removeProfile(profile)),
     moveMailbox: (connection, profile) =>
       Effect.runPromise(flow.moveMailbox(connection, profile)),
+    notifyMailbox: (connection, enabled) =>
+      Effect.runPromise(flow.notifyMailbox(connection, enabled)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
     confirmRecoveryKey: (entry) =>
       Effect.runPromise(flow.confirmRecoveryKey(entry)),

@@ -235,7 +235,9 @@ ownership synchronize as sealed `profile.` and `mailbox-profile.` records. Nativ
 owns sealing and opening them under their opaque identifiers, so Convex learns neither
 Profile names nor which Profile owns a connection. Older clients never list these
 prefixes, so they can neither rewrite nor corrupt them. Mailbox descriptions keep
-their unchanged format.
+their unchanged format. Each connection's [New Mail Notifications](new-mail-notifications.md)
+switch synchronizes the same way, as a sealed `mailbox-notifications.` record bound to
+the connection's incarnation and written only through compare-and-set.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

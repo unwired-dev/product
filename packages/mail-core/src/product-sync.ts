@@ -914,5 +914,10 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       connection: string,
       profile: string,
     ) => rotating(() => profiles.move(value, connection, profile)),
+    notifyMailbox: (
+      value: RegistrationRecord,
+      connection: string,
+      enabled: boolean,
+    ) => rotating(() => profiles.notify(value, connection, enabled)),
   };
 }

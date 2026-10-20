@@ -4,6 +4,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `apps/mobile/plugins/private-inbox.cjs` using an older AppDelegate integration's
+  marker to skip a new startup integration. Exercise fresh and already-generated
+  delegates through the real Expo mod, including repeated generation; otherwise
+  incremental prebuild can omit the notification delegate while fresh builds pass.
+
 - `scripts/implementer-grep` forwarding an option whose operand or external
   helper can read reviewer-only content outside the searched pathspecs. Audit
   Git's accepted short clusters, attached values and long abbreviations as well

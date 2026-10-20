@@ -20,8 +20,8 @@ This section owns Settings navigation for all mailbox providers and both editors
 Settings, and a connected Inbox's account page, are grouped as in the design:
 **Account & Devices** (the account, Private Sync, the Recovery Key, device approval,
 Trusted Devices, sign-in methods, sign-out and deletion), **Email Accounts**
-(Mailbox Connections), **Language** and **Privacy & Data** (Remote Content and Mail
-Assistance). The Mac and iPad show a sidebar of these destinations beside the
+(Mailbox Connections), **Notifications** ([New Mail Notifications](new-mail-notifications.md)),
+**Language** and **Privacy & Data** (Remote Content and Mail Assistance). The Mac and iPad show a sidebar of these destinations beside the
 selected one, opening on Account & Devices; iPhone lists them and pushes one at a
 time, opening directly on Account & Devices while setup waits there. Destinations the design shows for features these clients do not implement
 yet, such as Inbox, Rules or Appearance, follow their owning issues.

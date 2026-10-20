@@ -41,6 +41,8 @@ export type PendingAction = typeof PendingActionSchema.Type;
 const MailboxDocumentSchema = Schema.Struct({
   version: Schema.Literal(1),
   messages: Schema.Array(GmailMessageSchema),
+  // The latest Gmail history already considered for notifications, independent of view replay.
+  notificationHistoryId: Schema.optionalKey(HistoryId),
   // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
   pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
   // The mailbox's own labels, for labeling and moving, or its folders for moving.

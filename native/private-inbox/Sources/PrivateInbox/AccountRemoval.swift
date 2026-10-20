@@ -19,6 +19,7 @@ extension RegistrationStore {
 
   // Ends this process's Product Sign-In while a removal waits for its answer.
   func endSession() throws {
+    withdrawNotifications(nil)
     try stopErrorReporting()
     session = nil
   }
