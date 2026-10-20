@@ -1123,8 +1123,9 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
   }
 
-  // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator in both
-  // appearances. At entry the end of the list scrolls clear of the floating bar in each of them.
+  // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
+  // entry the end of the list scrolls clear of the floating bar. The runner starts the simulator in
+  // Dark, where a surface that stops short shows against the black window; Light hides it.
   private func verifyCompactInboxBottom(_ app: XCUIApplication, scrollToEnd: Bool) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let window = app.windows.firstMatch.frame
@@ -1133,8 +1134,8 @@ final class InboxTests: XCTestCase {
     let edge = CGPoint(x: 8, y: window.maxY - 8)
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.waitForExistence(timeout: 10))
-    let footer = app.staticTexts["Sample messages · Encrypted on this device"].firstMatch
     if scrollToEnd {
+      let footer = app.staticTexts["Sample messages · Encrypted on this device"].firstMatch
       XCTAssertTrue(footer.waitForExistence(timeout: 10))
       var placed = footer.frame
       for _ in 0..<5 {
@@ -1144,26 +1145,16 @@ final class InboxTests: XCTestCase {
       }
       waitUntil { footer.frame.maxY <= search.frame.minY }
     }
-    for (appearance, name) in [(XCUIDevice.Appearance.dark, "Dark"), (.light, "Light")] {
-      XCUIDevice.shared.appearance = appearance
-      // The app has redrawn once the surface's brightness matches the appearance.
-      waitUntil {
-        let brightness = self.pixels(app, at: [surface])[0].prefix(3).reduce(0) { $0 + Int($1) }
-        return (brightness < 384) == (appearance == .dark)
-      }
-      let colors = pixels(app, at: [surface, edge])
-      XCTAssertTrue(
-        zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
-        "\(name) bottom edge \(colors[1]) differs from the Inbox surface \(colors[0])")
-      if scrollToEnd {
-        XCTAssertLessThanOrEqual(footer.frame.maxY, search.frame.minY)
-      }
-      let shot = XCTAttachment(screenshot: app.screenshot())
-      let state = scrollToEnd ? "scrolled to the end" : "after the reader"
-      shot.name = "Inbox bottom edge, \(state) (\(name))"
-      shot.lifetime = .keepAlways
-      add(shot)
-    }
+    let colors = pixels(app, at: [surface, edge])
+    let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
+    XCTAssertLessThan(brightness, 384, "The journey runs in Dark")
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "Bottom edge \(colors[1]) differs from the Inbox surface \(colors[0])")
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Inbox bottom edge, \(scrollToEnd ? "scrolled to the end" : "after the reader")"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   // RGBA bytes of one app screenshot at points in window coordinates.
