@@ -48,12 +48,7 @@ import {
 } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
-import {
-  followNotificationActions,
-  native,
-  registration,
-  start,
-} from '../src/registration.ts';
+import { native, registration, start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
@@ -76,8 +71,6 @@ const styles = StyleSheet.create({
 // Every gate shows the Registration and remote content settings the host restores once here.
 if (!previewInbox) {
   void start();
-  // Archive and Mark as Read chosen on a notification act without opening the app.
-  followNotificationActions();
 }
 void scheduleGmailFreshness();
 pollGmailWhileActive();
