@@ -432,6 +432,23 @@ describe('mail profiles', () => {
     expect(notifying(await flow.restore())).toStrictEqual([false]);
   });
 
+  it('reports a refused notification change on its connection, not as a Profile failure', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    const policy = policyOf(sync);
+    const store = createRegistration(vault);
+    await store.restore();
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...policy, version: 2 });
+    };
+    await store.notifyMailbox(id, false);
+    expect(store.getSnapshot()).toMatchObject({ notificationFailure: id });
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+  });
+
   it('removes only a Profile that owns no live connection', async () => {
     expect.hasAssertions();
     const { flow, sync, mailboxId } = await connected();

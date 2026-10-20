@@ -34,7 +34,11 @@ import type {
   RetainedRemote,
 } from './remote-content-loader.ts';
 
-import { rejectionCode, runLogged } from './diagnostics.ts';
+import {
+  rejectionCode,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import {
   allMail,
   canOrganize,
@@ -3654,7 +3658,17 @@ export function createGmailInbox(
       const brought = arrivals;
       ({ cache, document } = yield* commitOver(cache, document, next.value));
       if (brought.length > 0) {
-        yield* Effect.promise(() => Promise.resolve(arrived?.(brought)));
+        // Awaited so a background opportunity covers posting; its failure never ends synchronization.
+        yield* Effect.tryPromise(() =>
+          Promise.resolve(arrived?.(brought)),
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.logError(
+              'New mail notifications failed:',
+              rejectionDiagnostic(error),
+            ),
+          ),
+        );
       }
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;

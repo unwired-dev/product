@@ -207,7 +207,8 @@ extension UnwiredRegistration {
           let account = notification["account"] as? String,
           let epoch = notification["epoch"] as? String,
           (try? store.mailboxAccount(connection).productAccountId) == account,
-          (try? store.saved().connection(connection)?.epoch ?? "legacy") == epoch
+          let held = try? store.saved().connection(connection),
+          (held.epoch ?? "legacy") == epoch
         else { continue }
         let content = UNMutableNotificationContent()
         content.title = title

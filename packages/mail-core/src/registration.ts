@@ -593,7 +593,17 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(request(native.moveMailbox(connection, profile)), profileRefusal),
     notifyMailbox: (connection: string, enabled: boolean) =>
       execute(
-        request(native.notifyMailbox(connection, enabled)),
+        // A refusal, such as another device's write first, is reported on the connection's row.
+        request(native.notifyMailbox(connection, enabled)).pipe(
+          Effect.catchTag('ProfileRefused', (refused) =>
+            Effect.fail(
+              new RegistrationFailed({
+                cause: refused,
+                diagnostic: `notification policy ${refused.failure}`,
+              }),
+            ),
+          ),
+        ),
         (snapshot) => ({
           ...settled(snapshot),
           notificationFailure: connection,

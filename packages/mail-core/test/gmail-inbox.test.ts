@@ -223,6 +223,32 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(arrivals).toHaveLength(2);
   });
 
+  it('finishes synchronizing when reporting new mail fails', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const failures: unknown[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...logged) => {
+      failures.push(logged);
+    });
+    const inbox = createGmailInbox(gmail.native, {
+      arrived: () => Promise.reject(new Error('Posting failed')),
+    });
+    try {
+      await inbox.load();
+      gmail.deliver({ subject: 'First' });
+      gmail.deliver({ subject: 'Second' });
+      await inbox.load();
+      const synced = ready(inbox.getSnapshot());
+      expect({
+        sync: synced.sync,
+        subjects: synced.messages.slice(0, 2).map(({ subject }) => subject),
+      }).toStrictEqual({ sync: 'current', subjects: ['Second', 'First'] });
+      expect(failures).not.toHaveLength(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('lists again after Gmail expires the history, keeping cached mail visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 4 });
