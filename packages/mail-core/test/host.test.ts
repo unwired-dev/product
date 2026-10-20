@@ -48,6 +48,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   // This device's notification permission and previews, and what it posted.
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
+  // While set, settings reads wait for it, as a slow native reply would.
+  const settingsGate: { held?: Promise<void> } = {};
   const native: NativeHostModule = {
     ...vault,
     ...base,
@@ -87,7 +89,10 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
-    notificationSettings: () => Promise.resolve({ ...device }),
+    notificationSettings: async () => {
+      await settingsGate.held;
+      return { ...device };
+    },
     requestNotifications: () => {
       device.authorization = 'authorized';
       return Promise.resolve({ ...device });
@@ -118,6 +123,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     cancelled,
     counts,
     notified,
+    settingsGate,
   };
 }
 
@@ -194,6 +200,44 @@ describe('the host assembly', () => {
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
+  });
+
+  it('posts nothing for a connection turned off or removed while posting waited', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.notifications.request();
+    await host.registration.notifyMailbox(connection, true);
+    const held = () => {
+      const { promise, resolve } = Promise.withResolvers<undefined>();
+      settingsGate.held = promise;
+      return () => {
+        settingsGate.held = undefined;
+        resolve(undefined);
+      };
+    };
+
+    let release = held();
+    gmail.deliver({ subject: 'Turned off meanwhile' });
+    await host.gmailMailboxes.load();
+    await host.registration.notifyMailbox(connection, false);
+    release();
+    await host.notifications.load();
+
+    await host.registration.notifyMailbox(connection, true);
+    release = held();
+    gmail.deliver({ subject: 'Removed meanwhile' });
+    await host.gmailMailboxes.load();
+    await host.registration.removeMailbox(connection);
+    release();
+    await host.notifications.load();
+    expect(notified).toStrictEqual([]);
   });
 
   it('reports resolved provider HTTP failures without changing send or synchronization outcomes', async () => {

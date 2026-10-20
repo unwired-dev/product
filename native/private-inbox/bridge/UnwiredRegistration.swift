@@ -307,7 +307,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   // An operation that resolves without a value.
-  private func performStep(
+  func performStep(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> Void

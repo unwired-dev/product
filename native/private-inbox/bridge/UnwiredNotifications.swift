@@ -169,20 +169,22 @@ extension UnwiredRegistration {
   }
 
   // Each notification replaces any shown under the same identifier. Its only routing data is the
-  // opaque connection and message identifiers.
+  // opaque connection and message identifiers. Posting runs in the registration operation gate,
+  // after a removal and its withdrawal, and skips a connection this device no longer holds.
   @objc(postNotifications:resolver:rejecter:)
   func postNotifications(
     _ notifications: [[String: Any]], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    Task {
+    performStep("postNotifications", resolve, reject: reject) { store in
       for notification in notifications {
         guard let id = notification["id"] as? String, !id.isEmpty,
           let title = notification["title"] as? String,
           let body = notification["body"] as? String,
           let connection = notification["connection"] as? String,
           id.hasPrefix(connection + "."),
-          let message = notification["message"] as? String
+          let message = notification["message"] as? String,
+          (try? store.mailboxAccount(connection)) != nil
         else { continue }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -192,7 +194,6 @@ extension UnwiredRegistration {
         try? await UNUserNotificationCenter.current().add(
           UNNotificationRequest(identifier: id, content: content, trigger: nil))
       }
-      resolve([:])
     }
   }
 

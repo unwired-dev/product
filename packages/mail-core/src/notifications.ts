@@ -154,7 +154,13 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    arrived: (connection: string, messages: readonly GmailMessage[]) =>
+    // `eligible` is checked again after reading the settings, just before posting: the
+    // connection may have been removed or turned off meanwhile.
+    arrived: (
+      connection: string,
+      messages: readonly GmailMessage[],
+      eligible: () => boolean,
+    ) =>
       runLogged(
         logged(
           'New mail notifications could not be posted:',
@@ -163,7 +169,7 @@ export function createNotifications(
             const current = yield* settingsOf(() =>
               native.notificationSettings(),
             );
-            if (current.authorization !== 'authorized') {
+            if (current.authorization !== 'authorized' || !eligible()) {
               return;
             }
             const t = translate();

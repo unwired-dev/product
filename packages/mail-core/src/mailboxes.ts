@@ -363,7 +363,12 @@ export function createMailboxes(
     removed?: () => void;
     // New Inbox mail for a Gmail connection whose New Mail Notifications are on, while it still
     // belongs to the same Product Account and incarnation.
-    arrived?: (connection: string, messages: readonly GmailMessage[]) => void;
+    // `eligible` answers again later, so posting can recheck after its own asynchronous work.
+    arrived?: (
+      connection: string,
+      messages: readonly GmailMessage[],
+      eligible: () => boolean,
+    ) => void;
   }> = {},
 ) {
   const shared = createBodyLoads();
@@ -452,6 +457,18 @@ export function createMailboxes(
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
     for (const { id, provider, address, owner } of added) {
+      // Notifications follow the connection while it keeps this owner and its switch is on.
+      const eligible = () => {
+        const { snapshot: account } = registration.getSnapshot();
+        return (
+          openMailboxes(account).some(
+            (mailbox) => mailbox.id === id && mailbox.owner === owner,
+          ) &&
+          mailboxesOf(account).some(
+            (mailbox) => mailbox.id === id && mailbox.notifications === true,
+          )
+        );
+      };
       const opened =
         provider === 'imap'
           ? {
@@ -469,20 +486,8 @@ export function createMailboxes(
                 arrived:
                   provider === 'gmail' && arrived !== undefined
                     ? (messages) => {
-                        const { snapshot: account } =
-                          registration.getSnapshot();
-                        if (
-                          openMailboxes(account).some(
-                            (mailbox) =>
-                              mailbox.id === id && mailbox.owner === owner,
-                          ) &&
-                          mailboxesOf(account).some(
-                            (mailbox) =>
-                              mailbox.id === id &&
-                              mailbox.notifications === true,
-                          )
-                        ) {
-                          arrived(id, messages);
+                        if (eligible()) {
+                          arrived(id, messages, eligible);
                         }
                       }
                     : undefined,

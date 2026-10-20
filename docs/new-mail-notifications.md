@@ -25,7 +25,8 @@ sender or rule filtering, and #908 restyles content, grouping and actions.
   `mailbox-notifications.` record bound to the connection's incarnation. A change
   needs Private Sync and fails closed: offline, or when another device changed it
   first, the stored choice stays and the row says so. Removing and adding a mailbox
-  again starts it off. IMAP and Microsoft connections are not listed yet.
+  again starts it off. IMAP and Microsoft connections are not listed yet
+  ([#1094](https://github.com/unwired-dev/product/issues/1094)).
 
 ## What notifies
 
@@ -39,8 +40,10 @@ and cache refills never notify. Push wakes, background refresh, activation and t
 foreground poll all reach the same synchronization; the content-free push never
 decides on its own to alert.
 
-Before posting, the device checks again that the connection still belongs to the same
-Product Account and incarnation and that its switch is on. Revoked devices,
+Before posting, after reading this device's settings, the device checks again that the
+connection still belongs to the same Product Account and incarnation and that its switch
+is on. Native posting then runs after any removal in progress and skips a connection
+this device no longer holds. Revoked devices,
 removed connections and other Product Accounts therefore post nothing. Each
 notification carries only the opaque connection and message identifiers, under an
 identifier that replaces rather than repeats an earlier one for the same message.
