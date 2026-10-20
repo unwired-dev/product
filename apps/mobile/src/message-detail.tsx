@@ -328,7 +328,9 @@ export function MessageDetail({
     return <EmptyDetail id={id} />;
   }
   const message = (
+    // Each message starts with its own reader state, such as a closed toolbar panel.
     <MailboxMessage
+      key={`${mailbox}/${id}`}
       id={id}
       folder={folder}
       onClose={onClose}

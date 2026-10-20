@@ -132,6 +132,33 @@ describe('iPad reader', () => {
     expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();
   });
 
+  it('opens another message in the same reader with its panels closed', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const first = imap.deliver('INBOX', { subject: 'Project plans' });
+    const second = imap.deliver('INBOX', { subject: 'Garden plans' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const reader = (uid: number) => (
+      <InboxProvider mailboxes={singleMailbox(inbox, 'imap-reader')}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox="imap-reader"
+            id={`7.${uid}.INBOX`}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>
+    );
+    await render(reader(first));
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
+    await screen.rerender(reader(second));
+    expect(
+      screen.getByRole('button', { name: 'More', expanded: false }),
+    ).toBeVisible();
+    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+  });
+
   /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
   it.each([320, 1024])(
     'keeps direct response actions and the palette in the fixed header at %i points',
