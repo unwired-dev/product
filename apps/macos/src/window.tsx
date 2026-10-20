@@ -1,5 +1,9 @@
 import type { openedTarget } from '@private-email/mail-core/notifications';
 
+import {
+  commandTarget,
+  runWhenOffered,
+} from '@private-email/mail-core/commands';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
@@ -11,7 +15,11 @@ import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
 
 import { CategorizationSpike } from './categorization-spike.ts';
-import { CommandBar, CommandPaletteProvider } from './command-palette.tsx';
+import {
+  CommandBar,
+  CommandPaletteProvider,
+  useCommandRegistry,
+} from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
@@ -197,14 +205,16 @@ function WindowContents({
   const colors = usePalette();
   const profile = useProfile();
   const leave = useLeaveComposer();
+  const registry = useCommandRegistry();
   // A tapped New Mail Notification selects its message in this window's Inbox when the window
-  // shows its Mail Profile; native code brings the window forward.
+  // shows its Mail Profile; native code brings the window forward. Its Reply then starts a reply
+  // as soon as the message's reader offers one.
   useEffect(() => {
     if (!previewInbox) {
       return followOpenedNotifications(native(), windowId, {
         snapshot: () => registration.getSnapshot().snapshot,
         leave,
-        open: (target) => {
+        open: (target, reply) => {
           if (target.profile === profile) {
             setComposing(undefined);
             setView({});
@@ -212,10 +222,17 @@ function WindowContents({
           } else {
             onOpenProfile(target);
           }
+          if (reply) {
+            runWhenOffered(
+              registry,
+              'reply',
+              commandTarget(target.mailbox, { id: target.id, subject: '' }).id,
+            );
+          }
         },
       });
     }
-  }, [windowId, profile, leave, onOpenProfile]);
+  }, [windowId, profile, leave, onOpenProfile, registry]);
   // Opening a Draft from either pane shows it in the window's composer, over the reader.
   const compose = (id: string) => {
     setComposing(id);

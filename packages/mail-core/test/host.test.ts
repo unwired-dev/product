@@ -3,7 +3,7 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
-import { mailboxesOf } from '../src/registration.ts';
+import { defaultProfile, mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -49,6 +49,27 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   // This device's notification permission and previews, and what it posted.
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
+  const titles: unknown[] = [];
+  // Archive and Mark as Read native code queued for JavaScript; each send settles once completed.
+  const queued: unknown[] = [];
+  let reading: ((action: unknown) => void) | undefined = undefined;
+  const completions = new Map<string, () => void>();
+  const notificationActions = {
+    send: (action: Readonly<Record<string, string> & { id: string }>) => {
+      const completed = Promise.withResolvers<undefined>();
+      completions.set(action.id, () => {
+        completed.resolve(undefined);
+      });
+      const reader = reading;
+      reading = undefined;
+      if (reader === undefined) {
+        queued.push(action);
+      } else {
+        reader(action);
+      }
+      return completed.promise;
+    },
+  };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
@@ -104,13 +125,25 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       return Promise.resolve({ ...device });
     },
     openNotificationSettings: () => Promise.resolve(null),
-    postNotifications: (posted) => {
+    postNotifications: (posted, actions) => {
       notified.push(...posted);
+      titles.push(actions);
       return Promise.resolve(null);
     },
     nextOpenedNotification: () => Promise.withResolvers<unknown>().promise,
     stopOpenedNotifications: () => Promise.resolve(null),
     restoreOpenedNotification: () => Promise.resolve(null),
+    nextNotificationAction: () => {
+      if (queued.length > 0) {
+        return Promise.resolve(queued.shift());
+      }
+      const next = Promise.withResolvers<unknown>();
+      reading = next.resolve;
+      return next.promise;
+    },
+    completeNotificationAction: (id) => {
+      completions.get(id)?.();
+    },
   };
   const host = createHost(
     () => {
@@ -127,6 +160,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     cancelled,
     counts,
     notified,
+    titles,
+    notificationActions,
     settingsGate,
   };
 }
@@ -154,7 +189,7 @@ describe('the host assembly', () => {
 
   it('posts New Mail Notifications only for a connection turned on, with generic content until previews are chosen', async () => {
     expect.hasAssertions();
-    const { host, gmail, notified } = syntheticHost(undefined, true);
+    const { host, gmail, notified, titles } = syntheticHost(undefined, true);
     await host.registration.register('google');
     await host.registration.addMailbox();
     await host.gmailMailboxes.load();
@@ -190,11 +225,12 @@ describe('the host assembly', () => {
     expect(notified).toStrictEqual([
       {
         id: `${connection}.${generic}`,
-        title: 'New Mail',
-        body: '',
+        title: '',
+        body: 'New mail',
         connection,
         message: generic,
         ...scope,
+        profile: defaultProfile,
         previews: false,
       },
       {
@@ -204,15 +240,75 @@ describe('the host assembly', () => {
         connection,
         message: previewed,
         ...scope,
+        profile: defaultProfile,
         previews: true,
       },
     ]);
+    // Every notification offers Reply, Archive and Mark as Read.
+    expect(titles[0]).toStrictEqual({
+      reply: 'Reply',
+      archive: 'Archive',
+      read: 'Mark as Read',
+    });
 
     // Turned off again, the connection posts nothing.
     await host.registration.notifyMailbox(connection, false);
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
+  });
+
+  it('archives or marks as read the message a notification names, only while its connection is the one it named', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notificationActions } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    const archived = gmail.deliver({ subject: 'Archive me', unread: true });
+    const read = gmail.deliver({ subject: 'Read me', unread: true });
+    const kept = gmail.deliver({ subject: 'Keep me', unread: true });
+    await host.gmailMailboxes.load();
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    const named = {
+      account: 'account-synthetic-product-subject',
+      connection: mailbox.id,
+      epoch: required(mailbox.epoch),
+    };
+    host.followNotificationActions();
+
+    await notificationActions.send({
+      id: 'archive',
+      ...named,
+      message: archived,
+      action: 'archive',
+    });
+    await notificationActions.send({
+      id: 'read',
+      ...named,
+      message: read,
+      action: 'read',
+    });
+    // A recreated connection or another Product Account acts on nothing, and still completes.
+    await notificationActions.send({
+      id: 'recreated',
+      ...named,
+      epoch: 'another incarnation',
+      message: kept,
+      action: 'archive',
+    });
+    await notificationActions.send({
+      id: 'other account',
+      ...named,
+      account: 'another account',
+      message: kept,
+      action: 'read',
+    });
+    expect(gmail.labelsOf(archived)).not.toContain('INBOX');
+    expect(gmail.labelsOf(read)).not.toContain('UNREAD');
+    expect(gmail.labelsOf(kept)).toStrictEqual(
+      expect.arrayContaining(['INBOX', 'UNREAD']),
+    );
   });
 
   it('posts nothing for a connection turned off or removed while posting waited', async () => {

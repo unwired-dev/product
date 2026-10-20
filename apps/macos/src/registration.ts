@@ -18,6 +18,7 @@ export {
   notifications,
   start,
   followWakes,
+  followNotificationActions,
   native,
 } from './host.ts';
 

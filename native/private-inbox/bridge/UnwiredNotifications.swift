@@ -46,17 +46,90 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
     [.banner, .list, .sound]
   }
 
+  // A tap or Reply opens the message; Archive and Mark as Read act without opening a window.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
     let info = response.notification.request.content.userInfo
-    guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-      let account = info["account"] as? String, !account.isEmpty,
+    guard let account = info["account"] as? String, !account.isEmpty,
       let epoch = info["epoch"] as? String, !epoch.isEmpty,
       let connection = info["connection"] as? String, !connection.isEmpty,
       let message = info["message"] as? String, !message.isEmpty
     else { return }
-    await NotificationTaps.shared.receive(["account": account, "epoch": epoch, "connection": connection, "message": message])
+    let opened = ["account": account, "epoch": epoch, "connection": connection, "message": message]
+    switch response.actionIdentifier {
+    case UNNotificationDefaultActionIdentifier:
+      await NotificationTaps.shared.receive(opened)
+    case "reply":
+      await NotificationTaps.shared.receive(opened.merging(["action": "reply"]) { $1 })
+    case "archive", "read":
+      await NotificationActions.shared.perform(
+        opened.merging(["action": response.actionIdentifier]) { $1 })
+    default:
+      return
+    }
+  }
+
+  // Reply, Archive and Mark as Read, in the order each platform's design lists them. Archive and
+  // Mark as Read act in the background only once the device is unlocked: protected storage stays
+  // closed while it is locked.
+  static func newMail(_ titles: [String: String]) -> UNNotificationCategory {
+    func action(_ id: String, _ symbol: String, _ options: UNNotificationActionOptions)
+      -> UNNotificationAction
+    {
+      UNNotificationAction(
+        identifier: id, title: titles[id] ?? "", options: options,
+        icon: UNNotificationActionIcon(systemImageName: symbol))
+    }
+    let reply = action("reply", "arrowshape.turn.up.left", .foreground)
+    let archive = action("archive", "archivebox", .authenticationRequired)
+    let read = action("read", "envelope.open", .authenticationRequired)
+    #if os(iOS)
+      let actions = [reply, archive, read]
+    #else
+      let actions = [archive, read, reply]
+    #endif
+    return UNNotificationCategory(identifier: "new-mail", actions: actions, intentIdentifiers: [])
+  }
+}
+
+// Archive and Mark as Read wait here for JavaScript, which acts with no window open. The system's
+// handler finishes once JavaScript completes the action, or at the deadline.
+@MainActor final class NotificationActions {
+  static let shared = NotificationActions()
+  private var queued: [[String: String]] = []
+  private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
+  private var reader: CheckedContinuation<[String: String]?, Never>?
+
+  func perform(_ action: [String: String]) async {
+    let id = UUID().uuidString
+    let action = action.merging(["id": id]) { $1 }
+    await withCheckedContinuation { continuation in
+      waiting[id] = continuation
+      if let reader {
+        self.reader = nil
+        reader.resume(returning: action)
+      } else {
+        queued.append(action)
+      }
+      // iOS allows about 30 seconds for a background action.
+      Task {
+        try? await Task.sleep(for: .seconds(25))
+        self.complete(id)
+      }
+    }
+  }
+
+  // The next action for JavaScript. A reloaded JavaScript context replaces the earlier reader.
+  func next() async -> [String: String]? {
+    if !queued.isEmpty { return queued.removeFirst() }
+    reader?.resume(returning: nil)
+    return await withCheckedContinuation { reader = $0 }
+  }
+
+  func complete(_ id: String) {
+    queued.removeAll { $0["id"] == id }
+    waiting.removeValue(forKey: id)?.resume()
   }
 }
 
@@ -187,18 +260,24 @@ extension UnwiredRegistration {
   }
 
   // Each notification replaces any shown under the same identifier. Its only routing data is the
-  // opaque connection and message identifiers. Posting runs in the registration operation gate,
-  // after a removal and its withdrawal, and skips a connection this device no longer holds.
-  @objc(postNotifications:resolver:rejecter:)
+  // opaque connection and message identifiers; its opaque Mail Profile groups it with the
+  // Profile's others. `actions` titles Reply, Archive and Mark as Read in this device's language.
+  // Posting runs in the registration operation gate, after a removal and its withdrawal, and
+  // skips a connection this device no longer holds.
+  @objc(postNotifications:actions:resolver:rejecter:)
   func postNotifications(
-    _ notifications: [[String: Any]], resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
+    _ notifications: [[String: Any]], actions: [String: String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     performStep("postNotifications", resolve, reject: reject) { store in
+      UNUserNotificationCenter.current().setNotificationCategories([
+        UnwiredNotifications.newMail(actions)
+      ])
       for notification in notifications {
         guard let id = notification["id"] as? String, !id.isEmpty,
           let title = notification["title"] as? String,
           let body = notification["body"] as? String,
+          let profile = notification["profile"] as? String, !profile.isEmpty,
           let connection = notification["connection"] as? String,
           id.hasPrefix(connection + "."),
           let message = notification["message"] as? String,
@@ -214,6 +293,8 @@ extension UnwiredRegistration {
         content.title = title
         content.body = body
         content.sound = .default
+        content.categoryIdentifier = "new-mail"
+        content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
         try? await UNUserNotificationCenter.current().add(
           UNNotificationRequest(identifier: id, content: content, trigger: nil))
@@ -238,6 +319,18 @@ extension UnwiredRegistration {
       NotificationTaps.shared.stop(window, reader: reader)
       resolve(NSNull())
     }
+  }
+
+  @objc(nextNotificationAction:rejecter:)
+  func nextNotificationAction(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in resolve(await NotificationActions.shared.next() ?? NSNull()) }
+  }
+
+  @objc(completeNotificationAction:)
+  func completeNotificationAction(_ id: String) {
+    Task { @MainActor in NotificationActions.shared.complete(id) }
   }
 
   @objc(restoreOpenedNotification:resolver:rejecter:)

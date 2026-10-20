@@ -185,17 +185,18 @@ describe('opening a tapped New Mail Notification', () => {
     const stopLast = followOpenedNotifications(native, 'window', {
       snapshot: () => snapshot,
       leave: navigation.leave,
-      open: (target) => {
-        destinations.push(target);
+      open: (target, reply) => {
+        destinations.push({ ...target, reply });
         delivered.resolve(undefined);
       },
     });
-    send(opened);
+    // The notification's Reply opens the message to reply to it.
+    send({ ...opened, action: 'reply' });
     await delivered.promise;
     stopLast();
 
     expect(destinations).toStrictEqual([
-      { id: '1a', mailbox: 'work', profile: 'p-work' },
+      { id: '1a', mailbox: 'work', profile: 'p-work', reply: true },
     ]);
   });
 });

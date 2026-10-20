@@ -367,10 +367,10 @@ export function createMailboxes(
   }: Readonly<{
     removed?: () => void;
     // New Inbox mail for a Gmail connection whose New Mail Notifications are on, while it still
-    // belongs to the same Product Account and incarnation.
+    // belongs to the same Product Account and incarnation, with its current Mail Profile.
     // `eligible` answers again later, so posting can recheck after its own asynchronous work.
     arrived?: (
-      mailbox: NotificationMailbox,
+      mailbox: NotificationMailbox & Readonly<{ profile: string }>,
       messages: readonly GmailMessage[],
       eligible: () => boolean,
     ) => void | Promise<void>;
@@ -498,9 +498,18 @@ export function createMailboxes(
                 arrived:
                   provider === 'gmail' && arrived !== undefined
                     ? (messages) => {
-                        if (eligible()) {
+                        // A connection moved to another Profile keeps its Inbox.
+                        const profile = mailboxesOf(
+                          registration.getSnapshot().snapshot,
+                        ).find((mailbox) => mailbox.id === id)?.profile;
+                        if (eligible() && profile !== undefined) {
                           return arrived(
-                            { account: productAccount, connection: id, epoch },
+                            {
+                              account: productAccount,
+                              connection: id,
+                              epoch,
+                              profile,
+                            },
                             messages,
                             eligible,
                           );

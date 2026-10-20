@@ -1,5 +1,9 @@
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
+import {
+  commandTarget,
+  runWhenOffered,
+} from '@private-email/mail-core/commands';
 import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
@@ -20,7 +24,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  useCommandRegistry,
+} from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
@@ -40,7 +47,12 @@ import {
 } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
-import { native, registration, start } from '../src/registration.ts';
+import {
+  followNotificationActions,
+  native,
+  registration,
+  start,
+} from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
@@ -63,9 +75,44 @@ const styles = StyleSheet.create({
 // Every gate shows the Registration and remote content settings the host restores once here.
 if (!previewInbox) {
   void start();
+  // Archive and Mark as Read chosen on a notification act without opening the app.
+  followNotificationActions();
 }
 void scheduleGmailFreshness();
 pollGmailWhileActive();
+
+// A tapped New Mail Notification opens its message once Registration admits the shell; its Reply
+// then starts a reply as soon as the message's reader offers one.
+function OpenedNotifications() {
+  const leave = useLeaveComposer();
+  const registry = useCommandRegistry();
+  useEffect(() => {
+    if (!previewInbox) {
+      return followOpenedNotifications(native(), '', {
+        snapshot: () => registration.getSnapshot().snapshot,
+        leave,
+        open: (target, reply) => {
+          router.navigate({
+            pathname: '/message/[id]',
+            params: {
+              id: target.id,
+              mailbox: target.mailbox,
+              profileId: target.profile,
+            },
+          });
+          if (reply) {
+            runWhenOffered(
+              registry,
+              'reply',
+              commandTarget(target.mailbox, { id: target.id, subject: '' }).id,
+            );
+          }
+        },
+      });
+    }
+  }, [leave, registry]);
+  return null;
+}
 
 // Presentation choices live below ProfileScope, which retires them with the Profile.
 function MailShell() {
@@ -105,26 +152,6 @@ function MailShell() {
   // raised the keyboard. A composer opened there starts without a keyboard, since one closed with
   // its keyboard up hears no hide; a conflict copy replacing the Draft in place keeps it.
   const [keyboardTop, setKeyboardTop] = useState<number>();
-  const leave = useLeaveComposer();
-  // A tapped New Mail Notification opens its message once Registration admits the shell.
-  useEffect(() => {
-    if (!previewInbox) {
-      return followOpenedNotifications(native(), '', {
-        snapshot: () => registration.getSnapshot().snapshot,
-        leave,
-        open: (target) => {
-          router.navigate({
-            pathname: '/message/[id]',
-            params: {
-              id: target.id,
-              mailbox: target.mailbox,
-              profileId: target.profile,
-            },
-          });
-        },
-      });
-    }
-  }, [leave]);
   const listening = regular || draft !== undefined;
   const [wasListening, setWasListening] = useState(listening);
   if (wasListening !== listening) {
@@ -212,6 +239,7 @@ function MailShell() {
 
   return (
     <CommandPaletteProvider>
+      <OpenedNotifications />
       <StatusBar style="auto" />
       <View
         testID="mail-shell"

@@ -81,6 +81,11 @@ export function RegisterCommands({
   return null;
 }
 
+// The commands the mounted screens offer, for running one when it is offered.
+export function useCommandRegistry() {
+  return use(PaletteContext).registry;
+}
+
 // The commands the mounted screens offer now for one message, which its context menu lists.
 export function useMessageCommands(target: CommandTarget) {
   const { registry } = use(PaletteContext);

@@ -5,7 +5,7 @@ import { AppRegistry } from 'react-native';
 
 import './src/delivery.ts';
 import { keepGmailFresh } from './src/freshness.ts';
-import { start } from './src/registration.ts';
+import { followNotificationActions, start } from './src/registration.ts';
 import { InboxWindow, SettingsWindowRoot } from './src/window.tsx';
 
 AppRegistry.registerComponent('UnwiredMail', () => InboxWindow);
@@ -14,5 +14,7 @@ AppRegistry.registerComponent('UnwiredSettings', () => SettingsWindowRoot);
 // here.
 if (!previewInbox) {
   void start();
+  // Archive and Mark as Read chosen on a notification act with no window open.
+  followNotificationActions();
 }
 keepGmailFresh();
