@@ -1,6 +1,7 @@
 import type { NativeRegistrationVault } from '@private-email/mail-core/registration-flow';
 
 import * as Schema from 'effect/Schema';
+import * as Struct from 'effect/Struct';
 
 import { readingProfile } from '../src/mailboxes.ts';
 import {
@@ -68,6 +69,21 @@ const forgetPolicyKeys = (sync: ReturnType<typeof setup>['sync']) => {
       sync.sealedProfiles.delete(ciphertext);
     }
   }
+};
+// A saved policy from before notification records retained their opaque identifier.
+const forgetPolicyIdentifiers = (
+  device: ReturnType<typeof setup>['device'],
+) => {
+  const saved = device.record;
+  if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
+    throw new Error('No Profile state');
+  }
+  saved.profiles = {
+    ...saved.profiles,
+    notifications: saved.profiles.notifications?.map((policy) =>
+      Struct.omit(policy, ['identifier']),
+    ),
+  };
 };
 // The only notification policy stored for the account.
 const policyOf = (sync: ReturnType<typeof setup>['sync']) => {
@@ -436,16 +452,7 @@ describe('mail profiles', () => {
     const { flow, device, sync, records, mailboxId } = await connected();
     const id = await mailboxId();
     await flow.notifyMailbox(id, true);
-    const saved = device.record;
-    if (saved?.profiles === undefined || saved.profiles === 'unreadable') {
-      throw new Error('No Profile state');
-    }
-    saved.profiles = {
-      ...saved.profiles,
-      notifications: saved.profiles.notifications?.map(
-        ({ identifier: _, ...policy }) => policy,
-      ),
-    };
+    forgetPolicyIdentifiers(device);
     const sealed = new Map(sync.sealedProfiles);
     forgetPolicyKeys(sync);
     const before = [...records().entries()];
