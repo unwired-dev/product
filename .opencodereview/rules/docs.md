@@ -4,6 +4,15 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A native-journey coverage claim in `docs/expo-client.md` or a qualification
+  record treating an optional mode as equivalent regression evidence without
+  checking its assertions. Trace the selected scenario, appearance and call
+  sites, and ask whether the reported defect would fail in each claimed mode.
+  For `InboxTests.verifyCompactInboxBottom`, equal surface and window colors in
+  Light hide a prematurely ended surface from the pixel comparison. Distinguish
+  exercising scrolling and reader return from detecting the bottom strip;
+  otherwise a passing optional run can falsely qualify the regression.
+
 - A measured comparison in a report such as `tools/deberta-mac-spike/REPORT.md`
   generalized beyond its raw records. Compare every claimed direction against
   the matching candidate, precision, compute units and workload rows; retain

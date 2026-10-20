@@ -18,6 +18,7 @@ scheme.add_test_target(target)
 scheme.test_action.should_use_launch_scheme_args_env = false
 scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new(
   [{ :key => 'UNWIRED_BUNDLE_ID', :value => ENV.fetch('UNWIRED_BUNDLE_ID') },
-   { :key => 'UNWIRED_TEST_SCENARIO', :value => ENV.fetch('UNWIRED_TEST_SCENARIO', 'open-read-relaunch') }]
+   { :key => 'UNWIRED_TEST_SCENARIO', :value => ENV.fetch('UNWIRED_TEST_SCENARIO', 'open-read-relaunch') },
+   { :key => 'UNWIRED_APPEARANCE', :value => ENV.fetch('UNWIRED_APPEARANCE') }]
 )
 scheme.save_as(project.path, 'InboxProbe')

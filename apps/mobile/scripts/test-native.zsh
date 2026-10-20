@@ -37,6 +37,9 @@ UNWIRED_BUNDLE_ID=$(python3 "$repo_root/scripts/prepare-mock-app.py" mobile "$so
 export UNWIRED_BUNDLE_ID
 export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenario"])' "$run_dir/ownership.json")
 app_bundle="$run_dir/Mock.app"
+# Journeys run in Dark, where an Inbox surface that stops short of an edge shows; Light hides it.
+# UNWIRED_APPEARANCE=light repeats them in Light.
+export UNWIRED_APPEARANCE=${UNWIRED_APPEARANCE:-dark}
 
 cp "$mobile_root/native-tests/InboxTests.swift" "$run_dir/"
 builtin cd -q "$run_dir"
@@ -54,8 +57,7 @@ for device_type in "${device_types[@]}"; do
     print "$device_id" >> "$run_dir/devices.txt"
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
-    # Journeys run in Dark, where an Inbox surface that stops short of an edge shows; Light hides it.
-    xcrun simctl ui "$device_id" appearance dark
+    xcrun simctl ui "$device_id" appearance "$UNWIRED_APPEARANCE"
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
