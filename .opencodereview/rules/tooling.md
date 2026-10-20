@@ -74,6 +74,13 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Portability and input
 
+- A new or changed developer-facing environment option in a runner or native
+  generator, such as `apps/macos/scripts/create-project.rb`, missing from the
+  committed `.env.example` when its supported setup loads a copy of that template,
+  or described there with stale defaults or prerequisites.
+  Trace the template through its loader and consumer, including empty versus
+  absent values and local versus release scope; otherwise developers following
+  the supported setup can reproduce the failure the option was added to fix.
 - A path, file name or environment value interpolated unquoted into a shell command, or built into a command string rather than passed as an argument.
 - Parsed JSON, YAML or tool output used before validation. TypeScript scripts decode with `Schema`; `.mjs` scripts check the shape they depend on.
 - A dependency on a tool or version outside `.mise.toml` and the workspace, or on bash-only behavior in a `zsh` script.
