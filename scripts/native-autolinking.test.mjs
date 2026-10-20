@@ -37,7 +37,7 @@ class AppDelegate {
   // Universal Links
 }
 `;
-  let previous;
+  let previous = template;
   for (const existing of [false, true]) {
     const config = privateInbox({ name: 'Test', slug: 'test' });
     let contents = existing ? previous : template;
@@ -47,7 +47,7 @@ class AppDelegate {
         modResults: { contents, language: 'swift' },
         modRequest: { projectRoot: mobile },
       });
-      contents = result.modResults.contents;
+      ({ contents } = result.modResults);
       assert.equal(contents.split('UnwiredNotifications.start()').length, 2);
       assert.equal(
         contents.split('application.registerForRemoteNotifications()').length,

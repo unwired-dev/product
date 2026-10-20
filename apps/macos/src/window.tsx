@@ -1,7 +1,6 @@
-import {
-  followOpenedNotifications,
-  openedTarget,
-} from '@private-email/mail-core/notifications';
+import type { openedTarget } from '@private-email/mail-core/notifications';
+
+import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -22,6 +21,7 @@ import {
   ProfileScope,
   useMailboxes,
   useProfile,
+  useLeaveComposer,
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
@@ -115,10 +115,16 @@ function ProfileWindow({
   readonly windowId: string;
   readonly profile: string;
 }) {
+  const [opened, setOpened] =
+    useState<NonNullable<ReturnType<typeof openedTarget>>>();
   return (
     <InboxProvider>
-      <ProfileScope profile={profile}>
-        <WindowContents windowId={windowId} />
+      <ProfileScope profile={opened?.profile ?? profile}>
+        <WindowContents
+          windowId={windowId}
+          initialSelection={opened}
+          onOpenProfile={setOpened}
+        />
       </ProfileScope>
     </InboxProvider>
   );
@@ -162,8 +168,20 @@ function SidebarToggle({
   );
 }
 
-function WindowContents({ windowId }: { readonly windowId: string }) {
-  const [selected, setSelected] = useState<Selection>();
+function WindowContents({
+  windowId,
+  initialSelection,
+  onOpenProfile,
+}: {
+  readonly windowId: string;
+  readonly initialSelection: Selection | undefined;
+  readonly onOpenProfile: (
+    target: NonNullable<ReturnType<typeof openedTarget>>,
+  ) => void;
+}) {
+  const [selected, setSelected] = useState<Selection | undefined>(
+    initialSelection,
+  );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
   const [expanded, setExpanded] = useState(false);
@@ -178,23 +196,26 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
   )?.inbox;
   const colors = usePalette();
   const profile = useProfile();
+  const leave = useLeaveComposer();
   // A tapped New Mail Notification selects its message in this window's Inbox when the window
   // shows its Mail Profile; native code brings the window forward.
   useEffect(() => {
     if (!previewInbox) {
-      void followOpenedNotifications(native(), windowId, (opened) => {
-        const target = openedTarget(
-          registration.getSnapshot().snapshot,
-          opened,
-        );
-        if (target?.profile === profile) {
-          setComposing(undefined);
-          setView({});
-          setSelected({ mailbox: target.mailbox, id: target.id });
-        }
+      return followOpenedNotifications(native(), windowId, {
+        snapshot: () => registration.getSnapshot().snapshot,
+        leave,
+        open: (target) => {
+          if (target.profile === profile) {
+            setComposing(undefined);
+            setView({});
+            setSelected({ mailbox: target.mailbox, id: target.id });
+          } else {
+            onOpenProfile(target);
+          }
+        },
       });
     }
-  }, [windowId, profile]);
+  }, [windowId, profile, leave, onOpenProfile]);
   // Opening a Draft from either pane shows it in the window's composer, over the reader.
   const compose = (id: string) => {
     setComposing(id);

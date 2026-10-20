@@ -346,9 +346,7 @@ export function createHost(
     registration,
     {
       removed,
-      arrived: (connection, messages, eligible) => {
-        void notifications.arrived(connection, messages, eligible);
-      },
+      arrived: notifications.arrived,
     },
   );
 

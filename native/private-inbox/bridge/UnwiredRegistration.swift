@@ -136,6 +136,7 @@ final class UnwiredRegistration: NSObject {
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
       return store
     #else
@@ -177,6 +178,7 @@ final class UnwiredRegistration: NSObject {
             previous: previous)
         })
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
+      store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
       return store
     #endif
@@ -281,7 +283,7 @@ final class UnwiredRegistration: NSObject {
     return try ProductRegistrationReceipt(connected: reply)
   }
 
-  private func perform(
+  func perform(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> Any
@@ -550,10 +552,7 @@ final class UnwiredRegistration: NSObject {
     _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("purgeMailbox", resolve, reject: reject) {
-      try await $0.purgeMailbox(connection)
-      UnwiredNotifications.withdraw(connection)
-    }
+    performStep("purgeMailbox", resolve, reject: reject) { try await $0.purgeMailbox(connection) }
   }
   @objc(removeQueuedPushRoutes:rejecter:)
   func removeQueuedPushRoutes(
@@ -727,10 +726,7 @@ final class UnwiredRegistration: NSObject {
   func endSession(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("endSession", resolve, reject: reject) {
-      try $0.endSession()
-      UnwiredNotifications.withdraw()
-    }
+    performStep("endSession", resolve, reject: reject) { try $0.endSession() }
   }
   @objc(purge:resolver:rejecter:)
   func purge(
@@ -742,7 +738,6 @@ final class UnwiredRegistration: NSObject {
         throw RegistrationError.unavailable
       }
       try await $0.purge(notice: notice)
-      UnwiredNotifications.withdraw()
     }
   }
   @objc(call:resolver:rejecter:)
@@ -771,10 +766,7 @@ final class UnwiredRegistration: NSObject {
     _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("removeMailbox", resolve, reject: reject) {
-      try await $0.removeMailbox(connection)
-      UnwiredNotifications.withdraw(connection)
-    }
+    performStep("removeMailbox", resolve, reject: reject) { try await $0.removeMailbox(connection) }
   }
   @objc(confirmRecoveryKey:resolver:rejecter:)
   func confirmRecoveryKey(

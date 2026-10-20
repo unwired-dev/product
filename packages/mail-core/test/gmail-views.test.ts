@@ -276,7 +276,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const interrupted = interruptedView(gmail, travel);
     const { native } = interrupted;
     const arrivals: string[] = [];
-    const arrived = (messages: readonly { id: string }[]) => {
+    const arrived = (messages: ReadonlyArray<{ id: string }>) => {
       arrivals.push(...messages.map(({ id }) => id));
     };
     const inbox = createGmailInbox(native, { arrived });

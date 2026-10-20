@@ -23,7 +23,15 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   // Center when it is removed or this device signs out or is purged.
   static func withdraw(_ connection: String? = nil) {
     let center = UNUserNotificationCenter.current()
-    guard let connection else { return center.removeAllDeliveredNotifications() }
+    guard let connection else {
+      center.removeAllPendingNotificationRequests()
+      center.removeAllDeliveredNotifications()
+      return
+    }
+    center.getPendingNotificationRequests { pending in
+      center.removePendingNotificationRequests(
+        withIdentifiers: pending.map(\.identifier).filter { $0.hasPrefix(connection + ".") })
+    }
     center.getDeliveredNotifications { delivered in
       center.removeDeliveredNotifications(
         withIdentifiers: delivered.map(\.request.identifier).filter {
@@ -43,10 +51,12 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   ) async {
     let info = response.notification.request.content.userInfo
     guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+      let account = info["account"] as? String, !account.isEmpty,
+      let epoch = info["epoch"] as? String, !epoch.isEmpty,
       let connection = info["connection"] as? String, !connection.isEmpty,
       let message = info["message"] as? String, !message.isEmpty
     else { return }
-    await NotificationTaps.shared.receive(["connection": connection, "message": message])
+    await NotificationTaps.shared.receive(["account": account, "epoch": epoch, "connection": connection, "message": message])
   }
 }
 
@@ -55,13 +65,13 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 @MainActor final class NotificationTaps {
   static let shared = NotificationTaps()
   private var queued: [[String: String]] = []
-  private var readers: [String: CheckedContinuation<[String: String]?, Never>] = [:]
+  private var readers: [String: (id: String, continuation: CheckedContinuation<[String: String]?, Never>)] = [:]
 
   func receive(_ tap: [String: String]) {
     #if os(macOS)
       // A closed window's reader never reads again.
       for window in readers.keys where Self.window(window) == nil {
-        readers.removeValue(forKey: window)?.resume(returning: nil)
+        readers.removeValue(forKey: window)?.continuation.resume(returning: nil)
       }
       let key = NSApp.keyWindow?.identifier?.rawValue
       let window = readers.keys.first { "inbox-window-\($0)" == key } ?? readers.keys.sorted().first
@@ -78,7 +88,7 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
       let window = readers.keys.first
     #endif
     if let window, let reader = readers.removeValue(forKey: window) {
-      reader.resume(returning: tap)
+      reader.continuation.resume(returning: tap)
     } else {
       queued.append(tap)
     }
@@ -86,10 +96,16 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 
   // The next opened notification for `window`. A reloaded JavaScript context replaces the
   // window's earlier reader, which reads null.
-  func next(_ window: String) async -> [String: String]? {
+  func next(_ window: String, reader: String) async -> [String: String]? {
+    readers.removeValue(forKey: window)?.continuation.resume(returning: nil)
     if !queued.isEmpty { return queued.removeFirst() }
-    readers.removeValue(forKey: window)?.resume(returning: nil)
-    return await withCheckedContinuation { readers[window] = $0 }
+    return await withCheckedContinuation { readers[window] = (reader, $0) }
+  }
+
+  func stop(_ window: String, reader: String) {
+    if readers[window]?.id == reader {
+      readers.removeValue(forKey: window)?.continuation.resume(returning: nil)
+    }
   }
 
   #if os(macOS)
@@ -142,8 +158,10 @@ extension UnwiredRegistration {
     _ previews: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    UserDefaults.standard.set(previews, forKey: Self.notificationPreviewsKey)
-    Task { resolve(await Self.notificationSettings()) }
+    perform("setNotificationPreviews", resolve, reject: reject) { _ in
+      UserDefaults.standard.set(previews, forKey: Self.notificationPreviewsKey)
+      return await Self.notificationSettings()
+    }
   }
 
   @objc(openNotificationSettings:rejecter:)
@@ -184,24 +202,51 @@ extension UnwiredRegistration {
           let connection = notification["connection"] as? String,
           id.hasPrefix(connection + "."),
           let message = notification["message"] as? String,
-          (try? store.mailboxAccount(connection)) != nil
+          let previews = notification["previews"] as? Bool,
+          !previews || UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey),
+          let account = notification["account"] as? String,
+          let epoch = notification["epoch"] as? String,
+          (try? store.mailboxAccount(connection).productAccountId) == account,
+          (try? store.saved().connection(connection)?.epoch ?? "legacy") == epoch
         else { continue }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        content.userInfo = ["connection": connection, "message": message]
+        content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
         try? await UNUserNotificationCenter.current().add(
           UNNotificationRequest(identifier: id, content: content, trigger: nil))
       }
     }
   }
 
-  @objc(nextOpenedNotification:resolver:rejecter:)
+  @objc(nextOpenedNotification:reader:resolver:rejecter:)
   func nextOpenedNotification(
-    _ window: String, resolve: @escaping RCTPromiseResolveBlock,
+    _ window: String, reader: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    Task { @MainActor in resolve(await NotificationTaps.shared.next(window) ?? NSNull()) }
+    Task { @MainActor in resolve(await NotificationTaps.shared.next(window, reader: reader) ?? NSNull()) }
+  }
+
+  @objc(stopOpenedNotifications:reader:resolver:rejecter:)
+  func stopOpenedNotifications(
+    _ window: String, reader: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      NotificationTaps.shared.stop(window, reader: reader)
+      resolve(NSNull())
+    }
+  }
+
+  @objc(restoreOpenedNotification:resolver:rejecter:)
+  func restoreOpenedNotification(
+    _ opened: [String: String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      NotificationTaps.shared.receive(opened)
+      resolve(NSNull())
+    }
   }
 }

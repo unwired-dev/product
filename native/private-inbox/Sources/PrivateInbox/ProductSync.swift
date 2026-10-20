@@ -342,6 +342,7 @@ extension RegistrationStore {
     saved.connections = saved.connections.filter { $0.id != id }
     saved.mailboxCacheRemovals = Array(Set((saved.mailboxCacheRemovals ?? []) + [id])).sorted()
     try save(saved)
+    withdrawNotifications(id)
     _ = try await retryMailboxCleanup(saved)
   }
 

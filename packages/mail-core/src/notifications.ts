@@ -19,21 +19,28 @@ const Settings = Schema.Struct({
 export type NotificationSettings = typeof Settings.Type;
 const decodeSettings = Schema.decodeUnknownEffect(Settings);
 
-// A tapped notification: the opaque connection and message identifiers it was posted with.
-const Opened = Schema.Struct({
+const Mailbox = Schema.Struct({
+  account: Schema.NonEmptyString,
   connection: Schema.NonEmptyString,
+  epoch: Schema.NonEmptyString,
+});
+export type NotificationMailbox = typeof Mailbox.Type;
+
+// A tapped notification retains its account and connection incarnation.
+const Opened = Schema.Struct({
+  ...Mailbox.fields,
   message: Schema.NonEmptyString,
 });
 export type OpenedNotification = typeof Opened.Type;
 
-type Posted = Readonly<{
-  // The same identifier replaces an earlier notification rather than adding another.
-  id: string;
-  title: string;
-  body: string;
-  connection: string;
-  message: string;
-}>;
+type Posted = OpenedNotification &
+  Readonly<{
+    // Stable presentation identity; Gmail history suppresses replay before posting.
+    id: string;
+    title: string;
+    body: string;
+    previews: boolean;
+  }>;
 
 // The native host's notification permission, preview choice, posting and taps.
 export interface NativeNotifications {
@@ -48,7 +55,17 @@ export interface NativeNotifications {
   ) => Promise<unknown>;
   // The next tapped notification, or null once a reloaded JavaScript context replaced this
   // reader. On the Mac, `window` names the window asking; the key window's reader goes first.
-  readonly nextOpenedNotification: (window: string) => Promise<unknown>;
+  readonly nextOpenedNotification: (
+    window: string,
+    reader: string,
+  ) => Promise<unknown>;
+  readonly stopOpenedNotifications: (
+    window: string,
+    reader: string,
+  ) => Promise<unknown>;
+  readonly restoreOpenedNotification: (
+    opened: OpenedNotification,
+  ) => Promise<unknown>;
 }
 
 // A native call that failed; its cause is logged only as a diagnostic.
@@ -98,7 +115,12 @@ export const notificationContent = (
 // a connection's synchronization commits new Inbox mail. The caller has already checked that the
 // connection's policy is on; content is decided here, on the device.
 export function createNotifications(
-  native: Omit<NativeNotifications, 'nextOpenedNotification'>,
+  native: Omit<
+    NativeNotifications,
+    | 'nextOpenedNotification'
+    | 'stopOpenedNotifications'
+    | 'restoreOpenedNotification'
+  >,
   translate: () => Translate,
 ) {
   // Unknown until the first read settles.
@@ -157,7 +179,7 @@ export function createNotifications(
     // `eligible` is checked again after reading the settings, just before posting: the
     // connection may have been removed or turned off meanwhile.
     arrived: (
-      connection: string,
+      mailbox: NotificationMailbox,
       messages: readonly GmailMessage[],
       eligible: () => boolean,
     ) =>
@@ -176,10 +198,11 @@ export function createNotifications(
             yield* call(() =>
               native.postNotifications(
                 messages.map((message) => ({
-                  id: `${connection}.${message.id}`,
+                  id: `${mailbox.connection}.${message.id}`,
                   ...notificationContent(t, current.previews, message),
-                  connection,
+                  ...mailbox,
                   message: message.id,
+                  previews: current.previews,
                 })),
               ),
             );
@@ -189,37 +212,97 @@ export function createNotifications(
   };
 }
 
-// Hands each tapped notification to `open`, one at a time, until a reloaded JavaScript context
-// replaces this reader. A malformed reply ends nothing: it is skipped.
-export async function followOpenedNotifications(
-  native: Pick<NativeNotifications, 'nextOpenedNotification'>,
-  window: string,
-  open: (opened: OpenedNotification) => void,
-) {
-  for (;;) {
-    let received: unknown = null;
-    try {
-      received = await native.nextOpenedNotification(window);
-    } catch {
-      // A host without notifications, such as a test renderer, has nothing to follow.
-      return;
-    }
-    if (received === null) {
-      return;
-    }
-    Option.map(Schema.decodeUnknownOption(Opened)(received), open);
-  }
-}
-
 // Where a tapped notification opens: its message in the connection's current Mail Profile, while
 // this device still holds that connection. A removed connection, or one whose Profile is unknown,
 // opens nothing.
 export const openedTarget = (
   account: RegistrationSnapshot,
-  { connection, message }: OpenedNotification,
+  { account: owner, connection, epoch, message }: OpenedNotification,
 ) => {
+  if (account.kind === 'signed-out' || account.productAccountId !== owner) {
+    return undefined;
+  }
   const mailbox = mailboxesOf(account).find(({ id }) => id === connection);
-  return mailbox === undefined || mailbox.profile === unavailableProfile
+  return mailbox === undefined ||
+    (mailbox.epoch ?? 'legacy') !== epoch ||
+    mailbox.profile === unavailableProfile
     ? undefined
     : { id: message, mailbox: connection, profile: mailbox.profile };
 };
+
+// Hands each tapped notification to `open`, one at a time, until a reloaded JavaScript context
+// replaces this reader. A malformed reply ends nothing: it is skipped.
+let nextReader = 0;
+export function followOpenedNotifications(
+  native: Pick<
+    NativeNotifications,
+    | 'nextOpenedNotification'
+    | 'stopOpenedNotifications'
+    | 'restoreOpenedNotification'
+  >,
+  window: string,
+  {
+    snapshot,
+    leave,
+    open,
+  }: Readonly<{
+    snapshot: () => RegistrationSnapshot;
+    leave: () => Promise<boolean>;
+    open: (
+      target: Readonly<NonNullable<ReturnType<typeof openedTarget>>>,
+    ) => void;
+  }>,
+) {
+  nextReader += 1;
+  const reader = String(nextReader);
+  let stopped = false;
+  const follow = async () => {
+    for (;;) {
+      if (stopped) {
+        return;
+      }
+      let received: unknown = null;
+      try {
+        received = await native.nextOpenedNotification(window, reader);
+      } catch {
+        // A host without notifications, such as a test renderer, has nothing to follow.
+        return;
+      }
+      if (received === null) {
+        return;
+      }
+      const decoded = Schema.decodeUnknownOption(Opened)(received);
+      if (Option.isSome(decoded)) {
+        if (stopped) {
+          await native.restoreOpenedNotification(decoded.value);
+          return;
+        }
+        if (openedTarget(snapshot(), decoded.value) !== undefined) {
+          const allowed = await leave();
+          if (stopped) {
+            await native.restoreOpenedNotification(decoded.value);
+            return;
+          }
+          const target = allowed
+            ? openedTarget(snapshot(), decoded.value)
+            : undefined;
+          if (target !== undefined) {
+            open(target);
+          }
+        }
+      }
+    }
+  };
+  void follow();
+  const stop = async () => {
+    try {
+      await native.stopOpenedNotifications(window, reader);
+    } catch {
+      /* The native host may already be gone. */
+    }
+  };
+  return () => {
+    stopped = true;
+    void stop();
+  };
+}

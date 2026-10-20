@@ -19,6 +19,7 @@ import type {
   ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
+import type { NotificationMailbox } from './notifications.ts';
 import type {
   MailGrantProvider,
   MailProvider,
@@ -313,6 +314,8 @@ const visible = <S extends Readonly<{ kind: string; address?: string }>>(
 ) => (state.kind === 'ready' && state.address !== address ? loading : state);
 
 type OpenMailbox = Readonly<{
+  account: string;
+  epoch: string;
   id: string;
   provider: MailProvider;
   address: string;
@@ -328,6 +331,8 @@ const openMailboxes = (
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')
         .map(({ id, provider, address, profile, epoch }) => ({
+          account: account.productAccountId,
+          epoch: epoch ?? 'legacy',
           id,
           provider,
           address,
@@ -365,10 +370,10 @@ export function createMailboxes(
     // belongs to the same Product Account and incarnation.
     // `eligible` answers again later, so posting can recheck after its own asynchronous work.
     arrived?: (
-      connection: string,
+      mailbox: NotificationMailbox,
       messages: readonly GmailMessage[],
       eligible: () => boolean,
-    ) => void;
+    ) => void | Promise<void>;
   }> = {},
 ) {
   const shared = createBodyLoads();
@@ -456,7 +461,14 @@ export function createMailboxes(
     mailboxLoading: 'automatic' | 'explicit',
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
-    for (const { id, provider, address, owner } of added) {
+    for (const {
+      id,
+      provider,
+      address,
+      owner,
+      account: productAccount,
+      epoch,
+    } of added) {
       // Notifications follow the connection while it keeps this owner and its switch is on.
       const eligible = () => {
         const { snapshot: account } = registration.getSnapshot();
@@ -487,7 +499,11 @@ export function createMailboxes(
                   provider === 'gmail' && arrived !== undefined
                     ? (messages) => {
                         if (eligible()) {
-                          arrived(id, messages, eligible);
+                          return arrived(
+                            { account: productAccount, connection: id, epoch },
+                            messages,
+                            eligible,
+                          );
                         }
                       }
                     : undefined,

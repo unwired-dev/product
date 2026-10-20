@@ -442,6 +442,10 @@ extension PrivateInboxTests {
     #expect(try await store.restore()["kind"] == "connected")
 
     // Each mutation revalidates before provider renewal and purges on a positive rejection.
+    var withdrawn = false
+    store.withdrawNotifications = { connection in
+      if connection == nil { withdrawn = true }
+    }
     revoked = true
     let readsBeforeRevokedWrite = google.gmailRequests.count
     await #expect(throws: RegistrationError.revoked) {
@@ -451,6 +455,7 @@ extension PrivateInboxTests {
     }
     #expect(google.gmailRequests.count == readsBeforeRevokedWrite)
     #expect(try keys.read("registration") == nil)
+    #expect(withdrawn)
     #expect(!FileManager.default.fileExists(atPath: file(currentSubject).path))
     revoked = false
 

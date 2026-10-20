@@ -3,6 +3,7 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
+import { mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -49,7 +50,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
   // While set, settings reads wait for it, as a slow native reply would.
-  const settingsGate: { held?: Promise<void> } = {};
+  const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
     ...vault,
     ...base,
@@ -90,6 +91,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
     notificationSettings: async () => {
+      settingsGate.started?.();
       await settingsGate.held;
       return { ...device };
     },
@@ -107,6 +109,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       return Promise.resolve(null);
     },
     nextOpenedNotification: () => Promise.withResolvers<unknown>().promise,
+    stopOpenedNotifications: () => Promise.resolve(null),
+    restoreOpenedNotification: () => Promise.resolve(null),
   };
   const host = createHost(
     () => {
@@ -160,6 +164,11 @@ describe('the host assembly', () => {
     gmail.deliver({ subject: 'Before notifications' });
     await host.gmailMailboxes.load();
     await host.registration.notifyMailbox(connection, true);
+    const account = host.registration.getSnapshot().snapshot;
+    const scope = {
+      account: 'account-synthetic-product-subject',
+      epoch: required(required(mailboxesOf(account)[0]).epoch),
+    };
     // Without permission nothing is posted.
     gmail.deliver({ subject: 'Before permission' });
     await host.gmailMailboxes.load();
@@ -174,7 +183,7 @@ describe('the host assembly', () => {
       subject: 'Studio review',
     });
     await host.gmailMailboxes.load();
-    // Posting follows the commit without holding synchronization.
+    // Synchronization waits for posting after its commit.
     await vi.waitFor(() => {
       expect(notified).toHaveLength(2);
     });
@@ -185,6 +194,8 @@ describe('the host assembly', () => {
         body: '',
         connection,
         message: generic,
+        ...scope,
+        previews: false,
       },
       {
         id: `${connection}.${previewed}`,
@@ -192,6 +203,8 @@ describe('the host assembly', () => {
         body: 'Studio review',
         connection,
         message: previewed,
+        ...scope,
+        previews: true,
       },
     ]);
 
@@ -216,28 +229,68 @@ describe('the host assembly', () => {
     await host.registration.notifyMailbox(connection, true);
     const held = () => {
       const { promise, resolve } = Promise.withResolvers<undefined>();
+      const started = Promise.withResolvers<undefined>();
       settingsGate.held = promise;
-      return () => {
-        settingsGate.held = undefined;
-        resolve(undefined);
+      settingsGate.started = () => started.resolve(undefined);
+      return {
+        started: started.promise,
+        release: () => {
+          settingsGate.held = undefined;
+          settingsGate.started = undefined;
+          resolve(undefined);
+        },
       };
     };
 
-    let release = held();
+    let gate = held();
     gmail.deliver({ subject: 'Turned off meanwhile' });
-    await host.gmailMailboxes.load();
+    let loading = host.gmailMailboxes.load();
+    await gate.started;
     await host.registration.notifyMailbox(connection, false);
-    release();
-    await host.notifications.load();
+    gate.release();
+    await loading;
 
     await host.registration.notifyMailbox(connection, true);
-    release = held();
+    gate = held();
     gmail.deliver({ subject: 'Removed meanwhile' });
-    await host.gmailMailboxes.load();
+    loading = host.gmailMailboxes.load();
+    await gate.started;
     await host.registration.removeMailbox(connection);
-    release();
-    await host.notifications.load();
+    gate.release();
+    await loading;
     expect(notified).toStrictEqual([]);
+  });
+
+  it('keeps a background freshness opportunity alive until notification posting settles', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.notifications.request();
+    await host.registration.notifyMailbox(connection, true);
+    const held = Promise.withResolvers<undefined>();
+    const started = Promise.withResolvers<undefined>();
+    settingsGate.held = held.promise;
+    settingsGate.started = () => started.resolve(undefined);
+    gmail.deliver({ subject: 'Background arrival' });
+    let completed = false;
+    const refreshing = (async () => {
+      await host.freshness.refresh();
+      completed = true;
+    })();
+    await started.promise;
+    // A registration round can complete independently while notification settings still wait.
+    await host.registration.restore();
+    expect(completed).toBe(false);
+    held.resolve(undefined);
+    await refreshing;
+    expect(notified).toHaveLength(1);
+    expect(completed).toBe(true);
   });
 
   it('reports resolved provider HTTP failures without changing send or synchronization outcomes', async () => {

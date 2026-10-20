@@ -1,10 +1,7 @@
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
 import { readingProfile } from '@private-email/mail-core/mailboxes';
-import {
-  followOpenedNotifications,
-  openedTarget,
-} from '@private-email/mail-core/notifications';
+import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
@@ -36,7 +33,11 @@ import {
   WindowBarHost,
 } from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
-import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
+import {
+  InboxProvider,
+  ProfileScope,
+  useLeaveComposer,
+} from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { native, registration, start } from '../src/registration.ts';
@@ -104,15 +105,14 @@ function MailShell() {
   // raised the keyboard. A composer opened there starts without a keyboard, since one closed with
   // its keyboard up hears no hide; a conflict copy replacing the Draft in place keeps it.
   const [keyboardTop, setKeyboardTop] = useState<number>();
+  const leave = useLeaveComposer();
   // A tapped New Mail Notification opens its message once Registration admits the shell.
   useEffect(() => {
     if (!previewInbox) {
-      void followOpenedNotifications(native(), '', (opened) => {
-        const target = openedTarget(
-          registration.getSnapshot().snapshot,
-          opened,
-        );
-        if (target !== undefined) {
+      return followOpenedNotifications(native(), '', {
+        snapshot: () => registration.getSnapshot().snapshot,
+        leave,
+        open: (target) => {
           router.navigate({
             pathname: '/message/[id]',
             params: {
@@ -121,10 +121,10 @@ function MailShell() {
               profileId: target.profile,
             },
           });
-        }
+        },
       });
     }
-  }, []);
+  }, [leave]);
   const listening = regular || draft !== undefined;
   const [wasListening, setWasListening] = useState(listening);
   if (wasListening !== listening) {
