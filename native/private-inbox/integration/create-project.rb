@@ -67,9 +67,19 @@ if platform == :osx
       <key>keychain-access-groups</key><array><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string></array>
       <key>com.apple.security.app-sandbox</key><true/>
       <key>com.apple.security.get-task-allow</key><true/>
+      <key>com.apple.security.network.client</key><true/>
+      <key>com.apple.security.network.server</key><true/>
     </dict></plist>
   PLIST
-  host.build_configurations.each { |config| config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'StorageHost.entitlements' }
+  # Automatic signing only selects Xcode-managed profiles; an installed portal profile needs Manual.
+  profile = ENV['UNWIRED_STORAGE_PROFILE']
+  profile = nil if profile == ''
+  uuid = profile && IO.popen(['security', 'cms', '-D', '-i', profile], &:read)[%r{<key>UUID</key>\s*<string>([^<]+)</string>}, 1]
+  abort "Cannot read the UUID of UNWIRED_STORAGE_PROFILE #{profile}" if profile && !uuid
+  host.build_configurations.each do |config|
+    config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'StorageHost.entitlements'
+    config.build_settings.merge!('CODE_SIGN_STYLE' => 'Manual', 'PROVISIONING_PROFILE_SPECIFIER' => uuid) if uuid
+  end
 end
 tests.build_configurations.each do |config|
   executable = platform == :osx ? 'Contents/MacOS/StorageHost' : 'StorageHost'
@@ -81,11 +91,14 @@ scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(host)
 scheme.add_build_target(tests)
 scheme.add_test_target(tests)
+# The probe host is the entitled native Keychain host that Keychain-only tests require.
+environment = [{ key: 'UNWIRED_KEYCHAIN_TESTS', value: '1', enabled: true }]
 if platform == :ios
-  scheme.test_action.should_use_launch_scheme_args_env = false
-  scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new([
+  environment += [
     { key: 'UNWIRED_IMAP_TLS_TEST_PORT', value: ENV.fetch('UNWIRED_IMAP_TLS_TEST_PORT'), enabled: true },
     { key: 'UNWIRED_SMTP_TLS_TEST_PORTS', value: ENV.fetch('UNWIRED_SMTP_TLS_TEST_PORTS'), enabled: true }
-  ])
+  ]
 end
+scheme.test_action.should_use_launch_scheme_args_env = false
+scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new(environment)
 scheme.save_as(project.path, 'StorageProbe', true)

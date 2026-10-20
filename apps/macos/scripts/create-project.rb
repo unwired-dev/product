@@ -97,6 +97,11 @@ target.add_build_configuration('Testing', :release)
 project.build_configurations.each do |configuration|
   configuration.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '27.0'
 end
+# Automatic signing only selects Xcode-managed profiles; an installed portal profile needs Manual.
+profile = ENV['UNWIRED_MAC_PROFILE']
+profile = nil if profile == ''
+profile_uuid = profile && IO.popen(['security', 'cms', '-D', '-i', profile], &:read)[%r{<key>UUID</key>\s*<string>([^<]+)</string>}, 1]
+abort "Cannot read the UUID of UNWIRED_MAC_PROFILE #{profile}" if profile && !profile_uuid
 target.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail',
@@ -113,7 +118,8 @@ target.build_configurations.each do |configuration|
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',
     'CODE_SIGN_IDENTITY' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-'),
-    'CODE_SIGN_STYLE' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-').start_with?('Apple Development') ? 'Automatic' : 'Manual',
+    'CODE_SIGN_STYLE' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-').start_with?('Apple Development') && !profile_uuid ? 'Automatic' : 'Manual',
+    'PROVISIONING_PROFILE_SPECIFIER' => profile_uuid || '',
     'DEVELOPMENT_TEAM' => ENV.fetch('UNWIRED_DEVELOPMENT_TEAM', ''),
     'CODE_SIGN_ENTITLEMENTS' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-') == '-' ? 'UnwiredMail/UnwiredMail.adhoc.entitlements' : 'UnwiredMail/UnwiredMail.entitlements',
     'COMBINE_HIDPI_IMAGES' => 'YES',

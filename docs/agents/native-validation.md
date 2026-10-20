@@ -53,9 +53,10 @@ with no main-thread stall of 100 ms or longer.
 
 Measure cached switches and body/composer opening from user selection to
 rendered interactive content. Measure provider/network latency separately and
-keep the app interactive while it waits. Nominate iPad and Mac reference hardware
-and establish their baselines;
-unmeasured baselines remain required qualification. Hosted-runner speed does not
+keep the app interactive while it waits. The Mac reference is a Mac mini with
+Apple M4 and 16 GB memory (`Mac16,10`) on macOS 27. Nominate the iPad reference
+hardware and establish both baselines; unmeasured baselines remain required
+qualification. Hosted-runner speed does not
 relax a device budget. Record the device, fixture, build, command and measurement
 evidence; these targets do not claim a passing measurement. The reviewer verifies
 the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md).

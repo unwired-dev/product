@@ -153,7 +153,10 @@ For real sign-in, set `UNWIRED_SIGNING_IDENTITY="Apple Development"` and
 [Google and Convex host configuration](google-registration.md#configure-the-hosts).
 Install a matching Mac development profile first. Generated development-signed
 projects use automatic signing; `native:build` uses installed profiles and does not create
-developer-portal resources. Debug uses Metro. Quit and reopen the app after a
+developer-portal resources. Automatic signing only selects Xcode-managed profiles.
+For a profile created in the developer portal, also set `UNWIRED_MAC_PROFILE`
+to its file path; the generated project then signs manually with that installed
+profile. Debug uses Metro. Quit and reopen the app after a
 native rebuild. Regenerate the native project and reinstall Pods after changing
 native setup or dependencies.
 

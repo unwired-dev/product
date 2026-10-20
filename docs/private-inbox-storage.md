@@ -379,8 +379,12 @@ mise exec -- zsh native/private-inbox/integration/test.zsh macos
 ```
 
 The Mac probe also requires a profile for `dev.unwired.storage-probe.StorageHost`.
+Automatic signing only selects Xcode-managed profiles; for a profile created in
+the developer portal, set `UNWIRED_STORAGE_PROFILE` to its installed file's path.
 Its host runs in the App Sandbox, so the real filesystem and Keychain contracts
-exercise the same sandbox boundary as the Mac application.
+exercise the same sandbox boundary as the Mac application. The probe host also
+holds network client and server entitlements for the loopback fixtures, and both
+probe hosts run the tests that require an entitled Keychain host.
 A plain `swift test` runner has no application Keychain entitlement; use the
 hosted suite. The iOS runner owns a fresh iOS 27 Simulator, retries recognized
 infrastructure failure or zero-test success once, rejects test failures, and
