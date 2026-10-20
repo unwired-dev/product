@@ -219,7 +219,7 @@ class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
 
 class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
   'NotificationRefused',
-  { connection: Schema.String },
+  { connection: Schema.String, snapshot: RegistrationSnapshotSchema },
 ) {}
 
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
@@ -293,6 +293,12 @@ const enrollmentFailed = (
 
 export function createRegistration(vault: NativeRegistrationVault) {
   const native = createRegistrationFlow(vault);
+  const notificationRefusal = (connection: string) =>
+    request(native.snapshot()).pipe(
+      Effect.flatMap((snapshot) =>
+        Effect.fail(new NotificationRefused({ connection, snapshot })),
+      ),
+    );
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
     busy: true,
@@ -437,9 +443,9 @@ export function createRegistration(vault: NativeRegistrationVault) {
                 ...settled(state.snapshot),
                 profileFailure: failure,
               })),
-            NotificationRefused: ({ connection }) =>
+            NotificationRefused: ({ connection, snapshot }) =>
               Effect.sync((): RegistrationState => ({
-                ...settled(state.snapshot),
+                ...settled(snapshot),
                 notificationFailure: connection,
               })),
             RegistrationFailed: (error) =>
@@ -606,9 +612,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(
         // A refusal, such as another device's write first, is reported on the connection's row.
         request(native.notifyMailbox(connection, enabled)).pipe(
-          Effect.catchTag('ProfileRefused', () =>
-            Effect.fail(new NotificationRefused({ connection })),
-          ),
+          Effect.catchTags({
+            ProfileRefused: () => notificationRefusal(connection),
+            RegistrationFailed: (error) =>
+              Effect.logError('Registration failed:', error.diagnostic).pipe(
+                Effect.andThen(notificationRefusal(connection)),
+              ),
+          }),
         ),
         (snapshot) => ({
           ...settled(snapshot),

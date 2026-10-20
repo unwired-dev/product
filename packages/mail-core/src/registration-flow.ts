@@ -883,6 +883,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     step(operation).pipe(Effect.andThen(current));
 
   return {
+    // Reads current saved policy/ownership after an action learned state but refused its write.
+    snapshot: () => program(current),
     restore: () => program(restore),
     signIn: (provider: SignInProvider) => program(signIn(provider)),
     // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless

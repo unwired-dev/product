@@ -484,6 +484,21 @@ describe('mail profiles', () => {
     expect([...records().entries()]).toStrictEqual(before);
   });
 
+  it('publishes a learned notification opt-out when an unreadable policy refuses a change', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    await flow.notifyMailbox(id, true);
+    const store = createRegistration(vault);
+    await store.restore();
+    forgetPolicyKeys(sync);
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    await store.notifyMailbox(id, false);
+    const state = store.getSnapshot();
+    expect(state).toMatchObject({ notificationFailure: id });
+    expect(mailboxesOf(state.snapshot)[0]?.notifications).not.toBe(true);
+  });
+
   it('quietly reports a refused notification change on its connection, not as a Profile failure', async () => {
     expect.hasAssertions();
     const { flow, sync, vault, mailboxId } = await connected();
