@@ -201,8 +201,10 @@ function Toolbar({
   archive,
   folders,
   more,
+  onPanel,
   children,
 }: {
+  readonly onPanel: PanelState['onPanel'];
   readonly archive: (() => void) | undefined;
   readonly folders:
     | Readonly<
@@ -225,6 +227,14 @@ function Toolbar({
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
+  // Organizing that becomes unavailable, or a reader that stops showing its message, takes the
+  // toolbar away; it leaves no panel or dismissal behind to reopen later.
+  useEffect(
+    () => () => {
+      onPanel(undefined);
+    },
+    [onPanel],
+  );
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
   const thread = {
     actions: [
@@ -456,6 +466,7 @@ function ImapMessageActions({
         }
       />
       <Toolbar
+        onPanel={setPanel}
         archive={
           archive === undefined
             ? undefined
@@ -642,6 +653,7 @@ function GmailMessageActions({
         }
       />
       <Toolbar
+        onPanel={setPanel}
         archive={
           archive === undefined
             ? undefined

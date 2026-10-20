@@ -181,12 +181,16 @@ describe('iPad reader', () => {
         await fireEvent.press(
           screen.getByRole('button', { name: 'Hide labels' }),
         );
+        await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+        expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
         const { openMailbox } = gmail.native;
         gmail.native.openMailbox = async () => ({
           ...(await openMailbox()),
           availability: 'retry',
         });
         await act(inbox.load);
+        // Organizing that becomes unavailable takes its open panel and dismissal with it.
+        expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
         expect(
           isScrollable(
             screen.getByText(
