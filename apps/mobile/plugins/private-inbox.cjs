@@ -133,9 +133,9 @@ module.exports = function privateInbox(config) {
   // Content-free Gmail wakes reach the shared native queue; JavaScript settles each one.
   const withPushWakes = withAppDelegate(withGoogleCallback, (result) => {
     const marker = 'UnwiredPushWakes.registerDeviceToken(deviceToken)';
+    const launch =
+      'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
     if (!result.modResults.contents.includes(marker)) {
-      const launch =
-        'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
       const anchor = '  // Universal Links';
       if (
         !result.modResults.contents.includes(launch) ||
@@ -146,7 +146,7 @@ module.exports = function privateInbox(config) {
       result.modResults.contents = result.modResults.contents
         .replace(
           launch,
-          `UnwiredNotifications.start()\n    application.registerForRemoteNotifications()\n    ${launch}`,
+          `application.registerForRemoteNotifications()\n    ${launch}`,
         )
         .replace(
           anchor,
@@ -172,6 +172,17 @@ module.exports = function privateInbox(config) {
 
 ${anchor}`,
         );
+    }
+    // An incremental prebuild can already have push wakes without notification handling.
+    const notifications = 'UnwiredNotifications.start()';
+    if (!result.modResults.contents.includes(notifications)) {
+      if (!result.modResults.contents.includes(launch)) {
+        throw new Error('Notifications require the Expo Swift AppDelegate');
+      }
+      result.modResults.contents = result.modResults.contents.replace(
+        launch,
+        `${notifications}\n    ${launch}`,
+      );
     }
     return result;
   });

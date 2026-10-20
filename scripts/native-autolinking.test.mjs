@@ -20,6 +20,49 @@ import * as Schema from 'effect/Schema';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const macFiles = ['package.json', 'react-native.config.cjs', 'macos/Podfile'];
 
+test('Expo generation installs the notification delegate in fresh and existing apps once', async () => {
+  const mobile = path.join(root, 'apps/mobile');
+  const requireMobile = createRequire(path.join(mobile, 'package.json'));
+  const privateInbox = requireMobile('./plugins/private-inbox.cjs');
+  const launch =
+    'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
+  const template = `import UIKit
+class AppDelegate {
+  func launch() {
+    ${launch}
+  }
+  func open() {
+    return super.application(app, open: url, options: options)
+  }
+  // Universal Links
+}
+`;
+  let previous;
+  for (const existing of [false, true]) {
+    const config = privateInbox({ name: 'Test', slug: 'test' });
+    let contents = existing ? previous : template;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await config.mods.ios.appDelegate({
+        ...config,
+        modResults: { contents, language: 'swift' },
+        modRequest: { projectRoot: mobile },
+      });
+      contents = result.modResults.contents;
+      assert.equal(contents.split('UnwiredNotifications.start()').length, 2);
+      assert.equal(
+        contents.split('application.registerForRemoteNotifications()').length,
+        2,
+      );
+      assert.ok(
+        contents.indexOf('UnwiredNotifications.start()') <
+          contents.indexOf(launch),
+      );
+    }
+    // The prior plugin generated the same delegate with push wakes, but no notification delegate.
+    previous = contents.replace('UnwiredNotifications.start()\n    ', '');
+  }
+});
+
 test('incremental Expo generation removes retired synthetic sources', async () => {
   const mobile = path.join(root, 'apps/mobile');
   const requireMobile = createRequire(path.join(mobile, 'package.json'));
