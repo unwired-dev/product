@@ -822,6 +822,12 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
+      ...(saved.notificationHistoryId !== undefined &&
+      (next.notificationHistoryId === undefined ||
+        BigInt(saved.notificationHistoryId) >
+          BigInt(next.notificationHistoryId))
+        ? { notificationHistoryId: saved.notificationHistoryId }
+        : {}),
       pending: [
         // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
         ...(saved.pending ?? []).filter(
@@ -1409,9 +1415,14 @@ export function createGmailInbox(
       changed,
       document.views !== undefined,
     );
+    const observed = document.notificationHistoryId ?? checkpoint.historyId;
+    const notificationHistoryId =
+      BigInt(observed) > BigInt(historyId) ? observed : historyId;
     const added = new Set(
       records.flatMap((record) =>
-        (record.messagesAdded ?? []).map(({ message }) => message.id),
+        BigInt(record.id) > BigInt(observed)
+          ? (record.messagesAdded ?? []).map(({ message }) => message.id)
+          : [],
       ),
     );
     arrivals = fetched.flatMap(([id, message]) =>
@@ -1447,6 +1458,7 @@ export function createGmailInbox(
     });
     const updated: MailboxDocument = {
       ...next,
+      notificationHistoryId,
       ...(next.views === undefined
         ? {}
         : {
@@ -1632,6 +1644,13 @@ export function createGmailInbox(
       document.messages.some(({ labels }) => labels === undefined)
     ) {
       return startListing(scope, document).pipe(Effect.asSome);
+    }
+    // Seed older caches before a view listing can rewind their history checkpoint.
+    if (document.notificationHistoryId === undefined) {
+      return Effect.succeedSome({
+        ...document,
+        notificationHistoryId: checkpoint.historyId,
+      });
     }
     const opened = openedView(document, checkpoint.historyId);
     if (opened !== undefined) {
