@@ -211,7 +211,8 @@ under `artifacts/expo-bootstrap/`. Simulator device type identifiers after the
 app path limit the run to those devices; without them both devices run in turn. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
-these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, the floating search field
+these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, the iPhone Inbox
+surface reaching the bottom edge in Light and Dark with the list's end scrolling clear of the floating bar, the floating search field
 staying above the software keyboard, a search result under Top Results and Close Search, selecting and replacing a message, and compact
 back navigation. It does not claim hardware keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
