@@ -235,6 +235,13 @@ function Toolbar({
     },
     [onPanel],
   );
+  const panelOpen = more.open || folders?.open;
+  // Move can become unavailable while the toolbar's other actions remain.
+  useEffect(() => {
+    if (!panelOpen) {
+      onPanel(undefined);
+    }
+  }, [panelOpen, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
   const thread = {
     actions: [
