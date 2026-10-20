@@ -82,8 +82,9 @@ function MailboxNotifications({
       subtitleTone="warning">
       <Switch
         accessibilityLabel={title}
-        accessibilityState={{ disabled: busy, busy }}
-        disabled={busy}
+        // Until permission is known, a first enable could not ask for it.
+        accessibilityState={{ disabled: busy || settings === undefined, busy }}
+        disabled={busy || settings === undefined}
         value={on === true}
         trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
         onValueChange={(enabled) => {

@@ -175,7 +175,13 @@ const readProfile = (
 const withRecord = (
   state: ProfileState,
   record: ProfileRecord,
-  updatedAt: number,
+  {
+    updatedAt,
+    payloadIdentifier,
+  }: Readonly<{
+    updatedAt: number;
+    payloadIdentifier?: string | undefined;
+  }>,
 ): ProfileState => {
   if (record.kind === 'profile') {
     const known = state.profiles.find(({ id }) => id === record.id);
@@ -196,7 +202,13 @@ const withRecord = (
         ...(state.notifications ?? []).filter(
           ({ record: known }) => known !== record.record,
         ),
-        { ...policy, updatedAt },
+        {
+          ...policy,
+          updatedAt,
+          ...(payloadIdentifier === undefined
+            ? {}
+            : { identifier: payloadIdentifier }),
+        },
       ],
     };
   }
@@ -215,6 +227,25 @@ const withRecord = (
     ],
   };
 };
+
+// A notification policy whose record no longer opens here turns off; its version floor stays.
+const withoutUnreadablePolicy = (
+  state: ProfileState,
+  identifier: string | undefined,
+): ProfileState =>
+  identifier !== undefined &&
+  state.notifications?.some(
+    (policy) => policy.identifier === identifier && policy.enabled,
+  ) === true
+    ? {
+        ...state,
+        notifications: state.notifications.map((policy) =>
+          policy.identifier === identifier
+            ? { ...policy, enabled: false }
+            : policy,
+        ),
+      }
+    : state;
 
 // Convex's row revision cannot make an older authenticated record newer than one already read.
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
@@ -250,11 +281,17 @@ const merged = (
   let next = state;
   let replayed = false;
   for (const [index, record] of opened.entries()) {
-    if (record !== null) {
+    const stored = records[index];
+    if (record === null) {
+      next = withoutUnreadablePolicy(next, stored?.payloadIdentifier);
+    } else {
       replayed ||= olderRecord(next, record);
       next = olderRecord(next, record)
         ? next
-        : withRecord(next, record, records[index]?.updatedAt ?? 0);
+        : withRecord(next, record, {
+            updatedAt: stored?.updatedAt ?? 0,
+            payloadIdentifier: stored?.payloadIdentifier,
+          });
     }
   }
   return { next, replayed };

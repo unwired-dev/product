@@ -104,6 +104,8 @@ export const ProfileStateSchema = Schema.Struct({
         enabled: Schema.Boolean,
         version: Version,
         updatedAt: Schema.Finite,
+        // The record's opaque Product Sync identifier, so a later unreadable read can turn it off.
+        identifier: Schema.optionalKey(Schema.NonEmptyString),
       }),
     ),
   ),

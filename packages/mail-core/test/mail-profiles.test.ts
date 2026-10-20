@@ -61,6 +61,14 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
   }
   return ownership;
 };
+// Every stored notification policy as ciphertext this device can no longer open.
+const forgetPolicyKeys = (sync: ReturnType<typeof setup>['sync']) => {
+  for (const [ciphertext, { record }] of sync.sealedProfiles) {
+    if (record.kind === 'notifications') {
+      sync.sealedProfiles.delete(ciphertext);
+    }
+  }
+};
 // The only notification policy stored for the account.
 const policyOf = (sync: ReturnType<typeof setup>['sync']) => {
   const policy = storedProfiles(sync, account).find(
@@ -410,6 +418,11 @@ describe('mail profiles', () => {
     await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
       code: 'profile-changed',
     });
+    expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
+
+    // A policy record this device can no longer open turns its notifications off.
+    await flow.notifyMailbox(id, true);
+    forgetPolicyKeys(sync);
     expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
 
     // Removed and added again, the connection's notifications start off.
