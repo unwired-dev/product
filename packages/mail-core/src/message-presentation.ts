@@ -33,16 +33,20 @@ export interface MessagePresentation {
 const decodeContentSize = Schema.decodeUnknownOption(
   Schema.Struct({
     contentSize: Schema.Struct({
+      width: Schema.Finite.check(Schema.isGreaterThan(0)),
       height: Schema.Finite.check(Schema.isGreaterThan(0)),
     }),
   }),
 );
 
-export const decodeMessageContentHeight = (
+export const decodeMessageContentSize = (
   nativeEvent: unknown,
-): number | undefined =>
+): Readonly<{ width: number; height: number }> | undefined =>
   decodeContentSize(nativeEvent).pipe(
-    Option.map(({ contentSize }) => Math.ceil(contentSize.height)),
+    Option.map(({ contentSize }) => ({
+      width: contentSize.width,
+      height: Math.ceil(contentSize.height),
+    })),
     Option.getOrUndefined,
   );
 

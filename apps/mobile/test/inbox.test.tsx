@@ -1598,6 +1598,25 @@ describe('connected Gmail Inbox', () => {
       await Promise.resolve();
     });
     expect(screen.queryByLabelText('Opening message')).toBeNull();
+    expect(webview.props).toMatchObject({ scrollEnabled: false });
+    // Content wider than its view, such as unwrappable text, scrolls sideways instead of being
+    // clipped, even when WebKit measures it before the view's first layout; without bounce, the
+    // normal-height document stays pinned to the reader's scroll.
+    await act(async () => {
+      fireEvent(webview, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 686, height: 480 } },
+      });
+      await Promise.resolve();
+    });
+    expect(webview.props).toMatchObject({ scrollEnabled: false });
+    await act(async () => {
+      fireEvent(webview, 'layout', { nativeEvent: { layout: { width: 320 } } });
+      await Promise.resolve();
+    });
+    expect(webview.props).toMatchObject({
+      scrollEnabled: true,
+      bounces: false,
+    });
     // The remote image waits for consent, which the notice explains before offering to load it.
     expect(
       screen.getByText(
