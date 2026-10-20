@@ -1129,8 +1129,6 @@ describe('product registration', () => {
         },
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
-        // No notification is ever opened here.
-        nextOpenedNotification: () => Promise.resolve(null),
       },
       () => english,
     );

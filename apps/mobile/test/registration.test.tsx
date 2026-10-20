@@ -2487,7 +2487,6 @@ describe('product registration', () => {
           return Promise.resolve(null);
         },
         postNotifications: () => Promise.resolve(null),
-        nextOpenedNotification: () => Promise.resolve(null),
       },
       () => english,
     );

@@ -1177,9 +1177,7 @@ export function createGmailInbox(
     removed?: (() => void) | undefined;
     // Called once a committed history page brought unread messages newly into the Inbox. Listing,
     // backfill and messages moved into the Inbox never arrive.
-    arrived?:
-      | ((scope: MailboxScope, messages: readonly GmailMessage[]) => void)
-      | undefined;
+    arrived?: ((messages: readonly GmailMessage[]) => void) | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
     // Microsoft mail is read, organized and sent through Graph.
@@ -3624,7 +3622,7 @@ export function createGmailInbox(
       const brought = arrivals;
       ({ cache, document } = yield* commitOver(cache, document, next.value));
       if (brought.length > 0) {
-        arrived?.(cache, brought);
+        arrived?.(brought);
       }
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;

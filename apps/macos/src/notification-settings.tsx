@@ -1,4 +1,3 @@
-import type { NotificationSettings as DeviceSettings } from '@private-email/mail-core/notifications';
 import type {
   MailboxConnection,
   Registration,
@@ -14,14 +13,7 @@ import { notifications } from './registration.ts';
 import { SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-type NotificationSettingsStore = Readonly<{
-  getSnapshot: () => DeviceSettings | undefined;
-  subscribe: (listener: () => void) => () => void;
-  load: () => Promise<void>;
-  request: () => Promise<void>;
-  setPreviews: (previews: boolean) => Promise<void>;
-  openSettings: () => Promise<void>;
-}>;
+type NotificationSettingsStore = Omit<typeof notifications, 'arrived'>;
 
 export const NotificationsContext =
   createContext<NotificationSettingsStore>(notifications);
@@ -73,12 +65,12 @@ export function NotificationSettings({
           {settings?.authorization === 'authorized'
             ? value(t('notifications.allowed'))
             : null}
-          {settings?.authorization === 'denied'
-            ? [
-                value(t('notifications.denied')),
-                button(t('notifications.openSettings'), device.openSettings),
-              ]
-            : null}
+          {settings?.authorization === 'denied' ? (
+            <>
+              {value(t('notifications.denied'))}
+              {button(t('notifications.openSettings'), device.openSettings)}
+            </>
+          ) : null}
           {settings?.authorization === 'undetermined'
             ? button(t('notifications.allow'), device.request)
             : null}

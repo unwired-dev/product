@@ -468,7 +468,7 @@ export function createMailboxes(
                 removed,
                 arrived:
                   provider === 'gmail' && arrived !== undefined
-                    ? (_scope, messages) => {
+                    ? (messages) => {
                         const { snapshot: account } =
                           registration.getSnapshot();
                         if (

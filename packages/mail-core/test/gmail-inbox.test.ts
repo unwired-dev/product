@@ -184,7 +184,7 @@ describe('synchronizing a Gmail Inbox', () => {
     const gmail = createSyntheticGmail({ messages: 3 });
     const arrivals: string[][] = [];
     const inbox = createGmailInbox(gmail.native, {
-      arrived: (_scope, messages) => {
+      arrived: (messages) => {
         arrivals.push(messages.map(({ subject }) => subject));
       },
     });

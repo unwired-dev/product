@@ -239,8 +239,6 @@ export function createHost(
         native().setNotificationPreviews(previews),
       openNotificationSettings: () => native().openNotificationSettings(),
       postNotifications: (posted) => native().postNotifications(posted),
-      nextOpenedNotification: (window) =>
-        native().nextOpenedNotification(window),
     },
     translate,
   );

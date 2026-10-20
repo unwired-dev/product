@@ -98,7 +98,7 @@ export const notificationContent = (
 // a connection's synchronization commits new Inbox mail. The caller has already checked that the
 // connection's policy is on; content is decided here, on the device.
 export function createNotifications(
-  native: NativeNotifications,
+  native: Omit<NativeNotifications, 'nextOpenedNotification'>,
   translate: () => Translate,
 ) {
   // Unknown until the first read settles.
