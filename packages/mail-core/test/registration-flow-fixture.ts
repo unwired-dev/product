@@ -21,6 +21,7 @@ export const createRegistrationFlow = (
 ): RegistrationFlow => {
   const flow = registrationPrograms(vault);
   return {
+    snapshot: () => Effect.runPromise(flow.snapshot()),
     restore: () => Effect.runPromise(flow.restore()),
     signIn: (provider) => Effect.runPromise(flow.signIn(provider)),
     addMailbox: (provider, chooseAccount) =>
