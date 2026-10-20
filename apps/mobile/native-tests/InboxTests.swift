@@ -1139,10 +1139,10 @@ final class InboxTests: XCTestCase {
       var placed = footer.frame
       for _ in 0..<5 {
         app.swipeUp()
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
         if footer.frame == placed { break }
         placed = footer.frame
       }
+      waitUntil { footer.frame.maxY <= search.frame.minY }
     }
     for (appearance, name) in [(XCUIDevice.Appearance.dark, "Dark"), (.light, "Light")] {
       XCUIDevice.shared.appearance = appearance
