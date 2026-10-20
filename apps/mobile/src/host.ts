@@ -7,6 +7,8 @@ import type { TurboModule } from 'react-native';
 import { createHost } from '@private-email/mail-core/host';
 import { TurboModuleRegistry } from 'react-native';
 
+import { localization } from './localization.ts';
+
 interface RegistrationModule
   extends
     TurboModule,
@@ -41,4 +43,9 @@ export const {
   errorReporting,
   start,
   followWakes,
-} = createHost(native, reportingNative, initialReportingState);
+  notifications,
+} = createHost(native, {
+  reportingNative,
+  initialReportingState,
+  translate: () => localization.i18n.t,
+});

@@ -124,6 +124,8 @@ export type RegistrationState = Readonly<{
   // Why an IMAP mailbox could not be added beside others; nothing changed.
   imapFailure?: ImapFailure;
   profileFailure?: ProfileFailure;
+  // The connection whose New Mail Notifications could not be changed; its policy is unchanged.
+  notificationFailure?: string;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -589,6 +591,14 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(request(native.removeProfile(profile)), profileRefusal),
     moveMailbox: (connection: string, profile: string) =>
       execute(request(native.moveMailbox(connection, profile)), profileRefusal),
+    notifyMailbox: (connection: string, enabled: boolean) =>
+      execute(
+        request(native.notifyMailbox(connection, enabled)),
+        (snapshot) => ({
+          ...settled(snapshot),
+          notificationFailure: connection,
+        }),
+      ),
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(

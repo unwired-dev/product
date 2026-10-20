@@ -24,6 +24,7 @@ import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
+import { NotificationSettings } from './notification-settings.tsx';
 import { TrustCard } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
@@ -639,6 +640,13 @@ export function AccountSettings({
           mailboxes={mailboxes}
           button={button}
           microsoft={microsoft}
+          store={store}
+        />
+      ) : null}
+      {destination === 'notifications' ? (
+        <NotificationSettings
+          button={button}
+          mailboxes={mailboxes}
           store={store}
         />
       ) : null}

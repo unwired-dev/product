@@ -1167,6 +1167,7 @@ export function createGmailInbox(
   native: NativeGmailMailbox,
   {
     removed,
+    arrived,
     shared = createBodyLoads(),
     connection = '',
     provider = 'gmail',
@@ -1174,6 +1175,11 @@ export function createGmailInbox(
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
+    // Called once a committed history page brought unread messages newly into the Inbox. Listing,
+    // backfill and messages moved into the Inbox never arrive.
+    arrived?:
+      | ((scope: MailboxScope, messages: readonly GmailMessage[]) => void)
+      | undefined;
     shared?: Readonly<BodyLoads>;
     connection?: string;
     // Microsoft mail is read, organized and sent through Graph.
@@ -1294,6 +1300,9 @@ export function createGmailInbox(
   type ListedView = ViewEntry &
     Readonly<{ listing: NonNullable<ViewEntry['listing']> }>;
 
+  // The new Inbox mail the page being committed brought; the next commit reports it.
+  let arrivals: readonly GmailMessage[] = [];
+
   // Reads and reconciles one page for the Inbox or another Gmail view. Callers own their
   // checkpoint publication and recovery when Gmail rejects a page token.
   const readListingPage = Effect.fnUntraced(function* (
@@ -1401,6 +1410,19 @@ export function createGmailInbox(
       scope,
       changed,
       document.views !== undefined,
+    );
+    const added = new Set(
+      records.flatMap((record) =>
+        (record.messagesAdded ?? []).map(({ message }) => message.id),
+      ),
+    );
+    arrivals = fetched.flatMap(([id, message]) =>
+      message !== undefined &&
+      added.has(id) &&
+      message.unread &&
+      inInbox(labelsOf(message))
+        ? [message]
+        : [],
     );
     // History cannot name the unchanged older message that now fits after an entry leaves, so
     // a full view that lost one is listed again.
@@ -3592,13 +3614,18 @@ export function createGmailInbox(
       if (document !== undefined) {
         ({ cache, document } = yield* sendPending(cache, document));
       }
+      arrivals = [];
       const next = yield* advance(cache, document, step);
       if (Option.isNone(next)) {
         break;
       }
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
+      const brought = arrivals;
       ({ cache, document } = yield* commitOver(cache, document, next.value));
+      if (brought.length > 0) {
+        arrived?.(cache, brought);
+      }
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

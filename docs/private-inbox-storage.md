@@ -199,7 +199,8 @@ Profile, which every Draft and Outbox entry sending from it shares, and
 
 Storage, Private Sync records, Delivery Owners, Outbox claims and their payloads
 are unchanged. Push wakes carry no content and synchronize every connection. The
-replacement has no recipient suggestions or visible notifications yet.
+replacement has no recipient suggestions yet; [New Mail Notifications](new-mail-notifications.md)
+follow each connection's synchronized switch.
 
 [#921](https://github.com/unwired-dev/product/issues/921) routes the remaining
 callers by Profile Record Scope. For Drafts, their files, delivery claims,

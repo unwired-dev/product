@@ -169,11 +169,13 @@
     "back": "Back to Settings",
     "sections": {
       "accounts": "Accounts",
+      "automation": "Automation",
       "application": "Application"
     },
     "destinations": {
       "account": "Account & Devices",
       "mailboxes": "Email Accounts",
+      "notifications": "Notifications",
       "language": "Language",
       "privacy": "Privacy & Data",
       "errorReporting": "Error Reporting"
@@ -1087,5 +1089,23 @@
     "saving": "Saving error reporting…",
     "backToWelcome": "Back to Welcome",
     "failedAction": "Retry"
+  },
+  "notifications": {
+    "newMail": "New Mail",
+    "noSubject": "No subject",
+    "onThisDevice": "On This Device",
+    "authorization": "Authorization",
+    "allowed": "Allowed",
+    "denied": "Off",
+    "undetermined": "Not Allowed Yet",
+    "allow": "Allow…",
+    "openSettings": "Open Settings…",
+    "previews": "Show Sender and Subject",
+    "previewsDetail": "Sender and subject appear only on this device after you choose them.",
+    "perMailbox": "Per Mailbox",
+    "mailbox": "{{provider}} · {{address}}",
+    "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
+    "noMailboxes": "Notifications are available for Gmail mailboxes.",
+    "changeFailed": "Notifications could not be changed. Check your connection and try again."
   }
 }

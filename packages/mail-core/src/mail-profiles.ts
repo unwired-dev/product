@@ -106,6 +106,29 @@ export const profileOwners = (value: RegistrationRecord) => {
   );
 };
 
+// This device's connections whose current incarnation has New Mail Notifications turned on in
+// Product Sync. Unreadable Profile state or keys turn every connection's notifications off.
+export const notifyingConnections = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return new Set<string>();
+  }
+  return new Set(
+    value.mailboxes.flatMap(({ id, epoch }) => {
+      const record = vault.mailboxes.find(
+        (mailbox) => mailbox.id === id,
+      )?.record;
+      return state.notifications?.some(
+        (policy) =>
+          policy.record === record && policy.epoch === epoch && policy.enabled,
+      ) === true
+        ? [id]
+        : [];
+    }),
+  );
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier and name, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -165,6 +188,18 @@ const withRecord = (
           : state.profiles.map((item) => (item === known ? profile : item)),
     };
   }
+  if (record.kind === 'notifications') {
+    const { kind: _, ...policy } = record;
+    return {
+      ...state,
+      notifications: [
+        ...(state.notifications ?? []).filter(
+          ({ record: known }) => known !== record.record,
+        ),
+        { ...policy, updatedAt },
+      ],
+    };
+  }
   const owner: Owner = {
     record: record.record,
     epoch: record.epoch,
@@ -186,7 +221,10 @@ const olderRecord = (state: ProfileState, record: ProfileRecord) => {
   const version =
     record.kind === 'profile'
       ? state.profiles.find(({ id }) => id === record.id)?.version
-      : state.owners.find((owner) => owner.record === record.record)?.version;
+      : (record.kind === 'mailbox'
+          ? state.owners
+          : (state.notifications ?? [])
+        ).find((known) => known.record === record.record)?.version;
   return version !== undefined && record.version < version;
 };
 
@@ -363,7 +401,11 @@ export function createMailProfileProgram<E>(
         readable: learned.readable && next.readable,
       };
     });
-    for (const prefix of ['profile.', 'mailbox-profile.']) {
+    for (const prefix of [
+      'profile.',
+      'mailbox-profile.',
+      'mailbox-notifications.',
+    ]) {
       yield* list(prefix, read);
     }
     return learned;
@@ -602,5 +644,34 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
-  return { synchronize, create, rename, remove, move };
+  // Turns New Mail Notifications on or off for the current incarnation of one of this device's
+  // connections. The change needs Product Sync: one that does not commit leaves the stored policy.
+  const notify = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    enabled: boolean,
+  ) {
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    const { state } = yield* refreshed(yield* known);
+    const current = state.notifications?.find(
+      (policy) => policy.record === record,
+    );
+    if (current?.epoch === epoch && current.enabled === enabled) {
+      return;
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'notifications',
+          record,
+          epoch,
+          version: (current?.version ?? 0) + 1,
+          enabled,
+        },
+        expectedUpdatedAt: current?.updatedAt,
+      },
+    ]);
+  });
+
+  return { synchronize, create, rename, remove, move, notify };
 }

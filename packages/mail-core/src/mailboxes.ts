@@ -356,7 +356,15 @@ type Opened = Readonly<
 export function createMailboxes(
   native: NativeGmailMailboxes,
   registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
-  { removed }: Readonly<{ removed?: () => void }> = {},
+  {
+    removed,
+    arrived,
+  }: Readonly<{
+    removed?: () => void;
+    // New Inbox mail for a Gmail connection whose New Mail Notifications are on, while it still
+    // belongs to the same Product Account and incarnation.
+    arrived?: (connection: string, messages: readonly GmailMessage[]) => void;
+  }> = {},
 ) {
   const shared = createBodyLoads();
   const inboxes = new Map<string, Opened>();
@@ -458,6 +466,26 @@ export function createMailboxes(
               provider,
               inbox: createGmailInbox(bound(native, id), {
                 removed,
+                arrived:
+                  provider === 'gmail' && arrived !== undefined
+                    ? (_scope, messages) => {
+                        const { snapshot: account } =
+                          registration.getSnapshot();
+                        if (
+                          openMailboxes(account).some(
+                            (mailbox) =>
+                              mailbox.id === id && mailbox.owner === owner,
+                          ) &&
+                          mailboxesOf(account).some(
+                            (mailbox) =>
+                              mailbox.id === id &&
+                              mailbox.notifications === true,
+                          )
+                        ) {
+                          arrived(id, messages);
+                        }
+                      }
+                    : undefined,
                 shared,
                 connection: id,
                 provider,

@@ -15,6 +15,7 @@ export {
   freshness,
   remoteContent,
   errorReporting,
+  notifications,
   start,
   followWakes,
   native,

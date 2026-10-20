@@ -146,7 +146,7 @@ module.exports = function privateInbox(config) {
       result.modResults.contents = result.modResults.contents
         .replace(
           launch,
-          `application.registerForRemoteNotifications()\n    ${launch}`,
+          `UnwiredNotifications.start()\n    application.registerForRemoteNotifications()\n    ${launch}`,
         )
         .replace(
           anchor,

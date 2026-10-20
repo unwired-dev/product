@@ -179,6 +179,50 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(ready(relaunched.getSnapshot()).messages).toHaveLength(120);
   });
 
+  it('reports only unread mail newly arriving in the Inbox, once each, after its commit', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 3 });
+    const arrivals: string[][] = [];
+    const inbox = createGmailInbox(gmail.native, {
+      arrived: (_scope, messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    // The first listing is historical.
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
+
+    const [moved = ''] = ready(inbox.getSnapshot()).messages.map(
+      ({ id }) => id,
+    );
+    gmail.archive(moved);
+    await inbox.load();
+    gmail.deliver({ subject: 'New arrival' });
+    gmail.deliver({ subject: 'Read elsewhere', unread: false });
+    gmail.archive(gmail.deliver({ subject: 'Archived elsewhere' }));
+    // A message moved back into the Inbox is not new mail.
+    gmail.setLabel(moved, 'INBOX', true);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival']]);
+    // Synchronizing again reports nothing twice.
+    await inbox.load();
+    expect(arrivals).toHaveLength(1);
+
+    // A page whose commit fails reports nothing until a later synchronization commits it.
+    gmail.deliver({ subject: 'Committed later' });
+    gmail.failCommit('locked');
+    await inbox.load();
+    expect(arrivals).toHaveLength(1);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival'], ['Committed later']]);
+
+    // Mail found by listing again after Gmail expired the history is not reported.
+    gmail.expireHistory();
+    gmail.deliver({ subject: 'Arrived while history expired' });
+    await inbox.load();
+    expect(arrivals).toHaveLength(2);
+  });
+
   it('lists again after Gmail expires the history, keeping cached mail visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 4 });

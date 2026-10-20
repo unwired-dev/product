@@ -22,6 +22,7 @@ import { textStyles, usePalette } from './theme.ts';
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
+  | 'notifications'
   | 'language'
   | 'privacy'
   | 'errorReporting';
@@ -29,6 +30,7 @@ export type SettingsDestination =
 // The groups below the account item, in the design's order.
 const sections = [
   { title: 'accounts', items: [{ id: 'mailboxes', icon: 'at' }] },
+  { title: 'automation', items: [{ id: 'notifications', icon: 'bell' }] },
   {
     title: 'application',
     items: [

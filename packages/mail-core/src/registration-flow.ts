@@ -18,7 +18,11 @@ import type {
 } from './registration-vault.ts';
 
 import { imapFallback } from './imap-setup.ts';
-import { profileList, profileOwners } from './mail-profiles.ts';
+import {
+  notifyingConnections,
+  profileList,
+  profileOwners,
+} from './mail-profiles.ts';
 import {
   createMailboxVerification,
   setupReason,
@@ -112,6 +116,7 @@ const mailboxList = (value: RegistrationRecord) => {
     return undefined;
   }
   const owners = profileOwners(value);
+  const notifying = notifyingConnections(value);
   return JSON.stringify(
     value.mailboxes.map((mailbox) => {
       const profile = owners.get(mailbox.id);
@@ -124,6 +129,7 @@ const mailboxList = (value: RegistrationRecord) => {
         ...(mailbox.smtp === undefined ? {} : { smtp: mailbox.smtp }),
         state: mailboxState(mailbox),
         ...(profile === undefined ? {} : { profile }),
+        ...(notifying.has(mailbox.id) ? { notifications: true } : {}),
       };
     }),
   );
@@ -917,6 +923,16 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         saved.pipe(
           Effect.flatMap((value) =>
             productSyncFlow.moveMailbox(value, connection, profile),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Turning a connection's New Mail Notifications on or off needs Product Sync.
+    notifyMailbox: (connection: string, enabled: boolean) =>
+      program(
+        saved.pipe(
+          Effect.flatMap((value) =>
+            productSyncFlow.notifyMailbox(value, connection, enabled),
           ),
           Effect.andThen(current),
         ),

@@ -1,6 +1,11 @@
+import {
+  followOpenedNotifications,
+  openedTarget,
+} from '@private-email/mail-core/notifications';
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
@@ -12,10 +17,16 @@ import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
-import { InboxProvider, ProfileScope, useMailboxes } from './mailbox.tsx';
+import {
+  InboxProvider,
+  ProfileScope,
+  useMailboxes,
+  useProfile,
+} from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate, SettingsGate } from './registration-gate.tsx';
+import { native, registration } from './registration.ts';
 import { settingsHost } from './settings-window-client.ts';
 import { useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
@@ -166,6 +177,24 @@ function WindowContents({ windowId }: { readonly windowId: string }) {
     (mailbox) => mailbox.id === selected?.mailbox,
   )?.inbox;
   const colors = usePalette();
+  const profile = useProfile();
+  // A tapped New Mail Notification selects its message in this window's Inbox when the window
+  // shows its Mail Profile; native code brings the window forward.
+  useEffect(() => {
+    if (!previewInbox) {
+      void followOpenedNotifications(native(), windowId, (opened) => {
+        const target = openedTarget(
+          registration.getSnapshot().snapshot,
+          opened,
+        );
+        if (target?.profile === profile) {
+          setComposing(undefined);
+          setView({});
+          setSelected({ mailbox: target.mailbox, id: target.id });
+        }
+      });
+    }
+  }, [windowId, profile]);
   // Opening a Draft from either pane shows it in the window's composer, over the reader.
   const compose = (id: string) => {
     setComposing(id);

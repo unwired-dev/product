@@ -61,6 +61,16 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
   }
   return ownership;
 };
+// The only notification policy stored for the account.
+const policyOf = (sync: ReturnType<typeof setup>['sync']) => {
+  const policy = storedProfiles(sync, account).find(
+    ({ kind }) => kind === 'notifications',
+  );
+  if (policy?.kind !== 'notifications') {
+    throw new Error('No notification policy');
+  }
+  return policy;
+};
 // Another device's Profile whose ciphertext this device cannot open.
 const unreadableProfile = (sync: ReturnType<typeof setup>['sync']) => {
   storeProfile(sync, account, {
@@ -354,6 +364,59 @@ describe('mail profiles', () => {
       kind: 'connected',
     });
     expect(owners(await flow.restore())).toStrictEqual([defaultProfile]);
+  });
+
+  it('turns New Mail Notifications on only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, mailboxId } = await connected();
+    const id = await mailboxId();
+    const notifying = (snapshot: unknown) =>
+      mailboxesOf(decode(snapshot)).map(
+        ({ notifications }) => notifications === true,
+      );
+    const policies = () =>
+      storedProfiles(sync, account).filter(
+        ({ kind }) => kind === 'notifications',
+      );
+    // Off until turned on.
+    expect(notifying(await flow.restore())).toStrictEqual([false]);
+
+    const enabled = await flow.notifyMailbox(id, true);
+    expect(notifying(enabled)).toStrictEqual([true]);
+    expect(policies()).toStrictEqual([
+      {
+        kind: 'notifications',
+        record: expect.any(String),
+        epoch: expect.any(String),
+        version: 1,
+        enabled: true,
+      },
+    ]);
+    await expect(relaunch().restore()).resolves.toStrictEqual(enabled);
+
+    // A change needs Product Sync; one that does not commit leaves the stored policy.
+    sync.offline = true;
+    await expect(flow.notifyMailbox(id, false)).rejects.toBeDefined();
+    sync.offline = false;
+    expect(notifying(await flow.restore())).toStrictEqual([true]);
+
+    // Another device turns them off first: this write changes nothing and reports the conflict.
+    const policy = policyOf(sync);
+    await flow.notifyMailbox(id, false);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...policy, version: 3, enabled: false });
+    };
+    await expect(flow.notifyMailbox(id, true)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
+
+    // Removed and added again, the connection's notifications start off.
+    await flow.notifyMailbox(id, true);
+    await flow.removeMailbox(id);
+    await flow.addMailbox('gmail', false);
+    expect(notifying(await flow.restore())).toStrictEqual([false]);
   });
 
   it('removes only a Profile that owns no live connection', async () => {

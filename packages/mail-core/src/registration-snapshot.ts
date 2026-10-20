@@ -105,6 +105,8 @@ const MailboxesSchema = Schema.fromJsonString(
       profile: Schema.NonEmptyString.pipe(
         Schema.withDecodingDefaultKey(Effect.succeed(defaultProfile)),
       ),
+      // New Mail Notifications are turned on in Product Sync for this incarnation.
+      notifications: Schema.optionalKey(Schema.Literal(true)),
     }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(

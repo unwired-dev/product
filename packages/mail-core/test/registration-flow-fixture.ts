@@ -36,6 +36,8 @@ export const createRegistrationFlow = (
     removeProfile: (profile) => Effect.runPromise(flow.removeProfile(profile)),
     moveMailbox: (connection, profile) =>
       Effect.runPromise(flow.moveMailbox(connection, profile)),
+    notifyMailbox: (connection, enabled) =>
+      Effect.runPromise(flow.notifyMailbox(connection, enabled)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
     confirmRecoveryKey: (entry) =>
       Effect.runPromise(flow.confirmRecoveryKey(entry)),
