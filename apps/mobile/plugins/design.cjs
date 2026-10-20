@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { withXcodeProject } = require('expo/config-plugins');
 
-// Compiles the SF Symbol and Liquid Glass views the Mac host shares into the app target.
+// Compiles the SF Symbol and other native design views the Mac host shares into the app target.
 module.exports = function design(config) {
   return withXcodeProject(config, (result) => {
     const project = result.modResults;

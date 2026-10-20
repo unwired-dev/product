@@ -16,12 +16,7 @@ import {
   View,
 } from 'react-native';
 
-import {
-  NativeGlass,
-  SFSymbol,
-  ToolbarButton,
-  useMenuMotion,
-} from './design.tsx';
+import { Glass, SFSymbol, ToolbarButton, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -234,10 +229,7 @@ export function PopUp({
               transformOrigin: `${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`,
             },
           ]}>
-          <NativeGlass
-            cornerRadius={radius.card}
-            style={StyleSheet.absoluteFill}
-          />
+          <Glass cornerRadius={radius.card} />
           {children}
         </Animated.View>
       ) : null}

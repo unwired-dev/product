@@ -1,7 +1,7 @@
 #import <React/RCTView.h>
 #import <React/RCTViewManager.h>
 
-// SF Symbols and Liquid Glass for both hosts, which target iOS and macOS 27.
+// SF Symbols for both hosts and the Mac's Liquid Glass; the hosts target iOS and macOS 27.
 #if TARGET_OS_OSX
 #import <AppKit/AppKit.h>
 
@@ -77,7 +77,6 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @implementation UnwiredGlassView
 @end
 #else
-#import <React/UIView+React.h>
 #import <UIKit/UIKit.h>
 
 typedef UIView UnwiredPlatformView;
@@ -108,38 +107,6 @@ typedef UIView UnwiredPlatformView;
 }
 @end
 
-@interface UnwiredGlassView : UIVisualEffectView
-@property (nonatomic) CGFloat cornerRadius;
-@property (nonatomic) BOOL interactive;
-@end
-
-@implementation UnwiredGlassView
-- (instancetype)initWithFrame:(CGRect)frame
-{
-  if ((self = [super initWithEffect:[UIGlassEffect new]])) {
-    self.frame = frame;
-    self.layer.cornerCurve = kCACornerCurveContinuous;
-  }
-  return self;
-}
-- (void)setCornerRadius:(CGFloat)cornerRadius
-{
-  _cornerRadius = cornerRadius;
-  self.layer.cornerRadius = cornerRadius;
-}
-- (void)setInteractive:(BOOL)interactive
-{
-  _interactive = interactive;
-  UIGlassEffect *effect = [UIGlassEffect new];
-  effect.interactive = interactive;
-  self.effect = effect;
-}
-// A visual effect view hosts subviews in its content view, where interactive glass sees their touches.
-- (void)didUpdateReactSubviews
-{
-  for (UIView *subview in self.reactSubviews) [self.contentView addSubview:subview];
-}
-@end
 #endif
 
 #if !TARGET_OS_OSX
@@ -341,15 +308,14 @@ RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end
 
-// The navigation layer's material; on iOS a control group's content sits inside it.
+#if TARGET_OS_OSX
+// The navigation layer's material, drawn behind the controls laid over it. iOS uses expo-glass-effect.
 @interface UnwiredGlassManager : RCTViewManager
 @end
 
 @implementation UnwiredGlassManager
 RCT_EXPORT_MODULE(UnwiredGlass)
 RCT_EXPORT_VIEW_PROPERTY(cornerRadius, CGFloat)
-#if !TARGET_OS_OSX
-RCT_EXPORT_VIEW_PROPERTY(interactive, BOOL)
-#endif
 - (UnwiredPlatformView *)view { return [UnwiredGlassView new]; }
 @end
+#endif

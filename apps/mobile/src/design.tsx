@@ -15,6 +15,7 @@ import type {
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { GlassView } from 'expo-glass-effect';
 import { useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -38,10 +39,6 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-export const NativeGlass = requireNativeComponent<
-  ViewProps & { readonly cornerRadius: number; readonly interactive?: boolean }
->('UnwiredGlass');
-
 export function Glass({
   cornerRadius,
   interactive = false,
@@ -49,19 +46,14 @@ export function Glass({
   ...props
 }: ViewProps & {
   readonly cornerRadius: number;
-  // Controls inside interactive glass get the system press response, which may grow past its bounds.
+  // Controls inside interactive glass get the system press response.
   readonly interactive?: boolean;
 }) {
   return (
-    <NativeGlass
+    <GlassView
       {...props}
-      cornerRadius={cornerRadius}
-      interactive={interactive}
-      style={[
-        style,
-        { borderRadius: cornerRadius },
-        !interactive && { overflow: 'hidden' },
-      ]}
+      isInteractive={interactive}
+      style={[style, { borderRadius: cornerRadius }]}
     />
   );
 }
@@ -233,20 +225,14 @@ export function SFSymbol({
   readonly size?: number;
 }) {
   return (
-    // Legacy-view interop drops a native child's layout offset inside another native view, such as glass.
-    <View
-      collapsable={false}
+    <NativeSymbol
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      pointerEvents="none"
-      style={{ width: size, height: size }}>
-      <NativeSymbol
-        name={name}
-        size={size}
-        color={color}
-        style={StyleSheet.absoluteFill}
-      />
-    </View>
+      name={name}
+      size={size}
+      color={color}
+      style={{ width: size, height: size }}
+    />
   );
 }
 

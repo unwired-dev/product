@@ -140,8 +140,7 @@ describe('design components', () => {
       </GlassGroup>,
     );
     const material = renderedRoot();
-    expect(material).toHaveProp('interactive', true);
-    expect(material).not.toHaveStyle({ overflow: 'hidden' });
+    expect(material).toHaveProp('isInteractive', true);
     expect(StyleSheet.flatten(material.props.style)).not.toHaveProperty(
       'backgroundColor',
     );
@@ -152,10 +151,9 @@ describe('design components', () => {
     expect(archive).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps structural glass passive and clipped', async () => {
+  it('keeps structural glass passive', async () => {
     expect.hasAssertions();
     await render(<Glass cornerRadius={22} />);
-    expect(screen.root).toHaveProp('interactive', false);
-    expect(screen.root).toHaveStyle({ overflow: 'hidden' });
+    expect(screen.root).toHaveProp('isInteractive', false);
   });
 });

@@ -28,6 +28,7 @@
     "expo-clipboard": "catalog:mobile",
     "expo-constants": "catalog:mobile",
     "expo-dev-client": "catalog:mobile",
+    "expo-glass-effect": "catalog:mobile",
     "expo-linking": "catalog:mobile",
     "expo-router": "catalog:mobile",
     "expo-status-bar": "catalog:mobile",

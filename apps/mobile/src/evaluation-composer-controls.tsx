@@ -38,9 +38,9 @@ import {
   rewriteLabel,
 } from './composer.tsx';
 import {
+  Glass,
   GlassGroup,
   GlassPanel,
-  NativeGlass,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -750,10 +750,7 @@ export function EditorHeader({
             disabled={busy}
             onPress={onClose}
             style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <NativeGlass
-              cornerRadius={22}
-              style={StyleSheet.absoluteFill}
-            />
+            <Glass cornerRadius={22} />
             <SFSymbol
               name="xmark"
               color={colors.textPrimary}
