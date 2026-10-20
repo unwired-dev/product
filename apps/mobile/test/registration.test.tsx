@@ -2518,9 +2518,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByText(
-        'Notifications could not be changed. Check your connection and try again.',
-      ),
+      screen.findByText('Notifications could not be changed. Try again later.'),
     ).resolves.toBeVisible();
     expect({
       native,
