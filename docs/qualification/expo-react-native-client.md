@@ -11,6 +11,90 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Native host qualification refresh, 2026-10-20
+
+Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.
+This run qualifies the current packaged iPhone/iPad persistence journey and
+hosted storage checks separately from the signed Mac build. It does not qualify
+the current Mac lifecycle journey. The signed Mac journeys in the 2026-10-03
+entry below came from an earlier host and revision; they remain historical
+evidence and do not replace this run's unavailable Mac interaction checks.
+
+The tested source tree is `02b105ffd`. Review head `b8b214438` adds the
+TestFlight local-profile exclusion, its runner regression and documentation;
+native generators, application sources, dependencies and journey inputs are
+unchanged. Subsequent review edits document these results and the remaining
+operational checks.
+
+The host is a Mac mini, Apple M4, 16 GB (`Mac16,10`), running macOS 27.0.1
+(`26A434`), Xcode 27.1 (`27A9275`), Swift 6.4, and the iOS 27.0 Simulator runtime
+(`24A434`). Tooling is Node 24.21.0, pnpm 11.5.2 and mise Ruby 3.3.12. The root
+`pnpm-lock.yaml` SHA-256 is
+`26c8ba0d6318d7b12f9a50933d49055bb2dd16ebe80695676150ff506d25135e`.
+Deployment floors remain iOS/iPadOS/macOS 27. The runs use the root lockfile and
+its separate mobile and Mac native graphs.
+
+The reviewer inspected the retained logs, generated probe inputs and runner
+ownership/results. Native builds and journeys below were run by the implementer,
+not rerun by the reviewer:
+
+- Expo `native:generate`, Pod installation and the arm64 Release simulator build
+  succeeded with packaged JavaScript, Hermes and native modules. The
+  `open-read-relaunch` Mock Mail Session passed `testSelectAndReplaceMessage`
+  through `pnpm --filter @private-email/mobile test:native` on fresh owned
+  iPhone 18 Pro and iPad Pro 11-inch M5 simulators, one test and zero failures
+  each. The journey selects messages, marks one read, terminates the process,
+  relaunches the packaged app and observes the saved read state. Evidence:
+  `artifacts/expo-bootstrap/native-ZUaAQs/`, including both device logs,
+  `.xcresult` bundles, `ownership.json` and `result.json`; generation and app
+  build log: `scratchpad/623/expo.log`.
+- `mise exec -- zsh native/private-inbox/integration/test.zsh ios` passed its
+  79-test, six-suite run with no skips. Evidence:
+  `artifacts/private-inbox/integration.yjK2rM/test-1.log` and
+  `result-1.xcresult`. This is real filesystem, CryptoKit and Keychain evidence,
+  including encrypted reopen, wrong/missing-key refusal, preserved corrupt data,
+  synthetic credential use/removal and native key isolation. Controlled provider
+  fixtures and synthetic account/backend seams do not establish live-provider
+  compatibility or physical-device lock behavior.
+- The same hosted storage command for `macos`, with `Apple Development` signing,
+  team `3P44B7QUTF` and `UNWIRED_STORAGE_PROFILE` selecting an installed profile,
+  selected 79 tests across six suites: 76 passed, three skipped and none failed.
+  The three IMAP/SMTP TLS-fixture tests run only on iOS. Evidence:
+  `artifacts/private-inbox/integration.XaAzVF/test-1.log`, `result-1.xcresult`
+  and the generated sandboxed host entitlements. Both platforms explicitly ran
+  `accountPurgePreservesIndependentReportingDeletionCredential` and
+  `accountPurgeWaitsForDurableReportingWithdrawalAndRetries`, previously gated by
+  an unset `UNWIRED_KEYCHAIN_TESTS`. Storage reopen tests create new store
+  instances; they do not establish Mac application process relaunch.
+- `pnpm --filter @private-email/macos native:build Testing`, with
+  `UNWIRED_MOCK_SCENARIO=open-read-relaunch`, `Apple Development` signing,
+  team `3P44B7QUTF` and `UNWIRED_MAC_PROFILE`, succeeded. Its packaged bundle,
+  renderer/autolinking checks and Hermes framework establish compilation and
+  packaging. Evidence: `scratchpad/623/mac-build.log`. This is not a successful
+  Mac launch or lifecycle result.
+- `pnpm --filter @private-email/macos test:native` stopped before UI execution
+  with `Timed out while enabling automation mode.` The host requires administrator
+  authentication to enable Automation Mode. Evidence:
+  `artifacts/macos-inbox/journey.2Yt1OZ/` records exit code 65, the isolated mock
+  identity, XCTest result and an empty lifecycle log. Current Mac packaged launch,
+  persistence across Quit/relaunch, menus, shortcuts, independent windows,
+  last-window close/reopen and continued work versus explicit Quit remain deferred.
+
+The runners recorded isolated mock identities and device IDs, removed their
+disposable apps/devices and build directories, and retained logs/results. Local
+formatting and lint passed; native-runner contracts passed 51/51 after the
+TestFlight correction, tooling contracts passed 31/31, and both Ruby generators
+passed syntax checks. These script contracts are separate from native evidence;
+no TestFlight archive or upload was performed for this slice.
+
+The [native validation guide](../agents/native-validation.md#performance-qualification)
+nominates this Mac mini M4/16 GB as the Mac reference. The owner still needs to
+nominate the iPad reference; neither performance baseline is established. The
+remaining [release checks](../agents/native-validation.md#required-release-checks),
+including current Mac interaction, physical-device storage/credential lifecycle,
+accessibility and distribution qualification, remain required. No legacy coverage
+is retired by #623.
+
 ## Independent Settings presentation, 2026-10-17
 
 Issue [#911](https://github.com/unwired-dev/product/issues/911) adds the Mac

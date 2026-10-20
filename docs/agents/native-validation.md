@@ -3,7 +3,8 @@
 This guide covers resource ownership for the Expo client and native
 React Native macOS host. Commands and toolchain requirements live in
 [Expo setup and validation](../expo-client.md#validate); remaining release
-checks live in [platform qualification](../qualification/expo-react-native-client.md).
+checks are listed [below](#required-release-checks). Reviewers retain dated results
+and limitations in [platform qualification](../qualification/expo-react-native-client.md).
 The replacement targets iOS, iPadOS, and macOS 27 or newer.
 
 ## Own the resources used by the check
@@ -72,3 +73,37 @@ Record the target, toolchain, command, result and any unavailable check. Availab
 native checks should run when relevant; the earlier tooling exception permits
 implementation to continue without unavailable version-27 evidence, but does
 not waive release qualification or turn deferred checks into passing results.
+
+## Required release checks
+
+Before completing native host qualification in
+[#623](https://github.com/unwired-dev/product/issues/623), record evidence for the
+actual source revision and exact root lockfile:
+
+- Build and launch both native graphs at the version-27 floors with packaged
+  JavaScript, Hermes and the selected native modules, without Metro. Run the
+  deterministic visible persistence journey on iPhone, iPad and native Mac;
+  zero selected tests is failure. Include compact/regular mobile layouts,
+  keyboard interaction, process termination and restored state after relaunch.
+- Exercise Mac menus, shortcuts, independent window selection, last-window close,
+  Dock/Finder reopen and explicit Quit against AppKit. Verify application-scoped
+  work continues without a window and stops on Quit. Use the actual accessibility
+  tree; component tests and a successful native build do not qualify this behavior.
+- Run the [real storage integration](../private-inbox-storage.md#verification)
+  separately from mocked provider journeys. Prove encrypted contents, refusal
+  without the native-held key, device-local Keychain policy and credential removal
+  across relaunch. Retain separate physical-device lock/unlock and backup/restore
+  checks; simulated protected-data availability does not establish them.
+- Record toolchain versions, lockfile hash, commands, signing/entitlements,
+  resource ownership and artifact paths. Nominate iPad and Mac reference hardware
+  for later [performance qualification](#performance-qualification); measured
+  baselines remain required before release.
+
+Keep #623 incomplete while its required native evidence is unavailable. Feature
+implementation may continue under the existing deferral. Before release, also
+qualify hardware-keyboard and VoiceOver behavior, physical-device AI availability,
+and separate iPhone/iPad and Mac App Store archives and TestFlight artifacts under
+the [distribution procedure](../testflight.md). Mock journeys do not establish
+real provider authentication or transport; retain the owning feature guides'
+protected integration checks. Do not retire legacy coverage to substitute for a
+missing replacement check.

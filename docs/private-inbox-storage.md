@@ -350,6 +350,9 @@ UNWIRED_DEVELOPMENT_TEAM='<your team>' \
 mise exec -- pnpm --filter @private-email/macos native:build Testing
 ```
 
+For an installed developer-portal profile, also set `UNWIRED_MAC_PROFILE` to its
+file path as described in [Mac signing setup](macos-client.md#build-and-run).
+
 The project does not enable provisioning updates or create developer-portal
 resources automatically. Distribution signing remains a release qualification
 requirement.

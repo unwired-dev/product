@@ -205,7 +205,11 @@ Command-Q is checked separately through direct native UI automation because
 XCTest key injection after reopening is unreliable on the qualification host.
 The journey checks one process
 and session throughout. It requires a logged-in macOS 27 desktop with XCTest UI
-automation permission. The runner uses its own probe project and result directory
+automation permission. If XCTest reports `Timed out while enabling automation mode`,
+run `automationmodetool` to inspect the host's status. When enabling Automation Mode
+requires administrator authentication, the host owner must complete that setup
+before rerunning the journey; record the blocked run as deferred native evidence.
+The runner uses its own probe project and result directory
 and rejects zero-test success. XCTest terminates its launched app on failure.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
