@@ -26,7 +26,6 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
-@property(nonatomic, strong) NSView *backgroundRoot;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
 @property(nonatomic, strong) NSNumber *settingsRequestSerial;
@@ -81,8 +80,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
     [self newWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
   } else {
-    self.backgroundRoot = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredBackground"
-        initialProperties:nil];
+    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil];
   }
 }
 
