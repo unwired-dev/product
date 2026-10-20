@@ -1025,6 +1025,7 @@ final class InboxTests: XCTestCase {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyCompactInboxHeader(app)
+    verifyCompactInboxBottom(app, scrollToEnd: true)
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
@@ -1078,6 +1079,7 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(back.exists)
       back.tap()
       verifyCompactInboxHeader(app)
+      verifyCompactInboxBottom(app, scrollToEnd: false)
     }
     XCTAssertTrue(oliver.isHittable)
     XCTAssertTrue(oliver.label.hasPrefix("Unread."))
@@ -1119,6 +1121,66 @@ final class InboxTests: XCTestCase {
       XCTAssertGreaterThan(text.frame.maxY, back.frame.minY)
     }
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
+  }
+
+  // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
+  // entry the end of the list scrolls clear of the floating bar. The runner starts the simulator in
+  // Dark, where a surface that stops short shows against the black window; Light hides it.
+  private func verifyCompactInboxBottom(_ app: XCUIApplication, scrollToEnd: Bool) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let window = app.windows.firstMatch.frame
+    // The list's leading padding shows the surface; the edge sample sits beside the home indicator.
+    let surface = CGPoint(x: 8, y: window.midY)
+    let edge = CGPoint(x: 8, y: window.maxY - 8)
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    if scrollToEnd {
+      let footer = app.staticTexts["Sample messages · Encrypted on this device"].firstMatch
+      XCTAssertTrue(footer.waitForExistence(timeout: 10))
+      var placed = footer.frame
+      for _ in 0..<5 {
+        app.swipeUp()
+        if footer.frame == placed { break }
+        placed = footer.frame
+      }
+      waitUntil { footer.frame.maxY <= search.frame.minY }
+    }
+    let colors = pixels(app, at: [surface, edge])
+    let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
+    XCTAssertLessThan(brightness, 384, "The journey runs in Dark")
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "Bottom edge \(colors[1]) differs from the Inbox surface \(colors[0])")
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Inbox bottom edge, \(scrollToEnd ? "scrolled to the end" : "after the reader")"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  // RGBA bytes of one app screenshot at points in window coordinates.
+  private func pixels(_ app: XCUIApplication, at points: [CGPoint]) -> [[UInt8]] {
+    let image = app.screenshot().image
+    guard let source = image.cgImage else {
+      XCTFail("Screenshot has no bitmap")
+      return points.map { _ in [] }
+    }
+    let scale = CGFloat(source.width) / app.windows.firstMatch.frame.width
+    return points.map { point in
+      var rgba = [UInt8](repeating: 0, count: 4)
+      let area = CGRect(
+        x: (point.x * scale).rounded(.down), y: (point.y * scale).rounded(.down),
+        width: 1, height: 1)
+      if let pixel = source.cropping(to: area) {
+        rgba.withUnsafeMutableBytes { bytes in
+          CGContext(
+            data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          )?.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+      }
+      return rgba
+    }
   }
 
   private func verifyLanguagePreference(in app: XCUIApplication) {

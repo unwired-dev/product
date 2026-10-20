@@ -54,6 +54,8 @@ for device_type in "${device_types[@]}"; do
     print "$device_id" >> "$run_dir/devices.txt"
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
+    # Journeys run in Dark, where an Inbox surface that stops short of an edge shows; Light hides it.
+    xcrun simctl ui "$device_id" appearance dark
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
