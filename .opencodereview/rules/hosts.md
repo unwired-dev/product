@@ -105,6 +105,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `message-body.tsx.RichDocument` deriving overflow or another layout-dependent
+  decision only when WebKit reports content size. Container layout and native
+  measurement can arrive in either order; retain their inputs and recompute when
+  either changes, including the first layout. Exercise measurement-before-layout
+  and layout-before-measurement through the reader journey, while preserving
+  width-change remeasurement and document ownership. Otherwise a wide document
+  measured before layout can keep scrolling disabled and remain clipped.
+
 - `evaluation-composer.tsx` treating the latest page-state revision as proof that
   its body has arrived. Selection-only reports carry the current body revision
   without the document. Track the accepted body's revision separately before
