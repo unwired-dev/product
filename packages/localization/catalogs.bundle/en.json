@@ -1091,7 +1091,7 @@
     "failedAction": "Retry"
   },
   "notifications": {
-    "newMail": "New Mail",
+    "newMail": "New mail",
     "noSubject": "No subject",
     "onThisDevice": "On This Device",
     "authorization": "Authorization",

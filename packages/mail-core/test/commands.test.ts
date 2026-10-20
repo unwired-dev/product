@@ -9,6 +9,7 @@ import {
   offeredCommand,
   orderCommands,
   responseCommands,
+  runWhenOffered,
 } from '@private-email/mail-core/commands';
 
 const command = (
@@ -137,6 +138,60 @@ describe('command palette targets', () => {
     // The reader closed: only the disabled placeholder remains.
     registry.register(reader, [placeholder]);
     expect(offeredCommand(registry.getSnapshot(), opened)).toBeUndefined();
+  });
+
+  it('runs a waited-for command once its own message offers it enabled, until a later wait or a minute passes', () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const registry = createCommandRegistry();
+    const reader = Symbol('reader');
+    const runs: string[] = [];
+    const reply = (id: string, disabled?: string) =>
+      command({
+        id: 'reply',
+        section: 'selection',
+        title: 'Reply',
+        target: { id, subject: 'Saturday' },
+        disabled,
+        run: () => {
+          runs.push(id);
+        },
+      });
+    runWhenOffered(registry, { id: 'reply', target: 'inbox-1\nm1' });
+    // Another message, then the message while its reader is still starting a response.
+    registry.register(reader, [reply('inbox-1\nm2')]);
+    registry.register(reader, [
+      reply('inbox-1\nm1', 'Already opening a draft'),
+    ]);
+    registry.register(reader, [reply('inbox-1\nm1')]);
+    registry.register(reader, [reply('inbox-1\nm1')]);
+    expect(runs).toStrictEqual(['inbox-1\nm1']);
+
+    // A later wait replaces an earlier one.
+    runWhenOffered(registry, { id: 'reply', target: 'inbox-1\nm3' });
+    runWhenOffered(registry, { id: 'reply', target: 'inbox-1\nm4' });
+    registry.register(reader, [reply('inbox-1\nm3')]);
+    registry.register(reader, [reply('inbox-1\nm4')]);
+    expect(runs).toStrictEqual(['inbox-1\nm1', 'inbox-1\nm4']);
+
+    // A message opened a minute later starts no reply.
+    runWhenOffered(registry, { id: 'reply', target: 'inbox-1\nm5' });
+    vi.advanceTimersByTime(60_000);
+    registry.register(reader, [reply('inbox-1\nm5')]);
+    expect(runs).toStrictEqual(['inbox-1\nm1', 'inbox-1\nm4']);
+    // A replacement connection can reuse the same mailbox/message target, but not its ownership.
+    let current = true;
+    runWhenOffered(registry, {
+      id: 'reply',
+      target: 'inbox-1\nm6',
+      current: () => current,
+    });
+    current = false;
+    registry.register(reader, [reply('inbox-1\nm6')]);
+    current = true;
+    registry.register(reader, [reply('inbox-1\nm6')]);
+    expect(runs).toStrictEqual(['inbox-1\nm1', 'inbox-1\nm4']);
+    vi.useRealTimers();
   });
 
   it('notifies subscribers as owners register and leave', () => {

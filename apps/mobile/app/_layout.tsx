@@ -1,5 +1,9 @@
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
+import {
+  commandTarget,
+  runWhenOffered,
+} from '@private-email/mail-core/commands';
 import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
@@ -20,7 +24,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  useCommandRegistry,
+  useCommandPalette,
+} from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
@@ -67,6 +75,44 @@ if (!previewInbox) {
 void scheduleGmailFreshness();
 pollGmailWhileActive();
 
+// A tapped New Mail Notification opens its message once Registration admits the shell; its Reply
+// then starts a reply as soon as the message's reader offers one.
+function OpenedNotifications() {
+  const leave = useLeaveComposer();
+  const registry = useCommandRegistry();
+  const { close } = useCommandPalette();
+  useEffect(() => {
+    if (!previewInbox) {
+      return followOpenedNotifications(native(), '', {
+        snapshot: () => registration.getSnapshot().snapshot,
+        leave,
+        open: (target, reply, current) => {
+          close();
+          router.navigate({
+            pathname: '/message/[id]',
+            params: {
+              id: target.id,
+              mailbox: target.mailbox,
+              profileId: target.profile,
+            },
+          });
+          if (reply) {
+            runWhenOffered(registry, {
+              id: 'reply',
+              target: commandTarget(target.mailbox, {
+                id: target.id,
+                subject: '',
+              }).id,
+              current,
+            });
+          }
+        },
+      });
+    }
+  }, [leave, registry, close]);
+  return null;
+}
+
 // Presentation choices live below ProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
@@ -105,26 +151,6 @@ function MailShell() {
   // raised the keyboard. A composer opened there starts without a keyboard, since one closed with
   // its keyboard up hears no hide; a conflict copy replacing the Draft in place keeps it.
   const [keyboardTop, setKeyboardTop] = useState<number>();
-  const leave = useLeaveComposer();
-  // A tapped New Mail Notification opens its message once Registration admits the shell.
-  useEffect(() => {
-    if (!previewInbox) {
-      return followOpenedNotifications(native(), '', {
-        snapshot: () => registration.getSnapshot().snapshot,
-        leave,
-        open: (target) => {
-          router.navigate({
-            pathname: '/message/[id]',
-            params: {
-              id: target.id,
-              mailbox: target.mailbox,
-              profileId: target.profile,
-            },
-          });
-        },
-      });
-    }
-  }, [leave]);
   const listening = regular || draft !== undefined;
   const [wasListening, setWasListening] = useState(listening);
   if (wasListening !== listening) {
@@ -211,7 +237,7 @@ function MailShell() {
   }
 
   return (
-    <CommandPaletteProvider>
+    <>
       <StatusBar style="auto" />
       <View
         testID="mail-shell"
@@ -394,7 +420,7 @@ function MailShell() {
           </View>
         )}
       </View>
-    </CommandPaletteProvider>
+    </>
   );
 }
 
@@ -405,9 +431,12 @@ export default function RootLayout() {
   return (
     <RegistrationGate>
       <InboxProvider>
-        <ProfileScope profile={readingProfile(profileId)}>
-          <MailShell />
-        </ProfileScope>
+        <CommandPaletteProvider>
+          <OpenedNotifications />
+          <ProfileScope profile={readingProfile(profileId)}>
+            <MailShell />
+          </ProfileScope>
+        </CommandPaletteProvider>
       </InboxProvider>
     </RegistrationGate>
   );

@@ -3,7 +3,11 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
-import { mailboxesOf } from '../src/registration.ts';
+import {
+  defaultProfile,
+  mailboxesOf,
+  profilesOf,
+} from '../src/registration.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -49,6 +53,27 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   // This device's notification permission and previews, and what it posted.
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
+  const titles: unknown[] = [];
+  // Archive and Mark as Read native code queued for JavaScript; each send settles once completed.
+  const queued: unknown[] = [];
+  let reading: ((action: unknown) => void) | undefined = undefined;
+  const completions = new Map<string, () => void>();
+  const notificationActions = {
+    send: (action: Readonly<Record<string, string> & { id: string }>) => {
+      const completed = Promise.withResolvers<undefined>();
+      completions.set(action.id, () => {
+        completed.resolve(undefined);
+      });
+      const reader = reading;
+      reading = undefined;
+      if (reader === undefined) {
+        queued.push(action);
+      } else {
+        reader(action);
+      }
+      return completed.promise;
+    },
+  };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
@@ -104,13 +129,25 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       return Promise.resolve({ ...device });
     },
     openNotificationSettings: () => Promise.resolve(null),
-    postNotifications: (posted) => {
+    postNotifications: (posted, actions) => {
       notified.push(...posted);
+      titles.push(actions);
       return Promise.resolve(null);
     },
     nextOpenedNotification: () => Promise.withResolvers<unknown>().promise,
     stopOpenedNotifications: () => Promise.resolve(null),
     restoreOpenedNotification: () => Promise.resolve(null),
+    nextNotificationAction: () => {
+      if (queued.length > 0) {
+        return Promise.resolve(queued.shift());
+      }
+      const next = Promise.withResolvers<unknown>();
+      reading = next.resolve;
+      return next.promise;
+    },
+    completeNotificationAction: (id) => {
+      completions.get(id)?.();
+    },
   };
   const host = createHost(
     () => {
@@ -127,6 +164,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     cancelled,
     counts,
     notified,
+    titles,
+    notificationActions,
     settingsGate,
   };
 }
@@ -154,7 +193,7 @@ describe('the host assembly', () => {
 
   it('posts New Mail Notifications only for a connection turned on, with generic content until previews are chosen', async () => {
     expect.hasAssertions();
-    const { host, gmail, notified } = syntheticHost(undefined, true);
+    const { host, gmail, notified, titles } = syntheticHost(undefined, true);
     await host.registration.register('google');
     await host.registration.addMailbox();
     await host.gmailMailboxes.load();
@@ -190,11 +229,12 @@ describe('the host assembly', () => {
     expect(notified).toStrictEqual([
       {
         id: `${connection}.${generic}`,
-        title: 'New Mail',
-        body: '',
+        title: '',
+        body: 'New mail',
         connection,
         message: generic,
         ...scope,
+        profile: defaultProfile,
         previews: false,
       },
       {
@@ -204,9 +244,16 @@ describe('the host assembly', () => {
         connection,
         message: previewed,
         ...scope,
+        profile: defaultProfile,
         previews: true,
       },
     ]);
+    // Every notification offers Reply, Archive and Mark as Read.
+    expect(titles[0]).toStrictEqual({
+      reply: 'Reply',
+      archive: 'Archive',
+      read: 'Mark as Read',
+    });
 
     // Turned off again, the connection posts nothing.
     await host.registration.notifyMailbox(connection, false);
@@ -215,7 +262,68 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(2);
   });
 
-  it('posts nothing for a connection turned off or removed while posting waited', async () => {
+  it('archives or marks as read the message a notification names after a cold launch, only while its connection is the one it named', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notificationActions } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    const archived = gmail.deliver({ subject: 'Archive me', unread: true });
+    const read = gmail.deliver({ subject: 'Read me', unread: true });
+    const kept = gmail.deliver({ subject: 'Keep me', unread: true });
+    await host.gmailMailboxes.load();
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    const named = {
+      account: 'account-synthetic-product-subject',
+      connection: mailbox.id,
+      epoch: required(mailbox.epoch),
+    };
+    // A notification can launch a fresh host before Registration restores the saved account.
+    const launched = createHost(() => native);
+    expect(launched.registration.getSnapshot().snapshot.kind).toBe(
+      'signed-out',
+    );
+    launched.followNotificationActions();
+
+    await notificationActions.send({
+      id: 'archive',
+      ...named,
+      message: archived,
+      action: 'archive',
+    });
+    await notificationActions.send({
+      id: 'read',
+      ...named,
+      message: read,
+      action: 'read',
+    });
+    // A recreated connection or another Product Account acts on nothing, and still completes.
+    await notificationActions.send({
+      id: 'recreated',
+      ...named,
+      epoch: 'another incarnation',
+      message: kept,
+      action: 'archive',
+    });
+    await notificationActions.send({
+      id: 'other account',
+      ...named,
+      account: 'another account',
+      message: kept,
+      action: 'read',
+    });
+    expect(gmail.labelsOf(archived)).not.toContain('INBOX');
+    expect(gmail.labelsOf(read)).not.toContain('UNREAD');
+    expect(gmail.labelsOf(kept)).toStrictEqual(
+      expect.arrayContaining(['INBOX', 'UNREAD']),
+    );
+  });
+
+  it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {
     expect.hasAssertions();
     const { host, gmail, notified, settingsGate } = syntheticHost(
       undefined,
@@ -250,7 +358,26 @@ describe('the host assembly', () => {
     gate.release();
     await loading;
 
+    // Moved to another Profile meanwhile, it groups with that Profile's notifications.
     await host.registration.notifyMailbox(connection, true);
+    await host.notifications.setPreviews(true);
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    gate = held();
+    gmail.deliver({ subject: 'Moved meanwhile' });
+    loading = host.gmailMailboxes.load();
+    await gate.started;
+    await host.registration.moveMailbox(connection, work);
+    gate.release();
+    await loading;
+    expect(notified).toStrictEqual([
+      expect.objectContaining({ body: 'Moved meanwhile', profile: work }),
+    ]);
+
     gate = held();
     gmail.deliver({ subject: 'Removed meanwhile' });
     loading = host.gmailMailboxes.load();
@@ -258,7 +385,7 @@ describe('the host assembly', () => {
     await host.registration.removeMailbox(connection);
     gate.release();
     await loading;
-    expect(notified).toStrictEqual([]);
+    expect(notified).toHaveLength(1);
   });
 
   it('keeps a background freshness opportunity alive until notification posting settles', async () => {

@@ -491,6 +491,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `notifications.ts.createNotifications.arrived` capturing mutable Mail Profile
+  ownership before awaiting device settings. Resolve the connection's current
+  Profile after that wait, alongside the account/incarnation/eligibility recheck,
+  before constructing the posted payload. Exercise a Profile move while settings
+  are held through the public host; otherwise an eligible connection's new mail
+  groups under its former Profile even though its account and incarnation match.
+
 - `gmail-inbox.ts` reporting every replayed `messagesAdded` as a new arrival.
   Interrupted view listings can rewind the shared history checkpoint. Preserve
   the already-considered arrival boundary through commits, rebases and relaunch,

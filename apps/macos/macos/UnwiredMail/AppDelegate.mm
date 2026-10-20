@@ -73,8 +73,15 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [self recordLifecycle:@"launch"];
   // Ad-hoc builds lack the APNs entitlement; registration fails there and the interval poll remains.
   [NSApp registerForRemoteNotifications];
-  [self newWindow:nil];
-  [NSApp activateIgnoringOtherApps:YES];
+  // Every launch opens an Inbox window except one from a notification, which starts JavaScript
+  // without a window: Archive and Mark as Read act headless, and a tap or Reply opens one. The
+  // default-launch key would also leave a relaunch that restores saved state without a window.
+  if (notification.userInfo[NSApplicationLaunchUserNotificationKey] == nil) {
+    [self newWindow:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+  } else {
+    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil];
+  }
 }
 
 - (void)application:(NSApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken

@@ -6,8 +6,9 @@ Setup, coding rules, validation and observable requirements remain in this file.
 Notifications** to the maintained iPhone, iPad and Mac clients: a device-evaluated
 alert for genuinely new Inbox mail from a Mailbox Connection the person turned on.
 The vocabulary lives in the [privacy and sync glossary](domain/privacy-and-sync.md).
-No categorization runs: #652 adds Category eligibility, #853 adds quiet hours and
-sender or rule filtering, and #908 restyles content, grouping and actions.
+No categorization runs: #652 adds Category eligibility and #853 adds quiet hours and
+sender or rule filtering. [#908](https://github.com/unwired-dev/product/issues/908)
+matches content, grouping and actions to the design.
 
 ## Settings
 
@@ -16,8 +17,8 @@ sender or rule filtering, and #908 restyles content, grouping and actions.
 - **On This Device** shows the operating system's permission: Allowed, Off with
   **Open Settings…** (the system's notification settings for the app), or
   **Allow…**, which asks once. **Show Sender and Subject** is off by default; until
-  it is turned on, every notification reads only "New Mail". Permission and this
-  choice belong to this device and never synchronize.
+  it is turned on, every notification shows only the app's name and "New mail".
+  Permission and this choice belong to this device and never synchronize.
 - **Per Mailbox** has a switch for each Gmail Mailbox Connection. Every connection
   starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -56,6 +57,25 @@ finishing the operating system's opportunity.
 Removing a connection withdraws its delivered notifications; signing out or a purge
 withdraws all of them.
 
+## How a notification looks
+
+With previews on, the sender is the title (the address when the sender has no name)
+and the subject is the body ("No subject" when empty). With previews off there is no
+title, so the system shows the app's name, and the body reads "New mail". Each
+notification groups with the others of its connection's Mail Profile; the system
+draws the group and its summary.
+
+Every notification offers **Reply**, **Archive** and **Mark as Read**, with the SF
+Symbols the reader uses, in the design's order: Reply first on iPhone and iPad,
+Archive first on the Mac. Archive and Mark as Read ask to unlock the device first,
+because protected storage is closed while it is locked, then act without opening
+the app: once registration verifies, the message the notification names is
+organized through the same queued Gmail change as the reader's toolbar, while its
+connection keeps the same Product Account and incarnation. The system's handler
+finishes when that change is saved, or after 25 seconds; a change still queued is
+sent at the next opportunity. A message no longer listed, or a connection that is
+gone or recreated, changes nothing.
+
 ## Opening a notification
 
 On iPhone and iPad a tap opens the message in its connection's current Mail Profile
@@ -66,6 +86,12 @@ navigating and recheck the destination afterwards. A connection that is gone,
 belongs to another account, has been recreated, or whose Profile is unknown, opens nothing.
 Native code queues a tap that launches the app until JavaScript reads it.
 An authorization screen retains that tap until the mail shell can receive it.
+**Reply** opens the message the same way, then starts a reply as soon as the reader
+offers one, as its own Reply button would. It rechecks the originating Product Account
+and connection incarnation before starting, and stops waiting after a minute, when that
+ownership changes, or when a later Reply in the same window replaces it. A Mac launch
+from a notification starts without a window: Archive and Mark as Read act without one,
+and a tap or Reply opens one. Every other launch opens an Inbox window as before.
 
 ## Validate
 
@@ -73,8 +99,11 @@ An authorization screen retains that tap until the mail shell can receive it.
 commit ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 `host.test.ts` covers gating, background completion, permission and generic and preview
 content. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
-writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards
-and retired readers. The app suites cover both
+writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
+retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
+as Read, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
-delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, needs a
-build with APNs and a protected Gmail mailbox. It stays a required release check.
+delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
+appearance and grouping, and each action from a locked device and with the app not
+running, needs a build with APNs and a protected Gmail mailbox. It stays a required
+release check.

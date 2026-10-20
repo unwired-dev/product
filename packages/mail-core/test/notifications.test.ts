@@ -1,3 +1,4 @@
+import { english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
 import type {
@@ -5,6 +6,12 @@ import type {
   OpenedNotification,
 } from '../src/notifications.ts';
 
+import {
+  commandTarget,
+  createCommandRegistry,
+  responseCommands,
+  runWhenOffered,
+} from '../src/commands.ts';
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   followOpenedNotifications,
@@ -182,20 +189,48 @@ describe('opening a tapped New Mail Notification', () => {
 
     snapshot = connected([{ id: 'work', profile: 'p-work' }]);
     const delivered = Promise.withResolvers<undefined>();
+    const registry = createCommandRegistry();
+    const replies: string[] = [];
     const stopLast = followOpenedNotifications(native, 'window', {
       snapshot: () => snapshot,
       leave: navigation.leave,
-      open: (target) => {
-        destinations.push(target);
+      open: (target, reply, current) => {
+        destinations.push({ ...target, reply });
+        runWhenOffered(registry, {
+          id: 'reply',
+          target: commandTarget(target.mailbox, { id: target.id, subject: '' })
+            .id,
+          current,
+        });
         delivered.resolve(undefined);
       },
     });
-    send(opened);
+    // The notification's Reply opens the message to reply to it.
+    send({ ...opened, action: 'reply' });
     await delivered.promise;
     stopLast();
+    // Reconnecting the same mailbox can reuse its IDs but changes the incarnation while Reply waits.
+    snapshot = connected([
+      { id: 'work', profile: 'p-work', epoch: 'recreated' },
+    ]);
+    registry.register(
+      Symbol('replacement reader'),
+      responseCommands(
+        english,
+        commandTarget('work', { id: '1a', subject: '' }),
+        {
+          starting: false,
+          start: (kind) => {
+            replies.push(kind);
+            return Promise.resolve();
+          },
+        },
+      ),
+    );
+    expect(replies).toStrictEqual([]);
 
     expect(destinations).toStrictEqual([
-      { id: '1a', mailbox: 'work', profile: 'p-work' },
+      { id: '1a', mailbox: 'work', profile: 'p-work', reply: true },
     ]);
   });
 });

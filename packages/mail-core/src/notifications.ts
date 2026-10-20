@@ -4,10 +4,13 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { GmailInbox } from './gmail-inbox.ts';
 import type { GmailMessage } from './mailbox-message.ts';
 import type { RegistrationSnapshot } from './registration-snapshot.ts';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { gmailAction } from './gmail-actions.ts';
+import { listedMessage } from './gmail-inbox.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
 import { createSubscribable } from './subscribable.ts';
 
@@ -27,21 +30,41 @@ const Mailbox = Schema.Struct({
 });
 export type NotificationMailbox = typeof Mailbox.Type;
 
-// A tapped notification retains its account and connection incarnation.
+// A tapped notification retains its account and connection incarnation. Its Reply action opens
+// the message to reply to it.
 const Opened = Schema.Struct({
   ...Mailbox.fields,
   message: Schema.NonEmptyString,
+  action: Schema.optional(Schema.Literal('reply')),
 });
 export type OpenedNotification = typeof Opened.Type;
 
-type Posted = OpenedNotification &
+// Archive or Mark as Read, chosen on a notification without opening the application. Native code
+// finishes the system's handler once `id` completes.
+const Action = Schema.Struct({
+  ...Mailbox.fields,
+  message: Schema.NonEmptyString,
+  id: Schema.NonEmptyString,
+  action: Schema.Literals(['archive', 'read']),
+});
+
+// The connection's current Mail Profile groups its notifications; it is read just before posting,
+// since the connection can move to another Profile meanwhile.
+type Arrival = NotificationMailbox &
+  Readonly<{ profile: () => string | undefined }>;
+
+type Posted = Omit<OpenedNotification, 'action'> &
   Readonly<{
     // Stable presentation identity; Gmail history suppresses replay before posting.
     id: string;
     title: string;
     body: string;
     previews: boolean;
+    profile: string;
   }>;
+
+// The notification actions' titles, in this device's language.
+type ActionTitles = Readonly<Record<'reply' | 'archive' | 'read', string>>;
 
 // The native host's notification permission, preview choice, posting and taps.
 export interface NativeNotifications {
@@ -53,6 +76,7 @@ export interface NativeNotifications {
   readonly openNotificationSettings: () => Promise<unknown>;
   readonly postNotifications: (
     notifications: readonly Posted[],
+    actions: ActionTitles,
   ) => Promise<unknown>;
   // The next tapped notification, or null once a reloaded JavaScript context replaced this
   // reader. On the Mac, `window` names the window asking; the key window's reader goes first.
@@ -67,6 +91,10 @@ export interface NativeNotifications {
   readonly restoreOpenedNotification: (
     opened: OpenedNotification,
   ) => Promise<unknown>;
+  // The next Archive or Mark as Read, or null once a reloaded JavaScript context replaced this
+  // reader.
+  readonly nextNotificationAction: () => Promise<unknown>;
+  readonly completeNotificationAction: (id: string) => void;
 }
 
 // A native call that failed; its cause is logged only as a diagnostic.
@@ -99,7 +127,8 @@ const logged = (
     ),
   );
 
-// Generic content unless this device chose previews.
+// Generic content unless this device chose previews. Without a title the system shows the
+// application's name.
 export const notificationContent = (
   t: Translate,
   previews: boolean,
@@ -110,7 +139,7 @@ export const notificationContent = (
         title: sender === '' ? address : sender,
         body: subject === '' ? t('notifications.noSubject') : subject,
       }
-    : { title: t('notifications.newMail'), body: '' };
+    : { title: '', body: t('notifications.newMail') };
 
 // This device's notification settings for Settings, and the New Mail Notifications it posts once
 // a connection's synchronization commits new Inbox mail. The caller has already checked that the
@@ -121,6 +150,8 @@ export function createNotifications(
     | 'nextOpenedNotification'
     | 'stopOpenedNotifications'
     | 'restoreOpenedNotification'
+    | 'nextNotificationAction'
+    | 'completeNotificationAction'
   >,
   translate: () => Translate,
 ) {
@@ -170,7 +201,7 @@ export function createNotifications(
     // `eligible` is checked again after reading the settings, just before posting: the
     // connection may have been removed or turned off meanwhile.
     arrived: (
-      mailbox: NotificationMailbox,
+      { profile: currentProfile, ...mailbox }: Arrival,
       messages: readonly GmailMessage[],
       eligible: () => boolean,
     ) =>
@@ -182,7 +213,12 @@ export function createNotifications(
             const current = yield* settingsOf(() =>
               native.notificationSettings(),
             );
-            if (current.authorization !== 'authorized' || !eligible()) {
+            const profile = currentProfile();
+            if (
+              current.authorization !== 'authorized' ||
+              !eligible() ||
+              profile === undefined
+            ) {
               return;
             }
             const t = translate();
@@ -192,9 +228,15 @@ export function createNotifications(
                   id: `${mailbox.connection}.${message.id}`,
                   ...notificationContent(t, current.previews, message),
                   ...mailbox,
+                  profile,
                   message: message.id,
                   previews: current.previews,
                 })),
+                {
+                  reply: t('contextMenu.reply'),
+                  archive: t('contextMenu.archive'),
+                  read: t('contextMenu.read'),
+                },
               ),
             );
           }),
@@ -208,7 +250,12 @@ export function createNotifications(
 // opens nothing.
 export const openedTarget = (
   account: RegistrationSnapshot,
-  { account: owner, connection, epoch, message }: OpenedNotification,
+  {
+    account: owner,
+    connection,
+    epoch,
+    message,
+  }: Omit<OpenedNotification, 'action'>,
 ) => {
   if (account.kind === 'signed-out' || account.productAccountId !== owner) {
     return undefined;
@@ -222,7 +269,8 @@ export const openedTarget = (
 };
 
 // Hands each tapped notification to `open`, one at a time, until a reloaded JavaScript context
-// replaces this reader. A malformed reply ends nothing: it is skipped.
+// replaces this reader; `reply` asks the opened message for a reply. A malformed reply ends
+// nothing: it is skipped.
 let nextReader = 0;
 export function followOpenedNotifications(
   native: Pick<
@@ -241,6 +289,8 @@ export function followOpenedNotifications(
     leave: () => Promise<boolean>;
     open: (
       target: Readonly<NonNullable<ReturnType<typeof openedTarget>>>,
+      reply: boolean,
+      current: () => boolean,
     ) => void;
   }>,
 ) {
@@ -255,7 +305,11 @@ export function followOpenedNotifications(
       const target =
         allowed && !stopped ? openedTarget(snapshot(), opened) : undefined;
       if (target !== undefined) {
-        open(target);
+        open(
+          target,
+          opened.action === 'reply',
+          () => openedTarget(snapshot(), opened) !== undefined,
+        );
       }
     }
     if (stopped) {
@@ -295,4 +349,72 @@ export function followOpenedNotifications(
     stopped = true;
     void stop();
   };
+}
+
+// Archives or marks as read each message chosen on a notification, one at a time, until a reloaded
+// JavaScript context replaces this reader. Each acts once registration verifies, while the
+// connection is still the one the notification named, through the same queued provider change as
+// the reader's toolbar; one that cannot act is still completed.
+export async function followNotificationActions(
+  native: Pick<
+    NativeNotifications,
+    'nextNotificationAction' | 'completeNotificationAction'
+  >,
+  {
+    snapshot,
+    verify,
+    inbox,
+  }: Readonly<{
+    snapshot: () => RegistrationSnapshot;
+    verify: (
+      load: () => Promise<void>,
+      mailboxLoading: 'explicit',
+    ) => Promise<void>;
+    // The Gmail connection's open Inbox.
+    inbox: (connection: string) => GmailInbox | undefined;
+  }>,
+) {
+  for (;;) {
+    let received: unknown = null;
+    try {
+      received = await native.nextNotificationAction();
+    } catch {
+      // A host without notifications, such as a test renderer, has nothing to follow.
+    }
+    if (received === null) {
+      return;
+    }
+    // Native code finishes a malformed action's handler at its deadline.
+    const decoded = Schema.decodeUnknownOption(Action)(received);
+    if (Option.isSome(decoded)) {
+      const { id, action, ...opened } = decoded.value;
+      try {
+        await verify(async () => {
+          // Read after verification, which restores a cold host or removes a stale connection.
+          const target = openedTarget(snapshot(), opened);
+          const open = target === undefined ? undefined : inbox(target.mailbox);
+          if (target === undefined || open === undefined) {
+            return;
+          }
+          await open.load();
+          const state = open.getSnapshot();
+          const message =
+            state.kind === 'ready'
+              ? listedMessage(state, target.id)
+              : undefined;
+          if (message !== undefined) {
+            await open.organize(message, gmailAction[action]);
+          }
+        }, 'explicit');
+      } catch (error) {
+        await runLogged(
+          Effect.logError(
+            'Notification action failed',
+            rejectionDiagnostic(error),
+          ),
+        );
+      }
+      native.completeNotificationAction(id);
+    }
+  }
 }

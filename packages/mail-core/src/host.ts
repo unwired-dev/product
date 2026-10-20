@@ -22,7 +22,10 @@ import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
 import { createMailboxes } from './mailboxes.ts';
-import { createNotifications } from './notifications.ts';
+import {
+  createNotifications,
+  followNotificationActions,
+} from './notifications.ts';
 import { createOutbox } from './outbox.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
@@ -238,7 +241,8 @@ export function createHost(
       setNotificationPreviews: (previews) =>
         native().setNotificationPreviews(previews),
       openNotificationSettings: () => native().openNotificationSettings(),
-      postNotifications: (posted) => native().postNotifications(posted),
+      postNotifications: (posted, actions) =>
+        native().postNotifications(posted, actions),
     },
     translate,
   );
@@ -404,6 +408,7 @@ export function createHost(
 
   let started: Promise<unknown> | undefined = undefined;
   let following = false;
+  let followingActions = false;
   return {
     registration,
     gmailMailboxes,
@@ -429,6 +434,30 @@ export function createHost(
       if (!following) {
         following = true;
         void followWakes(freshness, wakes);
+      }
+    },
+    // Reads Archive and Mark as Read chosen on notifications for the life of the process.
+    followNotificationActions: () => {
+      if (!followingActions) {
+        followingActions = true;
+        void followNotificationActions(
+          {
+            nextNotificationAction: () => native().nextNotificationAction(),
+            completeNotificationAction: (id) => {
+              native().completeNotificationAction(id);
+            },
+          },
+          {
+            snapshot: () => registration.getSnapshot().snapshot,
+            verify: registration.refreshInbox,
+            inbox: (connection) => {
+              const mailbox = gmailMailboxes
+                .getSnapshot()
+                .find(({ id }) => id === connection);
+              return mailbox?.provider === 'gmail' ? mailbox.inbox : undefined;
+            },
+          },
+        );
       }
     },
   };

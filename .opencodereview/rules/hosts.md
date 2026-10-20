@@ -9,6 +9,13 @@ replaces it.
 
 #### The host stays thin
 
+- Process-owned notification action followers started only in a Router layout,
+  component or window. Trace `index.js` imports to `followNotificationActions`
+  on both hosts, including mobile headless launches that mount no layout. Exercise
+  an action queued before importing the real entry and assert the provider change
+  before any view or background refresh task runs; otherwise cold Archive and
+  Mark as Read expire without acting despite passing direct-follower tests.
+
 - Application-entry `delivery.ts` skipping the Outbox lifecycle owner behind
   `previewInbox` or another build-mode guard while `createHost` starts it paused.
   Every eligible registered session needs the same application-owned execution,

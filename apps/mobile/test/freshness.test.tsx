@@ -1,6 +1,9 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -49,7 +52,7 @@ const ownerOf = (snapshot: RegistrationSnapshot) =>
 
 describe('headless Gmail freshness', () => {
   /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
-  it('restores mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
+  it('archives notification mail and settles a push wake on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
     expect.hasAssertions();
     const { vault } = createSyntheticVault();
     const flow = createRegistration(vault);
@@ -61,11 +64,13 @@ describe('headless Gmail freshness', () => {
     });
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
+    const archived = gmail.deliver({ subject: 'Archive from notification' });
     const id = syntheticMailboxes['alex@example.invalid'];
     // The host's APNs queue: the entry reads each wake and completes it with its outcome.
     const pushedWake = Promise.withResolvers<unknown>();
     const replaced = Promise.withResolvers<unknown>();
     const completeWake = jest.fn<undefined, [string, string]>();
+    const completeNotificationAction = jest.fn<undefined, [string]>();
     const native = {
       getConstants: () => ({}),
       ...vault,
@@ -83,6 +88,19 @@ describe('headless Gmail freshness', () => {
         complete: true,
       }),
       completeWake,
+      nextNotificationAction: jest
+        .fn<Promise<unknown>, []>()
+        .mockResolvedValueOnce({
+          id: 'archive-1',
+          account: ownerOf(snapshot),
+          connection: id,
+          epoch: mailboxesOf(snapshot).find((mailbox) => mailbox.id === id)
+            ?.epoch,
+          message: archived,
+          action: 'archive',
+        })
+        .mockResolvedValue(null),
+      completeNotificationAction,
     };
     const bridge = jest
       .spyOn(TurboModuleRegistry, 'getEnforcing')
@@ -95,6 +113,11 @@ describe('headless Gmail freshness', () => {
       try {
         // The entry must define the task without requiring or rendering _layout.
         jest.requireActual('../index.js');
+        // A queued notification acts before any background refresh task or view runs.
+        await waitFor(() => {
+          expect(completeNotificationAction).toHaveBeenCalledWith('archive-1');
+        });
+        expect(gmail.labelsOf(archived)).not.toContain('INBOX');
         const definition = jest
           .mocked(defineTask)
           .mock.calls.find(

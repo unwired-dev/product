@@ -191,6 +191,61 @@ export const offeredCommand = (live: readonly Command[], opened: Command) => {
     : undefined;
 };
 
+// Each registry's command waiting to be offered.
+const waiting = new WeakMap<object, () => void>();
+
+/**
+ * Runs a command once the mounted screens offer it, enabled, for one message,
+ * as a notification's Reply waits for its message's reader. A later wait on the
+ * same registry replaces this one, and waiting ends after a minute.
+ *
+ * @param {object} registry The window's command registry.
+ * @param {CommandId} id The command.
+ * @param {string} target The message, as `commandTarget` names it.
+ * @param {Function} current Whether the originating owner still admits the
+ *   command.
+ */
+export const runWhenOffered = (
+  registry: Pick<CommandRegistry, 'subscribe' | 'getSnapshot'>,
+  {
+    id,
+    target,
+    current = () => true,
+  }: Readonly<{
+    id: CommandId;
+    target: string;
+    current?: () => boolean;
+  }>,
+) => {
+  waiting.get(registry)?.();
+  let unsubscribe: (() => void) | undefined = undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const stop = () => {
+    clearTimeout(timer);
+    unsubscribe?.();
+  };
+  const attempt = () => {
+    if (!current()) {
+      stop();
+      return;
+    }
+    const offered = mergeCommands(registry.getSnapshot()).find(
+      (command) =>
+        command.id === id &&
+        command.target?.id === target &&
+        command.disabled === undefined,
+    );
+    if (offered?.run !== undefined) {
+      stop();
+      void offered.run();
+    }
+  };
+  unsubscribe = registry.subscribe(attempt);
+  timer = setTimeout(stop, 60_000);
+  waiting.set(registry, stop);
+  attempt();
+};
+
 /**
  * The commands the mounted screens can run now, by the component that owns each
  * set; a store for the host's palette.

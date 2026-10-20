@@ -8,7 +8,12 @@ import {
 import { defineTask } from 'expo-task-manager';
 import { AppState } from 'react-native';
 
-import { followWakes, freshness, gmailMailboxes } from './registration.ts';
+import {
+  followNotificationActions,
+  followWakes,
+  freshness,
+  gmailMailboxes,
+} from './registration.ts';
 
 const task = 'dev.unwired.mail.gmail-freshness';
 
@@ -30,6 +35,8 @@ defineTask(task, async () => {
 // only its routed mailbox once registration verifies.
 if (!previewInbox) {
   followWakes();
+  // Likewise Archive and Mark as Read chosen on a notification, without opening the app.
+  followNotificationActions();
 }
 
 export const scheduleGmailFreshness = async () => {
