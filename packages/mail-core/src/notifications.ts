@@ -48,8 +48,10 @@ const Action = Schema.Struct({
   action: Schema.Literals(['archive', 'read']),
 });
 
-// The connection's Mail Profile groups its notifications.
-type Arrival = NotificationMailbox & Readonly<{ profile: string }>;
+// The connection's current Mail Profile groups its notifications; it is read just before posting,
+// since the connection can move to another Profile meanwhile.
+type Arrival = NotificationMailbox &
+  Readonly<{ profile: () => string | undefined }>;
 
 type Posted = Omit<OpenedNotification, 'action'> &
   Readonly<{
@@ -199,7 +201,7 @@ export function createNotifications(
     // `eligible` is checked again after reading the settings, just before posting: the
     // connection may have been removed or turned off meanwhile.
     arrived: (
-      mailbox: Arrival,
+      { profile: currentProfile, ...mailbox }: Arrival,
       messages: readonly GmailMessage[],
       eligible: () => boolean,
     ) =>
@@ -211,7 +213,12 @@ export function createNotifications(
             const current = yield* settingsOf(() =>
               native.notificationSettings(),
             );
-            if (current.authorization !== 'authorized' || !eligible()) {
+            const profile = currentProfile();
+            if (
+              current.authorization !== 'authorized' ||
+              !eligible() ||
+              profile === undefined
+            ) {
               return;
             }
             const t = translate();
@@ -221,6 +228,7 @@ export function createNotifications(
                   id: `${mailbox.connection}.${message.id}`,
                   ...notificationContent(t, current.previews, message),
                   ...mailbox,
+                  profile,
                   message: message.id,
                   previews: current.previews,
                 })),

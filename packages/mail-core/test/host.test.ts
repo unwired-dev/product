@@ -3,7 +3,11 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
-import { defaultProfile, mailboxesOf } from '../src/registration.ts';
+import {
+  defaultProfile,
+  mailboxesOf,
+  profilesOf,
+} from '../src/registration.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -319,7 +323,7 @@ describe('the host assembly', () => {
     );
   });
 
-  it('posts nothing for a connection turned off or removed while posting waited', async () => {
+  it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {
     expect.hasAssertions();
     const { host, gmail, notified, settingsGate } = syntheticHost(
       undefined,
@@ -354,7 +358,26 @@ describe('the host assembly', () => {
     gate.release();
     await loading;
 
+    // Moved to another Profile meanwhile, it groups with that Profile's notifications.
     await host.registration.notifyMailbox(connection, true);
+    await host.notifications.setPreviews(true);
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    gate = held();
+    gmail.deliver({ subject: 'Moved meanwhile' });
+    loading = host.gmailMailboxes.load();
+    await gate.started;
+    await host.registration.moveMailbox(connection, work);
+    gate.release();
+    await loading;
+    expect(notified).toStrictEqual([
+      expect.objectContaining({ body: 'Moved meanwhile', profile: work }),
+    ]);
+
     gate = held();
     gmail.deliver({ subject: 'Removed meanwhile' });
     loading = host.gmailMailboxes.load();
@@ -362,7 +385,7 @@ describe('the host assembly', () => {
     await host.registration.removeMailbox(connection);
     gate.release();
     await loading;
-    expect(notified).toStrictEqual([]);
+    expect(notified).toHaveLength(1);
   });
 
   it('keeps a background freshness opportunity alive until notification posting settles', async () => {
