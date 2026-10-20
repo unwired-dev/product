@@ -38,6 +38,7 @@ import {
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
+import type { ReaderPanel } from './organize.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import {
@@ -636,7 +637,7 @@ function ComposeButton({
     }
   };
   return (
-    <GlassGroup>
+    <GlassGroup pointerEvents="box-none">
       <ToolbarButton
         icon="square.and.pencil"
         label={t('drafts.newMessage')}
@@ -656,24 +657,51 @@ function MessageToolbar({
   folder,
   onClose,
   onCompose,
+  panel,
+  onPanel,
 }: {
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
   readonly folder: string | undefined;
   readonly onClose: (() => void) | undefined;
   readonly onCompose: ((id: string) => void) | undefined;
+  readonly panel: ReaderPanel | undefined;
+  readonly onPanel: (panel: ReaderPanel | undefined) => void;
 }) {
   const address = useMailbox()?.address;
   return (
     <MessageActions
       id={message.id}
       folder={folder}
-      onClose={onClose}>
+      onClose={onClose}
+      panel={panel}
+      onPanel={onPanel}>
       <ResponseActions
         key={`${address}:${message.id}`}
         message={message}
         onCompose={onCompose}
       />
     </MessageActions>
+  );
+}
+
+// While a toolbar panel is open, a tap outside it closes the panel and reaches nothing beneath.
+// The reader places it under its toolbar, which stays usable.
+function PanelDismissal({
+  panel,
+  onPanel,
+}: {
+  readonly panel: ReaderPanel | undefined;
+  readonly onPanel: (panel: ReaderPanel | undefined) => void;
+}) {
+  return panel === undefined ? null : (
+    <Pressable
+      accessible={false}
+      testID="reader-panel-dismissal"
+      onPress={() => {
+        onPanel(undefined);
+      }}
+      style={StyleSheet.absoluteFill}
+    />
   );
 }
 
@@ -864,6 +892,7 @@ function MailboxMessage({
   const account = use(AccountContext);
   const windowBar = use(WindowBarContext);
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
+  const [panel, setPanel] = useState<ReaderPanel>();
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
@@ -902,6 +931,8 @@ function MailboxMessage({
       folder={folder}
       onClose={onClose}
       onCompose={onCompose}
+      panel={panel}
+      onPanel={setPanel}
     />
   );
   return (
@@ -926,7 +957,14 @@ function MailboxMessage({
               onClose={onClose}
             />
           ) : null}
-          {compact ? null : <View style={styles.topToolbar}>{toolbar}</View>}
+          {compact ? null : (
+            <View
+              // Its empty width leaves taps to the panel dismissal beneath.
+              pointerEvents="box-none"
+              style={styles.topToolbar}>
+              {toolbar}
+            </View>
+          )}
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
             contentContainerStyle={[
@@ -946,11 +984,22 @@ function MailboxMessage({
               connection={mailbox?.id}
             />
           </ReaderScrollView>
+          <PanelDismissal
+            panel={panel}
+            onPanel={setPanel}
+          />
           {compact ? (
-            <View style={styles.bottomToolbar}>
-              <View style={styles.bottomActions}>{toolbar}</View>
+            <View
+              // The gaps between its groups leave taps to the panel dismissal beneath.
+              pointerEvents="box-none"
+              style={styles.bottomToolbar}>
+              <View
+                pointerEvents="box-none"
+                style={styles.bottomActions}>
+                {toolbar}
+              </View>
               {sender === undefined || onCompose === undefined ? null : (
-                <View>
+                <View pointerEvents="box-none">
                   <ComposeButton
                     mailbox={sender}
                     onCompose={onCompose}
