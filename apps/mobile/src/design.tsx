@@ -39,19 +39,29 @@ const NativeSymbol = requireNativeComponent<
 >('UnwiredSymbol');
 
 export const NativeGlass = requireNativeComponent<
-  ViewProps & { readonly cornerRadius: number }
+  ViewProps & { readonly cornerRadius: number; readonly interactive?: boolean }
 >('UnwiredGlass');
 
 export function Glass({
   cornerRadius,
+  interactive = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
+}: ViewProps & {
+  readonly cornerRadius: number;
+  // Controls inside interactive glass get the system press response, which may grow past its bounds.
+  readonly interactive?: boolean;
+}) {
   return (
     <NativeGlass
       {...props}
       cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+      interactive={interactive}
+      style={[
+        style,
+        { borderRadius: cornerRadius },
+        !interactive && { overflow: 'hidden' },
+      ]}
     />
   );
 }
@@ -156,6 +166,7 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  anchor: { alignSelf: 'flex-start', flexShrink: 1 },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
   toolbarButton: {
     minWidth: 44,
@@ -222,14 +233,20 @@ export function SFSymbol({
   readonly size?: number;
 }) {
   return (
-    <NativeSymbol
+    // Legacy-view interop drops a native child's layout offset inside another native view, such as glass.
+    <View
+      collapsable={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      name={name}
-      size={size}
-      color={color}
-      style={{ width: size, height: size }}
-    />
+      pointerEvents="none"
+      style={{ width: size, height: size }}>
+      <NativeSymbol
+        name={name}
+        size={size}
+        color={color}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
   );
 }
 
@@ -289,24 +306,24 @@ export function GlassGroup({
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
-  return (
+  const group = (
+    <Glass
+      interactive
+      cornerRadius={
+        typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+      }
+      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
+      {children}
+    </Glass>
+  );
+  // A popover anchor measures a plain host view.
+  return ref === undefined ? (
+    group
+  ) : (
     <View
       ref={ref}
-      style={[
-        styles.group,
-        {
-          boxShadow: colors.smallGlassShadow,
-          backgroundColor: colors.surfaceContent,
-        },
-        style,
-      ]}>
-      <Glass
-        cornerRadius={
-          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
-        }
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
+      style={styles.anchor}>
+      {group}
     </View>
   );
 }

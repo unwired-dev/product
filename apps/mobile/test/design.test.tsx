@@ -6,11 +6,26 @@ import {
   screen,
   within,
 } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, StyleSheet } from 'react-native';
 
 import type { usePalette } from '../src/theme.ts';
 
-import { Button, GlassPanel } from '../src/design.tsx';
+import {
+  Button,
+  Glass,
+  GlassGroup,
+  GlassPanel,
+  ToolbarButton,
+} from '../src/design.tsx';
+
+// The component's outermost host element.
+const renderedRoot = () => {
+  const { root } = screen;
+  if (root === null) {
+    throw new Error('Expected the component to render');
+  }
+  return root;
+};
 
 describe('design components', () => {
   it.each(['light', 'dark'] as const)(
@@ -110,5 +125,37 @@ describe('design components', () => {
     } finally {
       timing.mockRestore();
     }
+  });
+
+  it('puts grouped controls inside interactive glass that content shows through', async () => {
+    expect.hasAssertions();
+    const archive = jest.fn();
+    await render(
+      <GlassGroup>
+        <ToolbarButton
+          icon="archivebox"
+          label="Archive"
+          onPress={archive}
+        />
+      </GlassGroup>,
+    );
+    const material = renderedRoot();
+    expect(material).toHaveProp('interactive', true);
+    expect(material).not.toHaveStyle({ overflow: 'hidden' });
+    expect(StyleSheet.flatten(material.props.style)).not.toHaveProperty(
+      'backgroundColor',
+    );
+    await fireEvent.press(
+      within(material).getByRole('button', { name: 'Archive' }),
+    );
+    // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+    expect(archive).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps structural glass passive and clipped', async () => {
+    expect.hasAssertions();
+    await render(<Glass cornerRadius={22} />);
+    expect(screen.root).toHaveProp('interactive', false);
+    expect(screen.root).toHaveStyle({ overflow: 'hidden' });
   });
 });

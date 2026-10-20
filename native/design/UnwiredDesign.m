@@ -77,6 +77,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @implementation UnwiredGlassView
 @end
 #else
+#import <React/UIView+React.h>
 #import <UIKit/UIKit.h>
 
 typedef UIView UnwiredPlatformView;
@@ -109,6 +110,7 @@ typedef UIView UnwiredPlatformView;
 
 @interface UnwiredGlassView : UIVisualEffectView
 @property (nonatomic) CGFloat cornerRadius;
+@property (nonatomic) BOOL interactive;
 @end
 
 @implementation UnwiredGlassView
@@ -124,6 +126,18 @@ typedef UIView UnwiredPlatformView;
 {
   _cornerRadius = cornerRadius;
   self.layer.cornerRadius = cornerRadius;
+}
+- (void)setInteractive:(BOOL)interactive
+{
+  _interactive = interactive;
+  UIGlassEffect *effect = [UIGlassEffect new];
+  effect.interactive = interactive;
+  self.effect = effect;
+}
+// A visual effect view hosts subviews in its content view, where interactive glass sees their touches.
+- (void)didUpdateReactSubviews
+{
+  for (UIView *subview in self.reactSubviews) [self.contentView addSubview:subview];
 }
 @end
 #endif
@@ -327,12 +341,15 @@ RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end
 
-// The navigation layer's material, drawn behind the controls laid over it.
+// The navigation layer's material; on iOS a control group's content sits inside it.
 @interface UnwiredGlassManager : RCTViewManager
 @end
 
 @implementation UnwiredGlassManager
 RCT_EXPORT_MODULE(UnwiredGlass)
 RCT_EXPORT_VIEW_PROPERTY(cornerRadius, CGFloat)
+#if !TARGET_OS_OSX
+RCT_EXPORT_VIEW_PROPERTY(interactive, BOOL)
+#endif
 - (UnwiredPlatformView *)view { return [UnwiredGlassView new]; }
 @end
