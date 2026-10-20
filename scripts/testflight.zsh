@@ -156,6 +156,7 @@ if [[ "$platform" != macos ]]; then
   upload ios "$root/apps/mobile/ios/UnwiredMail.xcworkspace" 'generic/platform=iOS' Info.plist
 fi
 if [[ "$platform" != ios ]]; then
+  unset UNWIRED_MAC_PROFILE
   export UNWIRED_BUILD_CONFIGURATION=Release UNWIRED_SIGNING_IDENTITY='Apple Development' UNWIRED_DEVELOPMENT_TEAM="$team"
   export PATH="$(ruby -e 'print Gem.bindir'):$PATH"
   pnpm --dir "$root" --filter @private-email/macos native:generate

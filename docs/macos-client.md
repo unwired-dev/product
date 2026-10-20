@@ -153,7 +153,11 @@ For real sign-in, set `UNWIRED_SIGNING_IDENTITY="Apple Development"` and
 [Google and Convex host configuration](google-registration.md#configure-the-hosts).
 Install a matching Mac development profile first. Generated development-signed
 projects use automatic signing; `native:build` uses installed profiles and does not create
-developer-portal resources. Debug uses Metro. Quit and reopen the app after a
+developer-portal resources. Automatic signing only selects Xcode-managed profiles.
+For a profile created in the developer portal, also set `UNWIRED_MAC_PROFILE`
+to its file path; the generated project then signs manually with that installed
+profile. TestFlight ignores this local profile option and keeps automatic
+provisioning. Debug uses Metro. Quit and reopen the app after a
 native rebuild. Regenerate the native project and reinstall Pods after changing
 native setup or dependencies.
 
@@ -201,7 +205,11 @@ Command-Q is checked separately through direct native UI automation because
 XCTest key injection after reopening is unreliable on the qualification host.
 The journey checks one process
 and session throughout. It requires a logged-in macOS 27 desktop with XCTest UI
-automation permission. The runner uses its own probe project and result directory
+automation permission. If XCTest reports `Timed out while enabling automation mode`,
+run `automationmodetool` to inspect the host's status. When enabling Automation Mode
+requires administrator authentication, the host owner must complete that setup
+before rerunning the journey; record the blocked run as deferred native evidence.
+The runner uses its own probe project and result directory
 and rejects zero-test success. XCTest terminates its launched app on failure.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
