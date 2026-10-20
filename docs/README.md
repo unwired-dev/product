@@ -51,6 +51,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Native component selection and UI rewrite tracking](agents/native-components.md)
+- [Confirmed interaction motion goals and tracked coverage gaps](product/interaction-motion.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md), with [shared validation commands](../README.md#validation)
 - [Effect conventions and lint enforcement](agents/effect.md)
 - [Effect service constructors, methods and layers](agents/effect-services.md)
