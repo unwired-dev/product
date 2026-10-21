@@ -128,7 +128,10 @@ This command takes the team from the environment; it does not load the root
 `.env.local`. `pnpm ios` reuses an existing native project and its signing team.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
-after changing native dependencies or app configuration. Keep native changes in
+after changing native dependencies or app configuration. Root `pnpm install`
+applies the pinned `expo-glass-effect` patch; regenerate and rebuild after changing
+it, and verify reader toolbar padding dismisses an open menu while buttons still work.
+Keep native changes in
 config plugins. The design plugin compiles `native/design`, the SF Symbol and
 other native design views the Mac host shares; Liquid Glass uses `expo-glass-effect`. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in

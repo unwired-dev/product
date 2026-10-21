@@ -37,6 +37,13 @@ the Mac retains its AppKit glass view manager without importing Expo. Native
 visual, Dynamic Type and accessibility qualification remains required;
 JavaScript tests and bundle checks do not establish that evidence.
 
+The pinned `expo-glass-effect@57.0.4` patch keeps its internal effect/content views
+from claiming empty-space hits. React Native can then apply `pointerEvents` to
+the enclosing Expo view, so the reader's `box-none` toolbar padding reaches the
+menu dismissal beneath while control children stay inside interactive glass.
+Remove the patch when the supported upstream version preserves that hit-testing
+contract. A JavaScript component mock cannot validate this native behavior.
+
 ## Native E2E in CI
 
 The original 15-minute limit interrupted a hosted run after iPhone passed but
