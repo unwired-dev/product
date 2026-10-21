@@ -55,9 +55,14 @@ with no main-thread stall of 100 ms or longer.
 Measure cached switches and body/composer opening from user selection to
 rendered interactive content. Measure provider/network latency separately and
 keep the app interactive while it waits. The Mac reference is a Mac mini with
-Apple M4 and 16 GB memory (`Mac16,10`) on macOS 27. Nominate the iPad reference
-hardware and establish both baselines; unmeasured baselines remain required
-qualification. Hosted-runner speed does not
+Apple M4 and 16 GB memory (`Mac16,10`) on macOS 27. The iPad reference is the
+owner's physical iPad Pro 13-inch with Apple M4 (`iPad16,5`), nominated in
+[#1105](https://github.com/unwired-dev/product/issues/1105) on 2026-10-21. At
+nomination it runs iPadOS 27.0.1 (24A446). Its RAM and storage capacity were not
+exposed by the host tooling; record those with its first baseline, and record
+the exact OS version and build for every run. Establish both iPad and Mac
+baselines; unmeasured baselines remain required qualification. Nomination does
+not establish a passing baseline. Hosted-runner speed does not
 relax a device budget. Record the device, fixture, build, command and measurement
 evidence; these targets do not claim a passing measurement. The reviewer verifies
 the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md).
@@ -103,8 +108,8 @@ actual source revision and exact root lockfile:
   across relaunch. Retain separate physical-device lock/unlock and backup/restore
   checks; simulated protected-data availability does not establish them.
 - Record toolchain versions, lockfile hash, commands, signing/entitlements,
-  resource ownership and artifact paths. Nominate iPad and Mac reference hardware
-  for later [performance qualification](#performance-qualification); measured
+  resource ownership and artifact paths. Use the nominated iPad and Mac reference
+  hardware for later [performance qualification](#performance-qualification); measured
   baselines remain required before release.
 
 Keep #623 incomplete while its required native evidence is unavailable. Feature
