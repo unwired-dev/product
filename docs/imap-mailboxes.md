@@ -121,6 +121,9 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   the encrypted cache also refuses that unestablished identity.
   An unreadable cache document stays intact and shows an unavailable Inbox;
   synchronization does not replace it with an empty listing.
+- On iPhone and iPad, pulling down the list synchronizes the shown folder, or the
+  Inbox of each shown connection, as described for the
+  [Gmail Inbox](gmail-inbox.md#gmail-inbox-synchronization).
 - The first synchronization lists the newest 200 messages of the folder. Later ones
   send the committed checkpoint (UIDVALIDITY, UIDNEXT and the cached UIDs), read only
   the flags of those UIDs and the messages that arrived since UIDNEXT, and drop cached

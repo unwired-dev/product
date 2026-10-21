@@ -122,6 +122,60 @@ describe('preview Inbox', () => {
     );
   });
 
+  it('keeps refreshing until every shown mailbox settles after one rejects', async () => {
+    expect.hasAssertions();
+    const first = createPersistentInbox(makeMockInboxStorage());
+    const storage = makeMockInboxStorage();
+    let held = Promise.resolve();
+    const second = createPersistentInbox({
+      ...storage,
+      open: async (seed) => {
+        await held;
+        return storage.open(seed);
+      },
+    });
+    await Promise.all([first.load(), second.load()]);
+    const one = singleMailbox(first, 'first');
+    const two = singleMailbox(second, 'second');
+    const snapshot = [...one.getSnapshot(), ...two.getSnapshot()];
+    await render(
+      <InboxProvider mailboxes={{ ...one, getSnapshot: () => snapshot }}>
+        <Inbox
+          selected={undefined}
+          onSelect={() => undefined}
+        />
+      </InboxProvider>,
+    );
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Explicitly hold one action past the other's rejection.
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Provider failures become state. A broken subscriber rejects the real store action instead.
+    const unsubscribe = first.subscribe(() => {
+      throw new Error('Mailbox subscriber failed');
+    });
+    try {
+      await act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+      });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'refreshing',
+        true,
+      );
+      await act(async () => {
+        release();
+      });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'refreshing',
+        false,
+      );
+    } finally {
+      release();
+      unsubscribe();
+    }
+  });
+
   it.each(['light', 'dark'] as const)(
     'keeps the selected row legible after focus leaves in %s appearance',
     async (appearance) => {
@@ -1091,6 +1145,57 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     });
     expect(screen.queryByText(/could not be reached/u)).toBeNull();
+  });
+
+  it('refreshes the shown Inbox when the list is pulled down and settles the indicator after a failure', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    gmail.deliver({ subject: 'Arrives with the pull' });
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail until the indicator has been checked.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    const pull = () =>
+      act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+        await Promise.resolve();
+      });
+    const indicator = () => screen.getByLabelText('Inbox messages').props;
+    await pull();
+    expect(indicator()).toMatchObject({ refreshing: true });
+    expect(screen.queryByText('Arrives with the pull')).toBeNull();
+    await act(async () => {
+      release();
+    });
+    await expect(
+      screen.findByText('Arrives with the pull'),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(indicator()).toMatchObject({ refreshing: false });
+    });
+
+    // Offline, the pull ends with the cached list and the documented retry.
+    gmail.fail({ code: 'unavailable' });
+    await pull();
+    await expect(
+      screen.findByText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).resolves.toBeVisible();
+    expect(screen.getByText('Arrives with the pull')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await waitFor(() => {
+      expect(indicator()).toMatchObject({ refreshing: false });
+    });
   });
 
   it('organizes mail from the reader and the row, keeping an offline archive until Undo', async () => {

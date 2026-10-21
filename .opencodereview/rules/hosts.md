@@ -112,6 +112,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `inbox.tsx.Inbox` or another host action clearing aggregate progress when the
+  first parallel operation rejects while sibling work remains pending. Trace
+  the returned promises, including failure paths, and keep progress until every
+  operation owned by that interaction settles. Exercise a fast rejection beside
+  explicitly held work; otherwise the indicator ends early and admits another
+  interaction while synchronization is still running.
+
 - `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
   while newer edits are already in flight. Check the installed TextInput's
   native text prop, imperative synchronization and explicit-clear contract.
