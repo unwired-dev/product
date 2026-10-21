@@ -1412,6 +1412,9 @@ function Editor({
   const selectionNow = useRef(selection);
   // The wrapper calls onChange before onChangeText for the same native edit.
   const changedSelection = useRef<Selection | undefined>(undefined);
+  // The body text the field reported last, until the editor changes the Draft itself. The field
+  // keeps showing it when a render reaches it after further typing.
+  const shownBody = useRef<string | undefined>(undefined);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
   // Marks toggled at a caret apply to the text typed there next.
@@ -1472,6 +1475,7 @@ function Editor({
         setCaptured(undefined);
       }
       authored.current = bound;
+      shownBody.current = undefined;
       if (!discarded.current) {
         setRefused(undefined);
         void store.update(bound, previous, rebind);
@@ -1606,6 +1610,7 @@ function Editor({
     const result = applyText(latest.body, text, {
       marks: typingNow.current,
       selection: at,
+      shown: shownBody.current,
       ...(forward ? { deletion: 'forward' } : {}),
     });
     // One character added after the caret continues a typing step until a word ends.
@@ -1627,6 +1632,7 @@ function Editor({
       );
       update({ ...latest, body: result.document });
     }
+    shownBody.current = text;
     if (result.selection !== undefined) {
       caret.current = result.selection.start;
       selectionNow.current = result.selection;

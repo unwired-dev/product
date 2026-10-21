@@ -375,6 +375,43 @@ const changeOf = (
   return diffOf(previous, next);
 };
 
+const sizeOf = ({ start, end, inserted }: Change) =>
+  end - start + inserted.length;
+
+// The change in display offsets when the editor typed over `shown`, the text it last reported,
+// rather than the document's newer display: a native field drops a render that reaches it after
+// further typing. Undefined when the change is smaller against the display, which the field then
+// showed.
+const rebased = (
+  display: string,
+  next: string,
+  {
+    shown,
+    ...options
+  }: Parameters<typeof changeOf>[2] & Readonly<{ shown?: string | undefined }>,
+): Change | undefined => {
+  // Equal texts, the usual case, skip scanning a long paragraph character by character.
+  if (
+    shown === undefined ||
+    shown === display ||
+    sizeOf(diffOf(shown, next)) >= sizeOf(diffOf(display, next))
+  ) {
+    return undefined;
+  }
+  const typed = changeOf(shown, next, options);
+  // What the display replaced in `shown`: offsets after it shift, offsets inside stay in it.
+  const pending = diffOf(shown, display);
+  const at = (offset: number) =>
+    offset >= pending.end
+      ? offset + display.length - shown.length
+      : Math.min(offset, pending.start + pending.inserted.length);
+  return {
+    start: at(typed.start),
+    end: at(typed.end),
+    inserted: typed.inserted,
+  };
+};
+
 // The kind of each block a change creates. Return continues the block it splits; at the start of
 // a block, it inserts a block before it and keeps this block's kind.
 const createdKind = (
@@ -460,7 +497,8 @@ const shortcutAt = (
 
 // Applies the editor's new text to the document. The change is the span between the unchanged
 // start and end of the text; inserted characters take `marks`, or those of the text before them.
-// Deleting into a list marker turns that item into a paragraph.
+// Deleting into a list marker turns that item into a paragraph. `shown` is the text the editor
+// reported last, which it may still show instead of the document's display.
 export function applyText(
   document: SemanticDocument,
   next: string,
@@ -468,17 +506,21 @@ export function applyText(
     marks,
     selection,
     deletion,
+    shown,
   }: Readonly<{
     marks?: readonly Mark[] | undefined;
     selection?: Selection;
     deletion?: 'backward' | 'forward' | undefined;
+    shown?: string | undefined;
   }> = {},
 ): Edit {
   const previous = displayOf(document).text;
   if (previous === next) {
     return { document };
   }
-  const change = changeOf(previous, next, { selection, deletion });
+  const change =
+    rebased(previous, next, { shown, selection, deletion }) ??
+    changeOf(previous, next, { selection, deletion });
   const { lines, line, column } = splice(document, change, marks);
   const caret = (forLines: readonly Block[], at: number) => {
     const offset = offsetOf(forLines, line, at);

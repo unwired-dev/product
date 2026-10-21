@@ -1742,6 +1742,44 @@ describe('composing Drafts', () => {
     );
   });
 
+  // #980: the native field drops a render that reaches it after further typing, so each keystroke
+  // arrives on the literal marker and the previous line instead of the shown bullets.
+  it('keeps a typed list when the field types ahead of its render', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const body = await screen.findByLabelText('Message body');
+    for (const text of [
+      '-',
+      '- ',
+      '- O',
+      '- On',
+      '- One',
+      '- One\n',
+      '- One\nT',
+    ]) {
+      await fireEvent.changeText(body, text);
+    }
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'bulleted', spans: [{ text: 'One' }] },
+      { kind: 'bulleted', spans: [{ text: 'T' }] },
+    ]);
+    // Once the field shows the bullets again, typing continues the item.
+    await fireEvent.changeText(body, '• One\n• Tw');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[1]).toStrictEqual({
+      kind: 'bulleted',
+      spans: [{ text: 'Tw' }],
+    });
+  });
+
   it("applies an edit at the caret moved just before it, with that character's marks", async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
