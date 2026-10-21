@@ -1962,8 +1962,14 @@ export function sanitizeHtml(
     const content = visibleContent;
     output += `<${tag}${attributes(node, style)}>`;
     const start = output.length;
+    // A link's underline does not reach into inline blocks, such as newsletter buttons.
+    const underline =
+      link !== undefined &&
+      style.retained.get('display')?.toLowerCase() === 'inline-block';
+    output += underline ? '<span class="link-underline">' : '';
     marker(name);
     children(node);
+    output += underline ? '</span>' : '';
     if (link !== undefined && visibleContent === content) {
       // Empty boxes can accumulate thousands of pixels with individually ordinary sizes.
       // Keep descendants and inherited text styles, but give the empty wrapper no box.

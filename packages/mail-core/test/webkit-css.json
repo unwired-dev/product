@@ -3513,5 +3513,19 @@
       ["display", "inline-block", "inline-block", "inline-block"],
       ["text-decoration", "inherit", "inherit", "inherit"]
     ]
+  },
+  {
+    "style": "display:inline-block;padding:8px",
+    "webkit": [
+      "display",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["display", "inline-block", "inline-block", "inline-block"],
+      ["padding", "8px", "8px", "8px"]
+    ]
   }
 ]

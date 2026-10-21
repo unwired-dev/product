@@ -364,7 +364,8 @@ describe('the isolated rich reader', () => {
         html:
           '<a href="https://example.invalid/old" style="text-decoration:line-through overline wavy 0px transparent">Old price $99</a>' +
           '<a href="https://example.invalid/new" style="text-decoration:none transparent">New price $49</a>' +
-          '<div style="text-decoration:line-through"><a href="https://example.invalid/inherited" style="display:inline-block;text-decoration:inherit">Inherited price</a></div>',
+          '<div style="text-decoration:line-through"><a href="https://example.invalid/inherited" style="display:inline-block;text-decoration:inherit">Inherited price</a></div>' +
+          '<a href="https://example.invalid/shop"><span style="display:inline-block;padding:8px">Shop now</span></a>',
       },
     });
     const inbox = createGmailInbox(gmail.native);
@@ -385,7 +386,12 @@ describe('the isolated rich reader', () => {
       { href: 'https://example.invalid/old', text: 'Old price $99' },
       { href: 'https://example.invalid/new', text: 'New price $49' },
       { href: 'https://example.invalid/inherited', text: 'Inherited price' },
+      { href: 'https://example.invalid/shop', text: 'Shop now' },
     ]);
+    // Decorations do not reach into inline blocks, so a button-like label gets its own underline.
+    expect(document).toContain(
+      '<span style="display: inline-block; padding: 8px"><span class="link-underline">Shop now</span></span>',
+    );
   });
 
   it('inspects image-only links by their description and keeps images CSS enlarges', async () => {
