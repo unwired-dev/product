@@ -100,6 +100,19 @@ function account(initial: RegistrationSnapshot) {
   };
 }
 
+// A successful save shows no status, so wait for the store to finish saving instead.
+async function savedQuietly(
+  drafts: Pick<ReturnType<typeof createDrafts>, 'getSnapshot'>,
+) {
+  await waitFor(() => {
+    expect(drafts.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      save: 'saved',
+    });
+  });
+  expect(screen.queryByText(/^Draft · /u)).toBeNull();
+}
+
 // A promise the test settles.
 function deferred() {
   let settle: (value: unknown) => void = () => undefined;
@@ -625,9 +638,10 @@ describe('composing Drafts', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
     const first = await render(
       <App
-        drafts={createDrafts(storage.native, registration)}
+        drafts={drafts}
         registration={registration}
       />,
     );
@@ -691,11 +705,7 @@ describe('composing Drafts', () => {
     expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('• Notes');
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    await savedQuietly(drafts);
     // Closing finishes an address still being typed, but not invalid text.
     await press('Close');
     expect(
@@ -1127,11 +1137,21 @@ describe('composing Drafts', () => {
       screen.getByLabelText('To'),
       'maya@example.com,',
     );
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    await savedQuietly(drafts);
+    // A slow save stays quiet; only an unsaved edit is shown.
+    storage.hold();
+    try {
+      await fireEvent.changeText(screen.getByLabelText('Subject'), 'Slow save');
+      await waitFor(() => {
+        expect(drafts.getSnapshot()).toMatchObject({ save: 'saving' });
+      });
+      expect(screen.queryByText(/^Draft · /u)).toBeNull();
+    } finally {
+      await act(() => {
+        storage.release();
+      });
+    }
+    await savedQuietly(drafts);
     storage.failNextCommit('unavailable');
     await fireEvent.changeText(
       screen.getByLabelText('Subject'),
@@ -1192,19 +1212,16 @@ describe('composing Drafts', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
     const first = await render(
       <App
-        drafts={createDrafts(storage.native, registration)}
+        drafts={drafts}
         registration={registration}
       />,
     );
     await press('New Message');
     await fireEvent.changeText(await screen.findByLabelText('To'), 'maya@exa');
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    await savedQuietly(drafts);
     // The app ends without leaving the field or closing the composer.
     await first.unmount();
     await render(
@@ -1471,11 +1488,7 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Subject'),
         'Before discard',
       );
-      await waitFor(() => {
-        expect(
-          screen.getByText('Draft · Saved on this device'),
-        ).toBeOnTheScreen();
-      });
+      await savedQuietly(drafts);
       await press('Compose actions');
       await press('Discard');
       await press('Keep Editing');
@@ -1483,11 +1496,7 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Message body'),
         'After cancelling discard',
       );
-      await waitFor(() => {
-        expect(
-          screen.getByText('Draft · Saved on this device'),
-        ).toBeOnTheScreen();
-      });
+      await savedQuietly(drafts);
       await press('Compose actions');
       await press('Discard');
       storage.hold();
@@ -3079,11 +3088,7 @@ describe('adding files and images to a Draft', () => {
       screen.getByLabelText('Subject'),
       'Files, notes',
     );
-    await waitFor(() => {
-      expect(
-        screen.getByText('Draft · Saved on this device'),
-      ).toBeOnTheScreen();
-    });
+    await savedQuietly(drafts);
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
     expect(screen.queryByText('DRAFT · CONFLICT')).toBeNull();
 
