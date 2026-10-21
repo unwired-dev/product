@@ -690,8 +690,9 @@ export function Inbox({
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
   // again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
+  // Settles every mailbox, so one failing early cannot end the indicator while others still load.
   const loadShown = async () => {
-    await Promise.all(
+    await Promise.allSettled(
       shown.map(({ inbox }) =>
         folder !== inboxFolder && 'openFolder' in inbox
           ? inbox.openFolder(folder)
