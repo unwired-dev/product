@@ -3671,7 +3671,15 @@ describe('replying to and forwarding from the reader', () => {
     await screen.findByRole('button', { name: 'Reply' });
     // The owner kept More beside Reply; the sheet repeats its actions.
     expect(screen.getByRole('button', { name: 'More' })).toBeVisible();
+    // Reply closes an open More rather than opening over it.
+    await press('More');
     await press('Reply');
+    expect(
+      screen.getByRole('button', { name: 'More', expanded: false }),
+    ).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Report spam' })).toHaveLength(
+      1,
+    );
     expect(
       [
         'Reply',
@@ -3707,12 +3715,14 @@ describe('replying to and forwarding from the reader', () => {
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Remove star', 'Mark as read']);
     await press('Close');
-    // With Labels already shown, the sheet's Labels still opens them rather than hiding them.
+    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    // Reply closes shown Labels too, and the sheet's Labels opens them rather than hiding them.
     await press('Labels');
     await press('Reply');
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
-    });
+    expect(
+      screen.queryByText('This Gmail mailbox has no labels of its own yet.'),
+    ).toBeNull();
+    await pressLast('Labels');
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Hide labels' })).toBeVisible();
     expect(

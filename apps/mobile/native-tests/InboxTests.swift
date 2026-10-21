@@ -74,6 +74,22 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
     XCTAssertTrue(app.buttons["Remove star"].exists)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // #972: iPhone's Reply sheet replaces the More panel still open after Star, so closing it
+      // reveals no stale menu.
+      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report spam"))
+      XCTAssertTrue(spam.firstMatch.exists)
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      XCTAssertEqual(spam.count, 1)
+      let sheet = XCTAttachment(screenshot: app.screenshot())
+      sheet.name = "Reply sheet without More"
+      sheet.lifetime = .keepAlways
+      add(sheet)
+      app.buttons["Close"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
+      XCTAssertFalse(spam.firstMatch.exists)
+    }
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
