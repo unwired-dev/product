@@ -4,6 +4,13 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- Qualification procedures such as `docs/assistance-qualification.md` removing
+  the app, credentials or evidence before later manual checks need them. Walk
+  the whole procedure in order, including runner cleanup, hold options and
+  relaunches that overwrite evidence; preserve each run before relaunch and
+  defer teardown until the final dependent check. Otherwise the documented
+  device session cannot complete or loses the evidence it claims to retain.
+
 - A reference-device change in `docs/agents/native-validation.md` that updates
   nominations but leaves performance-baseline prose or the required-release
   checklist naming an incomplete or former device set. Compare both with the

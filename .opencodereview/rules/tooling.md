@@ -4,6 +4,13 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- Evidence validators such as `scripts/verify-assistance-evidence.py` accepting
+  case identities, result labels and totals without the per-kind payload the
+  owning qualification guide requires for review. Trace the recorder through the
+  validator and its subprocess tests; require device metadata, outcome details
+  and non-empty text for ready answers. Otherwise a complete-looking matrix can
+  qualify a run whose outputs and limitations cannot be inspected.
+
 - `apps/mobile/plugins/private-inbox.cjs` using an older AppDelegate integration's
   marker to skip a new startup integration. Exercise fresh and already-generated
   delegates through the real Expo mod, including repeated generation; otherwise
