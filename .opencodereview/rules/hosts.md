@@ -289,6 +289,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   INBOX beside a differently named inbox-role folder on both hosts; otherwise
   distinct folders appear to be the same Inbox.
 
+- `organize.tsx.GmailMessageActions` building the synthetic Inbox parent from
+  app copy while `graph-inbox.ts.labels` supplies its descendants with the
+  provider's localized display name. Match the parent through the discovered
+  Inbox role and a shared canonical path segment, preserving provider display
+  names for other consumers. Localize only that provider metadata, not a Gmail
+  user label's literal `INBOX` prefix. Exercise different mailbox/app languages
+  through the real store and picker; otherwise children stay at the top level
+  or user labels are renamed and grouped under an unrelated system folder.
+
 - `inbox.tsx` retaining the Inbox title while the sidebar selects a
   different IMAP folder. Trace the effective folder from `useMailboxFolder` into
   the visible and accessible list heading on both hosts, including names with

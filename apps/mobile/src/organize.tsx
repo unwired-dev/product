@@ -761,18 +761,22 @@ function GmailMessageActions({
                         selectable: false,
                         count: inboxUnread(state.messages),
                       },
-                      ...state.labels.map((label): Destination => ({
-                        id: label.id,
+                      ...state.labels.map((label): Destination => {
                         // Graph names may contain slashes; only its listing knows the hierarchy.
-                        path: localizedPath(
-                          label.path ??
-                            (folders ? [label.name] : label.name.split('/')),
-                          t('inbox.title'),
-                        ),
-                        icon: 'folder',
-                        current: applied.has(label.id),
-                        selectable: true,
-                      })),
+                        const path = folders
+                          ? [label.name]
+                          : label.name.split('/');
+                        return {
+                          id: label.id,
+                          path:
+                            label.path === undefined
+                              ? path
+                              : localizedPath(label.path, t('inbox.title')),
+                          icon: 'folder',
+                          current: applied.has(label.id),
+                          selectable: true,
+                        };
+                      }),
                     ]}
                     empty={t(
                       folders

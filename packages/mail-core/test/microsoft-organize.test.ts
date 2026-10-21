@@ -314,7 +314,10 @@ describe('organizing Microsoft mail through Graph', () => {
 
   it('lists nested folders by their paths and says when some are left out', async () => {
     expect.hasAssertions();
-    const graph = createSyntheticGraph({ messages: 1 });
+    const graph = createSyntheticGraph({
+      messages: 1,
+      inboxName: 'Posteingang',
+    });
     const travel = graph.createFolder('Travel');
     const lisbon = graph.createFolder('Lisbon', travel);
     const projects = graph.createFolder('Projects', 'inbox');
@@ -326,9 +329,13 @@ describe('organizing Microsoft mail through Graph', () => {
     // name the Inbox `INBOX`, as its display name follows the mailbox's locale.
     expect(ready(inbox.getSnapshot())).toMatchObject({
       labels: [
-        { id: projects, name: 'Inbox / Projects', path: ['INBOX', 'Projects'] },
         {
-          name: 'Inbox / Projects / Travel',
+          id: projects,
+          name: 'Posteingang / Projects',
+          path: ['INBOX', 'Projects'],
+        },
+        {
+          name: 'Posteingang / Projects / Travel',
           path: ['INBOX', 'Projects', 'Travel'],
         },
         { id: travel, name: 'Travel', path: ['Travel'] },

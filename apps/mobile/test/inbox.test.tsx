@@ -1097,6 +1097,7 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
+    gmail.createLabel('INBOX/Receipts');
     const other = gmail.deliver({ subject: 'Tickets for Lisbon' });
     const oliver = gmail.deliver({
       from: 'Oliver Park <oliver@example.invalid>',
@@ -1183,6 +1184,12 @@ describe('connected Gmail Inbox', () => {
         selected: true,
       }),
     ).toBeDisabled();
+    // A user label's first segment is its name, not the system Inbox's identity.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to INBOX / Receipts' }),
+      ).getByText('INBOX / Receipts'),
+    ).toBeVisible();
     await fireEvent(screen.getByTestId('move-sheet'), 'accessibilityEscape');
     expect(gmail.labelsOf(oliver)).toStrictEqual(['INBOX', 'STARRED', travel]);
 
@@ -1548,7 +1555,10 @@ describe('connected Gmail Inbox', () => {
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
     expect.hasAssertions();
-    const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
+    const graph = createSyntheticGraph({
+      address: 'casey@example.invalid',
+      inboxName: 'Posteingang',
+    });
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
     graph.createFolder('Receipts', 'inbox');
