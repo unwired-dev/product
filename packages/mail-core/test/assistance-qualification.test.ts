@@ -1,4 +1,7 @@
-import { runAssistanceQualification } from '@private-email/mail-core/testing/assistance-qualification';
+import {
+  runAssistanceQualification,
+  startAssistanceQualification,
+} from '@private-email/mail-core/testing/assistance-qualification';
 import * as Schema from 'effect/Schema';
 
 const parseLine = Schema.decodeSync(
@@ -189,5 +192,26 @@ describe('assistance qualification corpus run', () => {
     expect(JSON.stringify(byKind('device'))).not.toContain(
       'synthetic-private-account',
     );
+  });
+
+  it('a run that cannot start records only an allow-listed stop diagnostic', async () => {
+    expect.hasAssertions();
+
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const path = '/Users/synthetic-private-account/Library/evidence.jsonl';
+    for (const begin of [
+      () => Promise.resolve({ hardware: 'Mac16,10' }),
+      () => Promise.reject(new Error(`Cannot open ${path}`)),
+    ]) {
+      const native = binding();
+      startAssistanceQualification(() => ({
+        ...native,
+        qualification: { ...native.qualification, begin },
+      }));
+      await vi.waitFor(() => {
+        expect(native.lines.at(-1)).toMatchObject({ kind: 'stopped' });
+      });
+      expect(JSON.stringify(native.lines)).not.toContain(path);
+    }
   });
 });
