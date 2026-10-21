@@ -1,5 +1,16 @@
 # Set a local mail performance budget
 
+## Reference hardware amendment, 2026-10-21
+
+The owner's [#1106](https://github.com/unwired-dev/product/issues/1106) decision
+replaces the iPhone 17 performance reference with the available physical iPhone
+17 Pro Max. The [operational performance contract](../agents/native-validation.md#performance-qualification)
+owns current device nominations and qualification instructions. All numerical
+and next-frame budgets remain unchanged. Nomination supplies no passing
+measurement and does not qualify untested hardware or narrow product support.
+This amendment does not change privacy or security boundaries.
+The prior reference description and prototype evidence below remain historical.
+
 ## Amendment — 2026-10-06
 
 The product owner's

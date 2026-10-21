@@ -78,5 +78,9 @@ The Swift tests check the tokenizer, preprocessing, category policy and FP16 Cor
 decisions against every golden output, plus cancellation; a candidate whose export
 is missing fails with the export command to run. The component tests cover the unavailable state,
 decoded results, a malformed result failing closed, Cancel and dismissal. Mac
-results do not establish feasibility on the standard iPhone baseline, which
-[#830](https://github.com/unwired-dev/product/issues/830) owns.
+results do not establish feasibility on the physical iPhone and iPad, which
+[#830](https://github.com/unwired-dev/product/issues/830) owns. Following the
+owner's [#1106](https://github.com/unwired-dev/product/issues/1106) decision,
+qualify the available iPhone 17 Pro Max and iPad Pro 13-inch M4 on version-27
+systems. A standard non-Pro iPhone is not a prerequisite. Report results for
+each tested configuration without extending them to untested hardware.
