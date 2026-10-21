@@ -292,9 +292,9 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - `organize.tsx.GmailMessageActions` building the synthetic Inbox parent from
   app copy while `graph-inbox.ts.labels` supplies its descendants with the
   provider's localized display name. Match the parent through the discovered
-  Inbox role and a shared canonical path segment, preserving provider display
-  names for other consumers. Require explicit discovered Inbox ancestry before
-  localizing a canonical segment: Graph custom folders can also be named `INBOX`.
+  Inbox role and explicit ancestry metadata, preserving provider display names
+  for other consumers. Require that ancestry before localizing a path segment:
+  Graph custom folders can also be named `INBOX`.
   Preserve those names and a Gmail user label's literal `INBOX` prefix.
   Exercise different mailbox/app languages
   through the real store and picker; otherwise children stay at the top level

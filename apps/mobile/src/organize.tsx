@@ -770,7 +770,7 @@ function GmailMessageActions({
                           id: label.id,
                           path:
                             label.inboxPath === true
-                              ? localizedPath(path, t('inbox.title'))
+                              ? [t('inbox.title'), ...path.slice(1)]
                               : path,
                           icon: 'folder',
                           current: applied.has(label.id),

@@ -422,15 +422,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const roles = yield* folderRoles(scope);
     const listed: GmailLabel[] = [];
     let limited = false;
-    // Breadth first, so a limit leaves out the deepest folders. `path` names a folder's
-    // ancestors as `name` does, except that the Inbox, whatever the mailbox locale calls it,
-    // is `INBOX`, so hosts can nest its folders beneath their own Inbox row.
+    // Breadth first, so a limit leaves out the deepest folders. Keep the provider's names
+    // and identify Inbox ancestry by role, so hosts can localize only that parent.
     const queue: Array<{
       url: string;
-      name: readonly string[];
       path: readonly string[];
       inbox: boolean;
-    }> = [{ url: graphFolders, name: [], path: [], inbox: false }];
+    }> = [{ url: graphFolders, path: [], inbox: false }];
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       if (listed.length >= folderLimit) {
         limited = true;
@@ -439,23 +437,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
       const page = yield* graphGet(scope)(next.url, decodeGraphFolders);
       limited ||= page['@odata.nextLink'] !== undefined;
       for (const { id, displayName, childFolderCount = 0 } of page.value) {
-        const name = [...next.name, displayName];
-        const path = [
-          ...next.path,
-          roles.get(id) === 'inbox' ? 'INBOX' : displayName,
-        ];
+        const path = [...next.path, displayName];
         if (!roles.has(id)) {
           listed.push({
             id,
-            name: name.join(' / '),
+            name: path.join(' / '),
             path,
-            ...(next.inbox ? { inboxPath: true as const } : {}),
+            inboxPath: next.inbox,
           });
         }
         if (childFolderCount > 0) {
           queue.push({
             url: graphChildFolders(id),
-            name,
             path,
             inbox: next.inbox || roles.get(id) === 'inbox',
           });

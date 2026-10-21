@@ -97,7 +97,7 @@ describe('organizing Microsoft mail through Graph', () => {
     const inbox = await opened(graph);
     // Move to offers the mailbox's own folders, not its well-known ones.
     expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
-      { id: travel, name: 'Travel', path: ['Travel'] },
+      { id: travel, name: 'Travel', path: ['Travel'], inboxPath: false },
     ]);
     const [read = '', archived = '', trashed = '', junk = '', moved = ''] =
       ids(inbox);
@@ -325,23 +325,27 @@ describe('organizing Microsoft mail through Graph', () => {
     const inbox = await opened(graph);
     const [target = ''] = ids(inbox);
 
-    // Equal names stay apart by their paths, including folders inside the Inbox. Their paths
-    // name the Inbox `INBOX`, as its display name follows the mailbox's locale.
+    // Equal names stay apart by their paths. Inbox ancestry is separate from localized names.
     expect(ready(inbox.getSnapshot())).toMatchObject({
       labels: [
         {
           id: projects,
           name: 'Posteingang / Projects',
-          path: ['INBOX', 'Projects'],
+          path: ['Posteingang', 'Projects'],
           inboxPath: true,
         },
         {
           name: 'Posteingang / Projects / Travel',
-          path: ['INBOX', 'Projects', 'Travel'],
+          path: ['Posteingang', 'Projects', 'Travel'],
           inboxPath: true,
         },
-        { id: travel, name: 'Travel', path: ['Travel'] },
-        { id: lisbon, name: 'Travel / Lisbon', path: ['Travel', 'Lisbon'] },
+        { id: travel, name: 'Travel', path: ['Travel'], inboxPath: false },
+        {
+          id: lisbon,
+          name: 'Travel / Lisbon',
+          path: ['Travel', 'Lisbon'],
+          inboxPath: false,
+        },
       ],
     });
     await inbox.organize(message(inbox, target), gmailAction.move(lisbon));
