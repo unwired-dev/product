@@ -31,10 +31,18 @@ Catalogs centralize versions; bundle checks
 and native autolinking still have to establish each host's renderer boundary.
 
 The design config plugin compiles the first-party views in `native/design` into
-the app target. Each host wraps the shared SF Symbol and Liquid Glass view
-managers through Fabric's legacy-view interop, without adding an autolinked
-dependency. Native visual, Dynamic Type and accessibility qualification remains
-required; JavaScript tests and bundle checks do not establish that evidence.
+the app target. Both hosts wrap the shared SF Symbol view manager through
+Fabric's legacy-view interop. Mobile Liquid Glass uses `expo-glass-effect`;
+the Mac retains its AppKit glass view manager without importing Expo. Native
+visual, Dynamic Type and accessibility qualification remains required;
+JavaScript tests and bundle checks do not establish that evidence.
+
+The pinned `expo-glass-effect@57.0.4` patch keeps its internal effect/content views
+from claiming empty-space hits. React Native can then apply `pointerEvents` to
+the enclosing Expo view, so the reader's `box-none` toolbar padding reaches the
+menu dismissal beneath while control children stay inside interactive glass.
+Remove the patch when the supported upstream version preserves that hit-testing
+contract. A JavaScript component mock cannot validate this native behavior.
 
 ## Native E2E in CI
 

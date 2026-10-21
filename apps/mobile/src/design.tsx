@@ -15,6 +15,7 @@ import type {
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { GlassView } from 'expo-glass-effect';
 import { useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -38,20 +39,21 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-export const NativeGlass = requireNativeComponent<
-  ViewProps & { readonly cornerRadius: number }
->('UnwiredGlass');
-
 export function Glass({
   cornerRadius,
+  interactive = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
+}: ViewProps & {
+  readonly cornerRadius: number;
+  // Controls inside interactive glass get the system press response.
+  readonly interactive?: boolean;
+}) {
   return (
-    <NativeGlass
+    <GlassView
       {...props}
-      cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+      isInteractive={interactive}
+      style={[style, { borderRadius: cornerRadius }]}
     />
   );
 }
@@ -156,6 +158,7 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  anchor: { alignSelf: 'flex-start', flexShrink: 1 },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
   toolbarButton: {
     minWidth: 44,
@@ -291,26 +294,25 @@ export function GlassGroup({
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
-  return (
+  const group = (
+    <Glass
+      interactive
+      pointerEvents={pointerEvents}
+      cornerRadius={
+        typeof cornerRadius === 'number' ? cornerRadius : groupRadius
+      }
+      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
+      {children}
+    </Glass>
+  );
+  // shortcut: Expo resolves another React Ref type; drop this host anchor when its types align.
+  return ref === undefined ? (
+    group
+  ) : (
     <View
       ref={ref}
-      pointerEvents={pointerEvents}
-      style={[
-        styles.group,
-        {
-          boxShadow: colors.smallGlassShadow,
-          backgroundColor: colors.surfaceContent,
-        },
-        style,
-      ]}>
-      <Glass
-        pointerEvents="none"
-        cornerRadius={
-          typeof cornerRadius === 'number' ? cornerRadius : groupRadius
-        }
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
+      style={styles.anchor}>
+      {group}
     </View>
   );
 }

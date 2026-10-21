@@ -1,0 +1,28 @@
+diff --git a/ios/GlassView.swift b/ios/GlassView.swift
+index 1130937b6c5aedc53718461726912dee50e71825..7d90e64ed5dad6ea556ae214fc602c3afaafd22e 100644
+--- a/ios/GlassView.swift
++++ b/ios/GlassView.swift
+@@ -5,7 +5,7 @@ import React
+ 
+ public final class GlassView: ExpoView {
+   private var glassEffect: Any?
+-  private var glassEffectView = UIVisualEffectView()
++  private var glassEffectView = GlassEffectView()
+   // TODO: Find a better fix
+   // Glass effect does not work sometimes if view has not been laid out yet
+   // https://github.com/expo/expo/issues/41024#issuecomment-3867466289
+@@ -338,6 +338,14 @@ public final class GlassView: ExpoView {
+   }
+ }
+ 
++// Let the enclosing React Native view apply pointerEvents to empty glass, not UIKit's content view.
++private final class GlassEffectView: UIVisualEffectView {
++  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
++    let hit = super.hitTest(point, with: event)
++    return hit === self || hit === contentView ? nil : hit
++  }
++}
++
+ // Use a weak proxy so CADisplayLink does not retain the view
+ private final class WeakDisplayLinkProxy: NSObject {
+   private weak var view: GlassView?

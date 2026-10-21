@@ -55,6 +55,7 @@ catalog:
   vitest: ^5.0.3
 
 patchedDependencies:
+  expo-glass-effect@57.0.4: patches/expo-glass-effect@57.0.4.patch
   react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch
 
 allowBuilds:
@@ -135,6 +136,7 @@ catalogs:
     'expo-clipboard': '57.0.2'
     'expo-constants': '57.0.22'
     'expo-dev-client': '57.0.20'
+    'expo-glass-effect': '57.0.4'
     'expo-linking': '57.0.13'
     'expo-router': '57.0.28'
     'expo-status-bar': '57.0.1'

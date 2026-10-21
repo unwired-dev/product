@@ -112,7 +112,7 @@ import {
   Notice as Banner,
   Button,
   ContextMenu,
-  NativeGlass,
+  Glass,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -2026,10 +2026,7 @@ function Editor({
               void close();
             }}
             style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <NativeGlass
-              cornerRadius={22}
-              style={StyleSheet.absoluteFill}
-            />
+            <Glass cornerRadius={22} />
             <SFSymbol
               name="xmark"
               color={colors.textPrimary}
@@ -2309,10 +2306,7 @@ function ComposerFallback({
           accessibilityRole="button"
           onPress={onClose}
           style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-          <NativeGlass
-            cornerRadius={22}
-            style={StyleSheet.absoluteFill}
-          />
+          <Glass cornerRadius={22} />
           <SFSymbol
             name="xmark"
             color={colors.textPrimary}

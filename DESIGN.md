@@ -431,7 +431,10 @@ content.
 
 - Liquid Glass is reserved for the navigation layer: sidebar, toolbar groups,
   search bar, menus, popovers and sheets. Use the macOS 27 and iOS 27 kit
-  material ("Liquid Glass - Medium") in its Light or Dark variant.
+  material ("Liquid Glass - Medium") in its Light or Dark variant. On iPhone
+  and iPad, toolbar control groups use interactive system glass with their
+  controls inside the material and no opaque backing fill; menus, sheets and
+  structural surfaces keep passive material.
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
   down. Menus and sheets keep a deeper 24pt shadow so they read as floating.
