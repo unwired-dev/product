@@ -1093,6 +1093,60 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByText(/could not be reached/u)).toBeNull();
   });
 
+  it('refreshes the shown Inbox when the list is pulled down and settles the indicator after a failure', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    gmail.deliver({ subject: 'Arrives with the pull' });
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail until the indicator has been checked.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    const pull = () =>
+      act(async () => {
+        screen
+          .getByLabelText('Inbox messages')
+          .props.refreshControl.props.onRefresh();
+        await Promise.resolve();
+      });
+    const indicator = () =>
+      screen.getByLabelText('Inbox messages').props.refreshControl.props;
+    await pull();
+    expect(indicator()).toMatchObject({ refreshing: true });
+    expect(screen.queryByText('Arrives with the pull')).toBeNull();
+    await act(async () => {
+      release();
+    });
+    await expect(
+      screen.findByText('Arrives with the pull'),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(indicator()).toMatchObject({ refreshing: false });
+    });
+
+    // Offline, the pull ends with the cached list and the documented retry.
+    gmail.fail({ code: 'unavailable' });
+    await pull();
+    await expect(
+      screen.findByText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).resolves.toBeVisible();
+    expect(screen.getByText('Arrives with the pull')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await waitFor(() => {
+      expect(indicator()).toMatchObject({ refreshing: false });
+    });
+  });
+
   it('organizes mail from the reader and the row, keeping an offline archive until Undo', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

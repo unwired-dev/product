@@ -23,8 +23,14 @@ import {
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
-import { use, useMemo, useRef, useSyncExternalStore } from 'react';
-import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
+import { use, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  KeyboardAvoidingView,
+  RefreshControl,
+  SectionList,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -687,6 +693,30 @@ export function Inbox({
   const title =
     folderName ??
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
+  // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
+  // again does. The control ignores further pulls until it settles, so they start no duplicate work.
+  const [refreshing, setRefreshing] = useState(false);
+  const loadShown = async () => {
+    await Promise.all(
+      shown.map(({ inbox }) =>
+        folder !== inboxFolder && 'openFolder' in inbox
+          ? inbox.openFolder(folder)
+          : inbox.load(),
+      ),
+    );
+  };
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await (account === undefined
+        ? loadShown()
+        : account.refreshInbox(loadShown));
+    } catch {
+      // Each mailbox reports its own failure above the list, which keeps its saved mail.
+    }
+    // Not in `finally`: React Compiler cannot compile a finally clause.
+    setRefreshing(false);
+  };
 
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -837,6 +867,14 @@ export function Inbox({
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  void refresh();
+                }}
+              />
+            }
             sections={sections}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
