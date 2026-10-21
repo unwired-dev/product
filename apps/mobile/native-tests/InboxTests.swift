@@ -1126,6 +1126,34 @@ final class InboxTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
       .completed)
+    // DIAG970: compare typing strategies on CI's Xcode; each starts from a freshly focused field.
+    var report: [String] = []
+    let strategies: [(String, () -> Void)] = [
+      ("burst-Maya", { search.typeText("Maya") }),
+      ("burst-maya", { search.typeText("maya") }),
+      ("chars-Maya", { for c in "Maya" { search.typeText(String(c)) } }),
+      ("wait3-burst-Maya", { sleep(3); search.typeText("Maya") }),
+      ("burst-Oliver", { search.typeText("Oliver") }),
+      ("M-then-aya", { search.typeText("M"); sleep(2); search.typeText("aya") }),
+    ]
+    for (index, (name, type)) in strategies.enumerated() {
+      if index > 0 {
+        app.buttons["Close Search"].tap()
+        XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
+        search.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      }
+      type()
+      sleep(4)
+      let line = "\(name) => \(String(describing: search.value))"
+      print("DIAG970 \(line)")
+      report.append(line)
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "diag970-\(name)"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    XCTFail("DIAG970 " + report.joined(separator: " | "))
     // Search lists matches under Top Results until Close returns to the Inbox.
     search.typeText("Maya")
     waitUntil { search.value as? String == "Maya" }
