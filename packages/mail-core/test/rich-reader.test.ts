@@ -413,6 +413,8 @@ describe('the isolated rich reader', () => {
     expect(links).toStrictEqual([
       { href: 'https://phish.invalid/login', text: 'https://bank.invalid' },
     ]);
+    // The painted image description is an atomic inline box and needs its own link underline.
+    expect(document).toContain('a .blocked-image{text-decoration:underline}');
     // CSS overrides the one-pixel attributes, so this is a visible image, not a tracker.
     expect(document).toContain('aria-label="Banner"');
     expect(document).toContain('aria-label="Enlarged logo"');

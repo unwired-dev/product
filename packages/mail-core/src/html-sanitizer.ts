@@ -1596,6 +1596,7 @@ const readerStyle =
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
   'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
   '.link-underline{text-decoration:underline}' +
+  'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
   'padding:2px 6px;font-size:max(4px,.85em)}';
