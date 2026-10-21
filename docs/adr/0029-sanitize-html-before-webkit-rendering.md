@@ -4,6 +4,16 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-10-21
+
+The product owner's requirement in
+[#977](https://github.com/unwired-dev/product/issues/977) supersedes the fixed
+light canvas below. The reader follows the app's Light or Dark appearance with
+app-controlled foreground, background and link colors from the shared design
+tokens. The [sanitization contract](../gmail-inbox.md#sanitization-contract)
+owns the current appearance behavior. Sender-color removal, image admission,
+remote-content consent and WebKit isolation remain required.
+
 ## Amendment — 2026-10-10
 
 During [#763](https://github.com/unwired-dev/product/issues/763) thermo-nuclear
