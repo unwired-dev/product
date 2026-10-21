@@ -58,14 +58,16 @@ export function Glass({
   );
 }
 
-const NativeNavigationChrome = requireNativeComponent<ViewProps>(
-  'UnwiredNavigationChrome',
-);
+const NativeNavigationChrome = requireNativeComponent<
+  ViewProps & { readonly onPop?: (() => void) | undefined }
+>('UnwiredNavigationChrome');
 
-// Hides the native navigation bar while a compact screen shows its own Back pill.
-export function NavigationChrome() {
+// Hides the native navigation bar while a compact screen shows its own Back pill; the edge swipe
+// still pops the screen, and onPop lets its Back follow.
+export function NavigationChrome({ onPop }: { readonly onPop?: () => void }) {
   return (
     <NativeNavigationChrome
+      onPop={onPop}
       style={{ position: 'absolute', width: 0, height: 0 }}
     />
   );

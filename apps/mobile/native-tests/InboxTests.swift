@@ -1160,6 +1160,7 @@ final class InboxTests: XCTestCase {
     shot.name = "Selected message"
     shot.lifetime = .keepAlways
     add(shot)
+    verifyCompactSwipeBack(app, reader: sender, row: maya)
     let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
       .firstMatch
     if !oliver.exists || !oliver.isHittable {
@@ -1226,6 +1227,42 @@ final class InboxTests: XCTestCase {
       add(shot)
       inboxes.tap()
       verifyCompactInboxHeader(app)
+    }
+  }
+
+  // #976: on iPhone a leading-edge swipe returns from a scrolled reader to the Inbox, which no longer
+  // selects the message and reopens it; a swipe released early leaves the reader open.
+  private func verifyCompactSwipeBack(
+    _ app: XCUIApplication, reader: XCUIElement, row: XCUIElement
+  ) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let window = app.windows.firstMatch
+    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity) {
+      // UIKit ignores a swipe while the previous transition is still settling.
+      _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Transition settles")], timeout: 1)
+      window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
+        forDuration: 0.05,
+        thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
+        withVelocity: velocity, thenHoldForDuration: 0.3)
+    }
+    let back = app.buttons["Back to Mailboxes"]
+    app.swipeUp(velocity: .slow)
+    swipe(to: 0.25, velocity: .slow)
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    waitUntil { reader.isHittable && !back.exists }
+    for round in 1...2 {
+      swipe(to: 0.9, velocity: .fast)
+      XCTAssertTrue(back.waitForExistence(timeout: 10))
+      // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
+      waitUntil { row.isHittable && !row.isSelected && !reader.exists }
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Inbox after swiping back from the reader, \(round)"
+      shot.lifetime = .keepAlways
+      add(shot)
+      verifyCompactInboxHeader(app)
+      row.tap()
+      XCTAssertTrue(reader.waitForExistence(timeout: 10))
+      waitUntil { reader.isHittable }
     }
   }
 

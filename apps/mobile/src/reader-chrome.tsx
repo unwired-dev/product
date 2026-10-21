@@ -101,7 +101,7 @@ export function ReaderHeader({
     <View
       style={styles.header}
       {...header.swipe}>
-      <NavigationChrome />
+      <NavigationChrome onPop={onClose} />
       <View style={[styles.backGlass, { boxShadow: colors.smallGlassShadow }]}>
         <Glass
           cornerRadius={22}
