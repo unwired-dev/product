@@ -114,8 +114,10 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 - `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
   while newer edits are already in flight. Check the installed TextInput's
-  synchronization and explicit-clear contract, and verify rapid typing, deletion
-  and replacement with the native keyboard while results update; component
+  native text prop, imperative synchronization and explicit-clear contract.
+  A changing `defaultValue` also reaches Fabric, so an uncontrolled field needs
+  a stable mount seed. Verify rapid typing, deletion and replacement with the
+  native keyboard while results update, including regular-width iPad landscape; component
   change callbacks do not exercise native text reconciliation. Otherwise a
   passing query test can hide dropped or reordered keystrokes. If native owns
   the text, trace Close and Profile replacement too so neither retains old text.

@@ -776,7 +776,7 @@ final class InboxTests: XCTestCase {
     waitUntil { topResults.exists && maya.exists }
     XCTAssertFalse(oliver.exists)
     searching()
-    let shot = XCTAttachment(screenshot: app.screenshot())
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     shot.name = "Search results after replacing the query"
     shot.lifetime = .keepAlways
     add(shot)
@@ -1090,6 +1090,11 @@ final class InboxTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.label.hasPrefix("Unread."))
+    // The remaining #970 typing race reproduced with the regular-width landscape layout.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+    }
     // The floating search field rises above the software keyboard while it is in use.
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.waitForExistence(timeout: 10))
@@ -1103,11 +1108,12 @@ final class InboxTests: XCTestCase {
       .completed)
     // Search lists matches under Top Results until Close returns to the Inbox.
     search.typeText("Maya")
+    waitUntil { search.value as? String == "Maya" }
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
         .firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
-    let results = XCTAttachment(screenshot: app.screenshot())
+    let results = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     results.name = "Search results"
     results.lifetime = .keepAlways
     add(results)
@@ -1118,6 +1124,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // Close also empties the field, which is not controlled by the query (#970).
     XCTAssertEqual(search.value as? String, "Search")
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
+    }
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
