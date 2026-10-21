@@ -951,7 +951,7 @@ describe('profile-scoped mobile routes', () => {
     });
     await expect(
       screen.findByLabelText('Search senders and subjects'),
-    ).resolves.toHaveProp('value', '');
+    ).resolves.toHaveDisplayValue('');
     expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
     await expect(
       screen.findByRole('button', { name: /Garden plan/u }),
@@ -962,7 +962,7 @@ describe('profile-scoped mobile routes', () => {
     });
     await expect(
       screen.findByLabelText('Search senders and subjects'),
-    ).resolves.toHaveProp('value', '');
+    ).resolves.toHaveDisplayValue('');
     expect(screen.getByRole('button', { name: 'All inboxes' })).toBeSelected();
   });
 });

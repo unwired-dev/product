@@ -114,6 +114,7 @@ export function useInboxSearch(
       field.current?.focus();
     },
     close: () => {
+      field.current?.clear();
       setQuery('');
       setOpened(false);
       setAll(false);
@@ -186,6 +187,8 @@ export function InboxBar({
           style={styles.searchField}
           {...(!ipad && searching ? header.swipe : {})}>
           <SearchField
+            // Match the mount seed to the native field's readiness lifetime.
+            key={ready || searching ? 'field' : 'placeholder'}
             onFocus={focused}
             onQuery={setQuery}
             query={query}

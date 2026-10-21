@@ -302,6 +302,8 @@ export function SearchField({
   readonly search: RefObject<TextInput | null>;
 }) {
   const colors = usePalette();
+  // oxlint-disable-next-line react/hook-use-state -- Native text owns edits after this mount seed.
+  const [initialQuery] = useState(query);
   const { t } = useLocalization();
   const { accessibilityActions, onAccessibilityAction: handlePaletteAction } =
     usePaletteHeader().action;
@@ -331,7 +333,8 @@ export function SearchField({
         placeholderTextColor={colors.textSecondary}
         returnKeyType="search"
         style={[styles.search, { color: colors.textPrimary }]}
-        value={query}
+        // Seed once: changing defaultValue also sends text through Fabric (#970).
+        defaultValue={initialQuery}
       />
     </GlassGroup>
   );

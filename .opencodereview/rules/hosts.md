@@ -112,6 +112,18 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
+  while newer edits are already in flight. Check the installed TextInput's
+  native text prop, imperative synchronization and explicit-clear contract.
+  A changing `defaultValue` also reaches Fabric, so an uncontrolled field needs
+  a stable mount seed. Verify rapid typing, deletion and replacement with the
+  native keyboard while results update, including regular-width iPad landscape; component
+  change callbacks do not exercise native text reconciliation. Otherwise a
+  passing query test can hide dropped or reordered keystrokes. If native owns
+  the text, trace Close and Profile replacement too so neither retains old text.
+  Match the seed's lifetime to the native field, including readiness placeholders,
+  or a closed query can reappear when mailbox access returns after a bar remount.
+
 - `message-body.tsx.RichDocument` deriving overflow or another layout-dependent
   decision only when WebKit reports content size. Container layout and native
   measurement can arrive in either order; retain their inputs and recompute when
