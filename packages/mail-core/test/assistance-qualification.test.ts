@@ -197,7 +197,7 @@ describe('assistance qualification corpus run', () => {
   it('a run that cannot start records only an allow-listed stop diagnostic', async () => {
     expect.hasAssertions();
 
-    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
     const path = '/Users/synthetic-private-account/Library/evidence.jsonl';
     for (const begin of [
       () => Promise.resolve({ hardware: 'Mac16,10' }),
@@ -213,5 +213,9 @@ describe('assistance qualification corpus run', () => {
       });
       expect(JSON.stringify(native.lines)).not.toContain(path);
     }
+    expect(errors.mock.calls).toStrictEqual([
+      ['Assistance qualification stopped:', 'unrecognized error'],
+      ['Assistance qualification stopped:', 'Error'],
+    ]);
   });
 });
