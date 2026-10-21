@@ -4,6 +4,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Regression boundary fidelity
 
+- A package test such as `packages/mail-core/test/rich-reader.test.ts` adding a
+  relative `../src/` import even when its target is an exported entry point.
+  Check the specifier against `packages/README.md` and the package's `exports`;
+  use the package-name entry point, such as `@private-email/mail-core/theme`,
+  while preserving relative imports between source files and to owned test
+  fixtures. Otherwise tests bypass package export resolution and depend on the
+  source layout. Boundary lint currently checks the destination for own-package
+  tests and can accept this case, so a passing lint run does not establish that
+  the import follows the package-name convention.
+
 - A lifecycle test such as `AccountRemovalTests` replacing the production removal
   callback with a lower-level consent call. Exercise the same callable boundary as
   the host, including its withdrawal retry, and preserve credential-custody

@@ -3458,5 +3458,74 @@
     "style": "display:none;color:(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((x)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))));display:block",
     "webkit": ["display"],
     "declared": [["display", "block", "block", "block"]]
+  },
+  {
+    "style": "text-decoration:line-through overline wavy 0px transparent",
+    "webkit": [
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color"
+    ],
+    "declared": [
+      [
+        "text-decoration",
+        "line-through overline wavy 0px transparent",
+        "overline line-through 0px wavy transparent",
+        "overline line-through 0px wavy transparent"
+      ]
+    ]
+  },
+  {
+    "style": "text-decoration:none transparent",
+    "webkit": [
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color"
+    ],
+    "declared": [
+      ["text-decoration", "none transparent", "transparent", "transparent"]
+    ]
+  },
+  {
+    "style": "text-decoration:line-through",
+    "webkit": [
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color"
+    ],
+    "declared": [
+      ["text-decoration", "line-through", "line-through", "line-through"]
+    ]
+  },
+  {
+    "style": "display:inline-block;text-decoration:inherit",
+    "webkit": [
+      "display",
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color"
+    ],
+    "declared": [
+      ["display", "inline-block", "inline-block", "inline-block"],
+      ["text-decoration", "inherit", "inherit", "inherit"]
+    ]
+  },
+  {
+    "style": "display:inline-block;padding:8px",
+    "webkit": [
+      "display",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["display", "inline-block", "inline-block", "inline-block"],
+      ["padding", "8px", "8px", "8px"]
+    ]
   }
 ]

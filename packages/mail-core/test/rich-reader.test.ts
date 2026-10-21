@@ -1,6 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 import { deflateSync } from 'node:zlib';
 
+import { palette } from '@private-email/mail-core/theme';
 import * as Schema from 'effect/Schema';
 
 import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
@@ -344,6 +345,53 @@ describe('the isolated rich reader', () => {
     expect(document.match(/class="blocked-image"/gu)).toHaveLength(3);
     expect(links).toStrictEqual([{ href: 'tel:+15551234', text: 'call us' }]);
     expect(readable(opened)).toMatchObject({ hidesImages: true });
+    // The canvas follows the app's appearance (#977) with its content, text and link tokens.
+    for (const [query, colors] of [
+      ['', palette.light],
+      ['@media (prefers-color-scheme:dark){', palette.dark],
+    ] as const) {
+      expect(document).toContain(
+        `${query}html,body{background:${colors.surfaceContent};color:${colors.textPrimary}}a{color:${colors.accentInk}}`,
+      );
+    }
+  });
+
+  it('keeps sender strike-through and overline while visibly underlining links', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        html:
+          '<a href="https://example.invalid/old" style="text-decoration:line-through overline wavy 0px transparent">Old price $99</a>' +
+          '<a href="https://example.invalid/new" style="text-decoration:none transparent">New price $49</a>' +
+          '<div style="text-decoration:line-through"><a href="https://example.invalid/inherited" style="display:inline-block;text-decoration:inherit">Inherited price</a></div>' +
+          '<a href="https://example.invalid/shop"><span style="display:inline-block;padding:8px">Shop now</span></a>',
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { document, links } = rich(await read(inbox, id));
+    expect(document).toContain(
+      'style="text-decoration: line-through overline wavy 0px transparent" href="about:blank#unwired-link-0" rel="noreferrer noopener"><span class="link-underline">Old price $99</span></a>',
+    );
+    expect(document).toContain(
+      'style="text-decoration: none transparent" href="about:blank#unwired-link-1" rel="noreferrer noopener"><span class="link-underline">New price $49</span></a>',
+    );
+    expect(document).toContain('text-decoration: inherit');
+    expect(document).toContain('.link-underline{text-decoration:underline}');
+    expect(document).toContain(
+      'text-decoration-color:currentColor!important;text-decoration-thickness:auto!important',
+    );
+    expect(links).toStrictEqual([
+      { href: 'https://example.invalid/old', text: 'Old price $99' },
+      { href: 'https://example.invalid/new', text: 'New price $49' },
+      { href: 'https://example.invalid/inherited', text: 'Inherited price' },
+      { href: 'https://example.invalid/shop', text: 'Shop now' },
+    ]);
+    // Decorations do not reach into inline blocks, so a button-like label gets its own underline.
+    expect(document).toContain(
+      '<span style="display: inline-block; padding: 8px"><span class="link-underline">Shop now</span></span>',
+    );
   });
 
   it('inspects image-only links by their description and keeps images CSS enlarges', async () => {
@@ -365,6 +413,8 @@ describe('the isolated rich reader', () => {
     expect(links).toStrictEqual([
       { href: 'https://phish.invalid/login', text: 'https://bank.invalid' },
     ]);
+    // The painted image description is an atomic inline box and needs its own link underline.
+    expect(document).toContain('a .blocked-image{text-decoration:underline}');
     // CSS overrides the one-pixel attributes, so this is a visible image, not a tracker.
     expect(document).toContain('aria-label="Banner"');
     expect(document).toContain('aria-label="Enlarged logo"');

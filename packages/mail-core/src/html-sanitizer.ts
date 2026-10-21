@@ -34,6 +34,7 @@ import {
   messageLinkLimit,
   paragraphBuilder,
 } from './readable-text.ts';
+import { palette } from './theme.ts';
 
 type Node = DefaultTreeAdapterTypes.ChildNode;
 type Element = DefaultTreeAdapterTypes.Element;
@@ -1581,15 +1582,24 @@ const lineHeightIn = (
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-// The app's fixed light canvas: sender colors are removed, so the app sets text, background and
-// link colors together.
+// Sender colors are removed, so the app sets text, background and link colors together.
+const readerColors = (colors: (typeof palette)['light']) =>
+  `html,body{background:${colors.surfaceContent};color:${colors.textPrimary}}` +
+  `a{color:${colors.accentInk}}.blocked-image{color:${colors.textSecondary}}`;
+
+// The app's content canvas, following the system appearance like the app around it.
 const readerStyle =
-  ':root{color-scheme:light;font-size:16px}html,body{margin:0;padding:0;background:#fff;color:#17202a}' +
+  `:root{color-scheme:light dark;font-size:16px}html,body{margin:0;padding:0}${readerColors(palette.light)}` +
+  `@media (prefers-color-scheme:dark){${readerColors(palette.dark)}}` +
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
-  'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}a{color:#245cca}' +
+  'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}' +
+  // Link colors sit close to the text's, so an underline marks links even where senders remove it.
+  'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
+  '.link-underline{text-decoration:underline}' +
+  'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
-  '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed #a3afbf;border-radius:4px;' +
-  'padding:2px 6px;color:#596574;font-size:max(4px,.85em)}';
+  '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
+  'padding:2px 6px;font-size:max(4px,.85em)}';
 
 // Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
 // sender colors removed, remote images replaced by non-loading placeholders, and only admitted
@@ -1919,17 +1929,19 @@ export function sanitizeHtml(
     const opened = link;
     children(element);
     link = undefined;
-    const tag = opened.visible ? 'a' : 'span';
-    const destination = opened.visible
-      ? ` href="${messageLinkHref(links.length)}" rel="noreferrer noopener"`
-      : '';
-    output = `${before}<${tag}${attributes(element, style)}${destination}>${output}</${tag}>`;
-    if (opened.visible) {
-      const label = hasVisibleText(opened.text)
-        ? opened.text
-        : opened.description;
-      links.push({ href, text: label.replaceAll(/\s+/gu, ' ').trim() });
+    if (!opened.visible) {
+      output = `${before}<span${attributes(element, style)}>${output}</span>`;
+      return;
     }
+    // A separate underline preserves the anchor's sender decoration, including `inherit`.
+    const content = style.retained.has('text-decoration')
+      ? `<span class="link-underline">${output}</span>`
+      : output;
+    output = `${before}<a${attributes(element, style)} href="${messageLinkHref(links.length)}" rel="noreferrer noopener">${content}</a>`;
+    const label = hasVisibleText(opened.text)
+      ? opened.text
+      : opened.description;
+    links.push({ href, text: label.replaceAll(/\s+/gu, ' ').trim() });
   };
 
   // Readable markers a container adds before its content.
@@ -1951,8 +1963,14 @@ export function sanitizeHtml(
     const content = visibleContent;
     output += `<${tag}${attributes(node, style)}>`;
     const start = output.length;
+    // A link's underline does not reach into inline blocks, such as newsletter buttons.
+    const underline =
+      link !== undefined &&
+      style.retained.get('display')?.toLowerCase() === 'inline-block';
+    output += underline ? '<span class="link-underline">' : '';
     marker(name);
     children(node);
+    output += underline ? '</span>' : '';
     if (link !== undefined && visibleContent === content) {
       // Empty boxes can accumulate thousands of pixels with individually ordinary sizes.
       // Keep descendants and inherited text styles, but give the empty wrapper no box.

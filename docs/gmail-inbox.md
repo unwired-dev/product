@@ -584,10 +584,17 @@ Image width and height preserve literal lengths, percentages and supported sizin
 keywords, including `auto`, subject to the reader's sizing bounds below.
 Unvalidated sizing functions and invalid values are discarded; discarded
 declarations do not override HTML tracking-pixel attributes.
-The accepted sanitizer's fixed light canvas is valid in dark app chrome; matching
-rich content to a dark theme requires app-controlled readable foreground,
-background and link colors, never restored sender colors. Dark rich-content
-styling and configurable reading appearance have no assigned replacement slice.
+The rich document follows the app's Light or Dark appearance on every host with
+the shared [DESIGN.md](../DESIGN.md#colors) tokens: the `surface/content`
+background, `text/primary` text, `accent/ink` links and `text/secondary`
+blocked-image placeholders. Links stay visibly underlined, as in plain text, even
+where the sender removed or hid the underline, while retaining sender strike-through
+and overline, so color alone never marks them. It switches through `prefers-color-scheme`, so an
+appearance change while a message is open restyles it in place, and the
+isolated view's own background uses the same content surface, so neither
+appearance shows a white canvas while it opens or scrolls. Matching the
+appearance never restores sender colors or recolors image pixels.
+Configurable reading appearance has no assigned slice.
 
 Author-supplied `data:` URLs are not trusted image bytes. They are removed, as are
 unsafe schemes and remote image sources. Only sanitized `cid:` references may

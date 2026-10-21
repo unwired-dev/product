@@ -1210,6 +1210,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `html-sanitizer.ts.anchor`, `container` or `placeholder` relying on an
+  ancestor's text decoration to mark linked text across an atomic inline box.
+  Check retained inline-block descendants and generated image-placeholder labels
+  in rendered WebKit output, including sender decoration overrides. Preserve
+  sender strike-through/overline and balanced empty-box normalization while
+  adding a visible underline inside each atomic boundary; otherwise linked text
+  can look identical to ordinary content after the reader applies its colors.
 - `gmail-inbox.ts.boundedMessage` rejecting provider metadata with a generic
   failure after the provider already recorded an attachment grant refusal.
   Preserve that authorization rejection through the reader, cached completion

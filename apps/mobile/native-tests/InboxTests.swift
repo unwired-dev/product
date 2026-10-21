@@ -67,6 +67,9 @@ final class InboxTests: XCTestCase {
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
+    XCTAssertTrue(
+      app.staticTexts["Open this link in your browser?"].waitForNonExistence(timeout: 10))
+    verifyRichBodyCanvas(app)
     // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
     // an archive and Undo.
     app.buttons["More"].tap()
@@ -1300,14 +1303,42 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // #977: the rich body's canvas, above its first paragraph, matches the reader surface beside it
+  // in the journey's appearance rather than showing a white canvas in Dark.
+  private func verifyRichBodyCanvas(_ app: XCUIApplication) {
+    let body = app.webViews.firstMatch.frame
+    XCTAssertGreaterThanOrEqual(body.minX, 8, "The reader has no surface beside the body")
+    let colors = pixels(
+      app,
+      at: [
+        CGPoint(x: body.maxX - 4, y: body.minY + 4),
+        CGPoint(x: body.minX - 4, y: body.minY + 4),
+      ])
+    let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
+    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+    XCTAssertEqual(brightness < 384, appearance == "dark", "The journey runs in \(appearance)")
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "Body canvas \(colors[0]) differs from the reader surface \(colors[1])")
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    shot.name = "Rich body in \(appearance)"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   // RGBA bytes of one app screenshot at points in window coordinates.
   private func pixels(_ app: XCUIApplication, at points: [CGPoint]) -> [[UInt8]] {
-    let image = app.screenshot().image
+    // XCTest's app capture clips landscape; drawing the screen capture applies its orientation.
+    let screenshot = XCUIScreen.main.screenshot().image
+    let size = app.windows.firstMatch.frame.size
+    let image = UIGraphicsImageRenderer(size: size).image { _ in
+      screenshot.draw(in: CGRect(origin: .zero, size: size))
+    }
     guard let source = image.cgImage else {
       XCTFail("Screenshot has no bitmap")
       return points.map { _ in [] }
     }
-    let scale = CGFloat(source.width) / app.windows.firstMatch.frame.width
+    let scale = CGFloat(source.width) / size.width
     return points.map { point in
       var rgba = [UInt8](repeating: 0, count: 4)
       let area = CGRect(

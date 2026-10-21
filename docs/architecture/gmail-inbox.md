@@ -237,7 +237,10 @@ handoff for unmatched origins; the reader cancels every subsequent navigation
 and confirms user links outside WebKit. Anchors carry app-owned stable markers,
 so URL normalization cannot strip their visible-text inspection context. Exact
 vetted destinations remain in memory outside the document. Keyboard link controls provide the same
-confirmation path. Rich content uses the accepted fixed light canvas.
+confirmation path. Rich content follows the app appearance under the
+[sanitization contract](../gmail-inbox.md#sanitization-contract), as authorized
+by [#977](https://github.com/unwired-dev/product/issues/977), superseding the
+fixed light canvas.
 
 Recent-body prefetch runs in one lane per Inbox, sharing the two-load semaphore
 and coalescing an explicit open with an in-flight speculative read of the same

@@ -514,6 +514,7 @@ function RichDocument({
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
 }) {
+  const colors = usePalette();
   const { t } = useLocalization();
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
@@ -629,7 +630,10 @@ function RichDocument({
           nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}
           style={[
             styles.rich,
-            { height: Math.min(height ?? 1, heightCap) },
+            {
+              backgroundColor: colors.surfaceContent,
+              height: Math.min(height ?? 1, heightCap),
+            },
             height === undefined ? styles.hidden : undefined,
           ]}
         />
