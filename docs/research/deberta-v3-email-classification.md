@@ -203,6 +203,15 @@ license check; it does not inherit acceptability merely from the base model.
 
 ## Concrete evaluation before adoption
 
+Qualification scope update, 2026-10-21: the owner's
+[#1106](https://github.com/unwired-dev/product/issues/1106) decision supersedes
+the non-Pro prerequisite in the original scope below. Use the available physical
+devices nominated in the [native validation guide](../agents/native-validation.md#performance-qualification);
+[#830](https://github.com/unwired-dev/product/issues/830) owns mobile evidence.
+This changes qualification hardware only. Categorization remains independent of
+Apple Intelligence availability, product hardware support is unchanged, and
+results cannot qualify untested hardware. The research-date scope follows.
+
 This is a proposed experiment, not a claim of completed validation. The approved
 [spike #827](https://github.com/unwired-dev/product/issues/827) and its child
 slices #828–831 govern execution: evaluate English and Czech, with System and
