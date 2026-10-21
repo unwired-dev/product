@@ -296,6 +296,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   for other consumers. Require that ancestry before localizing a path segment:
   Graph custom folders can also be named `INBOX`.
   Preserve those names and a Gmail user label's literal `INBOX` prefix.
+  `move-sheet.tsx.nest` must also distinguish that Inbox ancestry in its tree
+  keys, since a custom folder can equal the app's localized Inbox title.
   Exercise different mailbox/app languages
   through the real store and picker; otherwise children stay at the top level
   or user labels are renamed and grouped under an unrelated system folder.

@@ -512,6 +512,7 @@ function ImapMessageActions({
                               return {
                                 id: name,
                                 path: localizedPath(path, t('inbox.title')),
+                                inboxPath: path[0] === inboxFolder,
                                 icon: folderIcon(name, roles),
                                 current: name === message.folder,
                                 selectable,
@@ -756,6 +757,7 @@ function GmailMessageActions({
                       {
                         id: inboxFolder,
                         path: [t('inbox.title')],
+                        inboxPath: true,
                         icon: 'tray',
                         current: applied.has(inboxFolder),
                         selectable: false,
@@ -772,6 +774,7 @@ function GmailMessageActions({
                             label.inboxPath === true
                               ? [t('inbox.title'), ...path.slice(1)]
                               : path,
+                          inboxPath: label.inboxPath === true,
                           icon: 'folder',
                           current: applied.has(label.id),
                           selectable: true,

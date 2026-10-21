@@ -101,6 +101,8 @@ export type Destination = Readonly<{
   id: string;
   // The folder's names from its top-level ancestor down, as the provider nests them.
   path: readonly string[];
+  // Keeps the system Inbox and its descendants apart from equally named user folders.
+  inboxPath: boolean;
   icon: string;
   // The message's own folder, which it cannot move to again.
   current: boolean;
@@ -111,16 +113,19 @@ export type Destination = Readonly<{
 }>;
 type Row = Destination & Readonly<{ name: string; depth: number }>;
 
-const pathKey = (path: readonly string[]) => path.join('\u0000');
+const pathKey = (path: readonly string[], inboxPath: boolean) =>
+  path.length === 0 ? '' : `${inboxPath}\u0000${path.join('\u0000')}`;
 const pathName = (path: readonly string[]) => path.join(' / ');
 
 // Destinations in tree order: each folder follows its nearest listed ancestor, one level deeper,
 // and names the path below it; ancestors that are not listed stay part of its name.
 const nest = (destinations: readonly Destination[]) => {
-  const listed = new Set(destinations.map(({ path }) => pathKey(path)));
-  const parentOf = (path: readonly string[]) => {
+  const listed = new Set(
+    destinations.map(({ path, inboxPath }) => pathKey(path, inboxPath)),
+  );
+  const parentOf = ({ path, inboxPath }: Destination) => {
     for (let length = path.length - 1; length > 0; length -= 1) {
-      if (listed.has(pathKey(path.slice(0, length)))) {
+      if (listed.has(pathKey(path.slice(0, length), inboxPath))) {
         return length;
       }
     }
@@ -128,8 +133,8 @@ const nest = (destinations: readonly Destination[]) => {
   };
   const children = new Map<string, Destination[]>();
   for (const destination of destinations) {
-    const ancestors = destination.path.slice(0, parentOf(destination.path));
-    const parent = pathKey(ancestors);
+    const ancestors = destination.path.slice(0, parentOf(destination));
+    const parent = pathKey(ancestors, destination.inboxPath);
     const siblings = children.get(parent);
     if (siblings === undefined) {
       children.set(parent, [destination]);
@@ -143,9 +148,9 @@ const nest = (destinations: readonly Destination[]) => {
     // A path listed twice is shown once.
     children.delete(parent);
     for (const destination of level) {
-      const below = destination.path.slice(parentOf(destination.path));
+      const below = destination.path.slice(parentOf(destination));
       rows.push({ ...destination, name: pathName(below), depth });
-      visit(pathKey(destination.path), depth + 1);
+      visit(pathKey(destination.path, destination.inboxPath), depth + 1);
     }
   };
   visit('', 0);

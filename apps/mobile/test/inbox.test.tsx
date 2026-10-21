@@ -1564,6 +1564,8 @@ describe('connected Gmail Inbox', () => {
     graph.createFolder('Receipts', 'inbox');
     const literalInbox = graph.createFolder('INBOX');
     graph.createFolder('Taxes', literalInbox);
+    const namedInbox = graph.createFolder('Inbox');
+    graph.createFolder('Statements', namedInbox);
     const year = graph.createFolder('Travel / 2026');
     graph.createFolder('Porto', year);
     const gone = graph.deliver({ subject: 'Old notes' });
@@ -1648,8 +1650,17 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Move to INBOX / Taxes' }),
       ).getByText('Taxes'),
     ).toBeVisible();
-    // Back lists only this account, since mail moves within it; Cancel moves nothing.
     const sheet = within(screen.getByTestId('move-sheet'));
+    // Equal display names must not attach a custom folder's child to the system Inbox.
+    const rows = sheet.getAllByRole('button');
+    expect(
+      rows.indexOf(sheet.getByRole('button', { name: 'Move to Inbox' })),
+    ).toBeLessThan(
+      rows.indexOf(
+        sheet.getByRole('button', { name: 'Move to Inbox / Statements' }),
+      ),
+    );
+    // Back lists only this account, since mail moves within it; Cancel moves nothing.
     await fireEvent.press(sheet.getByRole('button', { name: 'Back' }));
     expect(sheet.getByRole('header', { name: 'Accounts' })).toBeVisible();
     await fireEvent.press(
