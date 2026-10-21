@@ -257,7 +257,10 @@ history, the Inbox is listed again; the cached messages stay visible meanwhile,
 and messages that left the Inbox are removed when the new listing completes.
 Synchronization runs when the Inbox opens and whenever the app becomes active;
 see [Freshness across app lifecycles](#freshness-across-app-lifecycles) for
-background work.
+background work. On iPhone and iPad, pulling down the list refreshes every shown
+mailbox and its listed view once registration verifies, as **Try again** does. The
+system refresh indicator stays until that synchronization settles, and further pulls
+start nothing meanwhile. A failure keeps the saved list and shows the status below.
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
