@@ -1928,22 +1928,19 @@ export function sanitizeHtml(
     const opened = link;
     children(element);
     link = undefined;
-    const tag = opened.visible ? 'a' : 'span';
-    const destination = opened.visible
-      ? ` href="${messageLinkHref(links.length)}" rel="noreferrer noopener"`
-      : '';
-    // A separate underline preserves the anchor's sender decoration, including `inherit`.
-    const content =
-      opened.visible && style.retained.has('text-decoration')
-        ? `<span class="link-underline">${output}</span>`
-        : output;
-    output = `${before}<${tag}${attributes(element, style)}${destination}>${content}</${tag}>`;
-    if (opened.visible) {
-      const label = hasVisibleText(opened.text)
-        ? opened.text
-        : opened.description;
-      links.push({ href, text: label.replaceAll(/\s+/gu, ' ').trim() });
+    if (!opened.visible) {
+      output = `${before}<span${attributes(element, style)}>${output}</span>`;
+      return;
     }
+    // A separate underline preserves the anchor's sender decoration, including `inherit`.
+    const content = style.retained.has('text-decoration')
+      ? `<span class="link-underline">${output}</span>`
+      : output;
+    output = `${before}<a${attributes(element, style)} href="${messageLinkHref(links.length)}" rel="noreferrer noopener">${content}</a>`;
+    const label = hasVisibleText(opened.text)
+      ? opened.text
+      : opened.description;
+    links.push({ href, text: label.replaceAll(/\s+/gu, ' ').trim() });
   };
 
   // Readable markers a container adds before its content.
