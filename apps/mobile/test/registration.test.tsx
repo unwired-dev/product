@@ -678,6 +678,8 @@ describe('product registration', () => {
     const lunch = imap.deliver('INBOX', { subject: 'Team lunch' });
     imap.addFolder('Archived Mail', ['archive']);
     imap.addFolder('Projects');
+    imap.addFolder('Clients', [], false);
+    imap.addFolder('Clients/Acme');
     imap.deliver('Projects', { subject: 'Filed invoice' });
     const { synthetic, setup } = await signedIn();
     const connection = await connectImap(setup);
@@ -770,6 +772,23 @@ describe('product registration', () => {
     expect(
       sheet.getByRole('button', { name: 'Inbox', selected: true }),
     ).toBeDisabled();
+    // A folder that holds only folders cannot be chosen; the one inside it is nested beneath it.
+    expect(sheet.getByRole('button', { name: 'Clients' })).toBeDisabled();
+    expect(
+      within(
+        sheet.getByRole('button', { name: 'Move to Clients / Acme' }),
+      ).getByText('Acme'),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.changeText(sheet.getByLabelText('Search'), 'acme');
+    });
+    // A search lists the folders that hold mail by their full path.
+    expect(sheet.queryByRole('button', { name: 'Clients' })).toBeNull();
+    expect(
+      within(
+        sheet.getByRole('button', { name: 'Move to Clients / Acme' }),
+      ).getByText('Clients / Acme'),
+    ).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(sheet.getByLabelText('Search'), 'proj');
     });
@@ -841,7 +860,9 @@ describe('product registration', () => {
         screen.getAllByRole('button', { name: /Filed invoice/u }),
       ).toHaveLength(1);
     });
-    expect(imap.server.reads).toContain('search INBOX,Archived Mail,Projects');
+    expect(imap.server.reads).toContain(
+      'search INBOX,Archived Mail,Projects,Clients/Acme',
+    );
   });
   /* oxlint-enable vitest/max-expects */
 

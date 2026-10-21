@@ -34,7 +34,7 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   func folders(_ account: ImapAccount, password: String) async throws -> ImapListing {
     try record("folders", password)
     return ImapListing(
-      folders: [ImapFolder(name: "INBOX", roles: ["inbox"], selectable: true)], moves: true,
+      folders: [ImapFolder(name: "INBOX", roles: ["inbox"], selectable: true, delimiter: "/")], moves: true,
       idle: false)
   }
   func synchronize(

@@ -105,7 +105,7 @@ export interface NativeImapMailbox
       | 'retainMessageBodies'
     >,
     NativeRemoteContentCache {
-  // Resolves `{ folders: [{ name, roles, selectable }] }`.
+  // Resolves `{ folders: [{ name, roles, selectable, delimiter? }] }`.
   readonly imapFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;

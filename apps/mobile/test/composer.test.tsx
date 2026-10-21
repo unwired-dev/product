@@ -3687,7 +3687,7 @@ describe('replying to and forwarding from the reader', () => {
         'Archive',
         'Mark as read',
         'Star',
-        'Labels',
+        'Folders',
         'Move to Trash',
         'Report spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
@@ -3716,17 +3716,19 @@ describe('replying to and forwarding from the reader', () => {
     ).toStrictEqual(['Remove star', 'Mark as read']);
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
-    // Reply closes shown Labels too, and the sheet's Labels opens them rather than hiding them.
-    await press('Labels');
+    // Reply closes shown More too, and the sheet's Folders opens the Move picker in its place.
+    await press('More');
     await press('Reply');
     expect(
-      screen.queryByText('This Gmail mailbox has no labels of its own yet.'),
-    ).toBeNull();
-    await pressLast('Labels');
-    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Hide labels' })).toBeVisible();
+      screen.getByRole('button', { name: 'More', expanded: false }),
+    ).toBeVisible();
+    await pressLast('Folders');
+    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hide folders' })).toBeVisible();
     expect(
-      screen.getByText('This Gmail mailbox has no labels of its own yet.'),
+      within(screen.getByTestId('move-sheet')).getByText(
+        'This Gmail mailbox has no labels of its own yet.',
+      ),
     ).toBeVisible();
   });
 
@@ -3758,12 +3760,12 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByRole('button', { name: 'Reply' });
       expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
       // Organizer panels must open above this bottom toolbar in landscape too.
-      await press('Labels');
+      await press('More');
       const panel = screen.getByText(
         'This Gmail mailbox has no labels of its own yet.',
       ).parent?.parent?.parent?.parent?.parent;
       expect(panel).not.toHaveStyle({ position: 'absolute' });
-      await press('Hide labels');
+      await press('More');
       await press('Reply');
       expect(screen.getAllByRole('button', { name: 'Reply' })[0]).toHaveProp(
         'accessibilityState',

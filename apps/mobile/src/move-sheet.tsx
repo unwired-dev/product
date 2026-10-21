@@ -1,3 +1,6 @@
+import type { ReactNode } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
+
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -30,9 +33,8 @@ const styles = StyleSheet.create({
   },
   caption: { ...textStyles.footnote, textAlign: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
-  titleSpacer: { width: 44 },
   title: { ...textStyles.headline, flex: 1, textAlign: 'center' },
-  close: {
+  circle: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -40,6 +42,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cancel: {
+    minWidth: 44,
+    height: 44,
+    paddingHorizontal: spacing.l - 2,
+    borderRadius: 22,
+    borderWidth: 2,
+    justifyContent: 'center',
+  },
+  cancelLabel: { ...textStyles.body },
+  hidden: { opacity: 0 },
   message: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -77,25 +89,280 @@ const styles = StyleSheet.create({
   },
   rowIcon: { width: 22, alignItems: 'center' },
   rowName: { ...textStyles.body, flex: 1 },
+  count: { ...textStyles.body },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
 });
 
-// A folder Move to… offers: tray for the Inbox, archivebox for the archive, folder otherwise.
-type Destination = Readonly<{
-  id: string;
-  name: string;
-  icon: string;
-  current: boolean;
-}>;
+// Each level of nesting indents a folder by one icon column.
+const indent = 28;
 
-// iPhone's Move picker for a mailbox whose messages live in one folder. It grows out of the Move
-// button: the mailbox, the message, its folders with the current one unavailable, and a search
-// below them. Moving closes it, then moves once it has shrunk away.
+// A folder Move to… lists: tray for the Inbox, archivebox for the archive, folder otherwise.
+export type Destination = Readonly<{
+  id: string;
+  // The folder's names from its top-level ancestor down, as the provider nests them.
+  path: readonly string[];
+  icon: string;
+  // The message's own folder, which it cannot move to again.
+  current: boolean;
+  // False for a folder the message cannot move to, such as a container holding only folders.
+  selectable: boolean;
+  // Unread mail this device already knows the folder holds.
+  count?: number | undefined;
+}>;
+type Row = Destination & Readonly<{ name: string; depth: number }>;
+
+const pathKey = (path: readonly string[]) => path.join('\u0000');
+const pathName = (path: readonly string[]) => path.join(' / ');
+
+// Destinations in tree order: each folder follows its nearest listed ancestor, one level deeper,
+// and names the path below it; ancestors that are not listed stay part of its name.
+const nest = (destinations: readonly Destination[]) => {
+  const listed = new Set(destinations.map(({ path }) => pathKey(path)));
+  const parentOf = (path: readonly string[]) => {
+    for (let length = path.length - 1; length > 0; length -= 1) {
+      if (listed.has(pathKey(path.slice(0, length)))) {
+        return length;
+      }
+    }
+    return 0;
+  };
+  const children = new Map<string, Destination[]>();
+  for (const destination of destinations) {
+    const ancestors = destination.path.slice(0, parentOf(destination.path));
+    const parent = pathKey(ancestors);
+    children.set(parent, [...(children.get(parent) ?? []), destination]);
+  }
+  const rows: Row[] = [];
+  const visit = (parent: string, depth: number) => {
+    const level = children.get(parent) ?? [];
+    // A path listed twice is shown once.
+    children.delete(parent);
+    for (const destination of level) {
+      const below = destination.path.slice(parentOf(destination.path));
+      rows.push({ ...destination, name: pathName(below), depth });
+      visit(pathKey(destination.path), depth + 1);
+    }
+  };
+  visit('', 0);
+  return rows;
+};
+
+// The picker's rows: every destination nested, or for a search, those that can hold mail by
+// their full path.
+const rowsFor = (
+  destinations: readonly Destination[],
+  needle: string,
+): readonly Row[] =>
+  needle === ''
+    ? nest(destinations)
+    : destinations
+        .filter(
+          ({ path, selectable }) =>
+            selectable && pathName(path).toLocaleLowerCase().includes(needle),
+        )
+        .map((destination) => ({
+          ...destination,
+          name: pathName(destination.path),
+          depth: 0,
+        }));
+
+// A round or pill control in the picker's header, ringed in the accent while it has focus.
+function SheetButton({
+  label,
+  style,
+  onPress,
+  children,
+}: {
+  readonly label?: string;
+  readonly style: StyleProp<ViewStyle>;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        style,
+        {
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.fillQuiet,
+          borderColor: focused ? colors.accentInk : 'transparent',
+        },
+      ]}>
+      {children}
+    </Pressable>
+  );
+}
+
+// A row of the picker, indented by its depth and ringed in the accent while it has focus.
+function SheetRow({
+  label,
+  depth = 0,
+  current = false,
+  disabled = false,
+  onPress,
+  children,
+}: {
+  readonly label: string;
+  readonly depth?: number;
+  readonly current?: boolean;
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected: current }}
+      disabled={disabled}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          paddingLeft: styles.row.paddingHorizontal + indent * depth,
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : 'transparent',
+          borderColor: focused ? colors.accentInk : 'transparent',
+        },
+      ]}>
+      {children}
+    </Pressable>
+  );
+}
+
+// The picker's Back page: the account whose folders it lists, as mail moves only within it.
+function AccountPage({
+  account,
+  onFolders,
+  onCancel,
+}: {
+  readonly account: string;
+  readonly onFolders: () => void;
+  readonly onCancel: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <>
+      <View style={styles.titleRow}>
+        {/* An unseen copy of Cancel keeps the title centred. */}
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.cancel, styles.hidden]}>
+          <Text style={styles.cancelLabel}>{t('common.cancel')}</Text>
+        </View>
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={[styles.title, { color: colors.textPrimary }]}>
+          {t('settings.sections.accounts')}
+        </Text>
+        <SheetButton
+          style={styles.cancel}
+          onPress={onCancel}>
+          <Text style={[styles.cancelLabel, { color: colors.textPrimary }]}>
+            {t('common.cancel')}
+          </Text>
+        </SheetButton>
+      </View>
+      <ScrollView style={styles.sheetList}>
+        <SheetRow
+          label={account}
+          onPress={onFolders}>
+          <Text
+            numberOfLines={1}
+            style={[styles.rowName, { color: colors.textPrimary }]}>
+            {account}
+          </Text>
+          <SFSymbol
+            name="chevron.right"
+            size={14}
+            color={colors.textSecondary}
+          />
+        </SheetRow>
+      </ScrollView>
+    </>
+  );
+}
+
+// A destination: its symbol in the accent, or secondary with its name when it cannot be chosen.
+function DestinationRow({
+  row,
+  onChoose,
+}: {
+  readonly row: Row;
+  readonly onChoose: (id: string) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const unavailable = row.current || !row.selectable;
+  const path = pathName(row.path);
+  return (
+    <SheetRow
+      label={unavailable ? path : t('gmailActions.moveTo', { label: path })}
+      depth={row.depth}
+      current={row.current}
+      disabled={unavailable}
+      onPress={() => {
+        onChoose(row.id);
+      }}>
+      <View style={styles.rowIcon}>
+        <SFSymbol
+          name={row.icon}
+          size={18}
+          color={unavailable ? colors.textSecondary : colors.accentInk}
+        />
+      </View>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.rowName,
+          { color: unavailable ? colors.textSecondary : colors.textPrimary },
+        ]}>
+        {row.name}
+      </Text>
+      {row.count === undefined ? null : (
+        <Text style={[styles.count, { color: colors.textSecondary }]}>
+          {row.count}
+        </Text>
+      )}
+    </SheetRow>
+  );
+}
+
+// iPhone's Move picker. It grows out of the Move button: the mailbox, the message, its folders
+// nested as the provider lists them, with the current one and containers unavailable, and a
+// search below them. Back lists the account, as mail moves only within it. Moving closes the
+// picker, then moves once it has shrunk away.
 export function MoveSheet({
   open,
   origin,
   message,
   destinations,
+  empty,
   limited,
   onMove,
   onClose,
@@ -105,6 +372,8 @@ export function MoveSheet({
   readonly origin: number;
   readonly message: Readonly<{ sender: string; subject: string }>;
   readonly destinations: readonly Destination[];
+  // Shown when no destination can be chosen.
+  readonly empty?: string | undefined;
   // Microsoft lists only its first folders; IMAP lists all of them.
   readonly limited: number | undefined;
   readonly onMove: (id: string) => void;
@@ -147,21 +416,30 @@ export function MoveSheet({
   }, [message]);
   const landscapeKeyboard = keyboardHeight > 0 && width > height;
   const [query, setQuery] = useState('');
-  const [focused, setFocused] = useState<string>();
+  const [accounts, setAccounts] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
       setQuery('');
-      setFocused(undefined);
+      setAccounts(false);
     }
   }
   const needle = query.trim().toLocaleLowerCase();
-  const shown = destinations.filter(({ name }) =>
-    name.toLocaleLowerCase().includes(needle),
-  );
+  const shown = rowsFor(destinations, needle);
+  const choose = (id: string) => {
+    if (!open || owner.current !== message || pending.current !== undefined) {
+      return;
+    }
+    pending.current = { message, id };
+    onClose();
+  };
+  const account = mailbox?.address ?? provider;
   const note = (text: string) => (
     <Text style={[styles.note, { color: colors.textSecondary }]}>{text}</Text>
+  );
+  const nothingToChoose = destinations.every(
+    ({ current, selectable }) => current || !selectable,
   );
   return (
     <Modal
@@ -233,176 +511,125 @@ export function MoveSheet({
             cornerRadius={radius.sheet}
             style={StyleSheet.absoluteFill}
           />
-          <Text style={[styles.caption, { color: colors.textSecondary }]}>
-            {t('gmailActions.moveCaption')}
-          </Text>
-          <View style={styles.titleRow}>
-            <View style={styles.titleSpacer} />
-            <Text
-              accessibilityRole="header"
-              numberOfLines={1}
-              style={[styles.title, { color: colors.textPrimary }]}>
-              {mailbox?.address ?? provider}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('message.closeResponses')}
-              onFocus={() => {
-                setFocused('close');
+          {accounts ? (
+            <AccountPage
+              account={account}
+              onFolders={() => {
+                setAccounts(false);
               }}
-              onBlur={() => {
-                setFocused(undefined);
-              }}
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.close,
-                {
-                  backgroundColor: pressed
-                    ? colors.accentSelectionSubtle
-                    : colors.fillQuiet,
-                  borderColor:
-                    focused === 'close' ? colors.accentInk : 'transparent',
-                },
-              ]}>
-              <SFSymbol
-                name="xmark"
-                color={colors.textPrimary}
-              />
-            </Pressable>
-          </View>
-          <ScrollView
-            keyboardShouldPersistTaps={landscapeKeyboard ? 'always' : 'handled'}
-            style={styles.sheetList}>
-            <View style={[styles.message, { borderColor: colors.separator }]}>
-              <Monogram name={message.sender} />
-              <View style={styles.messageText}>
+              onCancel={onClose}
+            />
+          ) : (
+            <>
+              <Text style={[styles.caption, { color: colors.textSecondary }]}>
+                {t('gmailActions.moveCaption')}
+              </Text>
+              <View style={styles.titleRow}>
+                <SheetButton
+                  label={t('message.back')}
+                  style={styles.circle}
+                  onPress={() => {
+                    setAccounts(true);
+                  }}>
+                  <SFSymbol
+                    name="chevron.left"
+                    color={colors.textPrimary}
+                  />
+                </SheetButton>
                 <Text
+                  accessibilityRole="header"
                   numberOfLines={1}
-                  style={[styles.sender, { color: colors.textPrimary }]}>
-                  {message.sender}
+                  style={[styles.title, { color: colors.textPrimary }]}>
+                  {account}
                 </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.subject, { color: colors.textSecondary }]}>
-                  {message.subject}
-                </Text>
+                <SheetButton
+                  label={t('message.closeResponses')}
+                  style={styles.circle}
+                  onPress={onClose}>
+                  <SFSymbol
+                    name="xmark"
+                    color={colors.textPrimary}
+                  />
+                </SheetButton>
               </View>
-            </View>
-            {shown.length === 0
-              ? note(
-                  t(
-                    destinations.length === 0
-                      ? 'gmailActions.noFolders'
-                      : 'gmailActions.noMatchingFolders',
-                  ),
-                )
-              : shown.map((destination, index) => (
-                  <View key={destination.id}>
-                    {index === 0 ? null : (
-                      <View
-                        style={[
-                          styles.separator,
-                          { backgroundColor: colors.separator },
-                        ]}
-                      />
-                    )}
-                    <Pressable
-                      accessibilityLabel={
-                        destination.current
-                          ? destination.name
-                          : t('gmailActions.moveTo', {
-                              label: destination.name,
-                            })
-                      }
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        disabled: destination.current,
-                        selected: destination.current,
-                      }}
-                      disabled={destination.current}
-                      focusable
-                      onBlur={() => {
-                        setFocused(undefined);
-                      }}
-                      onFocus={() => {
-                        setFocused(destination.id);
-                      }}
-                      onPress={() => {
-                        if (
-                          !open ||
-                          owner.current !== message ||
-                          pending.current !== undefined
-                        ) {
-                          return;
-                        }
-                        pending.current = { message, id: destination.id };
-                        onClose();
-                      }}
-                      style={({ pressed }) => [
-                        styles.row,
-                        {
-                          backgroundColor: pressed
-                            ? colors.accentSelectionSubtle
-                            : 'transparent',
-                          borderColor:
-                            focused === destination.id
-                              ? colors.accentInk
-                              : 'transparent',
-                        },
-                      ]}>
-                      <View style={styles.rowIcon}>
-                        <SFSymbol
-                          name={destination.icon}
-                          size={18}
-                          color={
-                            destination.current
-                              ? colors.textSecondary
-                              : colors.textPrimary
-                          }
+              <ScrollView
+                keyboardShouldPersistTaps={
+                  landscapeKeyboard ? 'always' : 'handled'
+                }
+                style={styles.sheetList}>
+                <View
+                  style={[styles.message, { borderColor: colors.separator }]}>
+                  <Monogram name={message.sender} />
+                  <View style={styles.messageText}>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.sender, { color: colors.textPrimary }]}>
+                      {message.sender}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.subject, { color: colors.textSecondary }]}>
+                      {message.subject}
+                    </Text>
+                  </View>
+                </View>
+                {shown.length === 0
+                  ? note(
+                      needle === '' && empty !== undefined
+                        ? empty
+                        : t('gmailActions.noMatchingFolders'),
+                    )
+                  : shown.map((row, index) => (
+                      <View key={row.id}>
+                        {index === 0 ? null : (
+                          <View
+                            style={[
+                              styles.separator,
+                              {
+                                marginLeft:
+                                  styles.separator.marginLeft +
+                                  indent * row.depth,
+                                backgroundColor: colors.separator,
+                              },
+                            ]}
+                          />
+                        )}
+                        <DestinationRow
+                          row={row}
+                          onChoose={choose}
                         />
                       </View>
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.rowName,
-                          {
-                            color: destination.current
-                              ? colors.textSecondary
-                              : colors.textPrimary,
-                          },
-                        ]}>
-                        {destination.name}
-                      </Text>
-                    </Pressable>
-                  </View>
-                ))}
-            {shown.length > 0 && destinations.every(({ current }) => current)
-              ? note(t('gmailActions.noFolders'))
-              : null}
-            {limited === undefined
-              ? null
-              : note(t('gmailActions.foldersLimited', { count: limited }))}
-          </ScrollView>
-          <View style={[styles.search, { backgroundColor: colors.fillQuiet }]}>
-            <View style={styles.searchIcon}>
-              <SFSymbol
-                name="magnifyingglass"
-                color={colors.textSecondary}
-              />
-            </View>
-            <TextInput
-              accessibilityLabel={t('search.title')}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-              onChangeText={setQuery}
-              placeholder={t('search.title')}
-              placeholderTextColor={colors.textSecondary}
-              returnKeyType="search"
-              style={[styles.searchInput, { color: colors.textPrimary }]}
-              value={query}
-            />
-          </View>
+                    ))}
+                {empty !== undefined && shown.length > 0 && nothingToChoose
+                  ? note(empty)
+                  : null}
+                {limited === undefined
+                  ? null
+                  : note(t('gmailActions.foldersLimited', { count: limited }))}
+              </ScrollView>
+              <View
+                style={[styles.search, { backgroundColor: colors.fillQuiet }]}>
+                <View style={styles.searchIcon}>
+                  <SFSymbol
+                    name="magnifyingglass"
+                    color={colors.textSecondary}
+                  />
+                </View>
+                <TextInput
+                  accessibilityLabel={t('search.title')}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  clearButtonMode="while-editing"
+                  onChangeText={setQuery}
+                  placeholder={t('search.title')}
+                  placeholderTextColor={colors.textSecondary}
+                  returnKeyType="search"
+                  style={[styles.searchInput, { color: colors.textPrimary }]}
+                  value={query}
+                />
+              </View>
+            </>
+          )}
         </Animated.View>
       </View>
     </Modal>

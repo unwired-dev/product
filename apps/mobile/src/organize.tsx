@@ -45,6 +45,8 @@ import {
   View,
 } from 'react-native';
 
+import type { Destination } from './move-sheet.tsx';
+
 import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -125,6 +127,10 @@ const folderIcon = (name: string, roles: readonly string[]) => {
   const role = roles.find((declared) => declared in roleIcons);
   return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
+
+// The Inbox's unread mail this device holds, as the mailbox list counts it; none shows no count.
+const inboxUnread = (messages: ReadonlyArray<Readonly<{ unread: boolean }>>) =>
+  messages.filter(({ unread }) => unread).length || undefined;
 
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
 // response actions passed as children, and More, whose panel lists the remaining actions.
@@ -223,6 +229,8 @@ function Toolbar({
     toggle: () => void;
     // The actions More lists, which the iPhone Reply sheet also offers.
     actions: readonly Named[];
+    // Gmail's labels to add or remove, which More lists on iPhone, where Move is a picker.
+    labels?: ReactNode;
   }>;
   readonly children: ReactNode;
 }) {
@@ -348,6 +356,7 @@ function Toolbar({
                     onPress={run}
                   />
                 ))}
+                {more.labels}
               </View>
             </ScrollView>
           )}
@@ -505,15 +514,30 @@ function ImapMessageActions({
                           open={panel === 'folders'}
                           origin={origin}
                           message={message}
-                          destinations={state.folders
-                            .filter(({ selectable }) => selectable)
-                            .map(({ name, roles }) => ({
-                              id: name,
-                              name:
-                                name === inboxFolder ? t('inbox.title') : name,
-                              icon: folderIcon(name, roles),
-                              current: name === message.folder,
-                            }))}
+                          destinations={state.folders.map(
+                            ({ name, roles, selectable, delimiter }) => {
+                              const path =
+                                delimiter === undefined
+                                  ? [name]
+                                  : name.split(delimiter);
+                              // The Inbox and folders nested in it show its localized name.
+                              return {
+                                id: name,
+                                path: path.map((part, index) =>
+                                  index === 0 && part === inboxFolder
+                                    ? t('inbox.title')
+                                    : part,
+                                ),
+                                icon: folderIcon(name, roles),
+                                current: name === message.folder,
+                                selectable,
+                                count:
+                                  name === inboxFolder
+                                    ? inboxUnread(state.messages)
+                                    : undefined,
+                              };
+                            },
+                          )}
                           limited={undefined}
                           onMove={(destination) => {
                             act({ kind: 'move', destination });
@@ -637,6 +661,54 @@ function GmailMessageActions({
   const toggle = (which: ReaderPanel) => {
     setPanel(panel === which ? undefined : which);
   };
+  // iPhone moves through the shared picker, as Microsoft's folders always do.
+  const picker = folders || compact;
+  // Labels to add or remove, each with Move to unless the picker moves instead.
+  const labelControls = (moves: boolean) => (
+    <>
+      {state.labels.length === 0 ? (
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
+        </Text>
+      ) : null}
+      {state.labelsLimited === true ? (
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t('gmailActions.foldersLimited', {
+            count: state.labels.length,
+          })}
+        </Text>
+      ) : null}
+      {state.labels.map((label) => (
+        <View
+          key={label.id}
+          style={styles.labelRow}>
+          {folders ? null : (
+            <View style={styles.labelName}>
+              <ActionButton
+                checked={applied.has(label.id)}
+                label={label.name}
+                onPress={() => {
+                  act(
+                    applied.has(label.id)
+                      ? gmailAction.unlabel(label.id)
+                      : gmailAction.label(label.id),
+                  );
+                }}
+              />
+            </View>
+          )}
+          {moves ? (
+            <ActionButton
+              label={t('gmailActions.moveTo', { label: label.name })}
+              onPress={() => {
+                act(gmailAction.move(label.id, view));
+              }}
+            />
+          ) : null}
+        </View>
+      ))}
+    </>
+  );
   return (
     <>
       <RegisterCommands
@@ -665,7 +737,7 @@ function GmailMessageActions({
               }
         }
         folders={{
-          label: folders
+          label: picker
             ? t(
                 panel === 'folders'
                   ? 'gmailActions.hideFolders'
@@ -682,13 +754,13 @@ function GmailMessageActions({
             toggle('folders');
           },
           show: {
-            label: t(folders ? 'gmailActions.folders' : 'gmailActions.labels'),
+            label: t(picker ? 'gmailActions.folders' : 'gmailActions.labels'),
             run: (x) => {
               setOrigin(x);
               setPanel('folders');
             },
           },
-          ...(folders && compact
+          ...(compact
             ? {
                 sheet: (
                   <MoveSheet
@@ -696,27 +768,36 @@ function GmailMessageActions({
                     origin={origin}
                     message={message}
                     destinations={[
-                      // Graph lists only custom move destinations; Inbox is display-only here.
+                      // Gmail and Graph list only custom move destinations; Inbox is display-only.
                       {
-                        id: 'INBOX',
-                        name: t('inbox.title'),
+                        id: inboxFolder,
+                        path: [t('inbox.title')],
                         icon: 'tray',
-                        current: true,
+                        current: applied.has(inboxFolder),
+                        selectable: false,
+                        count: inboxUnread(state.messages),
                       },
-                      ...state.labels.map((label) => ({
+                      ...state.labels.map((label): Destination => ({
                         id: label.id,
-                        name: label.name,
+                        // Graph names a nested folder `Parent / Child`; Gmail `Parent/Child`.
+                        path: label.name.split(folders ? ' / ' : '/'),
                         icon: 'folder',
                         current: applied.has(label.id),
+                        selectable: true,
                       })),
                     ]}
+                    empty={t(
+                      folders
+                        ? 'gmailActions.noFolders'
+                        : 'gmailActions.noLabels',
+                    )}
                     limited={
                       state.labelsLimited === true
                         ? state.labels.length
                         : undefined
                     }
                     onMove={(destination) => {
-                      act(gmailAction.move(destination));
+                      act(gmailAction.move(destination, view));
                     }}
                     onClose={() => {
                       setPanel(undefined);
@@ -727,61 +808,7 @@ function GmailMessageActions({
             : {
                 panel: (
                   <ScrollView style={styles.panels}>
-                    <View style={styles.panel}>
-                      {state.labels.length === 0 ? (
-                        <Text
-                          style={[
-                            styles.secondary,
-                            { color: colors.textSecondary },
-                          ]}>
-                          {t(
-                            folders
-                              ? 'gmailActions.noFolders'
-                              : 'gmailActions.noLabels',
-                          )}
-                        </Text>
-                      ) : null}
-                      {state.labelsLimited === true ? (
-                        <Text
-                          style={[
-                            styles.secondary,
-                            { color: colors.textSecondary },
-                          ]}>
-                          {t('gmailActions.foldersLimited', {
-                            count: state.labels.length,
-                          })}
-                        </Text>
-                      ) : null}
-                      {state.labels.map((label) => (
-                        <View
-                          key={label.id}
-                          style={styles.labelRow}>
-                          {folders ? null : (
-                            <View style={styles.labelName}>
-                              <ActionButton
-                                checked={applied.has(label.id)}
-                                label={label.name}
-                                onPress={() => {
-                                  act(
-                                    applied.has(label.id)
-                                      ? gmailAction.unlabel(label.id)
-                                      : gmailAction.label(label.id),
-                                  );
-                                }}
-                              />
-                            </View>
-                          )}
-                          <ActionButton
-                            label={t('gmailActions.moveTo', {
-                              label: label.name,
-                            })}
-                            onPress={() => {
-                              act(gmailAction.move(label.id, view));
-                            }}
-                          />
-                        </View>
-                      ))}
-                    </View>
+                    <View style={styles.panel}>{labelControls(true)}</View>
                   </ScrollView>
                 ),
               }),
@@ -800,6 +827,17 @@ function GmailMessageActions({
                 act(action);
               },
             })),
+          labels:
+            picker && !folders ? (
+              <>
+                <Text
+                  accessibilityRole="header"
+                  style={[styles.secondary, { color: colors.textSecondary }]}>
+                  {t('gmailActions.labels')}
+                </Text>
+                {labelControls(false)}
+              </>
+            ) : undefined,
         }}>
         {children}
       </Toolbar>

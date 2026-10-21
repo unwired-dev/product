@@ -298,20 +298,27 @@ above the reading pane groups **Archive**, **Move
 to Trash** and **Labels** (or **Folders**), then Reply, Reply All and Forward,
 then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
-over the bottom of the reader holds **Archive**, **Labels** (or **Folders**),
-**Reply** and **More**, beside a separate circular New Message button. Reply
+over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
+**More**, beside a separate circular New Message button. Reply
 grows a floating glass sheet out of the button: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
 Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
 beside them.
-Closing the sheet or choosing an action shrinks it back toward the button. For IMAP and
-Microsoft mail, iPhone's **Folders** grows a tall glass Move picker out of the button,
-like Reply: a caption, the mailbox's address with a Close button, the message's sender
-and subject, one row per folder with its role's symbol (the message's current folder
-dimmed and unavailable), and a search field at the bottom that narrows the folders by
-name. Choosing a folder moves the message and closes the picker. More lists the remaining
-actions as text buttons. Menu panels ease in from their toolbar and fade out on
+Closing the sheet or choosing an action shrinks it back toward the button. For every
+provider, iPhone's **Folders** grows a tall glass Move picker out of the button, like
+Reply: a caption, the mailbox's address between Back and Close buttons, the message's
+sender and subject, one row per folder or label with its role's symbol in the accent,
+and a search field at the bottom. Nested folders sit indented beneath their parent,
+named on their own; VoiceOver reads their full path. The message's current folder or
+labels, the Inbox for Gmail and Microsoft mail, and IMAP folders that hold only other
+folders are dimmed and unavailable. The Inbox shows its unread count when this device
+knows it. A search lists the folders that can hold mail by their full path, such as
+"Travel / Lisbon". **Back** lists the account, since mail moves only within its own
+account; choosing the account returns to its folders, and **Cancel** closes the picker
+without moving anything. Choosing a folder moves the message and closes the picker. More
+lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
+label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on
 iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
