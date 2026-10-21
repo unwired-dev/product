@@ -28,8 +28,12 @@ mDeBERTa; INT8 weight quantization is not worth adopting.**
   consistent INT8 memory saving rather than a clean per-model comparison. The
   first load of INT8 System mDeBERTa took 29.5 minutes.
 
-Mac results do not establish feasibility on the limiting standard iPhone; that
+Mac results do not establish feasibility on the physical iPhone or iPad; that
 evidence belongs to [#830](https://github.com/unwired-dev/product/issues/830).
+The owner's 2026-10-21 [#1106](https://github.com/unwired-dev/product/issues/1106)
+decision replaces the standard iPhone prerequisite with the available iPhone 17
+Pro Max and iPad Pro 13-inch M4. This report's Mac measurements remain separate
+from that pending mobile evidence.
 Quality conclusions remain those of #828 and #829; this report measures whether the
 frozen pipelines run, not how good they are.
 

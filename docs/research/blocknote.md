@@ -273,12 +273,12 @@ through menu and native-bridge interactions; assistance remains preview-first
 and never starts from ordinary typing.
 
 Apply the [replacement performance targets](../agents/native-validation.md#performance-qualification)
-as pass/fail gates: in Release on the iPhone 17 reference device with a warm
+as pass/fail gates: in Release on the currently nominated iPhone reference device with a warm
 encrypted cache, warm Draft opening must reach rendered interactive content within
 200 ms at p95 from user selection; empty Draft opening must do so within 300 ms.
 Typing and formatting must give visible feedback on the next rendered frame.
 No main-thread stall may last 100 ms or longer, including during formatting and autosave.
-Measure provider/network latency separately. Nominate and record iPad and Mac
+Measure provider/network latency separately. Use the nominated iPad and Mac
 reference hardware; their performance baselines remain unmeasured. Hosted-runner
 multipliers do not relax product targets.
 

@@ -11,6 +11,17 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Physical reference access update, 2026-10-21
+
+The [native validation guide](../agents/native-validation.md#performance-qualification)
+now records the nominated iPhone, iPad and Mac references. This supersedes the
+pending iPad nomination in the 2026-10-20 entry below, preserving its measured
+results and limitations. [#1106](https://github.com/unwired-dev/product/issues/1106)
+owns the local Xcode access and weekend owner-operated dictation/VoiceOver handoff.
+Hardware nomination and published Apple Intelligence eligibility do not prove
+runtime API readiness or passing qualification. Measurements remain outstanding
+under #625, #626, #822 and #830; this update records no test run.
+
 ## Native host qualification refresh, 2026-10-20
 
 Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.

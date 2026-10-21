@@ -35,7 +35,7 @@ sandbox restrictions and the separate PR babysitter validation boundary.
 ## Performance qualification
 
 The existing local-mail budgets remain release requirements. Measure a Release
-build with a warm encrypted cache on the reference iPhone 17, at least two
+build with a warm encrypted cache on the reference iPhone 17 Pro Max, at least two
 connections with 50 initially available messages each, completed backfill and
 cached-body samples. Use the current launch-provider scope rather than a
 historical Gmail-only fixture.
@@ -54,15 +54,23 @@ with no main-thread stall of 100 ms or longer.
 
 Measure cached switches and body/composer opening from user selection to
 rendered interactive content. Measure provider/network latency separately and
-keep the app interactive while it waits. The Mac reference is a Mac mini with
-Apple M4 and 16 GB memory (`Mac16,10`) on macOS 27. The iPad reference is the
+keep the app interactive while it waits. The iPhone reference is the owner's
+physical iPhone 17 Pro Max on iOS 27, nominated in
+[#1106](https://github.com/unwired-dev/product/issues/1106) on 2026-10-21. Record
+its exact chip, RAM, storage capacity, OS version and build with the first
+baseline. Qualification uses the available physical iPhone, iPad and Mac;
+standard non-Pro iPhone access is not required. Results apply only to the tested
+configurations and do not qualify untested hardware. This qualification scope
+does not change product hardware support. The Mac reference is a Mac
+mini with Apple M4 and 16 GB memory (`Mac16,10`) on macOS 27. The iPad reference is the
 owner's physical iPad Pro 13-inch with Apple M4 (`iPad16,5`), nominated in
 [#1105](https://github.com/unwired-dev/product/issues/1105) on 2026-10-21. At
 nomination it runs iPadOS 27.0.1 (24A446). Its RAM and storage capacity were not
 exposed by the host tooling; record those with its first baseline, and record
-the exact OS version and build for every run. Establish both iPad and Mac
-baselines; unmeasured baselines remain required qualification. Nomination does
-not establish a passing baseline. Hosted-runner speed does not
+the exact OS version and build for every run. Establish separate iPhone 17 Pro
+Max, iPad and Mac baselines; every unmeasured baseline remains required before
+release. Evidence from the former iPhone 17 reference does not qualify its
+replacement. Nomination does not establish a passing baseline. Hosted-runner speed does not
 relax a device budget. Record the device, fixture, build, command and measurement
 evidence; these targets do not claim a passing measurement. The reviewer verifies
 the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md).
@@ -108,9 +116,9 @@ actual source revision and exact root lockfile:
   across relaunch. Retain separate physical-device lock/unlock and backup/restore
   checks; simulated protected-data availability does not establish them.
 - Record toolchain versions, lockfile hash, commands, signing/entitlements,
-  resource ownership and artifact paths. Use the nominated iPad and Mac reference
-  hardware for later [performance qualification](#performance-qualification); measured
-  baselines remain required before release.
+  resource ownership and artifact paths. Use the nominated physical iPhone 17 Pro
+  Max, iPad and Mac for [performance qualification](#performance-qualification).
+  Separate measured baselines on all three remain required before release.
 
 Keep #623 incomplete while its required native evidence is unavailable. Feature
 implementation may continue under the existing deferral. Before release, also
