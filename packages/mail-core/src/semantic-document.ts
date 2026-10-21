@@ -400,6 +400,8 @@ const rebased = (
   }
   const typed = changeOf(shown, next, options);
   // What the display replaced in `shown`: offsets after it shift, offsets inside stay in it.
+  // shortcut: disjoint pending changes share one envelope; split regions if native testing
+  // exposes edits inside that envelope.
   const pending = diffOf(shown, display);
   const at = (offset: number) =>
     offset >= pending.end
