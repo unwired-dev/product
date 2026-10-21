@@ -1039,6 +1039,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Retire deferred choices on reader replacement/unmount and recheck current action
   availability before dispatch. Exercise Reply-to-Move in the native journey;
   mocked animation completion alone does not prove native presentation ordering.
+- Mobile `message-detail.tsx.ResponseActions` opening Reply while the reader's
+  More or destination panel remains open in `MailboxMessage`. Trace every reader
+  presentation entry through `organize.tsx.Toolbar` and `ReplySheet`, including
+  repeated switching and dismissal: retire the previous presentation's open,
+  interaction and accessibility state before or as its replacement appears.
+  Otherwise a menu remains visible beneath the sheet or reappears on dismissal.
+  Preserve native dismissal ordering for sheet-to-sheet choices, and keep native
+  focus-return evidence distinct from rendered open-state assertions.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - `inbox-bar.tsx.FilterControl` retaining a sheet-specific `accessibilityHint`
   after a regular-width layout opens a popover. Trace the destination in compact

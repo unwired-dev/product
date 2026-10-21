@@ -438,9 +438,11 @@ function ResponseStatusNotice({
 function ResponseActions({
   message,
   onCompose,
+  onPanel,
 }: {
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
   readonly onCompose: ((id: string) => void) | undefined;
+  readonly onPanel: (panel: ReaderPanel | undefined) => void;
 }) {
   const inbox = useInboxActions();
   const store = useDraftStore();
@@ -555,6 +557,8 @@ function ResponseActions({
           onPress={(event) => {
             // Keyboard activation reports no touch; grow from the middle then.
             setOrigin(event.nativeEvent.pageX || width / 2);
+            // The Reply sheet replaces an open More or Move rather than covering it.
+            onPanel(undefined);
             setChoosing(source);
           }}
         />
@@ -681,6 +685,7 @@ function MessageToolbar({
         key={`${address}:${message.id}`}
         message={message}
         onCompose={onCompose}
+        onPanel={onPanel}
       />
     </MessageActions>
   );
