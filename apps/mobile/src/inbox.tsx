@@ -24,13 +24,7 @@ import {
   resultKey,
 } from '@private-email/mail-core/mailboxes';
 import { use, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import {
-  KeyboardAvoidingView,
-  RefreshControl,
-  SectionList,
-  Text,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -867,14 +861,10 @@ export function Inbox({
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             contentContainerStyle={styles.list}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => {
-                  void refresh();
-                }}
-              />
-            }
+            refreshing={refreshing}
+            onRefresh={() => {
+              void refresh();
+            }}
             sections={sections}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {

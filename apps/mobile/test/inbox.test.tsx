@@ -1112,13 +1112,10 @@ describe('connected Gmail Inbox', () => {
     };
     const pull = () =>
       act(async () => {
-        screen
-          .getByLabelText('Inbox messages')
-          .props.refreshControl.props.onRefresh();
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
         await Promise.resolve();
       });
-    const indicator = () =>
-      screen.getByLabelText('Inbox messages').props.refreshControl.props;
+    const indicator = () => screen.getByLabelText('Inbox messages').props;
     await pull();
     expect(indicator()).toMatchObject({ refreshing: true });
     expect(screen.queryByText('Arrives with the pull')).toBeNull();
