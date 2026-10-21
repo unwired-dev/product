@@ -54,6 +54,8 @@ struct ImapFolder: Sendable, Equatable {
   // Special-use roles the server declares, such as `sent`; `inbox` for the Inbox.
   let roles: [String]
   let selectable: Bool
+  // The server's hierarchy delimiter, such as `/`, which nests one folder name under another.
+  let delimiter: String?
 }
 
 // The folder list, and what the server lets this client do beyond reading: move a message without
@@ -266,7 +268,8 @@ struct SwiftMailImap: ImapProvider {
           name: named ? "INBOX" : info.name,
           roles: (inbox ? ["inbox"] : [])
             + roles.filter { info.attributes.contains($0.0) }.map(\.1),
-          selectable: info.isSelectable)
+          selectable: info.isSelectable,
+          delimiter: info.hierarchyDelimiter)
       }
       return ImapListing(
         folders: folders,
@@ -694,7 +697,9 @@ extension RegistrationStore {
     }
     return [
       "folders": listing.folders.map {
-        ["name": $0.name, "roles": $0.roles, "selectable": $0.selectable] as [String: Any]
+        var folder: [String: Any] = ["name": $0.name, "roles": $0.roles, "selectable": $0.selectable]
+        folder["delimiter"] = $0.delimiter
+        return folder
       },
       "moves": listing.moves, "idle": listing.idle,
     ]

@@ -68,7 +68,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
-import { OrganizeStatus } from './organize.tsx';
+import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';

@@ -82,12 +82,15 @@ export function createSyntheticGraph({
   address = 'casey@example.invalid',
   messages: count = 0,
   pageSize = 2,
+  inboxName = 'Inbox',
   assets,
 }: {
   readonly address?: string;
   readonly messages?: number;
   // Items per list and delta page, as Graph's odata.maxpagesize preference allows.
   readonly pageSize?: number;
+  // The provider's localized display name, independent of the app's language.
+  readonly inboxName?: string;
   // A Draft Asset's verified bytes as native code reads them; undefined when they no longer verify.
   readonly assets?: (id: string, digest: string) => Uint8Array | undefined;
 } = {}) {
@@ -342,7 +345,7 @@ export function createSyntheticGraph({
             .filter(([known]) => !missingFolders.has(known))
             .map(([known, displayName]) => ({
               id: folderId(known),
-              displayName,
+              displayName: known === 'inbox' ? inboxName : displayName,
             }))
         : []),
       ...[...folders]

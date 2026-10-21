@@ -203,6 +203,9 @@ message is no longer in this folder on the mail server**.
 IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
 unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**, **Move
 to** any other selectable folder, including the Inbox. IMAP has no labels or star.
+The folder listing keeps the server's hierarchy delimiter, so iPhone's Move picker nests
+`Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
+unavailable.
 Archive, Trash and Spam move the message to the folder the server declares with the
 `\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
 not offered, and no folder is guessed by name. The row and reader

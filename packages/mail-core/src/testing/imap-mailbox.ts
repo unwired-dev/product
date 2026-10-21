@@ -24,6 +24,8 @@ interface ServerMessage {
 interface ServerFolder {
   name: string;
   roles: string[];
+  // False for a container that holds other folders but no messages (\Noselect).
+  selectable: boolean;
   uidValidity: number;
   uidNext: number;
   messages: ServerMessage[];
@@ -76,6 +78,7 @@ export function createSyntheticImap({
       {
         name: 'INBOX',
         roles: ['inbox'],
+        selectable: true,
         uidValidity: 7,
         uidNext: 1,
         messages: [],
@@ -281,10 +284,11 @@ export function createSyntheticImap({
       return (
         reach() ??
         Promise.resolve({
-          folders: [...folders.values()].map(({ name, roles }) => ({
+          folders: [...folders.values()].map(({ name, roles, selectable }) => ({
             name,
             roles,
-            selectable: true,
+            selectable,
+            delimiter: '/',
           })),
           ...server.capabilities,
         })
@@ -510,10 +514,11 @@ export function createSyntheticImap({
       });
       return uid;
     },
-    addFolder: (name: string, roles: string[] = []) => {
+    addFolder: (name: string, roles: string[] = [], selectable = true) => {
       folders.set(name, {
         name,
         roles,
+        selectable,
         uidValidity: 3,
         uidNext: 1,
         messages: [],

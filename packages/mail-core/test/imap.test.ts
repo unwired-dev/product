@@ -558,6 +558,13 @@ describe('connecting IMAP mailboxes', () => {
     expect(
       ready(inbox.getSnapshot()).folders.map(({ name }) => name),
     ).toStrictEqual(['INBOX', 'Archive']);
+    // The server's hierarchy delimiter lets the Move picker nest folder names.
+    expect(ready(inbox.getSnapshot()).folders).toContainEqual({
+      name: 'Archive',
+      roles: ['archive'],
+      selectable: true,
+      delimiter: '/',
+    });
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
     await inbox.openFolder('Archive');
     const message = firstMessage(inbox.folder('Archive'));

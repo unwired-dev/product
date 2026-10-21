@@ -422,8 +422,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const roles = yield* folderRoles(scope);
     const listed: GmailLabel[] = [];
     let limited = false;
-    // Breadth first, so a limit leaves out the deepest folders.
-    const queue = [{ url: graphFolders, path: '' }];
+    // Breadth first, so a limit leaves out the deepest folders. Keep the provider's names
+    // and identify Inbox ancestry by role, so hosts can localize only that parent.
+    const queue: Array<{
+      url: string;
+      path: readonly string[];
+      inbox: boolean;
+    }> = [{ url: graphFolders, path: [], inbox: false }];
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       if (listed.length >= folderLimit) {
         limited = true;
@@ -432,13 +437,21 @@ export function createGraphReader(native: NativeGraphMailbox) {
       const page = yield* graphGet(scope)(next.url, decodeGraphFolders);
       limited ||= page['@odata.nextLink'] !== undefined;
       for (const { id, displayName, childFolderCount = 0 } of page.value) {
-        const name =
-          next.path === '' ? displayName : `${next.path} / ${displayName}`;
+        const path = [...next.path, displayName];
         if (!roles.has(id)) {
-          listed.push({ id, name });
+          listed.push({
+            id,
+            name: path.join(' / '),
+            path,
+            inboxPath: next.inbox,
+          });
         }
         if (childFolderCount > 0) {
-          queue.push({ url: graphChildFolders(id), path: name });
+          queue.push({
+            url: graphChildFolders(id),
+            path,
+            inbox: next.inbox || roles.get(id) === 'inbox',
+          });
         }
       }
     }

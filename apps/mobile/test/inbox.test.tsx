@@ -1097,6 +1097,7 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
+    gmail.createLabel('INBOX/Receipts');
     const other = gmail.deliver({ subject: 'Tickets for Lisbon' });
     const oliver = gmail.deliver({
       from: 'Oliver Park <oliver@example.invalid>',
@@ -1119,7 +1120,7 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Folders' })).toBeNull();
     expect(
       screen.getByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -1143,7 +1144,7 @@ describe('connected Gmail Inbox', () => {
       held.release();
       await store.load();
     });
-    expect(screen.getByRole('button', { name: 'Labels' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Folders' })).toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     await act(async () => {
       await fireEvent.press(
@@ -1163,7 +1164,8 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.getByText('Starred: “Saturday, by the river?”.'),
     ).toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+    // On iPhone, More lists the labels to add or remove, since Move is a picker.
+    expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('checkbox', { name: 'Travel', checked: false }),
@@ -1173,6 +1175,22 @@ describe('connected Gmail Inbox', () => {
       screen.getByRole('checkbox', { name: 'Travel', checked: true }),
     ).toBeVisible();
     expect(screen.getByText('Labels: Travel')).toBeVisible();
+    expect(gmail.labelsOf(oliver)).toStrictEqual(['INBOX', 'STARRED', travel]);
+    // On iPhone, Gmail moves through the same picker as other mail; applied labels are its own.
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(
+      within(screen.getByTestId('move-sheet')).getByRole('button', {
+        name: 'Travel',
+        selected: true,
+      }),
+    ).toBeDisabled();
+    // A user label's first segment is its name, not the system Inbox's identity.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to INBOX / Receipts' }),
+      ).getByText('INBOX / Receipts'),
+    ).toBeVisible();
+    await fireEvent(screen.getByTestId('move-sheet'), 'accessibilityEscape');
     expect(gmail.labelsOf(oliver)).toStrictEqual(['INBOX', 'STARRED', travel]);
 
     // Offline, the archive shows at once and closes the reader; Undo puts the message back.
@@ -1537,9 +1555,19 @@ describe('connected Gmail Inbox', () => {
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
     expect.hasAssertions();
-    const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
+    const graph = createSyntheticGraph({
+      address: 'casey@example.invalid',
+      inboxName: 'Posteingang',
+    });
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
+    graph.createFolder('Receipts', 'inbox');
+    const literalInbox = graph.createFolder('INBOX');
+    graph.createFolder('Taxes', literalInbox);
+    const namedInbox = graph.createFolder('Inbox');
+    graph.createFolder('Statements', namedInbox);
+    const year = graph.createFolder('Travel / 2026');
+    graph.createFolder('Porto', year);
     const gone = graph.deliver({ subject: 'Old notes' });
     const plans = graph.deliver({
       from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -1588,10 +1616,64 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByTestId('move-sheet')).toBeNull();
     expect(graph.folderOf(plans)).toBe('inbox');
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
-    // A nested folder shows its path.
+    // A nested folder sits under its parent, named on its own and announced with its path.
     expect(
-      screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
+      within(
+        screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
+      ).getByText('Lisbon'),
     ).toBeVisible();
+    // A slash in Graph's display name does not create another level of nesting.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Travel / 2026' }),
+      ).getByText('Travel / 2026'),
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Travel / 2026 / Porto' }),
+      ).getByText('Porto'),
+    ).toBeVisible();
+    // A folder inside the Inbox nests beneath the Inbox row, whatever Graph calls the Inbox.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Inbox / Receipts' }),
+      ).getByText('Receipts'),
+    ).toBeVisible();
+    // A custom Graph folder named INBOX is not the well-known Inbox, nor are its children.
+    expect(
+      within(screen.getByRole('button', { name: 'Move to INBOX' })).getByText(
+        'INBOX',
+      ),
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to INBOX / Taxes' }),
+      ).getByText('Taxes'),
+    ).toBeVisible();
+    const sheet = within(screen.getByTestId('move-sheet'));
+    // Equal display names must not attach a custom folder's child to the system Inbox.
+    const rows = sheet.getAllByRole('button');
+    expect(
+      rows.indexOf(sheet.getByRole('button', { name: 'Move to Inbox' })),
+    ).toBeLessThan(
+      rows.indexOf(
+        sheet.getByRole('button', { name: 'Move to Inbox / Statements' }),
+      ),
+    );
+    // Back lists only this account, since mail moves within it; Cancel moves nothing.
+    await fireEvent.press(sheet.getByRole('button', { name: 'Back' }));
+    expect(sheet.getByRole('header', { name: 'Accounts' })).toBeVisible();
+    await fireEvent.press(
+      sheet.getByRole('button', { name: 'casey@example.invalid' }),
+    );
+    expect(
+      sheet.getByRole('header', { name: 'casey@example.invalid' }),
+    ).toBeVisible();
+    await fireEvent.press(sheet.getByRole('button', { name: 'Back' }));
+    await fireEvent.press(sheet.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('move-sheet')).toBeNull();
+    expect(graph.folderOf(plans)).toBe('inbox');
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Move to Travel' }),
@@ -2048,7 +2130,7 @@ describe('command palette', () => {
     const subject = await screen.findByRole('header', {
       name: 'Saturday, by the river?',
     });
-    await screen.findByRole('button', { name: 'Labels' });
+    await screen.findByRole('button', { name: 'Folders' });
     await fireEvent(subject, 'touchStart', {
       nativeEvent: { pageX: 10, pageY: 10 },
     });
@@ -2429,7 +2511,7 @@ describe('context menus', () => {
 
     // The open message's header offers its reader's actions; its sender offers Copy Address.
     await fireEvent.press(row());
-    await screen.findByRole('button', { name: 'Labels' });
+    await screen.findByRole('button', { name: 'Folders' });
     const sender = contextMenuOf(screen.getByText('oliver@example.invalid'));
     const message = contextMenuOf(sender);
     expect({
