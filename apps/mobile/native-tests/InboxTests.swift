@@ -726,6 +726,62 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(selected())
   }
 
+  // #970: editing the query never trades search for the Inbox. Clearing it, then replacing it in
+  // bursts of keystrokes, keeps the focused field above the keyboard with Close Search beside it,
+  // and the list follows the latest query.
+  private func verifyStableSearchEdits(
+    _ app: XCUIApplication, search: XCUIElement, maya: XCUIElement
+  ) {
+    let keyboard = app.keyboards.firstMatch
+    let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
+      .firstMatch
+    let topResults = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Top Results")
+    ).firstMatch
+    let edit = { (keys: String, query: String) in
+      search.typeText(keys)
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [
+            XCTNSPredicateExpectation(
+              predicate: NSPredicate(format: "value == %@", query.isEmpty ? "Search" : query),
+              object: search)
+          ], timeout: 10),
+        .completed)
+    }
+    let searching = {
+      XCTAssertTrue(app.buttons["Close Search"].exists)
+      XCTAssertTrue(keyboard.exists)
+      XCTAssertEqual(search.value(forKey: "hasKeyboardFocus") as? Bool, true)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
+    }
+    let delete = { (count: Int) in String(repeating: XCUIKeyboardKey.delete.rawValue, count: count) }
+    // A cleared query leaves a blank list rather than the Inbox's rows.
+    edit(delete(4), "")
+    waitUntil { !topResults.exists }
+    XCTAssertFalse(maya.exists)
+    XCTAssertFalse(oliver.exists)
+    searching()
+    edit("Oliver", "Oliver")
+    waitUntil { topResults.exists && oliver.exists }
+    XCTAssertFalse(maya.exists)
+    searching()
+    edit(delete(6) + "zzqx", "zzqx")
+    XCTAssertTrue(
+      text("No mail saved on this device matches", in: app).waitForExistence(timeout: 10))
+    XCTAssertFalse(topResults.exists)
+    XCTAssertFalse(oliver.exists)
+    searching()
+    edit(delete(4) + "Maya", "Maya")
+    waitUntil { topResults.exists && maya.exists }
+    XCTAssertFalse(oliver.exists)
+    searching()
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Search results after replacing the query"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {
     let met = NSPredicate { _, _ in condition() }
     XCTAssertEqual(
@@ -1055,6 +1111,7 @@ final class InboxTests: XCTestCase {
     results.name = "Search results"
     results.lifetime = .keepAlways
     add(results)
+    verifyStableSearchEdits(app, search: search, maya: maya)
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     app.buttons["Close Search"].tap()

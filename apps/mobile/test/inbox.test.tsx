@@ -912,6 +912,67 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
+  it('never shows a delayed online answer for a query the person has since replaced', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved Inbox message' });
+    gmail.archive(gmail.deliver({ subject: 'Studio archive' }));
+    gmail.archive(gmail.deliver({ subject: 'Studio budget' }));
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saved Inbox message/u });
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Studio archive');
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail's answer until the query has changed.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Every answer, so the late search has fully arrived before the list is checked.
+    const answers: Array<Promise<unknown>> = [];
+    gmail.native.gmailRequest = async (...args) => {
+      const answer = (async () => {
+        await held;
+        return request(...args);
+      })();
+      answers.push(answer);
+      return answer;
+    };
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Search mail servers for “Studio archive”',
+      }),
+    );
+    expect(screen.getByLabelText('Searching mail servers')).toBeVisible();
+    await fireEvent.changeText(field, 'Studio budget');
+    await act(async () => {
+      release();
+      // Later requests join the list while earlier ones settle.
+      for (const answer of answers) {
+        await answer;
+      }
+    });
+    // The late answer belongs to the replaced query, so the current one still offers its own search.
+    await expect(
+      screen.findByRole('button', {
+        name: 'Search mail servers for “Studio budget”',
+      }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /\. Studio archive/u }),
+    ).toBeNull();
+    expect(screen.queryByText('Top Results')).toBeNull();
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Search mail servers for “Studio budget”',
+      }),
+    );
+    await expect(
+      screen.findByRole('button', { name: /\. Studio budget/u }),
+    ).resolves.toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
     expect.hasAssertions();
