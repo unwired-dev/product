@@ -1025,6 +1025,7 @@ final class InboxTests: XCTestCase {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyCompactInboxHeader(app)
+    verifyCompactBackHold(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
@@ -1121,6 +1122,24 @@ final class InboxTests: XCTestCase {
       XCTAssertGreaterThan(text.frame.maxY, back.frame.minY)
     }
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
+  }
+
+  // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with
+  // its usual header. The checks run after release, so what shows during the hold is unverified.
+  private func verifyCompactBackHold(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let inboxes = app.buttons["All inboxes"]
+    for hold in 1...2 {
+      app.buttons["Back to Mailboxes"].press(forDuration: 1.5)
+      XCTAssertTrue(inboxes.waitForExistence(timeout: 10))
+      XCTAssertTrue(inboxes.isHittable)
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Mailboxes after holding Back, \(hold)"
+      shot.lifetime = .keepAlways
+      add(shot)
+      inboxes.tap()
+      verifyCompactInboxHeader(app)
+    }
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at

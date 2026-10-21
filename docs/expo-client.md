@@ -216,7 +216,7 @@ these retry and cleanup paths with stub tools (requires zsh). The native runner 
 surface reaches the screen edge after scrolling to the list's end and after leaving the reader. In Light, the window matches the surface,
 so that comparison cannot detect a surface that stops short. Both appearances verify packaged launch, scrolling the list's end clear of the floating bar, reader return, the floating search field
 staying above the software keyboard, a search result under Top Results and Close Search, selecting and replacing a message, and compact
-back navigation. It does not claim hardware keyboard,
+back navigation. On iPhone, two Back holds verify the return to Mailboxes after release and reopening the Inbox each time. It does not claim hardware keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).
 
