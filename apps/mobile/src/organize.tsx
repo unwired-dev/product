@@ -111,6 +111,12 @@ const folderIcon = (name: string, roles: readonly string[]) => {
   return role === undefined ? 'folder' : (roleIcons[role] ?? 'folder');
 };
 
+// The Inbox and folders nested in it show its localized name, so they nest beneath its row.
+const localizedPath = (path: readonly string[], inbox: string) =>
+  path.map((part, index) =>
+    index === 0 && part === inboxFolder ? inbox : part,
+  );
+
 // The Inbox's unread mail this device holds, as the mailbox list counts it; none shows no count.
 const inboxUnread = (messages: ReadonlyArray<Readonly<{ unread: boolean }>>) =>
   messages.filter(({ unread }) => unread).length || undefined;
@@ -503,14 +509,9 @@ function ImapMessageActions({
                                 delimiter === undefined
                                   ? [name]
                                   : name.split(delimiter);
-                              // The Inbox and folders nested in it show its localized name.
                               return {
                                 id: name,
-                                path: path.map((part, index) =>
-                                  index === 0 && part === inboxFolder
-                                    ? t('inbox.title')
-                                    : part,
-                                ),
+                                path: localizedPath(path, t('inbox.title')),
                                 icon: folderIcon(name, roles),
                                 current: name === message.folder,
                                 selectable,
@@ -763,9 +764,11 @@ function GmailMessageActions({
                       ...state.labels.map((label): Destination => ({
                         id: label.id,
                         // Graph names may contain slashes; only its listing knows the hierarchy.
-                        path:
+                        path: localizedPath(
                           label.path ??
-                          (folders ? [label.name] : label.name.split('/')),
+                            (folders ? [label.name] : label.name.split('/')),
+                          t('inbox.title'),
+                        ),
                         icon: 'folder',
                         current: applied.has(label.id),
                         selectable: true,

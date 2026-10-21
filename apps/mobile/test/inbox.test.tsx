@@ -1551,6 +1551,7 @@ describe('connected Gmail Inbox', () => {
     const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
+    graph.createFolder('Receipts', 'inbox');
     const year = graph.createFolder('Travel / 2026');
     graph.createFolder('Porto', year);
     const gone = graph.deliver({ subject: 'Old notes' });
@@ -1617,6 +1618,12 @@ describe('connected Gmail Inbox', () => {
       within(
         screen.getByRole('button', { name: 'Move to Travel / 2026 / Porto' }),
       ).getByText('Porto'),
+    ).toBeVisible();
+    // A folder inside the Inbox nests beneath the Inbox row, whatever Graph calls the Inbox.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Inbox / Receipts' }),
+      ).getByText('Receipts'),
     ).toBeVisible();
     // Back lists only this account, since mail moves within it; Cancel moves nothing.
     const sheet = within(screen.getByTestId('move-sheet'));

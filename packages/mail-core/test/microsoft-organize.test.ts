@@ -322,13 +322,14 @@ describe('organizing Microsoft mail through Graph', () => {
     const inbox = await opened(graph);
     const [target = ''] = ids(inbox);
 
-    // Equal names stay apart by their paths, including folders inside the Inbox.
+    // Equal names stay apart by their paths, including folders inside the Inbox. Their paths
+    // name the Inbox `INBOX`, as its display name follows the mailbox's locale.
     expect(ready(inbox.getSnapshot())).toMatchObject({
       labels: [
-        { id: projects, name: 'Inbox / Projects', path: ['Inbox', 'Projects'] },
+        { id: projects, name: 'Inbox / Projects', path: ['INBOX', 'Projects'] },
         {
           name: 'Inbox / Projects / Travel',
-          path: ['Inbox', 'Projects', 'Travel'],
+          path: ['INBOX', 'Projects', 'Travel'],
         },
         { id: travel, name: 'Travel', path: ['Travel'] },
         { id: lisbon, name: 'Travel / Lisbon', path: ['Travel', 'Lisbon'] },
