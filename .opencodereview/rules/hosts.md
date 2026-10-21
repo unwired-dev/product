@@ -112,6 +112,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
+  while newer edits are already in flight. Check the installed TextInput's
+  synchronization and explicit-clear contract, and verify rapid typing, deletion
+  and replacement with the native keyboard while results update; component
+  change callbacks do not exercise native text reconciliation. Otherwise a
+  passing query test can hide dropped or reordered keystrokes. If native owns
+  the text, trace Close and Profile replacement too so neither retains old text.
+
 - `message-body.tsx.RichDocument` deriving overflow or another layout-dependent
   decision only when WebKit reports content size. Container layout and native
   measurement can arrive in either order; retain their inputs and recompute when
