@@ -6,7 +6,6 @@ import type {
 import type {
   AssetPreview,
   Draft,
-  DraftsState,
   PickedFile,
   PickSource,
   RecipientField,
@@ -42,6 +41,7 @@ import {
 } from '@private-email/mail-core/assistance';
 import {
   addRecipients,
+  draftSaveProblem,
   draftOf,
   entryOf,
   isEmptyDraft,
@@ -1352,16 +1352,6 @@ export function ComposerNotices({
   );
 }
 
-// Only an unsaved edit is shown; routine saving stays quiet while typing.
-function unsavedOf(state: DraftsState) {
-  if (state.kind !== 'ready') {
-    return 'failed';
-  }
-  return state.save === 'failed' || state.save === 'locked'
-    ? state.save
-    : undefined;
-}
-
 function Editor({
   initial,
   onClose,
@@ -1506,7 +1496,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
-  const unsaved = unsavedOf(state);
+  const unsaved = draftSaveProblem(state);
 
   // Holds saving during discard; a failed discard restores edits accepted while it waited.
   const discarded = useRef(false);

@@ -1,6 +1,7 @@
 ---
 '@private-email/mobile': patch
 '@private-email/macos': patch
+'@private-email/mail-core': patch
 ---
 
 Stop the composer's save status from blinking while you type. Successful saving

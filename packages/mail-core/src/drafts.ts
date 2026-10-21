@@ -2323,6 +2323,16 @@ export function createDrafts(
 
 export type Drafts = ReturnType<typeof createDrafts>;
 
+// Only an unsaved edit is shown; routine saving stays quiet while typing.
+export function draftSaveProblem(state: DraftsState) {
+  if (state.kind !== 'ready') {
+    return 'failed';
+  }
+  return state.save === 'failed' || state.save === 'locked'
+    ? state.save
+    : undefined;
+}
+
 export const draftsOf = (state: DraftsState) =>
   state.kind === 'ready' ? Arr.sort(state.drafts, draftOrder) : [];
 
