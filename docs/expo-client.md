@@ -11,7 +11,7 @@ its Inbox and IMAP folders, and **Account**), the message list with a floating
 search field is in use, and the reader. Search opens a search mode with **Close Search**
 and a scope choice, and Filter narrows the Inbox
 ([search and filters](gmail-inbox.md#searching-saved-mail)). On iPhone the columns collapse into
-one navigation stack that opens on the Inbox, with Mailboxes one Back away. It uses synthetic
+one navigation stack that opens on the Inbox, with Mailboxes one Back away. A leading-edge swipe also returns from the reader to the Inbox; UIKit's collapsed split view does not offer it from the Inbox to Mailboxes until the [native navigation migration](https://github.com/unwired-dev/product/issues/1055). It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
 Product Sign-In, each followed by a choice of Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an [IMAP mailbox](imap-mailboxes.md).
@@ -219,7 +219,7 @@ these retry and cleanup paths with stub tools (requires zsh). The native runner 
 surface reaches the screen edge after scrolling to the list's end and after leaving the reader. In Light, the window matches the surface,
 so that comparison cannot detect a surface that stops short. Both appearances verify packaged launch, scrolling the list's end clear of the floating bar, reader return, the floating search field
 staying above the software keyboard, a search result under Top Results, search staying open and focused while its query is cleared, retyped and replaced, Close Search, selecting and replacing a message, and compact
-back navigation. On iPhone, two Back holds verify the return to Mailboxes after release and reopening the Inbox each time. It does not claim hardware keyboard,
+back navigation. On iPhone, two Back holds verify the return to Mailboxes after release and reopening the Inbox each time. After a vertical drag, leading-edge swipes verify that a swipe released early leaves the preview reader open, and that completed swipes return to an Inbox that no longer selects the message and reopens it. The short preview message fits on screen; scrolling long plain-text or HTML bodies, preserving reading and list positions, and Settings Back remain unverified by this journey. It does not claim hardware keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).
 

@@ -111,9 +111,13 @@ typedef UIView UnwiredPlatformView;
 
 #if !TARGET_OS_OSX
 // The compact Inbox and reader supply their own Back pill; restore native chrome when they leave.
+// A screen popped by the edge swipe reports onPop, so its own Back can follow.
 @interface UnwiredNavigationChromeView : UIView
 @property (nonatomic, weak) UINavigationController *navigation;
+@property (nonatomic, weak) UINavigationController *stack;
+@property (nonatomic, weak) UIViewController *screen;
 @property (nonatomic) BOOL previousHidden;
+@property (nonatomic, copy) RCTDirectEventBlock onPop;
 @end
 
 @implementation UnwiredNavigationChromeView
@@ -123,13 +127,30 @@ typedef UIView UnwiredPlatformView;
   if (self.window == nil) {
     [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
     self.navigation = nil;
+    // A covered screen stays in the stack that showed it; a popped one has left it while the
+    // stack is still shown.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      UIViewController *ancestor = self.screen;
+      while (ancestor != nil && ancestor != self.stack) ancestor = ancestor.parentViewController;
+      if (self.window == nil && ancestor == nil && self.stack.viewIfLoaded.window != nil && self.onPop) {
+        self.onPop(@{});
+      }
+    });
     return;
   }
   UIResponder *responder = self;
   while (responder != nil && ![responder isKindOfClass:[UIViewController class]]) {
     responder = responder.nextResponder;
   }
-  UINavigationController *navigation = ((UIViewController *)responder).navigationController;
+  self.screen = (UIViewController *)responder;
+  UINavigationController *navigation = self.screen.navigationController;
+  // A collapsed split view nests each column's navigation in one outer stack, which pops them.
+  UINavigationController *stack = navigation;
+  while (stack.navigationController.splitViewController != nil
+         && stack.navigationController.splitViewController == stack.splitViewController) {
+    stack = stack.navigationController;
+  }
+  self.stack = stack;
   if (navigation != nil && navigation != self.navigation) {
     self.navigation = navigation;
     self.previousHidden = navigation.navigationBarHidden;
@@ -143,6 +164,7 @@ typedef UIView UnwiredPlatformView;
 
 @implementation UnwiredNavigationChromeManager
 RCT_EXPORT_MODULE(UnwiredNavigationChrome)
+RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredNavigationChromeView new]; }
 @end
 #endif
