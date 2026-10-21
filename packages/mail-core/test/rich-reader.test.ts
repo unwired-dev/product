@@ -1,6 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 import { deflateSync } from 'node:zlib';
 
+import { palette } from '@private-email/mail-core/theme';
 import * as Schema from 'effect/Schema';
 
 import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
@@ -10,7 +11,6 @@ import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import { imageTally, singleReadablePart } from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
-import { palette } from '../src/theme.ts';
 
 const parseJson = Schema.decodeSync(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
