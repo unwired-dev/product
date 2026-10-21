@@ -1551,6 +1551,8 @@ describe('connected Gmail Inbox', () => {
     const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
+    const year = graph.createFolder('Travel / 2026');
+    graph.createFolder('Porto', year);
     const gone = graph.deliver({ subject: 'Old notes' });
     const plans = graph.deliver({
       from: { name: 'Rowan Hale', address: 'rowan@example.invalid' },
@@ -1604,6 +1606,17 @@ describe('connected Gmail Inbox', () => {
       within(
         screen.getByRole('button', { name: 'Move to Travel / Lisbon' }),
       ).getByText('Lisbon'),
+    ).toBeVisible();
+    // A slash in Graph's display name does not create another level of nesting.
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Travel / 2026' }),
+      ).getByText('Travel / 2026'),
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to Travel / 2026 / Porto' }),
+      ).getByText('Porto'),
     ).toBeVisible();
     // Back lists only this account, since mail moves within it; Cancel moves nothing.
     const sheet = within(screen.getByTestId('move-sheet'));

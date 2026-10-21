@@ -672,20 +672,13 @@ const settled = (
   });
 };
 
+const sameLabels = Schema.toEquivalence(Schema.Array(GmailLabelSchema));
+
 // Whether refreshed labels leave a document's labels and views as they were.
-const sameListing = (before: MailboxDocument, after: MailboxDocument) => {
-  const left = before.labels ?? [];
-  const right = after.labels ?? [];
-  return (
-    after.labelsLimited === before.labelsLimited &&
-    after.views?.length === before.views?.length &&
-    left.length === right.length &&
-    left.every(
-      (label, index) =>
-        label.id === right[index]?.id && label.name === right[index]?.name,
-    )
-  );
-};
+const sameListing = (before: MailboxDocument, after: MailboxDocument) =>
+  after.labelsLimited === before.labelsLimited &&
+  after.views?.length === before.views?.length &&
+  sameLabels(before.labels ?? [], after.labels ?? []);
 
 // Whether a mailbox with these labels still offers a view: its own labels, All Mail, Spam and Trash.
 const offeredBy =
