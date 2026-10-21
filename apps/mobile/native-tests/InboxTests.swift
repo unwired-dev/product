@@ -1238,8 +1238,6 @@ final class InboxTests: XCTestCase {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let window = app.windows.firstMatch
     func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity) {
-      // UIKit ignores a swipe while the previous transition is still settling.
-      _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Transition settles")], timeout: 1)
       window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
         forDuration: 0.05,
         thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
