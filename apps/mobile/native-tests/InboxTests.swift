@@ -1230,8 +1230,8 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // #976: on iPhone a leading-edge swipe returns from a scrolled reader to the Inbox, which no longer
-  // selects the message and reopens it; a swipe released early leaves the reader open.
+  // #976: after a vertical drag, an iPhone edge swipe returns to the Inbox with no selection and
+  // reopens the message; releasing early keeps it open. This short fixture does not prove scrolling.
   private func verifyCompactSwipeBack(
     _ app: XCUIApplication, reader: XCUIElement, row: XCUIElement
   ) {
