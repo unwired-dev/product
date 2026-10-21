@@ -382,8 +382,8 @@ const sizeOf = ({ start, end, inserted }: Change) =>
 
 // The change in display offsets when the editor typed over `shown`, the text it last reported,
 // rather than the document's newer display: a native field drops a render that reaches it after
-// further typing. Undefined when the change is smaller against the display, which the field then
-// showed.
+// further typing. An exact selected replacement in the display takes precedence over the
+// stale-text size heuristic.
 const rebased = (
   display: string,
   next: string,
@@ -392,10 +392,16 @@ const rebased = (
     ...options
   }: Parameters<typeof changeOf>[2] & Readonly<{ shown?: string | undefined }>,
 ): Change | undefined => {
+  const { selection } = options;
   // Equal texts, the usual case, skip scanning a long paragraph character by character.
   if (
     shown === undefined ||
     shown === display ||
+    (selection !== undefined &&
+      replacing(display, next, [
+        Math.min(selection.start, selection.end),
+        Math.max(selection.start, selection.end),
+      ]) !== undefined) ||
     sizeOf(diffOf(shown, next)) >= sizeOf(diffOf(display, next))
   ) {
     return undefined;

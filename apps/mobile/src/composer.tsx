@@ -2140,11 +2140,9 @@ function Editor({
             onSelectionChange={({ nativeEvent }) => {
               const next = nativeEvent.selection;
               // Moving the caret anywhere but past typed text ends marks toggled for typing.
-              // A selection the person moved also shows the field caught up with its render.
               if (next.start !== next.end || next.start !== caret.current) {
                 placeTyping(undefined);
                 commitHistory((current) => ({ ...current, typing: false }));
-                shownBody.current = undefined;
               }
               caret.current = undefined;
               setPlaced(undefined);
