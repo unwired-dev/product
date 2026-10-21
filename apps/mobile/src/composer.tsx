@@ -1613,12 +1613,13 @@ function Editor({
       shown: shownBody.current,
       ...(forward ? { deletion: 'forward' } : {}),
     });
-    // One character added after the caret continues a typing step until a word ends.
-    const added = text.length === textBefore.length + 1;
-    const word = added && !/\s/u.test(text[at.start] ?? ' ');
-    caret.current = at.end + text.length - textBefore.length;
+    // Native selection still uses the field's reported text if it dropped our display.
+    caret.current =
+      after?.start ??
+      result.selection?.start ??
+      at.end + text.length - textBefore.length;
     if (result.literal === undefined) {
-      change({ ...latest, body: result.document }, word, 'body');
+      change({ ...latest, body: result.document }, result.typing, 'body');
     } else {
       // The literal marker is its own step, so one Undo restores it.
       const { literal } = result;
@@ -1634,7 +1635,6 @@ function Editor({
     }
     shownBody.current = text;
     if (result.selection !== undefined) {
-      caret.current = result.selection.start;
       selectionNow.current = result.selection;
       setPlaced(result.selection);
     }

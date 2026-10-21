@@ -292,6 +292,8 @@ export type Selection = Readonly<{ start: number; end: number }>;
 
 export type Edit = Readonly<{
   document: SemanticDocument;
+  // A single non-whitespace insertion, which can continue a word-sized Undo step.
+  typing?: boolean;
   // Where the caret belongs when the shown text differs from what was typed.
   selection?: Selection;
   // The document with a typed Markdown marker still literal, before the shortcut applied it;
@@ -543,9 +545,13 @@ export function applyText(
     };
   }
   const edited = documentOf(lines);
+  const typing =
+    change.start === change.end &&
+    change.inserted.length === 1 &&
+    !/\s/u.test(change.inserted);
   return displayOf(edited).text === next
-    ? { document: edited }
-    : { document: edited, selection: caret(lines, column) };
+    ? { document: edited, typing }
+    : { document: edited, typing, selection: caret(lines, column) };
 }
 
 // The characters a selection covers, line by line, excluding list markers.

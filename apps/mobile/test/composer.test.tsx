@@ -1757,6 +1757,7 @@ describe('composing Drafts', () => {
     );
     await press('New Message');
     const body = await screen.findByLabelText('Message body');
+    await press('Bold');
     for (const text of [
       '-',
       '- ',
@@ -1765,19 +1766,48 @@ describe('composing Drafts', () => {
       '- One',
       '- One\n',
       '- One\nT',
+      '- One\nTw',
+      '- One\nTwo',
     ]) {
-      await fireEvent.changeText(body, text);
+      const selection = { start: text.length, end: text.length };
+      await act(async () => {
+        await fireEvent(body, 'change', { nativeEvent: { text, selection } });
+        await fireEvent.changeText(body, text);
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection },
+        });
+      });
     }
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
-      { kind: 'bulleted', spans: [{ text: 'One' }] },
-      { kind: 'bulleted', spans: [{ text: 'T' }] },
+      { kind: 'bulleted', spans: [{ text: 'One', marks: ['bold'] }] },
+      { kind: 'bulleted', spans: [{ text: 'Two', marks: ['bold'] }] },
     ]);
-    // Once the field shows the bullets again, typing continues the item.
-    await fireEvent.changeText(body, '• One\n• Tw');
+    // Rebased keystrokes still form one word-sized Undo step.
+    await press('Undo');
     expect(draftsOf(drafts.getSnapshot())[0]?.body[1]).toStrictEqual({
       kind: 'bulleted',
-      spans: [{ text: 'Tw' }],
+      spans: [],
     });
+    await press('Redo');
+    // Once the field shows the bullets again, typing continues the item.
+    await fireEvent.changeText(body, '• One\n• Two!');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[1]).toStrictEqual({
+      kind: 'bulleted',
+      spans: [{ text: 'Two!', marks: ['bold'] }],
+    });
+    // A later Return can race the render again after the field caught up.
+    await fireEvent.changeText(body, '• One\n• Two!\n');
+    await fireEvent.changeText(body, '• One\n• Two!\nT');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[2]).toStrictEqual({
+      kind: 'bulleted',
+      spans: [{ text: 'T' }],
+    });
+    await press('Close');
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual(
+      draftsOf(drafts.getSnapshot())[0]?.body,
+    );
   });
 
   it("applies an edit at the caret moved just before it, with that character's marks", async () => {
