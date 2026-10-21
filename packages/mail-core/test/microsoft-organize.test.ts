@@ -82,10 +82,22 @@ describe('organizing Microsoft mail through Graph', () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 5 });
     const travel = graph.createFolder('Travel');
+    // A v1 cache without folder paths acquires them even when folder IDs and names are unchanged.
+    const cache = await graph.native.openMailbox();
+    await graph.native.commitMailbox(
+      cache,
+      cache.revision,
+      JSON.stringify({
+        version: 1,
+        messages: [],
+        labels: [{ id: travel, name: 'Travel' }],
+        checkpoint: { kind: 'graph-listing' },
+      }),
+    );
     const inbox = await opened(graph);
     // Move to offers the mailbox's own folders, not its well-known ones.
     expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
-      { id: travel, name: 'Travel' },
+      { id: travel, name: 'Travel', path: ['Travel'], inboxPath: false },
     ]);
     const [read = '', archived = '', trashed = '', junk = '', moved = ''] =
       ids(inbox);
@@ -102,6 +114,9 @@ describe('organizing Microsoft mail through Graph', () => {
 
     // A relaunch sends the saved change again, and Graph's reply settles it.
     const relaunched = await opened(graph);
+    expect(ready(relaunched.getSnapshot()).labels).toStrictEqual(
+      ready(inbox.getSnapshot()).labels,
+    );
     expect(ready(relaunched.getSnapshot())).toMatchObject({
       sync: 'current',
       pending: 0,
@@ -299,7 +314,10 @@ describe('organizing Microsoft mail through Graph', () => {
 
   it('lists nested folders by their paths and says when some are left out', async () => {
     expect.hasAssertions();
-    const graph = createSyntheticGraph({ messages: 1 });
+    const graph = createSyntheticGraph({
+      messages: 1,
+      inboxName: 'Posteingang',
+    });
     const travel = graph.createFolder('Travel');
     const lisbon = graph.createFolder('Lisbon', travel);
     const projects = graph.createFolder('Projects', 'inbox');
@@ -307,13 +325,27 @@ describe('organizing Microsoft mail through Graph', () => {
     const inbox = await opened(graph);
     const [target = ''] = ids(inbox);
 
-    // Equal names stay apart by their paths, including folders inside the Inbox.
+    // Equal names stay apart by their paths. Inbox ancestry is separate from localized names.
     expect(ready(inbox.getSnapshot())).toMatchObject({
       labels: [
-        { id: projects, name: 'Inbox / Projects' },
-        { name: 'Inbox / Projects / Travel' },
-        { id: travel, name: 'Travel' },
-        { id: lisbon, name: 'Travel / Lisbon' },
+        {
+          id: projects,
+          name: 'Posteingang / Projects',
+          path: ['Posteingang', 'Projects'],
+          inboxPath: true,
+        },
+        {
+          name: 'Posteingang / Projects / Travel',
+          path: ['Posteingang', 'Projects', 'Travel'],
+          inboxPath: true,
+        },
+        { id: travel, name: 'Travel', path: ['Travel'], inboxPath: false },
+        {
+          id: lisbon,
+          name: 'Travel / Lisbon',
+          path: ['Travel', 'Lisbon'],
+          inboxPath: false,
+        },
       ],
     });
     await inbox.organize(message(inbox, target), gmailAction.move(lisbon));

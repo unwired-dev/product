@@ -33,6 +33,10 @@ export type GmailAction = typeof GmailActionSchema.Type;
 export const GmailLabelSchema = Schema.Struct({
   id: LabelId,
   name: Schema.String,
+  // Graph supplies folder names separately from their display path; older caches omit them.
+  path: Schema.optionalKey(Schema.Array(Schema.String)),
+  // Whether the path starts at Graph's discovered Inbox, independent of its display name.
+  inboxPath: Schema.optionalKey(Schema.Boolean),
 });
 export type GmailLabel = typeof GmailLabelSchema.Type;
 

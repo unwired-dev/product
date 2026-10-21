@@ -26,6 +26,8 @@ const FolderSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   roles: Schema.Array(Schema.String),
   selectable: Schema.Boolean,
+  // The server's hierarchy delimiter, which nests `Parent/Child`; absent from older listings.
+  delimiter: Schema.optionalKey(Schema.NonEmptyString),
 });
 export type ImapFolder = typeof FolderSchema.Type;
 
