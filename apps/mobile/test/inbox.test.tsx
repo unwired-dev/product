@@ -122,6 +122,60 @@ describe('preview Inbox', () => {
     );
   });
 
+  it('keeps refreshing until every shown mailbox settles after one rejects', async () => {
+    expect.hasAssertions();
+    const first = createPersistentInbox(makeMockInboxStorage());
+    const storage = makeMockInboxStorage();
+    let held = Promise.resolve();
+    const second = createPersistentInbox({
+      ...storage,
+      open: async (seed) => {
+        await held;
+        return storage.open(seed);
+      },
+    });
+    await Promise.all([first.load(), second.load()]);
+    const one = singleMailbox(first, 'first');
+    const two = singleMailbox(second, 'second');
+    const snapshot = [...one.getSnapshot(), ...two.getSnapshot()];
+    await render(
+      <InboxProvider mailboxes={{ ...one, getSnapshot: () => snapshot }}>
+        <Inbox
+          selected={undefined}
+          onSelect={() => undefined}
+        />
+      </InboxProvider>,
+    );
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Explicitly hold one action past the other's rejection.
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Provider failures become state. A broken subscriber rejects the real store action instead.
+    const unsubscribe = first.subscribe(() => {
+      throw new Error('Mailbox subscriber failed');
+    });
+    try {
+      await act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+      });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'refreshing',
+        true,
+      );
+      await act(async () => {
+        release();
+      });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'refreshing',
+        false,
+      );
+    } finally {
+      release();
+      unsubscribe();
+    }
+  });
+
   it.each(['light', 'dark'] as const)(
     'keeps the selected row legible after focus leaves in %s appearance',
     async (appearance) => {
