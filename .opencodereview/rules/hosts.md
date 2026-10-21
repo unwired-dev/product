@@ -892,6 +892,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Include an individual picker becoming unavailable while the toolbar remains,
   such as IMAP losing its Move capability or final destination; toolbar-unmount
   cleanup alone does not retire that panel.
+  Also trace mailbox/message replacement through every `MessageDetail` render
+  path, including when `onCompose` is absent: a retained reader must not carry
+  an old owner's panel or dismissal layer into the next message. Exercise a
+  selection change with the panel open, while preserving it on an ordinary
+  rerender of the same message; presenter-availability cleanup alone cannot
+  detect an owner change while the toolbar stays available.
 
 - `message-detail.tsx.PanelDismissal` or another outside-dismissal backdrop
   relying on its bounds or sibling order without tracing foreground hit testing.
