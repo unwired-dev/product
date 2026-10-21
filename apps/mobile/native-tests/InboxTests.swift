@@ -1124,8 +1124,8 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
   }
 
-  // #968: holding Back acts as Back, opening no history menu over the heading, every time; the
-  // Inbox then reopens from Mailboxes with its usual header.
+  // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with
+  // its usual header. The checks run after release, so what shows during the hold is unverified.
   private func verifyCompactBackHold(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let inboxes = app.buttons["All inboxes"]
