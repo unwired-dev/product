@@ -74,6 +74,14 @@ native checks should run when relevant; the earlier tooling exception permits
 implementation to continue without unavailable version-27 evidence, but does
 not waive release qualification or turn deferred checks into passing results.
 
+For changes to the mail shell or its native navigation containers, exercise the
+signed-in path on each affected host. On mobile, use a registration Mock Mail
+Session such as `registration-apple`: verify the Inbox list and reader after
+setup and relaunch, open Settings and return with the prior mail state retained,
+and rotate with a reader open. Keep keyboard and presentation checks when those
+interactions are affected. A preview Inbox run qualifies only the path it uses;
+record unavailable signed-in native checks as deferred.
+
 ## Required release checks
 
 Before completing native host qualification in

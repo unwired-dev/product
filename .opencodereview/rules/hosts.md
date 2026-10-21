@@ -873,6 +873,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `registration-gate.tsx.SettingsCover`, `app/_layout.tsx.MailShell` or another
+  native container changing when the split view joins its window or receives
+  child controllers. Trace the installed native lifecycle, including first
+  appearance and return from Settings, and apply the signed-in container check
+  in `docs/agents/native-validation.md`. The preview Inbox bypasses the connected
+  gate, and a component substitute can synthesize appearance without attaching
+  any controller; otherwise a successful preview journey can hide an empty
+  signed-in Inbox or broken rotation beneath a new stack.
+
 - Reader-owned panel state in `message-detail.tsx.MailboxMessage` outliving the
   `organize.tsx.Toolbar` that presents it. Trace organizing eligibility, missing
   messages and loading/error returns as well as navigation: retire the panel

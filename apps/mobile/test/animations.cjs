@@ -12,6 +12,20 @@ Modal.prototype.componentDidUpdate = function (previous) {
   }
 };
 
+// Without a native stack, a stack screen appears once it mounts.
+jest.mock('react-native-screens', () => {
+  const React = require('react');
+  const screens = jest.requireActual('react-native-screens');
+  function ScreenStackItem({ onAppear, ...props }) {
+    const appear = React.useRef(onAppear);
+    React.useEffect(() => {
+      appear.current?.();
+    }, []);
+    return React.createElement(screens.ScreenStackItem, props);
+  }
+  return { ...screens, ScreenStackItem };
+});
+
 // Component journeys substitute the native animation driver with its completed frame.
 // Native journeys remain responsible for motion timing and appearance.
 beforeEach(() => {
