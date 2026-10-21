@@ -10,6 +10,7 @@ import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import { imageTally, singleReadablePart } from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+import { palette } from '../src/theme.ts';
 
 const parseJson = Schema.decodeSync(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
@@ -344,6 +345,15 @@ describe('the isolated rich reader', () => {
     expect(document.match(/class="blocked-image"/gu)).toHaveLength(3);
     expect(links).toStrictEqual([{ href: 'tel:+15551234', text: 'call us' }]);
     expect(readable(opened)).toMatchObject({ hidesImages: true });
+    // The canvas follows the app's appearance (#977) with its content, text and link tokens.
+    for (const [query, colors] of [
+      ['', palette.light],
+      ['@media (prefers-color-scheme:dark){', palette.dark],
+    ] as const) {
+      expect(document).toContain(
+        `${query}html,body{background:${colors.surfaceContent};color:${colors.textPrimary}}a{color:${colors.accentInk}}`,
+      );
+    }
   });
 
   it('inspects image-only links by their description and keeps images CSS enlarges', async () => {

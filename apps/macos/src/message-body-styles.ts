@@ -69,7 +69,7 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.s,
   },
-  rich: { width: '100%', backgroundColor: '#FFFFFF' },
+  rich: { width: '100%' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
 });

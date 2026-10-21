@@ -557,6 +557,7 @@ function RichDocument({
   readonly onNear: (urls: readonly string[]) => void;
 }) {
   // The laid-out width; a later different width lays the document out and measures it again.
+  const colors = usePalette();
   const { t } = useLocalization();
   const width = useRef<number>(undefined);
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
@@ -665,7 +666,10 @@ function RichDocument({
           nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}
           style={[
             styles.rich,
-            { height: Math.min(height ?? 1, heightCap) },
+            {
+              backgroundColor: colors.surfaceContent,
+              height: Math.min(height ?? 1, heightCap),
+            },
             height === undefined ? styles.hidden : undefined,
           ]}
         />
