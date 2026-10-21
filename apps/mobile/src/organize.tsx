@@ -763,15 +763,15 @@ function GmailMessageActions({
                       },
                       ...state.labels.map((label): Destination => {
                         // Graph names may contain slashes; only its listing knows the hierarchy.
-                        const path = folders
-                          ? [label.name]
-                          : label.name.split('/');
+                        const path =
+                          label.path ??
+                          (folders ? [label.name] : label.name.split('/'));
                         return {
                           id: label.id,
                           path:
-                            label.path === undefined
-                              ? path
-                              : localizedPath(label.path, t('inbox.title')),
+                            label.inboxPath === true
+                              ? localizedPath(path, t('inbox.title'))
+                              : path,
                           icon: 'folder',
                           current: applied.has(label.id),
                           selectable: true,

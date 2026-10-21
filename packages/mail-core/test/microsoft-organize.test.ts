@@ -333,10 +333,12 @@ describe('organizing Microsoft mail through Graph', () => {
           id: projects,
           name: 'Posteingang / Projects',
           path: ['INBOX', 'Projects'],
+          inboxPath: true,
         },
         {
           name: 'Posteingang / Projects / Travel',
           path: ['INBOX', 'Projects', 'Travel'],
+          inboxPath: true,
         },
         { id: travel, name: 'Travel', path: ['Travel'] },
         { id: lisbon, name: 'Travel / Lisbon', path: ['Travel', 'Lisbon'] },

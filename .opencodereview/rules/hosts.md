@@ -293,10 +293,18 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   app copy while `graph-inbox.ts.labels` supplies its descendants with the
   provider's localized display name. Match the parent through the discovered
   Inbox role and a shared canonical path segment, preserving provider display
-  names for other consumers. Localize only that provider metadata, not a Gmail
-  user label's literal `INBOX` prefix. Exercise different mailbox/app languages
+  names for other consumers. Require explicit discovered Inbox ancestry before
+  localizing a canonical segment: Graph custom folders can also be named `INBOX`.
+  Preserve those names and a Gmail user label's literal `INBOX` prefix.
+  Exercise different mailbox/app languages
   through the real store and picker; otherwise children stay at the top level
   or user labels are renamed and grouped under an unrelated system folder.
+
+- `move-sheet.tsx.nest` rebuilding a growing sibling bucket on every insertion
+  during render. Check the provider's admitted folder count and preserve order
+  while accumulating into arrays owned by that projection, without mutating
+  caller data. Even a bounded listing can contain 1,000 IMAP folders; repeated
+  bucket copies make grouping quadratic on each render of the unfiltered picker.
 
 - `inbox.tsx` retaining the Inbox title while the sidebar selects a
   different IMAP folder. Trace the effective folder from `useMailboxFolder` into

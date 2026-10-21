@@ -10,3 +10,5 @@ label checkboxes listed under More. IMAP folder listings keep the server's hiera
 delimiter.
 Microsoft folder listings preserve path segments so a slash in a folder's own name
 does not create false nesting.
+Microsoft Inbox descendants follow the app's language while custom folder and Gmail
+label names stay literal.

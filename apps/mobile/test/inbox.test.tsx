@@ -1562,6 +1562,8 @@ describe('connected Gmail Inbox', () => {
     const travel = graph.createFolder('Travel');
     graph.createFolder('Lisbon', travel);
     graph.createFolder('Receipts', 'inbox');
+    const literalInbox = graph.createFolder('INBOX');
+    graph.createFolder('Taxes', literalInbox);
     const year = graph.createFolder('Travel / 2026');
     graph.createFolder('Porto', year);
     const gone = graph.deliver({ subject: 'Old notes' });
@@ -1634,6 +1636,17 @@ describe('connected Gmail Inbox', () => {
       within(
         screen.getByRole('button', { name: 'Move to Inbox / Receipts' }),
       ).getByText('Receipts'),
+    ).toBeVisible();
+    // A custom Graph folder named INBOX is not the well-known Inbox, nor are its children.
+    expect(
+      within(screen.getByRole('button', { name: 'Move to INBOX' })).getByText(
+        'INBOX',
+      ),
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole('button', { name: 'Move to INBOX / Taxes' }),
+      ).getByText('Taxes'),
     ).toBeVisible();
     // Back lists only this account, since mail moves within it; Cancel moves nothing.
     const sheet = within(screen.getByTestId('move-sheet'));
