@@ -1025,6 +1025,7 @@ final class InboxTests: XCTestCase {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyCompactInboxHeader(app)
+    verifyCompactBackHold(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
@@ -1121,6 +1122,24 @@ final class InboxTests: XCTestCase {
       XCTAssertGreaterThan(text.frame.maxY, back.frame.minY)
     }
     XCTAssertFalse(app.navigationBars.firstMatch.exists)
+  }
+
+  // #968: holding Back acts as Back, opening no history menu over the heading, every time; the
+  // Inbox then reopens from Mailboxes with its usual header.
+  private func verifyCompactBackHold(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let inboxes = app.buttons["All inboxes"]
+    for hold in 1...2 {
+      app.buttons["Back to Mailboxes"].press(forDuration: 1.5)
+      XCTAssertTrue(inboxes.waitForExistence(timeout: 10))
+      XCTAssertTrue(inboxes.isHittable)
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Mailboxes after holding Back, \(hold)"
+      shot.lifetime = .keepAlways
+      add(shot)
+      inboxes.tap()
+      verifyCompactInboxHeader(app)
+    }
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
