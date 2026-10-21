@@ -78,7 +78,8 @@ The runner signs the copy for a random `dev.unwired.mock.<run>` identity, opens 
 waits for the `complete` line and keeps the evidence under
 `artifacts/assistance-qualification/macos.*`. It then quits the copy and removes
 its Keychain items, container and app, as the [native runner](mock-mail-sessions.md#ownership-evidence-and-cleanup)
-does. It fails when the run stops or times out after 30 minutes
+does. It fails when any check fails, the evidence is incomplete or malformed,
+the run stops, or it times out after 30 minutes
 (`UNWIRED_QUALIFICATION_TIMEOUT` seconds).
 
 ## Run on iPhone and iPad
@@ -142,6 +143,8 @@ source revision and root lockfile hash, build configuration and toolchain, the
 device record (hardware, OS build, locale and languages), the counts, every
 `limited` or `fail` check with its reason, and the manual checks above. Attach
 only the evidence file; it holds synthetic corpus text and the model's answers to
-it. Keep device serial numbers, UDIDs and accounts out of the issue. The review
+it. Keep device serial numbers, UDIDs, local filesystem paths and accounts out of
+the issue. Older evidence containing an `evidence` path must have that field
+removed before attachment. The review
 agent carries the results into the platform qualification record. A missing
 configuration remains a required release check.

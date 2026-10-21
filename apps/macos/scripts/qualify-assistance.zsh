@@ -48,5 +48,5 @@ until [[ -f "$results" ]] && /usr/bin/grep -Eq '"kind":"(complete|stopped)"' "$r
   sleep 5
 done
 cp "$results" "$run/"
-/usr/bin/grep -q '"kind":"complete"' "$run/assistance-qualification.jsonl"
 print "Assistance evidence: $run/assistance-qualification.jsonl"
+python3 ../../scripts/verify-assistance-evidence.py "$run/assistance-qualification.jsonl"

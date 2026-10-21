@@ -36,7 +36,6 @@ final class UnwiredAssistanceQualification: NSObject {
         "locale": Locale.current.identifier,
         "languages": Locale.preferredLanguages,
         "commit": Bundle.main.object(forInfoDictionaryKey: "UnwiredCommit") as? String ?? "",
-        "evidence": Self.evidence.path,
       ])
     } catch {
       reject("unavailable", "The evidence file could not be created.", nil)

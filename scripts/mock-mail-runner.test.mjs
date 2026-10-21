@@ -71,6 +71,75 @@ test('preparation refuses production builds before copying or signing', () => {
   }
 });
 
+test('assistance evidence admits complete pass/limited runs and rejects failed or incomplete matrices', () => {
+  const directory = workspace();
+  try {
+    const cases = [
+      ...[
+        'lease-deadline',
+        'instruction-in-body',
+        'long-newsletter',
+        'committee-meeting',
+        'delivery-address',
+      ].map((id) => ({ kind: 'summary', id })),
+      ...['rough-note', 'long-draft', 'czech-note'].map((id) => ({
+        kind: 'rewrite',
+        id,
+      })),
+      ...['confirm-meeting', 'long-quoted-message', 'answer-in-german'].map(
+        (id) => ({ kind: 'reply', id }),
+      ),
+      ...[
+        'german-to-english',
+        'czech-to-english',
+        'english-to-german',
+        'same-language',
+        'unidentified-language',
+      ].map((id) => ({ kind: 'translation', id })),
+      ...[
+        'native-cancel',
+        'summary-cancel',
+        'stale-result',
+        'translation-cancel',
+      ].map((kind) => ({ kind })),
+    ].map((entry) => ({ ...entry, corpusVersion: 1, result: 'pass' }));
+    const device = { corpusVersion: 1, kind: 'device' };
+    const complete = {
+      corpusVersion: 1,
+      kind: 'complete',
+      pass: 20,
+      limited: 0,
+      fail: 0,
+    };
+    const failed = [{ ...cases[0], result: 'fail' }, ...cases.slice(1)];
+    const limited = [{ ...cases[0], result: 'limited' }, ...cases.slice(1)];
+    for (const [rows, expectedExit] of [
+      [[device, ...cases, complete], 0],
+      [[device, ...limited, { ...complete, pass: 19, limited: 1 }], 0],
+      [[device, ...failed, { ...complete, pass: 19, fail: 1 }], 1],
+      [[device, ...cases.slice(1), { ...complete, pass: 19 }], 1],
+      [[device, cases[1], ...cases.slice(1), complete], 1],
+      [[device, ...cases, { ...complete, pass: 19 }], 1],
+      [[device, { corpusVersion: 1, kind: 'stopped' }], 1],
+    ]) {
+      const evidence = path.join(directory, 'evidence.jsonl');
+      writeFileSync(
+        evidence,
+        rows.map((row) => JSON.stringify(row)).join('\n'),
+      );
+      const result = run(directory, [
+        'python3',
+        path.join(root, 'scripts/verify-assistance-evidence.py'),
+        evidence,
+      ]);
+      assert.ifError(result.error);
+      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const successLog = 'Executed 1 test, with 0 failures';
 const macScenarios = [
   ['success', 0, 0, successLog, 0, false],

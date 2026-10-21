@@ -163,7 +163,6 @@ const Device = Schema.Struct({
   locale: Schema.String,
   languages: Schema.Array(Schema.String),
   commit: Schema.String,
-  evidence: Schema.String,
 });
 
 // `pass`: the binding behaved as the shared core requires. `limited`: the device or model could
@@ -345,9 +344,15 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
     result: outcome(
       cancelled.value === 'cancelled',
       // An unavailable model rejects with its reason before generating anything.
-      cancelled.value === 'completed' || cancelled.value === 'unknown'
-        ? 'failed'
-        : 'unavailable',
+      [
+        'device-ineligible',
+        'assistance-disabled',
+        'model-not-ready',
+        'unsupported-locale',
+        'refused',
+      ].includes(cancelled.value)
+        ? 'unavailable'
+        : 'failed',
     ),
   });
 

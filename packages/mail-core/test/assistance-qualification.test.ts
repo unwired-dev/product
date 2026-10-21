@@ -1,6 +1,5 @@
+import { runAssistanceQualification } from '@private-email/mail-core/testing/assistance-qualification';
 import * as Schema from 'effect/Schema';
-
-import { runAssistanceQualification } from '../src/testing/assistance-qualification.ts';
 
 const parseLine = Schema.decodeSync(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
@@ -13,7 +12,12 @@ const rejection = (code: string) =>
 function binding({
   availability = 'available',
   honorsCancel = true,
-}: Readonly<{ availability?: string; honorsCancel?: boolean }> = {}) {
+  nativeCancelCode,
+}: Readonly<{
+  availability?: string;
+  honorsCancel?: boolean;
+  nativeCancelCode?: string;
+}> = {}) {
   const pending = new Map<string, (error: Error) => void>();
   const answer = <T>(request: string, value: T) =>
     // oxlint-disable-next-line promise/avoid-new -- A native answer the fake clock releases.
@@ -23,10 +27,14 @@ function binding({
         resolve(value);
       }, 1000);
     });
-  const generate = (request: string) =>
-    availability === 'available'
+  const generate = (request: string) => {
+    if (request === 'qualification-cancel' && nativeCancelCode !== undefined) {
+      return Promise.reject(rejection(nativeCancelCode));
+    }
+    return availability === 'available'
       ? answer(request, `Result for ${request}.`)
       : Promise.reject(rejection(availability));
+  };
   const lines: Array<Record<string, unknown>> = [];
   return {
     lines,
@@ -64,7 +72,9 @@ function binding({
           locale: 'en_US',
           languages: ['en-US'],
           commit: '',
-          evidence: '/tmp/assistance-qualification.jsonl',
+          // Old native metadata must not leak local accounts or device paths into evidence.
+          evidence:
+            '/Users/synthetic-private-account/device-udid/evidence.jsonl',
         }),
       record: (line: string) => {
         lines.push(parseLine(line));
@@ -154,5 +164,30 @@ describe('assistance qualification corpus run', () => {
       true,
     );
     expect(complete).toMatchObject({ fail: 0 });
+  });
+
+  it('unexpected native cancellation rejections fail instead of qualifying as capability limits', async () => {
+    expect.hasAssertions();
+
+    const { byKind, complete } = await run(
+      binding({ nativeCancelCode: 'unavailable' }),
+    );
+
+    expect(byKind('native-cancel')[0]).toMatchObject({
+      code: 'unavailable',
+      result: 'fail',
+    });
+    expect(complete).toMatchObject({ pass: 19, limited: 0, fail: 1 });
+  });
+
+  it('recorded device metadata excludes native filesystem paths and local account names', async () => {
+    expect.hasAssertions();
+
+    const { byKind } = await run(binding());
+
+    expect(byKind('device')[0]).not.toHaveProperty('evidence');
+    expect(JSON.stringify(byKind('device'))).not.toContain(
+      'synthetic-private-account',
+    );
   });
 });
