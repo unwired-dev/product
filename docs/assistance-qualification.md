@@ -14,6 +14,10 @@ Results apply only to the configurations tested. Hardware eligibility and OS
 version alone do not show that the model, a locale or a Translation language is
 ready, so every run records what the device actually reports.
 
+The binding selects `SystemLanguageModel.default`. It does not expose a separate
+model-build identifier; the OS build and recorded answers bound this evidence,
+and do not identify model updates independently of the OS.
+
 ## The qualification build
 
 The `assistance-qualification` [Mock Mail Session](mock-mail-sessions.md) build shows

@@ -113,18 +113,19 @@ allow-listed native code or decode path, never Draft or generated text.
   only, undo it, invalidate recipient edits even when Undo precedes a queued apply,
   and cancel a pending request on recipient changes or by closing the Draft.
 - [Mock Mail Sessions](mock-mail-sessions.md#boundaries-and-scenarios) supply fixed
-  rewrite and reply outcomes, and every selected native mock build answers with the
-  same fixed synthetic text instead of running the model.
+  rewrite and reply outcomes. Native mock builds use the same fixed synthetic text,
+  except the [assistance qualification build](assistance-qualification.md).
 
 These are mocked journeys. They do not show that Apple's model runs or what it
 writes.
 
-## Deferred native checks
+## Native qualification and deferred checks
 
-Running the binding on iOS, iPadOS and macOS 27 with Apple Intelligence enabled
-on eligible hardware is deferred until that environment is available, together
-with each unavailable reason and the context window on long input. It remains
-required before release. Compilation of the bridge is not evidence of model
-behavior. [Assistance qualification](assistance-qualification.md) runs this binding on the
-nominated hardware with a versioned synthetic corpus and records each device's
-evidence in [#625](https://github.com/unwired-dev/product/issues/625).
+[Assistance qualification](assistance-qualification.md) has exercised the real
+binding, including long input, on the nominated Mac mini M4 with a versioned
+synthetic corpus. Generated text still needs human review; observed limitations
+include an English response to a Czech rewrite and an added subject line.
+Physical iPhone/iPad runs, each unavailable reason, and native acceptance/Undo
+checks remain required before release through the owner session in
+[#625](https://github.com/unwired-dev/product/issues/625). Compilation alone is
+not evidence of model behavior.

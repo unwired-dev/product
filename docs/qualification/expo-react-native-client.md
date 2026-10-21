@@ -22,6 +22,75 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## On-device assistance qualification, 2026-10-22
+
+Issue [#625](https://github.com/unwired-dev/product/issues/625) adds the
+[qualification build and recording procedure](../assistance-qualification.md).
+This is partial evidence for that issue. Physical iPhone/iPad runs and the manual
+acceptance/Undo, Apple Intelligence Off and networking-off checks remain with
+the owner session arranged in [#1106](https://github.com/unwired-dev/product/issues/1106).
+It does not complete #625 or the replacement's release qualification.
+
+The reviewer inspected the implementation-run corpus-v1 JSONL at
+`artifacts/assistance-qualification/macos.lYUSeG/assistance-qualification.jsonl`.
+It records `Mac16,10`, macOS 27.0.1 (`26A434`), locale `en_US@rg=czzzzz`, preferred
+languages `en-US`/`cs-CZ`, available Foundation Models and the device's Translation
+targets. Its 20 cases yielded **19 pass, one limited, zero fail**. Czech-to-English
+translation reported `unsupported-pair`; German/English translation, generation
+and cancellation completed. The disposable app and container were removed by the
+runner, whose retained ownership record identifies only that run's resources.
+
+The implementation's iOS 27.0 (`24A434`) simulator run at
+`artifacts/assistance-qualification/ios-sim.BQoMJX/assistance-qualification.jsonl`
+yielded **16 pass, four limited, zero fail**. Its three translation pairs and
+translation cancellation were limited by unavailable pairs. It is simulator
+binding evidence, not physical iPhone or iPad qualification. The task-owned
+simulator was deleted.
+
+Both earlier device records have an empty commit stamp. Their source attribution
+comes from the implementation handoff, with the implementation committed as
+`797c2d84f`, rather than from self-contained artifact provenance. Their obsolete
+`evidence` metadata includes local filesystem paths; remove that field before
+attaching either file to an issue. Review fixes omit paths both natively and in
+the shared decoder, reject unexpected cancellation errors and make the Mac
+runner fail for failed or incomplete matrices. The synthetic case inputs and
+corpus version remain unchanged.
+
+The reviewer independently rebuilt code commit
+`0ea4ebabd7697d6f4027280a2cf09869b61a589b` with the same corpus and ran
+`pnpm --filter @private-email/macos qualify:assistance` against the resulting
+Testing app. Xcode 27.1 (`27A9275`), Swift 6.4, Node 24.21.0 and pnpm 11.5.2
+used root lockfile SHA-256
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The normal development-signed build first stopped for a missing
+`dev.unwired.mail` profile. An ad-hoc source build succeeded; the runner then
+signed its disposable copy with the authorized mock-only development profile.
+The new evidence at
+`artifacts/assistance-qualification/macos.PsmTIi/assistance-qualification.jsonl`
+again records **19 pass, one limited, zero fail**, with Czech-to-English
+`unsupported-pair`. It stamps the exact code commit and omits filesystem paths.
+The helper completed Keychain cleanup; the reviewer independently verified that
+the owned app, helper, container and process were absent. Later documentation
+edits do not change that tested runtime code.
+
+The recorded prose exposes material model limitations despite passing binding
+contracts: Czech/German summaries and the Czech rewrite returned English; an
+English rewrite added a subject line; replies with authored text echoed it; and
+the German reply promised a response by Friday without authored intent. The
+Czech committee-meeting summary also described a selection meeting. Recorded
+facts are observations, not semantic correctness scores. These results neither
+establish deterministic output nor authorize changes to prompts, assistance
+scope or acceptance behavior.
+
+The adapter selects `SystemLanguageModel.default` without a separate model-build
+identifier. OS/build metadata and saved output cannot identify model updates
+independently of the OS.
+
+The physical-device signing/installation commands remain untested. Manual UI,
+disabled/unavailable ordinary-mail behavior, offline inference and physical
+iPhone/iPad evidence remain required before release. This slice retires no
+legacy tests and changes no product or architecture decision.
+
 ## Native host qualification refresh, 2026-10-20
 
 Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.
