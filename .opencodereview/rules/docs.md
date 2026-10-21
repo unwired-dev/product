@@ -4,6 +4,14 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A reference-device change in `docs/agents/native-validation.md` that updates
+  nominations but leaves performance-baseline prose or the required-release
+  checklist naming an incomplete or former device set. Compare both with the
+  owner-approved references and require separate measured baselines for every
+  required device, without transferring former-device evidence to its replacement.
+  Preserve the authorized budgets and hardware-support scope; otherwise release
+  qualification can omit the replacement device or accept unrelated evidence.
+
 - A native-journey coverage claim in `docs/expo-client.md` or a qualification
   record treating an optional mode as equivalent regression evidence without
   checking its assertions. Trace the selected scenario, appearance and call
