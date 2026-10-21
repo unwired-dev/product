@@ -121,6 +121,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   change callbacks do not exercise native text reconciliation. Otherwise a
   passing query test can hide dropped or reordered keystrokes. If native owns
   the text, trace Close and Profile replacement too so neither retains old text.
+  Match the seed's lifetime to the native field, including readiness placeholders,
+  or a closed query can reappear when mailbox access returns after a bar remount.
 
 - `message-body.tsx.RichDocument` deriving overflow or another layout-dependent
   decision only when WebKit reports content size. Container layout and native

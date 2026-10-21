@@ -529,6 +529,69 @@ describe('preview Inbox', () => {
     }
   });
 
+  it('keeps a closed query empty after the window bar remounts and mailbox readiness returns', async () => {
+    expect.hasAssertions();
+    const storage = makeMockInboxStorage();
+    const { open: openStorage } = storage;
+    let open = openStorage;
+    const fixture = createPersistentInbox(
+      {
+        ...storage,
+        open: (...args) => open(...args),
+      },
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
+    const mailboxes = singleMailbox(fixture, preview);
+    const bar = createWindowBar();
+    function Layout({
+      windowBar,
+    }: {
+      readonly windowBar?: ReturnType<typeof createWindowBar>;
+    }) {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <WindowBarContext value={windowBar}>
+            <Inbox
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <WindowBarHost
+              windowBar={bar}
+              readerWidth={500}
+              bottom={20}
+              keyboardLift={0}
+            />
+          </WindowBarContext>
+        </InboxProvider>
+      );
+    }
+    const app = await render(<Layout />);
+    await screen.findByRole('button', { name: /Maya Chen/u });
+    await fireEvent(
+      screen.getByLabelText('Search senders and subjects'),
+      'focus',
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('Search senders and subjects'),
+      'Maya',
+    );
+    await app.rerender(<Layout windowBar={bar} />);
+    expect(
+      screen.getByLabelText('Search senders and subjects'),
+    ).toHaveDisplayValue('Maya');
+    open = () =>
+      Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
+    await act(fixture.load);
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
+    open = openStorage;
+    await act(fixture.load);
+    expect(
+      screen.getByLabelText('Search senders and subjects'),
+    ).toHaveDisplayValue('');
+  });
+
   /* oxlint-enable vitest/max-expects */
 
   it('groups rows under the day they arrived and names today by the clock', async () => {
