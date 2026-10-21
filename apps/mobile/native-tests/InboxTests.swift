@@ -1106,6 +1106,7 @@ final class InboxTests: XCTestCase {
   private func inboxJourney(_ app: XCUIApplication) {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
+    verifyPullToRefresh(app)
     verifyCompactInboxHeader(app)
     verifyCompactBackHold(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
@@ -1199,6 +1200,28 @@ final class InboxTests: XCTestCase {
     recovered.name = "Read state after relaunch"
     recovered.lifetime = .keepAlways
     add(recovered)
+  }
+
+  // #979: a pull on the list, unlike the iPhone heading's swipe, leaves the Command Palette closed,
+  // and the system refresh control settles back to the first row instead of staying open. The
+  // component test covers what the refresh synchronizes; this preview mailbox has no provider.
+  private func verifyPullToRefresh(_ app: XCUIApplication) {
+    let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      .firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    let top = row.frame.minY
+    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 300)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Inbox after pulling to refresh"
+    shot.lifetime = .keepAlways
+    add(shot)
+    waitUntil { abs(row.frame.minY - top) <= 1 }
+    XCTAssertEqual(row.frame.minY, top, accuracy: 1)
+    XCTAssertTrue(row.isHittable)
+    XCTAssertFalse(app.textFields["Type a command"].exists)
   }
 
   // On iPhone, Back and the Inbox heading share one row in place of the native navigation bar.
