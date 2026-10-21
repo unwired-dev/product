@@ -1116,6 +1116,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     app.buttons["Close Search"].tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
+    // Close also empties the field, which is not controlled by the query (#970).
+    XCTAssertEqual(search.value as? String, "Search")
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
     XCTAssertTrue(sender.waitForExistence(timeout: 10))

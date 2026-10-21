@@ -331,7 +331,8 @@ export function SearchField({
         placeholderTextColor={colors.textSecondary}
         returnKeyType="search"
         style={[styles.search, { color: colors.textPrimary }]}
-        value={query}
+        // Uncontrolled: echoing each keystroke back from a busy render overwrote faster typing (#970).
+        defaultValue={query}
       />
     </GlassGroup>
   );

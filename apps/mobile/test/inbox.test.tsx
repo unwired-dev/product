@@ -257,10 +257,6 @@ describe('preview Inbox', () => {
     ).resolves.toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
     expect(screen.getByRole('header', { name: 'Inbox' })).toBeVisible();
-    expect(screen.getByLabelText('Search senders and subjects')).toHaveProp(
-      'value',
-      '',
-    );
     expect(
       screen.getByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',

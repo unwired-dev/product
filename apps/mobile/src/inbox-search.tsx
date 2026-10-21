@@ -114,6 +114,7 @@ export function useInboxSearch(
       field.current?.focus();
     },
     close: () => {
+      field.current?.clear();
       setQuery('');
       setOpened(false);
       setAll(false);
