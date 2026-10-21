@@ -1802,6 +1802,16 @@ describe('composing Drafts', () => {
       kind: 'bulleted',
       spans: [{ text: 'T' }],
     });
+    // Replacing a selection made once the field caught up starts from what it shows: the whole
+    // last item, marker included, becomes a paragraph.
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 13, end: 16 } },
+    });
+    await fireEvent.changeText(body, '• One\n• Two!\n-');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[2]).toStrictEqual({
+      kind: 'paragraph',
+      spans: [{ text: '-' }],
+    });
     await press('Close');
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
