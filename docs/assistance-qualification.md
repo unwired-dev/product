@@ -109,19 +109,24 @@ xcrun devicectl device install app --device <device> "$app"
 xcrun devicectl device process launch --device <device> dev.unwired.mock.assistance
 ```
 
-Keep the app in the foreground until the run completes, then copy the evidence and
-remove the app with its data:
+Keep the app in the foreground until the run completes, then copy the evidence
+and check it, as the Mac runner does:
 
 ```sh
 xcrun devicectl device copy from --device <device> \
   --domain-type appDataContainer --domain-identifier dev.unwired.mock.assistance \
   --source tmp/assistance-qualification.jsonl \
   --destination artifacts/assistance-qualification/<hardware>.jsonl
-xcrun devicectl device uninstall app --device <device> dev.unwired.mock.assistance
+python3 scripts/verify-assistance-evidence.py artifacts/assistance-qualification/<hardware>.jsonl
 ```
 
 Repeat the copy until its last line is `complete`. Each launch starts a new
-evidence file, so copy it before relaunching.
+evidence file, so copy it to a new destination before every relaunch. Keep the
+app installed for the checks below, then remove it with its data:
+
+```sh
+xcrun devicectl device uninstall app --device <device> dev.unwired.mock.assistance
+```
 
 ## Checks the corpus does not automate
 
@@ -139,6 +144,11 @@ On each device, in the same build after the corpus completes:
    unavailable and the mailbox and messages remain fully usable.
 5. With networking off, a relaunch completes the corpus as before, showing that
    generation and translation stay on the device.
+
+Copy the evidence after each relaunch in steps 4 and 5. On the Mac, set
+`UNWIRED_QUALIFICATION_HOLD=1` for `qualify:assistance`: it keeps the checked copy
+open, prints where each relaunch writes its evidence, and removes the copy only
+after you press Return.
 
 ## Record the results
 

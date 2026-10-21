@@ -74,6 +74,7 @@ test('preparation refuses production builds before copying or signing', () => {
 test('assistance evidence admits complete pass/limited runs and rejects failed or incomplete matrices', () => {
   const directory = workspace();
   try {
+    const answer = { state: 'ready', ms: 900, text: 'Synthetic answer.' };
     const cases = [
       ...[
         'lease-deadline',
@@ -81,13 +82,15 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         'long-newsletter',
         'committee-meeting',
         'delivery-address',
-      ].map((id) => ({ kind: 'summary', id })),
+      ].map((id) => ({ kind: 'summary', id, ...answer, facts: [] })),
       ...['rough-note', 'long-draft', 'czech-note'].map((id) => ({
         kind: 'rewrite',
         id,
+        ...answer,
+        facts: [],
       })),
       ...['confirm-meeting', 'long-quoted-message', 'answer-in-german'].map(
-        (id) => ({ kind: 'reply', id }),
+        (id) => ({ kind: 'reply', id, ...answer, facts: [] }),
       ),
       ...[
         'german-to-english',
@@ -95,15 +98,21 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         'english-to-german',
         'same-language',
         'unidentified-language',
-      ].map((id) => ({ kind: 'translation', id })),
-      ...[
-        'native-cancel',
-        'summary-cancel',
-        'stale-result',
-        'translation-cancel',
-      ].map((kind) => ({ kind })),
+      ].map((id) => ({ kind: 'translation', id, ...answer })),
+      { kind: 'native-cancel', code: 'cancelled', ms: 7 },
+      { kind: 'summary-cancel', shown: 'cancelled', after: 'cancelled' },
+      { kind: 'stale-result', stale: 'idle', current: 'ready' },
+      { kind: 'translation-cancel', shown: 'cancelled', after: 'cancelled' },
     ].map((entry) => ({ ...entry, corpusVersion: 1, result: 'pass' }));
-    const device = { corpusVersion: 1, kind: 'device' };
+    const device = {
+      corpusVersion: 1,
+      kind: 'device',
+      hardware: 'Mac16,10',
+      system: 'Version 27.0.1 (Build 26A434)',
+      locale: 'en_US',
+      languages: ['en-US'],
+      availability: 'available',
+    };
     const complete = {
       corpusVersion: 1,
       kind: 'complete',
@@ -121,6 +130,12 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       [[device, cases[1], ...cases.slice(1), complete], 1],
       [[device, ...cases, { ...complete, pass: 19 }], 1],
       [[device, { corpusVersion: 1, kind: 'stopped' }], 1],
+      // A ready answer without its text, or a device without its description, cannot be reviewed.
+      [
+        [device, { ...cases[0], text: undefined }, ...cases.slice(1), complete],
+        1,
+      ],
+      [[{ ...device, hardware: undefined }, ...cases, complete], 1],
     ]) {
       const evidence = path.join(directory, 'evidence.jsonl');
       writeFileSync(

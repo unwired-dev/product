@@ -15,6 +15,28 @@ expected = {
     'stale-result': [None],
     'translation-cancel': [None],
 }
+# The fields a reviewer reads in each row; a ready answer also keeps its text.
+fields = {
+    'device': {'hardware': str, 'system': str, 'locale': str, 'languages': list,
+               'availability': str},
+    'summary': {'state': str, 'ms': int, 'facts': list},
+    'rewrite': {'state': str, 'ms': int, 'facts': list},
+    'reply': {'state': str, 'ms': int, 'facts': list},
+    'translation': {'state': str, 'ms': int},
+    'native-cancel': {'code': str, 'ms': int},
+    'summary-cancel': {'shown': str, 'after': str},
+    'stale-result': {'stale': str, 'current': str},
+    'translation-cancel': {'shown': str, 'after': str},
+}
+
+
+def described(row):
+    required = fields.get(row.get('kind'), {})
+    text = row.get('text')
+    return (all(isinstance(row.get(key), kind) for key, kind in required.items())
+            and (row.get('state') != 'ready' or (isinstance(text, str) and text.strip())))
+
+
 identities = {(kind, identifier) for kind, identifiers in expected.items()
               for identifier in identifiers}
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
@@ -26,7 +48,8 @@ if (not rows or rows[0].get('kind') != 'device'
         or len(cases) != len(identities)
         or {(row.get('kind'), row.get('id')) for row in cases} != identities
         or sum(counts.values()) != len(cases)
-        or rows[-1] != {'corpusVersion': 1, 'kind': 'complete', **counts}):
+        or rows[-1] != {'corpusVersion': 1, 'kind': 'complete', **counts}
+        or not all(described(row) for row in rows[:-1])):
     raise SystemExit('Incomplete or malformed assistance qualification evidence')
 if counts['fail']:
     raise SystemExit(f"Assistance qualification has {counts['fail']} failed checks")

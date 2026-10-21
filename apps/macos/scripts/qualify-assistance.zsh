@@ -50,3 +50,8 @@ done
 cp "$results" "$run/"
 print "Assistance evidence: $run/assistance-qualification.jsonl"
 python3 ../../scripts/verify-assistance-evidence.py "$run/assistance-qualification.jsonl"
+# The manual checks use this copy; a relaunch writes new evidence to $results.
+if [[ -n "${UNWIRED_QUALIFICATION_HOLD:-}" ]]; then
+  print "Manual checks: the copy stays open; each relaunch rewrites $results"
+  read -r '?Press Return to quit the copy and remove its data. '
+fi
