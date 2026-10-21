@@ -1594,7 +1594,8 @@ const readerStyle =
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
   'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}' +
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
-  'a{text-decoration-line:underline!important}' +
+  'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
+  '.link-underline{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
   'padding:2px 6px;font-size:max(4px,.85em)}';
@@ -1931,7 +1932,12 @@ export function sanitizeHtml(
     const destination = opened.visible
       ? ` href="${messageLinkHref(links.length)}" rel="noreferrer noopener"`
       : '';
-    output = `${before}<${tag}${attributes(element, style)}${destination}>${output}</${tag}>`;
+    // A separate underline preserves the anchor's sender decoration, including `inherit`.
+    const content =
+      opened.visible && style.retained.has('text-decoration')
+        ? `<span class="link-underline">${output}</span>`
+        : output;
+    output = `${before}<${tag}${attributes(element, style)}${destination}>${content}</${tag}>`;
     if (opened.visible) {
       const label = hasVisibleText(opened.text)
         ? opened.text

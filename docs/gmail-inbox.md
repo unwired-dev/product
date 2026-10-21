@@ -587,8 +587,9 @@ declarations do not override HTML tracking-pixel attributes.
 The rich document follows the app's Light or Dark appearance on every host with
 the shared [DESIGN.md](../DESIGN.md#colors) tokens: the `surface/content`
 background, `text/primary` text, `accent/ink` links and `text/secondary`
-blocked-image placeholders. Links stay underlined, as in plain text, even where
-the sender removed the underline, so color alone never marks them. It switches through `prefers-color-scheme`, so an
+blocked-image placeholders. Links stay visibly underlined, as in plain text, even
+where the sender removed or hid the underline, while retaining sender strike-through
+and overline, so color alone never marks them. It switches through `prefers-color-scheme`, so an
 appearance change while a message is open restyles it in place, and the
 isolated view's own background uses the same content surface, so neither
 appearance shows a white canvas while it opens or scrolls. Matching the
