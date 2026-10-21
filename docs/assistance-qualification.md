@@ -142,8 +142,10 @@ On each device, in the same build after the corpus completes:
 4. Turn Apple Intelligence off in Settings and relaunch: the first evidence line
    reports `assistance-disabled`, the reader explains why assistance is
    unavailable and the mailbox and messages remain fully usable.
-5. With networking off, a relaunch completes the corpus as before, showing that
-   generation and translation stay on the device.
+5. Turn Apple Intelligence back on and wait for an available-model run, preserving
+   its evidence. Then turn networking off and relaunch. Compare the saved answers
+   and capability limits with that run to verify generation and translation still
+   work on the device; unavailable results alone do not prove offline inference.
 
 Copy the evidence after each relaunch in steps 4 and 5. On the Mac, set
 `UNWIRED_QUALIFICATION_HOLD=1` for `qualify:assistance`: it keeps the checked copy
