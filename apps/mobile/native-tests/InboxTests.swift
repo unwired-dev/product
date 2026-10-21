@@ -407,11 +407,17 @@ final class InboxTests: XCTestCase {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
-  // Types into a controlled field one character at a time, confirming each reached it before the
-  // next: the software keyboard drops characters typed while the field re-renders.
   private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
     field.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type(value, into: field)
+    field.typeText("\n")
+  }
+
+  // Types one character at a time, confirming each reached the field before the next: the software
+  // keyboard drops characters typed in a burst while the field re-renders or, on CI's Xcode 27.0,
+  // just after the keyboard first appears (#970).
+  private func type(_ value: String, into field: XCUIElement) {
     var confirmation = ""
     for character in value {
       field.typeText(String(character))
@@ -422,7 +428,6 @@ final class InboxTests: XCTestCase {
           for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5),
         .completed)
     }
-    field.typeText("\n")
   }
 
   // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
@@ -1126,8 +1131,7 @@ final class InboxTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
       .completed)
     // Search lists matches under Top Results until Close returns to the Inbox.
-    search.typeText("Maya")
-    waitUntil { search.value as? String == "Maya" }
+    type("Maya", into: search)
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
         .firstMatch.waitForExistence(timeout: 10))
