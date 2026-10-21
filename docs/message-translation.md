@@ -110,4 +110,6 @@ it produces.
 Running the binding on iOS, iPadOS and macOS 27 with installed, downloadable and
 unsupported language pairs is deferred until that environment is available, and
 remains required before release. Compilation of the bridge in the host builds is
-not evidence of translation behavior.
+not evidence of translation behavior. [Assistance qualification](assistance-qualification.md) runs this binding on the
+nominated hardware with a versioned synthetic corpus and records each device's
+evidence in [#625](https://github.com/unwired-dev/product/issues/625).

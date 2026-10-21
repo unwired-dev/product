@@ -251,7 +251,18 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-draft-editor', 'normal'],
     ['registration-thread', 'normal'],
     ['categorization-spike', 'sourceFile'],
+    ['assistance-qualification', 'sourceFile'],
   ]);
+  // Only the assistance qualification substitutes its corpus run for the empty default.
+  expectResolutions(
+    '@private-email/mail-core/assistance-qualification',
+    'ios',
+    [
+      ['', 'normal'],
+      ['open-read-relaunch', 'normal'],
+      ['assistance-qualification', 'sourceFile'],
+    ],
+  );
   // Only the evaluation scenario substitutes the packaged Tiptap page for the empty default.
   expectResolutions('@private-email/draft-editor/page', 'ios', [
     ['', 'normal'],

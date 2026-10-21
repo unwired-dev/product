@@ -1629,7 +1629,7 @@ extension UnwiredRegistration {
           try Task.checkCancellation()
           try budget.checkDeadline()
           try await owned()
-          #if UNWIRED_REGISTRATION_MOCK || UNWIRED_ASSISTANCE_MOCK
+          #if UNWIRED_REGISTRATION_MOCK || UNWIRED_ASSISTANCE_MOCK || UNWIRED_ASSISTANCE_QUALIFICATION
             // Every mock scenario build stays deterministic and never reaches a real server.
             throw RemoteContentError.refused
           #else

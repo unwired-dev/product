@@ -15,7 +15,8 @@
     "registration-removal",
     "registration-draft-editor",
     "registration-thread",
-    "categorization-spike"
+    "categorization-spike",
+    "assistance-qualification"
   ],
   "nativeJourney": [
     "open-read-relaunch",

@@ -155,3 +155,6 @@ with each unavailable reason on real devices. It remains required before release
 Compilation of the bridge in both host builds is not evidence of model behavior.
 Turning Mail Assistance Enablement on and off, and its removal by sign-out, on
 signed iOS, iPadOS and Mac builds with a real Product Account is deferred with them.
+[Assistance qualification](assistance-qualification.md) runs this binding on the
+nominated hardware with a versioned synthetic corpus and records each device's
+evidence in [#625](https://github.com/unwired-dev/product/issues/625).

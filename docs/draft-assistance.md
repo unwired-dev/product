@@ -125,4 +125,6 @@ Running the binding on iOS, iPadOS and macOS 27 with Apple Intelligence enabled
 on eligible hardware is deferred until that environment is available, together
 with each unavailable reason and the context window on long input. It remains
 required before release. Compilation of the bridge is not evidence of model
-behavior.
+behavior. [Assistance qualification](assistance-qualification.md) runs this binding on the
+nominated hardware with a versioned synthetic corpus and records each device's
+evidence in [#625](https://github.com/unwired-dev/product/issues/625).
