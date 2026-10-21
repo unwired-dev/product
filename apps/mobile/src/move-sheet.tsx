@@ -130,7 +130,12 @@ const nest = (destinations: readonly Destination[]) => {
   for (const destination of destinations) {
     const ancestors = destination.path.slice(0, parentOf(destination.path));
     const parent = pathKey(ancestors);
-    children.set(parent, [...(children.get(parent) ?? []), destination]);
+    const siblings = children.get(parent);
+    if (siblings === undefined) {
+      children.set(parent, [destination]);
+    } else {
+      siblings.push(destination);
+    }
   }
   const rows: Row[] = [];
   const visit = (parent: string, depth: number) => {
