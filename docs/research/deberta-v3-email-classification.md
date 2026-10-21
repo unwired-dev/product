@@ -217,10 +217,12 @@ This is a proposed experiment, not a claim of completed validation. The approved
 slices #828–831 govern execution: evaluate English and Czech, with System and
 Custom Categories reported separately; begin with public datasets and synthetic
 cases, and add private mail only after separate explicit authorization. Include
-mDeBERTa as a Czech-capable candidate. Physical phone evidence must include the
-oldest supported standard, non-Pro iPhone, identified from Apple's compatibility
-list for OS 27 or newer. No numerical adoption budget or fixed timebox has been
-approved; record measured tradeoffs before proposing either.
+mDeBERTa as a Czech-capable candidate. The original scope required physical phone
+evidence from the oldest supported standard, non-Pro iPhone, identified from
+Apple's compatibility list for OS 27 or newer. That requirement is historical and
+superseded by the qualification scope update above. No numerical adoption budget
+or fixed timebox has been approved; record measured tradeoffs before proposing
+either.
 
 The steps below provide research starting points within that approved scope:
 

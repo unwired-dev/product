@@ -8,6 +8,7 @@ replaces the iPhone 17 performance reference with the available physical iPhone
 owns current device nominations and qualification instructions. All numerical
 and next-frame budgets remain unchanged. Nomination supplies no passing
 measurement and does not qualify untested hardware or narrow product support.
+This amendment does not change privacy or security boundaries.
 The prior reference description and prototype evidence below remain historical.
 
 ## Amendment — 2026-10-06

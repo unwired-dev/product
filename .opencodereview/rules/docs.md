@@ -107,7 +107,12 @@ Documentation here is product truth that agents execute: an implementer follows 
 - A design instruction in `AGENTS.md`, `docs/agents/` or another workflow/guide that gives a stale frame priority over a product requirement or reopens a conflict already resolved by documented authority. Check `DESIGN.md`'s authority statements and the owning product requirements or feature guides before following the frame or escalating. Preserve design follow-ups for stale frames and the workflow's authorized-decision and design-approval requirements for unresolved conflicts, missing states or scope changes; an advisory model vote alone cannot authorize a change. Otherwise the workflow can override required behavior, controls or defaults or reopen an accepted decision.
 - Architecture, design rationale or internal implementation mechanisms written into an implementer-facing file (`AGENTS.md`, `README.md`, `docs/*.md`, `docs/agents/`, `docs/product/`, `docs/domain/`). They belong in `docs/architecture/` or an ADR; the implementer-facing file keeps setup, commands, validation, observable behavior and concise boundary-ownership requirements that its implementer must satisfy.
 - A requirement that exists only in a reviewer-only file after the change. The implementer must still be able to read every requirement it has to satisfy.
-- An accepted ADR edited to reverse its decision without a supersession note, or a new decision recorded outside an ADR. Use the full ADR filename where numbers collide.
+- An ADR change in `docs/adr/` that omits its decision, consequences or explicit
+  privacy or security boundary impact. Check each new amendment itself and state
+  when boundaries remain unchanged. A historical statement alone cannot establish
+  whether the amendment preserves existing protections. Flag reversals of an
+  accepted decision without a supersession note and new decisions recorded
+  outside an ADR. Use the full ADR filename where numbers collide.
 - A prototype, historical or archived statement presented as a first-release requirement or as qualification evidence.
 - An agent guide (`AGENTS.md`, `docs/agents/`) that contradicts the root guide's workflow, validation or triage instructions, or that adds an always-loaded line which only restates a linked document.
 
