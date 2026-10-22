@@ -926,7 +926,7 @@ final class WindowTests: XCTestCase {
       relaunch()
       return (start, end)
     }
-    reportPerformance(
+    try reportPerformance(
       groups, evidence: evidence, overhead: queryOverhead(window.buttons["New Message"]))
   }
 
@@ -1013,29 +1013,35 @@ final class WindowTests: XCTestCase {
   private func reportPerformance(
     _ groups: [PerformanceGroup],
     evidence: URL, overhead: Double
-  ) {
+  ) throws {
     struct Record: Decodable {
       let event: String
       let milliseconds: Double?
       let uptime: Double?
     }
-    let records = ((try? String(contentsOf: evidence, encoding: .utf8)) ?? "")
+    let records = try String(contentsOf: evidence, encoding: .utf8)
       .split(separator: "\n")
-      .compactMap { try? JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
-    func times(_ event: String) -> [Double] {
-      records.filter { $0.event == event }.compactMap(\.uptime)
+      .map { try JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
+    func times(_ event: String) throws -> [Double] {
+      try records.filter { $0.event == event }.map { try XCTUnwrap($0.uptime) }
     }
-    let presses = times("mouse-down")
-    let releases = times("mouse-up")
-    let stalls = records.filter { $0.event == "stall" }
+    let presses = try times("mouse-down")
+    let releases = try times("mouse-up")
+    let stalls = try records.filter { $0.event == "stall" }.map {
+      (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
+    }
     var lines: [String] = []
     var pressToRelease: [Double] = []
     for group in groups {
       // A click selects on release: its sample starts at the release of its last press.
-      let windows = group.windows.map { window -> (start: Double, end: Double) in
-        guard let press = presses.last(where: { $0 >= window.start && $0 <= window.end }),
-          let release = releases.first(where: { $0 >= press && $0 <= window.end })
-        else { return window }
+      let windows = try group.windows.map { window -> (start: Double, end: Double) in
+        if group.name == "launch-to-first-list" { return window }
+        let press = try XCTUnwrap(
+          presses.last(where: { $0 >= window.start && $0 <= window.end }),
+          "Missing mouse press for \(group.name)")
+        let release = try XCTUnwrap(
+          releases.first(where: { $0 >= press && $0 <= window.end }),
+          "Missing mouse release for \(group.name)")
         pressToRelease.append(release - press)
         return (release, window.end)
       }
@@ -1045,8 +1051,8 @@ final class WindowTests: XCTestCase {
         samples[max(0, Int((rank * Double(samples.count)).rounded(.up)) - 1)]
       }
       let during = stalls.filter { stall in
-        windows.contains { stall.uptime ?? 0 >= $0.start && stall.uptime ?? 0 <= $0.end }
-      }.compactMap(\.milliseconds)
+        windows.contains { stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start }
+      }.map(\.milliseconds)
       let record: [String: Any] = [
         "interaction": group.name, "budgetMs": group.budget, "samplesMs": samples,
         "p50Ms": percentile(0.5), "p95Ms": percentile(0.95), "maxMs": samples.last ?? 0,
@@ -1061,7 +1067,7 @@ final class WindowTests: XCTestCase {
         "queryOverheadMs": overhead,
         "pressToReleaseMedianMs": pressToRelease.isEmpty
           ? 0 : pressToRelease[pressToRelease.count / 2],
-        "sessionStallsMs": stalls.compactMap(\.milliseconds),
+        "sessionStallsMs": stalls.map(\.milliseconds),
       ]))
     print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
     let attachment = XCTAttachment(

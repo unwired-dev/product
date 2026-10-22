@@ -103,8 +103,9 @@ uptime clock, until an accessibility query finds the rendered result. A launch
 sample runs from the launch request. Every sample includes XCUITest's event
 completion and queries, about 35–45 ms each, so it is an upper bound: a sample
 within budget passes, but an overrun only shows that the budget is not proven.
-The app records each main-thread stall of 100 ms or longer; the report names
-stalls inside sample windows and in the whole session.
+The app records main-queue probe delays of 100 ms or longer; the report names
+stalls overlapping sample windows and in the whole session. Missing or malformed
+probe evidence, including a click sample without its mouse events, fails the journey.
 
 The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
