@@ -150,11 +150,16 @@ writes.
 ## Native qualification and deferred checks
 
 [Assistance qualification](assistance-qualification.md) has exercised the real
-binding on the nominated Mac mini M4 with a versioned synthetic corpus, including
-long input. Czech and German messages produced English summaries in the recorded
-run. Physical iPhone/iPad runs, each unavailable reason on real devices and the
-manual UI checks remain required before release through the owner session in
-[#625](https://github.com/unwired-dev/product/issues/625).
+binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4 with a
+versioned synthetic corpus, including long input. Czech and German messages
+produced English summaries on all three, tracked in
+[#1164](https://github.com/unwired-dev/product/issues/1164).
+The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accept the iPhone/iPad manual checks and waive the Mac manual checks. On the
+tested iOS 27.2 and iPadOS 27.0.1 builds, the model still reported `available`
+and Summarize worked with Apple Intelligence switched off; the owner accepted
+this with no follow-up. Mail Assistance Enablement remains required.
+Each unobserved unavailable reason on real devices remains a release check.
 Compilation alone is not evidence of model behavior.
 Turning Mail Assistance Enablement on and off, and its removal by sign-out, on
 signed iOS, iPadOS and Mac builds with a real Product Account remains deferred.

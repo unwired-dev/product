@@ -26,10 +26,11 @@ under #625, #626, #822 and #830; this update records no test run.
 
 Issue [#625](https://github.com/unwired-dev/product/issues/625) adds the
 [qualification build and recording procedure](../assistance-qualification.md).
-This is partial evidence for that issue. Physical iPhone/iPad runs and the manual
-acceptance/Undo, Apple Intelligence Off and networking-off checks remain with
-the owner session arranged in [#1106](https://github.com/unwired-dev/product/issues/1106).
-It does not complete #625 or the replacement's release qualification.
+The owner session arranged in [#1106](https://github.com/unwired-dev/product/issues/1106)
+completed the physical iPhone/iPad runs and manual checks described below.
+The owner accepted the results and waived the Mac manual checks; #625 closes
+when [#1158](https://github.com/unwired-dev/product/pull/1158) merges.
+This does not complete the replacement's release qualification.
 
 The reviewer inspected the implementation-run corpus-v1 JSONL at
 `artifacts/assistance-qualification/macos.lYUSeG/assistance-qualification.jsonl`.
@@ -86,10 +87,65 @@ The adapter selects `SystemLanguageModel.default` without a separate model-build
 identifier. OS/build metadata and saved output cannot identify model updates
 independently of the OS.
 
-The physical-device signing/installation commands remain untested. Manual UI,
-disabled/unavailable ordinary-mail behavior, offline inference and physical
-iPhone/iPad evidence remain required before release. This slice retires no
-legacy tests and changes no product or architecture decision.
+### Physical iPhone and iPad owner session
+
+The [2026-10-22 corpus report](https://github.com/unwired-dev/product/issues/625#issuecomment-6334257229)
+attributes both builds to PR head `f141778a3`, with corpus v1, root lockfile
+SHA-256 `98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`
+and Xcode 27.1 (`27A9275`). Both used Release, automatic Apple Development
+signing, `UNWIRED_MOCK_SCENARIO=assistance-qualification` and bundle identifier
+`dev.unwired.mock.assistance`. Their empty commit stamps reflect the missing
+`UNWIRED_COMMIT` at prebuild; source attribution comes from the session report,
+not the files themselves. The operational guide now sets it at `native:generate`.
+
+| Device                           | OS and build             | Pass | Limited | Fail |
+| -------------------------------- | ------------------------ | ---- | ------- | ---- |
+| iPhone 17 Pro Max (`iPhone18,2`) | iOS 27.2 (`24B115`)      | 19   | 1       | 0    |
+| iPad Pro M4 (`iPad16,5`)         | iPadOS 27.0.1 (`24A446`) | 19   | 1       | 0    |
+
+Both recorded locale `en_US@rg=czzzzz`, preferred languages `en-US`/`cs-CZ`
+and model availability `available`. The reviewer checked the retained
+`iphone-run1.jsonl` and `ipad-run1.jsonl` under
+`artifacts/assistance-qualification/` with the evidence checker. The one limited
+case on each was Czech-to-English translation, `unsupported-pair`.
+Czech/German messages produced English summaries on both. The iPhone rewrote
+the Czech note into English; the iPad returned garbled Czech with a Polish word.
+These observations join the Mac language and invented-content limitations in
+[#1164](https://github.com/unwired-dev/product/issues/1164).
+
+The iPad installation first failed with "This provisioning profile cannot be
+installed on this device". Rebuilding with
+`-destination 'platform=iOS,id=<iPad>' -allowProvisioningDeviceRegistration`,
+alongside `-allowProvisioningUpdates`, registered it and allowed installation.
+The guide also records Developer Mode and a fresh process launch, since resuming
+the background app does not restart the module-scope corpus run.
+
+The [manual-check report](https://github.com/unwired-dev/product/issues/625#issuecomment-6334849834)
+records checks 1–3 passing on both devices: Summarize/Cancel/Dismiss, reader
+Translate, and Rewrite/Suggest reply with acceptance and Undo. Draft Translate
+passed on iPad; on iPhone it was blocked by
+[#1165](https://github.com/unwired-dev/product/issues/1165), the format bar hidden
+under the keyboard. Composer checks use an ordinary signed-in build with
+device-local Mail Assistance enabled; the synthetic preview mailbox offers no
+Reply or New Message.
+
+For check 4, both devices still reported `available` after Apple Intelligence was
+switched off and the app relaunched. Corpus runs again gave 19 pass, one limited,
+zero fail; the owner also confirmed Summarize worked in the reader. This did not
+exercise `assistance-disabled`. The app's Mail Assistance opt-in remains a
+separate gate. For check 5, the owner [confirmed summaries and translations
+worked in Airplane Mode](https://github.com/unwired-dev/product/issues/625#issuecomment-6335008428).
+This is owner-observed UI evidence; no offline evidence file was captured because
+the capture was interrupted.
+
+The [owner decision of 2026-10-22](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accepts all results and findings, accepts the Apple-Intelligence-off behavior
+with no follow-up, and waives the Mac manual UI checks. The Mac automated corpus
+result stands. Follow-ups remain #1164 and #1165. The waiver does not establish
+passing Mac manual checks or cover unobserved unavailable reasons,
+supported-but-uninstalled Translation pairs, or the separately deferred signed-in
+enablement/sign-out checks. Those release checks remain required. This slice
+retires no legacy tests.
 
 ## Native host qualification refresh, 2026-10-20
 

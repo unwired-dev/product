@@ -108,9 +108,12 @@ it produces.
 ## Native qualification and deferred checks
 
 [Assistance qualification](assistance-qualification.md) has exercised the real
-binding on the nominated Mac mini M4: German/English pairs translated, while
-Czech-to-English reported `unsupported-pair`. Physical iPhone/iPad runs,
-supported-but-uninstalled pairs and native review/acceptance checks remain
-required before release through the owner session in
-[#625](https://github.com/unwired-dev/product/issues/625). Compilation alone is
-not evidence of translation behavior.
+binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4:
+German/English pairs translated, while Czech-to-English reported
+`unsupported-pair` on all three. The
+[owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accept reader Translate on both physical mobile devices and Draft Translate on
+iPad; iPhone Draft Translate remains blocked by
+[#1165](https://github.com/unwired-dev/product/issues/1165). The owner waived the
+Mac manual checks. Supported-but-uninstalled pairs remain a release check.
+Compilation alone is not evidence of translation behavior.

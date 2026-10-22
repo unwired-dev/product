@@ -154,9 +154,11 @@ Message.
 4. Turn Apple Intelligence off in Settings and relaunch. Record what the first
    evidence line reports. When it is `assistance-disabled`, the reader explains
    why assistance is unavailable and the mailbox and messages remain fully
-   usable. On iOS 27.2 and iPadOS 27.0.1 the model stayed `available` with the
-   switch off ([#625](https://github.com/unwired-dev/product/issues/625)), so
-   Mail Assistance is the gate that took effect.
+   usable. On iOS 27.2 (`iPhone18,2`) and iPadOS 27.0.1 (`iPad16,5`) the model
+   stayed `available`, and the owner confirmed that Summarize still worked with
+   the switch off. The owner [accepted this with no follow-up](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314).
+   The app's device-local [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement)
+   remains required.
 5. Turn Apple Intelligence back on and wait for an available-model run, preserving
    its evidence. Then turn networking off and relaunch. Compare the saved answers
    and capability limits with that run to verify generation and translation still

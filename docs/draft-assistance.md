@@ -122,10 +122,11 @@ writes.
 ## Native qualification and deferred checks
 
 [Assistance qualification](assistance-qualification.md) has exercised the real
-binding, including long input, on the nominated Mac mini M4 with a versioned
-synthetic corpus. Generated text still needs human review; observed limitations
-include an English response to a Czech rewrite and an added subject line.
-Physical iPhone/iPad runs, each unavailable reason, and native acceptance/Undo
-checks remain required before release through the owner session in
-[#625](https://github.com/unwired-dev/product/issues/625). Compilation alone is
-not evidence of model behavior.
+binding, including long input, on the nominated Mac mini M4, iPhone 17 Pro Max
+and iPad Pro M4 with a versioned synthetic corpus. Generated text still needs
+human review; language and invented-content limitations are tracked in
+[#1164](https://github.com/unwired-dev/product/issues/1164).
+The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accept Rewrite/Suggest reply with acceptance and Undo on both physical mobile
+devices and waive the Mac manual checks. Each unobserved unavailable reason
+remains a release check. Compilation alone is not evidence of model behavior.
