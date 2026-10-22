@@ -469,6 +469,8 @@ function Palette({ opened }: { readonly opened: readonly Command[] }) {
           </View>
         )}
         <ScrollView
+          // The sheet can reach below the software keyboard; the commands it covers scroll above it.
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled">
           {choices === undefined ? (

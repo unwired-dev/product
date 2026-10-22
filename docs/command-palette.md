@@ -100,7 +100,8 @@ results never appear in the palette. The vocabulary lives in the
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen
   with the input focused, the software keyboard shown when needed, and the
-  commands beneath; any command can be tapped without typing.
+  commands beneath; any command can be tapped without typing. Commands the
+  keyboard covers scroll up above it, down to the last one.
 - The [Tiptap evaluation editor](draft-editor-evaluation.md), only in
   `registration-draft-editor` Mock Mail Session builds, adds no entry of its
   own; entries outside it, such as the Mac window's command bar, still open
@@ -133,3 +134,7 @@ native and need a built host: the [Mac host](macos-client.md) and the
 beneath each header, and the accessibility actions, remain to be qualified on
 iPhone and iPad; on the Mac, so do clicks on the open panel's rows, which must
 reach them above the outside-click layer.
+The [Expo native journey](expo-client.md#validate) opens the palette over a
+reader with larger text and the software keyboard shown, scrolls its last
+command above the keyboard and runs it. Filtered lists, keyboard changes while
+it is open and accessibility text sizes remain to be qualified on iPhone and iPad.
