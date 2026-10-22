@@ -108,8 +108,9 @@ of the body editor for comparison with this composer; it does not change it.
 ## Saving
 
 Every edit is saved as it happens, in order: an edit made while an earlier one is
-being written is saved after it, never dropped. The composer shows **Saved on this
-device**, **Saving…** or why the latest edit is not saved. Unsaved edits stay in
+being written is saved after it, never dropped. Successful saving shows no status,
+so typing never flickers between saving and saved; the composer shows only why the
+latest edit is not saved. Unsaved edits stay in
 the composer and are saved by the next edit or **Try again**.
 An editor whose content is unchanged creates no conflict copy when another editor
 has saved newer content; any earlier unsaved work still finishes saving.
@@ -142,7 +143,7 @@ keeps the current composer open. **Account** follows the separate
 A failed discard keeps the Draft visible and can
 be retried. A concurrent save from another storage writer is recovered once;
 closing an empty stale composer preserves that writer's completed Draft and
-finishes with **Saved on this device**. Edits accepted while discard was pending stay available for saving and
+finishes saved. Edits accepted while discard was pending stay available for saving and
 reopening. When a pending save moved the editor to a conflict copy, edits accepted
 while a failed discard waited save into that same copy without an extra conflict
 Draft. An unexpected failure while leaving keeps the composer open and allows
