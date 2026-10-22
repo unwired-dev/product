@@ -418,28 +418,43 @@ describe('the synthetic backend keeps its state across launches', () => {
         capabilityVersion: 1,
       }),
     ).resolves.toStrictEqual({ fenced: false });
-    // A write expecting no stored record.
-    const write = () =>
+    // Each write expects no stored record.
+    const write = (identifiers: readonly string[]) =>
       call('productSync:putEncryptedPayloadsAtomically', {
         checks: [],
         deletes: [],
-        writes: [
-          { payloadIdentifier: 'profile.work', encryptedPayload: sealed },
-        ],
+        writes: identifiers.map((payloadIdentifier) => ({
+          payloadIdentifier,
+          encryptedPayload: sealed,
+        })),
       });
-    const stored = {
+    const work = {
       payloadIdentifier: 'profile.work',
       encryptedPayload: sealed,
       updatedAt: 1,
     };
-    await expect(write()).resolves.toStrictEqual({
+    const home = { ...work, payloadIdentifier: 'profile.home' };
+    await expect(
+      write(['profile.work', 'profile.home']),
+    ).resolves.toStrictEqual({
       committed: true,
-      payloads: [stored],
+      payloads: [work, home],
     });
-    // A write expecting no record loses to the one now stored, which comes back instead.
-    await expect(write()).resolves.toStrictEqual({
+    // A conflict in one record must also keep the other new record unpublished.
+    await expect(
+      write(['profile.personal', 'profile.work']),
+    ).resolves.toStrictEqual({
       committed: false,
-      payloads: [stored],
+      payloads: [work],
+    });
+    await expect(
+      call('productSync:listEncryptedPayloadsForTrustedDevice', {
+        payloadIdentifierPrefix: 'profile.',
+      }),
+    ).resolves.toStrictEqual({
+      page: [home, work],
+      isDone: true,
+      continueCursor: '',
     });
   });
 

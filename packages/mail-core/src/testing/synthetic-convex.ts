@@ -653,39 +653,38 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         if (identity === null || decoded === null) {
           return yield* refusal('UNAVAILABLE');
         }
-        const parsed = decoded.writes.map((write) => ({
-          identifier: write.payloadIdentifier,
-          payload: write.encryptedPayload,
-          expected: write.expectedUpdatedAt,
-        }));
+        const { writes: batch } = decoded;
         const account = product.productAccountId;
         return yield* update((next) =>
           Effect.gen(function* () {
             if (
-              parsed.some(
-                ({ payload }) => payload.keyVersion !== epoch(account),
+              batch.some(
+                ({ encryptedPayload }) =>
+                  encryptedPayload.keyVersion !== epoch(account),
               )
             ) {
               return yield* refuse('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
             }
             const records = next.records[account] ?? {};
-            const current = parsed.flatMap(({ identifier }) => {
-              const existing = records[identifier];
+            const current = batch.flatMap(({ payloadIdentifier }) => {
+              const existing = records[payloadIdentifier];
               return existing === undefined ? [] : [existing];
             });
             if (
-              parsed.some(
-                ({ identifier, expected }) =>
-                  records[identifier]?.updatedAt !== expected,
+              batch.some(
+                ({ payloadIdentifier, expectedUpdatedAt }) =>
+                  records[payloadIdentifier]?.updatedAt !== expectedUpdatedAt,
               )
             ) {
               return { committed: false, payloads: current };
             }
-            const stored = parsed.map(({ identifier, payload }) => ({
-              payloadIdentifier: identifier,
-              encryptedPayload: payload,
-              updatedAt: (records[identifier]?.updatedAt ?? 0) + 1,
-            }));
+            const stored = batch.map(
+              ({ payloadIdentifier, encryptedPayload }) => ({
+                payloadIdentifier,
+                encryptedPayload,
+                updatedAt: (records[payloadIdentifier]?.updatedAt ?? 0) + 1,
+              }),
+            );
             next.records[account] = {
               ...records,
               ...Object.fromEntries(
