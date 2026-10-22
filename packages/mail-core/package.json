@@ -37,6 +37,8 @@
     "./assistance": "./src/assistance.ts",
     "./assistance-enablement": "./src/assistance-enablement.ts",
     "./translation": "./src/translation.ts",
+    "./assistance-qualification": "./src/assistance-qualification.ts",
+    "./testing/assistance-qualification": "./src/testing/assistance-qualification.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",

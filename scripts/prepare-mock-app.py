@@ -17,7 +17,8 @@ if host not in ('mobile', 'macos') or destination.exists():
 relative = Path('Info.plist') if host == 'mobile' else Path('Contents/Info.plist')
 with (source / relative).open('rb') as stream:
     info = plistlib.load(stream)
-if info.get('UnwiredMockScenario') not in scenarios['nativeJourney']:
+# The assistance qualification build has no journey; its own runner copies it the same way.
+if info.get('UnwiredMockScenario') not in scenarios['nativeJourney'] + ['assistance-qualification']:
     raise SystemExit('The native journey requires a supported test-only build')
 identifier = 'dev.unwired.mock.' + uuid.uuid4().hex
 signer = '-'

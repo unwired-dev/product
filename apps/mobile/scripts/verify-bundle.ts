@@ -109,6 +109,14 @@ assert.ok(
   !sources.some((source) => /@tiptap|prosemirror-/u.test(source)),
   'Tiptap must stay inside the packaged evaluation page.',
 );
+// Only `assistance-qualification` bundles run the synthetic assistance corpus.
+assert.equal(
+  sources.some((source) =>
+    source.endsWith('/mail-core/src/testing/assistance-qualification.ts'),
+  ),
+  scenario === 'assistance-qualification',
+  'The assistance qualification corpus must appear only in assistance-qualification bundles.',
+);
 process.stdout.write(
   `Verified ${sources.length} sources in ${fileURLToPath(dist)}: mobile renderer, Effect, shared core and native split view.\n`,
 );

@@ -22,9 +22,17 @@ const relayed = scenario?.startsWith('registration-');
 const substitutes = {
   ...(seeded && {
     '@private-email/mail-core/registration-mode': testing('registration-mode'),
-    // The spike reuses the persistence journey's mailbox beside its research page.
+    // The spike and the assistance qualification reuse the persistence journey's mailbox.
     '@private-email/mail-core/inbox-seed': testing(
-      scenario === 'categorization-spike' ? 'open-read-relaunch' : scenario,
+      scenario === 'categorization-spike' ||
+        scenario === 'assistance-qualification'
+        ? 'open-read-relaunch'
+        : scenario,
+    ),
+  }),
+  ...(scenario === 'assistance-qualification' && {
+    '@private-email/mail-core/assistance-qualification': testing(
+      'assistance-qualification',
     ),
   }),
   ...(relayed && {

@@ -176,6 +176,7 @@ xcuserdata/
 # Native Mac mock Inbox validation
 /artifacts/macos-inbox/
 /artifacts/categorization-spike.*/
+/artifacts/assistance-qualification/
 
 /artifacts/private-inbox/
 

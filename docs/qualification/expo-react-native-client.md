@@ -22,6 +22,168 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## On-device assistance qualification, 2026-10-22
+
+Issue [#625](https://github.com/unwired-dev/product/issues/625) adds the
+[qualification build and recording procedure](../assistance-qualification.md).
+The owner session arranged in [#1106](https://github.com/unwired-dev/product/issues/1106)
+completed the physical iPhone/iPad runs and manual checks described below.
+The owner accepted the results and waived the Mac manual checks; #625 closes
+when [#1158](https://github.com/unwired-dev/product/pull/1158) merges.
+This does not complete the replacement's release qualification.
+
+The reviewer inspected the implementation-run corpus-v1 JSONL at
+`artifacts/assistance-qualification/macos.lYUSeG/assistance-qualification.jsonl`.
+It records `Mac16,10`, macOS 27.0.1 (`26A434`), locale `en_US@rg=czzzzz`, preferred
+languages `en-US`/`cs-CZ`, available Foundation Models and the device's Translation
+targets. Its 20 cases yielded **19 pass, one limited, zero fail**. Czech-to-English
+translation reported `unsupported-pair`; German/English translation, generation
+and cancellation completed. The disposable app and container were removed by the
+runner, whose retained ownership record identifies only that run's resources.
+
+The implementation's iOS 27.0 (`24A434`) simulator run at
+`artifacts/assistance-qualification/ios-sim.BQoMJX/assistance-qualification.jsonl`
+yielded **16 pass, four limited, zero fail**. Its three translation pairs and
+translation cancellation were limited by unavailable pairs. It is simulator
+binding evidence, not physical iPhone or iPad qualification. The task-owned
+simulator was deleted.
+
+Both earlier device records have an empty commit stamp. Their source attribution
+comes from the implementation handoff, with the implementation committed as
+`797c2d84f`, rather than from self-contained artifact provenance. Their obsolete
+`evidence` metadata includes local filesystem paths; remove that field before
+attaching either file to an issue. Review fixes omit paths both natively and in
+the shared decoder, reject unexpected cancellation errors and make the Mac
+runner fail for failed or incomplete matrices. The synthetic case inputs and
+corpus version remain unchanged.
+
+The reviewer independently rebuilt code commit
+`0ea4ebabd7697d6f4027280a2cf09869b61a589b` with the same corpus and ran
+`pnpm --filter @private-email/macos qualify:assistance` against the resulting
+Testing app. Xcode 27.1 (`27A9275`), Swift 6.4, Node 24.21.0 and pnpm 11.5.2
+used root lockfile SHA-256
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The normal development-signed build first stopped for a missing
+`dev.unwired.mail` profile. An ad-hoc source build succeeded; the runner then
+signed its disposable copy with the authorized mock-only development profile.
+The new evidence at
+`artifacts/assistance-qualification/macos.PsmTIi/assistance-qualification.jsonl`
+again records **19 pass, one limited, zero fail**, with Czech-to-English
+`unsupported-pair`. It stamps the exact code commit and omits filesystem paths.
+The helper completed Keychain cleanup; the reviewer independently verified that
+the owned app, helper, container and process were absent. Later documentation
+edits do not change that tested runtime code.
+
+The recorded prose exposes material model limitations despite passing binding
+contracts: Czech/German summaries and the Czech rewrite returned English; an
+English rewrite added a subject line; replies with authored text echoed it; and
+the German reply promised a response by Friday without authored intent. The
+Czech committee-meeting summary also described a selection meeting. Recorded
+facts are observations, not semantic correctness scores. These results neither
+establish deterministic output nor authorize changes to prompts, assistance
+scope or acceptance behavior.
+
+The adapter selects `SystemLanguageModel.default` without a separate model-build
+identifier. OS/build metadata and saved output cannot identify model updates
+independently of the OS.
+
+### Physical iPhone and iPad owner session
+
+The [2026-10-22 corpus report](https://github.com/unwired-dev/product/issues/625#issuecomment-6334257229)
+attributes both builds to PR head `f141778a3`, with corpus v1, root lockfile
+SHA-256 `98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`
+and Xcode 27.1 (`27A9275`). Both used Release, automatic Apple Development
+signing, `UNWIRED_MOCK_SCENARIO=assistance-qualification` and bundle identifier
+`dev.unwired.mock.assistance`. Their empty commit stamps reflect the missing
+`UNWIRED_COMMIT` at prebuild; source attribution comes from the session report,
+not the files themselves. The operational guide now sets it at `native:generate`.
+
+| Device                           | OS and build             | Pass | Limited | Fail |
+| -------------------------------- | ------------------------ | ---- | ------- | ---- |
+| iPhone 17 Pro Max (`iPhone18,2`) | iOS 27.2 (`24B115`)      | 19   | 1       | 0    |
+| iPad Pro M4 (`iPad16,5`)         | iPadOS 27.0.1 (`24A446`) | 19   | 1       | 0    |
+
+Both recorded locale `en_US@rg=czzzzz`, preferred languages `en-US`/`cs-CZ`
+and model availability `available`. The reviewer checked the retained
+`iphone-run1.jsonl` and `ipad-run1.jsonl` under
+`artifacts/assistance-qualification/` with the evidence checker. The one limited
+case on each was Czech-to-English translation, `unsupported-pair`.
+Czech/German messages produced English summaries on both. The iPhone rewrote
+the Czech note into English; the iPad returned garbled Czech with a Polish word.
+These observations join the Mac language and invented-content limitations in
+[#1164](https://github.com/unwired-dev/product/issues/1164).
+
+The iPad installation first failed with "This provisioning profile cannot be
+installed on this device". Rebuilding with
+`-destination 'platform=iOS,id=<iPad>' -allowProvisioningDeviceRegistration`,
+alongside `-allowProvisioningUpdates`, registered it and allowed installation.
+The guide also records Developer Mode and a fresh process launch, since resuming
+the background app does not restart the module-scope corpus run.
+
+The [manual-check report](https://github.com/unwired-dev/product/issues/625#issuecomment-6334849834)
+records checks 1–3 passing on both devices: Summarize/Cancel/Dismiss, reader
+Translate, and Rewrite/Suggest reply with acceptance and Undo. Draft Translate
+passed on iPad; on iPhone it was blocked by
+[#1165](https://github.com/unwired-dev/product/issues/1165), the format bar hidden
+under the keyboard. Composer checks use an ordinary signed-in build with
+device-local Mail Assistance enabled; the synthetic preview mailbox offers no
+Reply or New Message.
+
+For check 4, both devices still reported `available` after Apple Intelligence was
+switched off and the app relaunched. Corpus runs again gave 19 pass, one limited,
+zero fail; the owner also confirmed Summarize worked in the reader. This did not
+exercise `assistance-disabled`. The app's Mail Assistance opt-in remains a
+separate gate. For check 5, the owner [confirmed summaries and translations
+worked in Airplane Mode](https://github.com/unwired-dev/product/issues/625#issuecomment-6335008428).
+This is owner-observed UI evidence; no offline evidence file was captured because
+the capture was interrupted.
+
+The [owner decision of 2026-10-22](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accepts all results and findings, accepts the Apple-Intelligence-off behavior
+with no follow-up, and waives the Mac manual UI checks. The Mac automated corpus
+result stands. Follow-ups remain #1164 and #1165. The waiver does not establish
+passing Mac manual checks or cover unobserved unavailable reasons,
+supported-but-uninstalled Translation pairs, or the separately deferred signed-in
+enablement/sign-out checks. Those release checks remain required. This slice
+retires no legacy tests.
+
+The corpus-v1 `stale-result` case replaces the older request while availability
+is pending; the shared store prevents that request from starting native
+generation. Its passing `idle`/`ready` snapshots cover that request ordering,
+not rejection of an older in-flight native result. Replacement after native
+generation starts was therefore deferred in the earlier review. Corpus v2 at
+`0d91ac2c5` counted both native starts after a 300 ms head start, but did not
+establish that the older request was still pending at replacement. Its results
+do not establish the v3 in-flight precondition.
+
+### Corpus v3 in-flight replacement
+
+The [physical v3 rerun report](https://github.com/unwired-dev/product/issues/625#issuecomment-6337498114)
+and retained JSONL supersede v1 and v2 for this check. All three evidence files
+stamp source commit `45aa8ad9761580f2b2a158925f01c047fb1f2abd` and corpus
+version 3. The root lockfile SHA-256 remains
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The reviewer inspected each file and reran the current evidence checker, which
+exited 0 for each. These are retained physical-device results, not new device
+runs performed during review.
+
+| Evidence under `artifacts/assistance-qualification/` | Device       | OS and build             | Pass | Limited | Fail |
+| ---------------------------------------------------- | ------------ | ------------------------ | ---- | ------- | ---- |
+| `mac-v3.jsonl`                                       | `Mac16,10`   | macOS 27.0.1 (`26A434`)  | 19   | 1       | 0    |
+| `ipad-v3.jsonl`                                      | `iPad16,5`   | iPadOS 27.0.1 (`24A446`) | 19   | 1       | 0    |
+| `iphone-v3.jsonl`                                    | `iPhone18,2` | iOS 27.2 (`24B115`)      | 19   | 1       | 0    |
+
+Each records model availability `available`, locale `en_US@rg=czzzzz`, preferred
+languages `en-US`/`cs-CZ`, and one limitation, Czech-to-English translation with
+`unsupported-pair`. Each `stale-result` row passes with `nativeStarts: 2` and
+`inFlight: true`: the older summary reached the native binding and remained
+pending immediately before replacement; both requests settled, the older input
+was `idle`, and only the newer input was `ready`. In-flight replacement is now
+qualified on all three nominated configurations and is no longer a deferred
+release check. The separate unavailable-capability, uninstalled-language and
+signed-in lifecycle checks above remain required; the manual-check waiver and
+tracked output/UI limitations are unchanged.
+
 ## Native host qualification refresh, 2026-10-20
 
 Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.

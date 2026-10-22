@@ -99,15 +99,21 @@ only an allow-listed native code or decode path, never mail or translated text.
   it as one undoable edit without touching recipients, keep the original, and drop
   a pending translation when the body is edited.
 - [Mock Mail Sessions](mock-mail-sessions.md#boundaries-and-scenarios) supply fixed
-  translation outcomes, and every selected native mock build answers with the same
-  fixed synthetic translation and language list instead of running Translation.
+  translation outcomes. Native mock builds use the same fixed translation and
+  language list, except the [assistance qualification build](assistance-qualification.md).
 
 These are mocked journeys. They do not show that Apple's Translation runs or what
 it produces.
 
-## Deferred native checks
+## Native qualification and deferred checks
 
-Running the binding on iOS, iPadOS and macOS 27 with installed, downloadable and
-unsupported language pairs is deferred until that environment is available, and
-remains required before release. Compilation of the bridge in the host builds is
-not evidence of translation behavior.
+[Assistance qualification](assistance-qualification.md) has exercised the real
+binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4:
+German/English pairs translated, while Czech-to-English reported
+`unsupported-pair` on all three. The
+[owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accept reader Translate on both physical mobile devices and Draft Translate on
+iPad; iPhone Draft Translate remains blocked by
+[#1165](https://github.com/unwired-dev/product/issues/1165). The owner waived the
+Mac manual checks. Supported-but-uninstalled pairs remain a release check.
+Compilation alone is not evidence of translation behavior.
