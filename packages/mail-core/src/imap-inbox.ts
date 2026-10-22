@@ -54,16 +54,19 @@ import {
   cachedFolders,
   decodeBodyCommit,
   decodeCache,
+  decodeCapabilities,
   decodeCommit,
   decodeDocument,
   decodeFolderRead,
-  decodeFolders,
   decodeCount,
   decodeIdle,
+  decodeListedFolders,
   decodeModify,
   decodeRaw,
   decodeSearch,
+  decodeSession,
   encodeDocument,
+  folderListing,
   inboxFolder,
   listedMessage,
   messageId,
@@ -120,9 +123,27 @@ export interface NativeImapMailbox
       | 'presentAttachment'
     >,
     NativeRemoteContentCache {
-  // Resolves `{ folders: [{ name, roles, selectable, delimiter? }] }`.
-  readonly imapFolders: (
+  // Logs in and resolves `{ session }`, an opaque handle to one authenticated session for this
+  // connection generation. Native code runs one command at a time on it and closes it when the
+  // generation changes or it stays unused; at most four are open per connection.
+  readonly imapOpen: (
     mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ capabilities }`, the server's advertised capability names.
+  readonly imapCapabilities: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    session: Readonly<{ session: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ folders: [{ name, attributes, delimiter? }] }`, every folder the server lists.
+  readonly imapListFolders: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    session: Readonly<{ session: string }>,
+  ) => Promise<unknown>;
+  // Ends the session, cancelling any command still in flight; an unknown or closed session is
+  // ignored.
+  readonly imapClose: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
   // Resolves the folder's `{ uidValidity, uidNext, reset, messages, flags }` since `from`.
   readonly imapSynchronize: (
@@ -608,6 +629,23 @@ export function createImapInbox(
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
+  // Runs `use` in one authenticated server session and always closes it, also when `use` fails
+  // or is interrupted; closing cancels a command still in flight.
+  const withSession = <A>(
+    scope: Scope,
+    use: (
+      session: Readonly<{ session: string }>,
+    ) => Effect.Effect<A, ImapFailure>,
+  ) =>
+    Effect.acquireUseRelease(
+      Effect.flatMap(
+        call(() => native.imapOpen(scope)),
+        (reply) => decodeSession(reply).pipe(Effect.mapError(malformed)),
+      ),
+      use,
+      (session) =>
+        call(() => native.imapClose(scope, session)).pipe(Effect.ignore),
+    );
   let state: ImapInboxState = { kind: 'loading' };
   let opened: (Scope & { revision: number }) | undefined = undefined;
   let document: ImapDocument | undefined = undefined;
@@ -1504,9 +1542,19 @@ export function createImapInbox(
           }
           const scope = opened;
           if (scope !== undefined) {
-            const { folders, ...capabilities } = yield* decodeFolders(
-              yield* call(() => native.imapFolders(scope)),
-            ).pipe(Effect.mapError(malformed));
+            const { folders, ...capabilities } = yield* withSession(
+              scope,
+              (session) =>
+                Effect.gen(function* () {
+                  const advertised = yield* decodeCapabilities(
+                    yield* call(() => native.imapCapabilities(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  const listed = yield* decodeListedFolders(
+                    yield* call(() => native.imapListFolders(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  return folderListing(listed.folders, advertised.capabilities);
+                }),
+            );
             if (document !== undefined) {
               yield* acceptListing(document, folders, capabilities);
             }

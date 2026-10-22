@@ -144,13 +144,11 @@ describe('connecting IMAP mailboxes', () => {
     Vitest.assert.isDefined(connection);
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Saved IMAP message' });
-    const folders = vi.fn<typeof imap.native.imapFolders>(
-      imap.native.imapFolders,
-    );
+    const opened = vi.fn<typeof imap.native.imapOpen>(imap.native.imapOpen);
     const mailboxes = createMailboxes(
       syntheticConnections(
         {},
-        { [connection.id]: { ...imap.native, imapFolders: folders } },
+        { [connection.id]: { ...imap.native, imapOpen: opened } },
       ),
       store,
     );
@@ -162,7 +160,7 @@ describe('connecting IMAP mailboxes', () => {
     await vi.waitFor(() => {
       expect(ready(imapInbox(mailboxes).getSnapshot()).status).toBe('current');
     });
-    expect(folders).toHaveBeenLastCalledWith(
+    expect(opened).toHaveBeenLastCalledWith(
       expect.objectContaining({ generation: 'generation-2' }),
     );
   });
@@ -184,14 +182,12 @@ describe('connecting IMAP mailboxes', () => {
     const imap = createSyntheticImap();
     const other = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Saved IMAP message' });
-    const folders = vi.fn<typeof imap.native.imapFolders>(
-      imap.native.imapFolders,
-    );
+    const opened = vi.fn<typeof imap.native.imapOpen>(imap.native.imapOpen);
     const mailboxes = createMailboxes(
       syntheticConnections(
         {},
         {
-          [connection.id]: { ...imap.native, imapFolders: folders },
+          [connection.id]: { ...imap.native, imapOpen: opened },
           [otherConnection.id]: other.native,
         },
       ),
@@ -244,10 +240,10 @@ describe('connecting IMAP mailboxes', () => {
     expect(ready(imapInbox(mailboxes).getSnapshot()).messages[0]?.subject).toBe(
       'Read after password repair',
     );
-    expect(folders).toHaveBeenLastCalledWith(
+    expect(opened).toHaveBeenLastCalledWith(
       expect.objectContaining({ generation: 'generation-2' }),
     );
-    expect(imap.server.reads).toHaveLength(reads + 2);
+    expect(imap.server.reads).toHaveLength(reads + 3);
     expect(device.imap.logins).toBe(logins + 1);
     const otherInbox = mailboxes.getConnections()[1]?.inbox;
     Vitest.assert.isDefined(otherInbox);
@@ -370,7 +366,11 @@ describe('connecting IMAP mailboxes', () => {
       { subject: 'Third', unread: true },
       { subject: 'First', unread: true },
     ]);
-    expect(imap.server.reads).toStrictEqual(['folders', 'synchronize INBOX']);
+    expect(imap.server.reads).toStrictEqual([
+      'login',
+      'folders',
+      'synchronize INBOX',
+    ]);
 
     // A relaunch shows the encrypted cache before the server answers, then resumes from it.
     const relaunched = createMailboxes(
@@ -470,6 +470,52 @@ describe('connecting IMAP mailboxes', () => {
     await relaunched.load();
     expect(relaunched.getSnapshot()).toStrictEqual({ kind: 'failed' });
     expect(imap.cache.commits).toBe(commits);
+  });
+
+  it('lists folders from one server session and closes it whether the listing succeeds or fails', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const listed = vi.spyOn(imap.native, 'imapListFolders').mockResolvedValue({
+      folders: [
+        { name: 'inbox', attributes: [String.raw`\HasNoChildren`] },
+        // A dotless ı makes no ASCII case variant of INBOX.
+        { name: 'ınbox', attributes: [] },
+        { name: 'Primary', attributes: [String.raw`\Inbox`] },
+        {
+          name: 'Sent Items',
+          attributes: [String.raw`\Sent`, String.raw`\Archive`],
+          delimiter: '/',
+        },
+        { name: '[Gmail]', attributes: [String.raw`\Noselect`] },
+      ],
+    });
+    vi.spyOn(imap.native, 'imapCapabilities').mockResolvedValue({
+      capabilities: ['IMAP4rev1', 'uidplus'],
+    });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      status: 'current',
+      folders: [
+        { name: 'INBOX', roles: ['inbox'], selectable: true },
+        { name: 'ınbox', roles: [], selectable: true },
+        { name: 'Primary', roles: ['inbox'], selectable: true },
+        {
+          name: 'Sent Items',
+          roles: ['archive', 'sent'],
+          selectable: true,
+          delimiter: '/',
+        },
+        { name: '[Gmail]', roles: [], selectable: false },
+      ],
+      capabilities: { moves: true, idle: false },
+    });
+    expect(imap.server.sessions.size).toBe(0);
+
+    listed.mockRejectedValueOnce({ code: 'offline' });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).status).toBe('retry');
+    expect(imap.server.sessions.size).toBe(0);
   });
 
   it('reads folders on demand and opens a body once, from the server and then this device', async () => {

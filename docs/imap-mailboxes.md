@@ -327,6 +327,20 @@ resolve` in `native/private-inbox`, commit both files, and update the reviewed l
 both hosts' `scripts/verify-native.ts`. The synthetic metadata check compiles the
 sources without Swift packages and gets an engine stub instead.
 
+SwiftMail parses the IMAP wire protocol inside native sessions; TypeScript decides
+what to do with the results. The folder listing runs in TypeScript over a short-lived
+native session: native code logs in for a verified connection at its current
+generation and returns an opaque handle. It answers one command at a time, the
+capabilities and the folders with their LIST attributes, and TypeScript closes the
+session when the listing ends, whether it succeeded or failed. Native code also
+closes a session after 60 seconds unused or 15 minutes open, and when the
+connection's generation changes, as on removal, sign-out or a new password.
+Closing cancels a command still in flight. A connection may hold four open
+sessions. Synchronization, search, organizing, IDLE and Sent filing still run as
+single native operations until
+[#1178](https://github.com/unwired-dev/product/issues/1178)–[#1182](https://github.com/unwired-dev/product/issues/1182)
+move them to the same sessions.
+
 ## Validate
 
 From the workspace root:
@@ -368,7 +382,9 @@ cancellation, a new UIDVALIDITY with a download in flight, including for a folde
 had left the cache, a body arriving after that change, isolation between folders
 whose names contain delimiters, and deletion with the last reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
-operations, SMTP verification before a connection is added, the SMTP password, the
+operations, IMAP sessions (one command at a time, their connection generation, the
+per-connection limit, expiry, and closing on a new generation, sign-out and an explicit
+close that cancels a command in flight), SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing
 a connection before credentials are sent.
 
