@@ -259,14 +259,12 @@ final class WindowTests: XCTestCase {
     }
     func checked(_ title: String) -> Bool {
       let item = app.menuItems[title]
-      return item.waitForExistence(timeout: 5) && (item.value as? String) == "✓"
+      return item.waitForExistence(timeout: 5) && item.isSelected
     }
     let style = compose(in: first)
     style.click()
     let heading = app.menuItems["Heading 1"]
     XCTAssertTrue(heading.waitForExistence(timeout: 5))
-    print("composer menu item: \(heading.debugDescription)")
-    print("checked body: \(app.menuItems["Body"].debugDescription)")
     // Escape and a click outside the menu dismiss it without a choice.
     first.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
@@ -287,11 +285,12 @@ final class WindowTests: XCTestCase {
     let sender = from.label.replacingOccurrences(of: "Send from ", with: "")
     from.click()
     XCTAssertTrue(checked(sender))
-    print("sender menu: \(app.menus.firstMatch.debugDescription)")
     first.typeKey(.escape, modifierFlags: [])
     // A second window's Draft keeps its own text style.
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
+    // A new window may open on the confirmed-setup account page (#1189).
+    if second.buttons["Open Inbox"].waitForExistence(timeout: 10) { second.buttons["Open Inbox"].click() }
     XCTAssertTrue(second.buttons["New Message"].waitForExistence(timeout: 15))
     let secondStyle = compose(in: second)
     secondStyle.click()
