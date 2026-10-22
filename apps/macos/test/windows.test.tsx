@@ -212,7 +212,7 @@ describe('mac window selection with the shared mock mailbox', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
-          profiles: [],
+          profiles: [{ id: 'work', name: 'Work' }],
           createProfile: () => Promise.resolve(undefined),
         }}>
         <InboxWindow windowId="compose" />
@@ -244,6 +244,13 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Keep this draft.',
       );
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
+      await fireEvent(
+        app.getByLabelText('Mail Profile, Primary Profile'),
+        'select',
+        { nativeEvent: { id: 'profile\nwork' } },
+      );
+      expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
+      expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       // The hidden floating bar retains its command, which still guards the current Draft.
       await fireEvent.press(
         app.getByRole('button', { name: 'Open Command Palette' }),

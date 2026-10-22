@@ -258,6 +258,69 @@ const inboxNewMessage = () => {
 };
 
 describe('profile-scoped mobile routes', () => {
+  it('restores a cold-launch link after preferences finish loading', async () => {
+    expect.hasAssertions();
+    const nativeRegistration = TurboModuleRegistry.getEnforcing<
+      TurboModule & {
+        preference: (key: string) => Promise<unknown>;
+        setPreference: (key: string, value: string) => Promise<unknown>;
+      }
+    >('UnwiredRegistration');
+    const saved = new Map<string, string>();
+    // Hold the native read until the linked Profile is visible.
+    const reading = Promise.withResolvers<undefined>();
+    const preference = jest
+      .spyOn(nativeRegistration, 'preference')
+      .mockImplementation(async (key) => {
+        await reading.promise;
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- An unsaved preference reads as null.
+        return { value: saved.get(key) ?? null };
+      });
+    const saving = jest
+      .spyOn(nativeRegistration, 'setPreference')
+      .mockImplementation((key, value) => {
+        saved.set(key, value);
+        return Promise.resolve({});
+      });
+    const view = () => (
+      <AccountContext
+        value={{
+          mailboxes: [],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+          profiles: [{ id: 'work', name: 'Work' }],
+          createProfile: () => Promise.resolve(undefined),
+        }}>
+        <RootLayout />
+      </AccountContext>
+    );
+    try {
+      showMail('work');
+      route.setParams({ profileId: 'work' });
+      const app = await render(view());
+      await screen.findByLabelText('Mail Profile, Work');
+      await act(async () => {
+        reading.resolve(undefined);
+        await reading.promise;
+      });
+      await waitFor(() => {
+        expect(saved.get('window-profile')).toBe('work');
+      });
+      await app.unmount();
+      route.setParams({});
+      await render(view());
+      await expect(
+        screen.findByRole('button', { name: /Garden plan/u }),
+      ).resolves.toBeVisible();
+      expect(screen.getByLabelText('Mail Profile, Work')).toBeVisible();
+    } finally {
+      reading.resolve(undefined);
+      preference.mockRestore();
+      saving.mockRestore();
+    }
+  });
+
   it('retains the routed reader view when archiving its row from the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -357,7 +420,7 @@ describe('profile-scoped mobile routes', () => {
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
-            profiles: [],
+            profiles: [{ id: 'work', name: 'Work' }],
             createProfile: () => Promise.resolve(undefined),
           }}>
           <RootLayout />
@@ -530,6 +593,15 @@ describe('profile-scoped mobile routes', () => {
         'Keep this draft.',
       );
       await fireEvent.changeText(screen.getByLabelText('To'), 'unfinished');
+      await fireEvent(
+        screen.getByLabelText('Mail Profile, Primary Profile'),
+        'select',
+        { nativeEvent: { id: 'profile\nwork' } },
+      );
+      expect(
+        screen.getByLabelText('Mail Profile, Primary Profile'),
+      ).toBeVisible();
+      expect(screen.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       await fireEvent.press(screen.getByRole('button', { name: 'Collapse' }));

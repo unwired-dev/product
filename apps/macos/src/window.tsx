@@ -278,6 +278,11 @@ function WindowContents({
   const compose = (id: string) => {
     setComposing(id);
   };
+  const switchProfile = async (next: string) => {
+    if (await leave()) {
+      onProfile(next);
+    }
+  };
   // Either pane closes the reader when its message leaves the Inbox.
   const close = () => {
     setSelected(undefined);
@@ -311,7 +316,9 @@ function WindowContents({
                 <Mailboxes
                   view={view}
                   onView={setView}
-                  onProfile={onProfile}
+                  onProfile={(next) => {
+                    void switchProfile(next);
+                  }}
                 />
               </GlassGroup>
             ) : null}

@@ -136,6 +136,7 @@ function OpenedNotifications() {
 // Presentation choices live below WindowProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
+  const leave = useLeaveComposer();
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
@@ -237,6 +238,15 @@ function MailShell() {
     splitView.current?.show('secondary');
   }
 
+  async function switchProfile(profile: string) {
+    if (await leave()) {
+      router.replace({
+        pathname: '/',
+        params: { profileId: profile },
+      });
+    }
+  }
+
   // The compose destination retains the reader's selection beneath its editor.
   function compose(opened: string) {
     setExpanded(false);
@@ -290,10 +300,7 @@ function MailShell() {
                 <Mailboxes
                   view={view}
                   onProfile={(profile) => {
-                    router.replace({
-                      pathname: '/',
-                      params: { profileId: profile },
-                    });
+                    void switchProfile(profile);
                   }}
                   onView={(next) => {
                     setView(next);

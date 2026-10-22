@@ -251,7 +251,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "Apple registration with Microsoft mail and Gmail""
+    shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
     sendJourney(app)
@@ -288,7 +288,7 @@ final class InboxTests: XCTestCase {
     let name = prompt.textFields.firstMatch
     name.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
-    for character in "Work" { name.typeText(String(character)) }
+    type("Work", into: name)
     prompt.buttons["Create"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
     // Creating a Profile keeps the window on its own.

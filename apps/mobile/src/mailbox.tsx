@@ -183,10 +183,10 @@ export function WindowProfileScope({
     profiles: profiles ?? [],
   });
   useEffect(() => {
-    if (link !== undefined && profile !== '') {
+    if (choices !== undefined && link !== undefined && profile !== '') {
       void profileChoices.restore(profile);
     }
-  }, [link, profile]);
+  }, [choices, link, profile]);
   // Until the saved choices are read, a window without a link shows no Profile yet.
   return choices === undefined && link === undefined ? null : (
     <ProfileScope profile={profile}>{children}</ProfileScope>
