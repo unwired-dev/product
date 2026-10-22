@@ -87,7 +87,35 @@ connection and device permits and interactive ownership for the actual transfer;
 cancelled results cannot retain a saved attachment or restore its row. Ending the
 native transfer itself remains [#1172](https://github.com/unwired-dev/product/issues/1172).
 The [operational guide](../imap-mailboxes.md#reading) owns limits, actions and cleanup.
-Prefetch and reader responses remain follow-up work under #882.
+Issue #1021 adds recent-body prefetch after successful Inbox synchronization. Native
+SwiftMail reads only Content-Type and Content-Disposition for the selected UIDs;
+TypeScript applies the shared MIME admission predicate before requesting any source.
+The per-message lane rechecks saved membership after that bulk preflight and shares
+both body and exclusion-marker work with explicit opens. Stores share the metadata
+semaphore and recheck committed membership before admission; native admission compares
+that metadata revision inside its file-locked transaction so another store's commit
+fences stale work too. Protection follows the
+current committed Inbox at one synchronization reference instant, including before
+prefetch starts. A concurrent authentication refusal survives the synchronization
+that was already running. Reader responses remain follow-up work under #882.
+
+The header preflight requests at most 20 UIDs and configures a 256 KiB BODY
+literal limit. That bounds the requested header payload to 5 MiB when the server
+returns one literal per requested UID,
+not the command's aggregate allocation. The pinned SwiftMail 1.16.0
+`FetchMessageInfoHandler` accumulates every FETCH, including unsolicited and
+repeated responses, before returning. Neither the UID request cap nor the parser's
+working-buffer limit bounds that collection. Its public stream wraps the same
+buffered command, and command execution and handlers are internal. A receive-time
+aggregate/count bound needs an upstream capability or an explicitly authorized
+dependency/adapter change. On 2026-10-22, the owner accepted this residual risk for
+[PR #1185](https://github.com/unwired-dev/product/pull/1185) and assigned the
+receive-time bound to [#1187](https://github.com/unwired-dev/product/issues/1187),
+separately from the LIST-response limitation tracked by #888.
+A controlled TLS probe also returned success for two individually legal header
+sections totaling over 256 KiB in one FETCH. The pinned engine's intended
+response-wide guard and its error mapping therefore require wire-level validation;
+its synthetic guard tests alone do not establish the adapter's receive bound.
 
 Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies
