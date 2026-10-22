@@ -106,6 +106,9 @@ within budget passes, but an overrun only shows that the budget is not proven.
 The app records main-queue probe delays of 100 ms or longer; the report names
 stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
+The probe samples every 10 ms after its launch setup. No recorded delay means no
+observed stall; it does not prove the absolute stall cap for every main-thread
+task or for startup before the probe begins.
 
 The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the

@@ -218,7 +218,7 @@ probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the t
 the application never creates a test-control server or accepts reset commands.
 Records contain only lifecycle event names, process/session identity, window
 counts and tick counts. With that path, the probe also records each primary mouse
-press and release and each main-thread stall of 100 ms or longer, with its uptime
+press and release and observed main-queue delays of 100 ms or longer, with their uptime
 and duration, for the
 [performance journey](agents/native-validation.md#mac-performance-journey). Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
