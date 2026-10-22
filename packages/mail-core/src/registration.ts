@@ -222,6 +222,13 @@ class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
   { connection: Schema.String, snapshot: RegistrationSnapshotSchema },
 ) {}
 
+// A refused deletion, with the account as it stands: the refusal may have settled an earlier
+// unanswered deletion.
+class DeletionRefused extends Schema.TaggedError<DeletionRefused>()(
+  'DeletionRefused',
+  { snapshot: RegistrationSnapshotSchema },
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -341,6 +348,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | LinkRefused
       | ProfileRefused
       | NotificationRefused
+      | DeletionRefused
       | RegistrationFailed
     >,
     onFailure: (
@@ -447,6 +455,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(snapshot),
                 notificationFailure: connection,
+              })),
+            DeletionRefused: ({ snapshot }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(snapshot),
+                removalFailure: 'deletion-refused',
               })),
             RegistrationFailed: (error) =>
               Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -693,7 +706,27 @@ export function createRegistration(vault: NativeRegistrationVault) {
       ),
     deleteProductAccount: () =>
       execute(
-        request(native.deleteProductAccount()),
+        request(native.deleteProductAccount()).pipe(
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('RegistrationFailed', (error) =>
+            isRemovalRefused(error.cause)
+              ? request(native.snapshot()).pipe(
+                  Effect.matchEffect({
+                    onFailure: () => Effect.fail(error),
+                    onSuccess: (snapshot) =>
+                      Effect.logError(
+                        'Registration failed:',
+                        error.diagnostic,
+                      ).pipe(
+                        Effect.andThen(
+                          Effect.fail(new DeletionRefused({ snapshot })),
+                        ),
+                      ),
+                  }),
+                )
+              : Effect.fail(error),
+          ),
+        ),
         (snapshot, cause) => ({
           ...settled(snapshot),
           removalFailure: isRemovalRefused(cause)

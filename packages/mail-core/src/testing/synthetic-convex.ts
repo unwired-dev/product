@@ -810,9 +810,19 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
               }),
         'productSync:putEncryptedPayloadIfUnchanged': putPayload,
         '/product-account/delete': ({ product }) =>
-          changed((next) => {
-            next.deleted.push(product.productAccountId);
-          }).pipe(Effect.andThen(reply(200, { deleted: true }))),
+          Effect.gen(function* () {
+            if (!state.deleted.includes(product.productAccountId)) {
+              yield* changed((next) => {
+                next.deleted.push(product.productAccountId);
+              });
+              // The removal journey's first deletion is applied but its reply is lost; repeating
+              // it reports it complete, as Convex does.
+              if (scenario === 'registration-removal') {
+                return yield* refuse('unavailable');
+              }
+            }
+            return yield* reply(200, { deleted: true });
+          }),
       };
 
       const call = Effect.fn('SyntheticConvex.call')(function* ({

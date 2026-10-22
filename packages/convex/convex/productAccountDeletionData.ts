@@ -14,6 +14,16 @@ import {
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
+// Apple refused the authorization of a deletion attempt, which is then aborted before anything is
+// fenced; the Product Account stays open.
+export const abortedDeletionMessages = [
+  'Apple authorization exchange failed',
+  'Apple authorization revocation failed',
+  'Recent authentication must match the Product Account',
+] as const;
+export const productAccountDeletionAbortedErrorCode =
+  'PRODUCT_ACCOUNT_DELETION_ABORTED';
+
 const deletionBatchSize = 50;
 const encryptedPayloadDeletionBatchSize = 4;
 const deletionAttemptLeaseMilliseconds = 60_000;

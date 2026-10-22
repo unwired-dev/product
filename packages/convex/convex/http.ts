@@ -15,6 +15,10 @@ import {
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
+import {
+  abortedDeletionMessages,
+  productAccountDeletionAbortedErrorCode,
+} from './productAccountDeletionData.js';
 import { enqueueGmailWakeupsFromMetadata } from './pushRelay.js';
 import { signInLinkErrorCodes } from './signInLinks.js';
 
@@ -303,6 +307,15 @@ async function deleteProductAccountResponse(
       return new Response(
         'Recent Sign in with Apple authorization is required',
         { status: 409 },
+      );
+    }
+    if (
+      error instanceof Error &&
+      abortedDeletionMessages.some((message) => error.message.includes(message))
+    ) {
+      return Response.json(
+        { code: productAccountDeletionAbortedErrorCode },
+        { status: 403 },
       );
     }
     throw error;

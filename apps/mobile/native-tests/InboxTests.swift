@@ -555,6 +555,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Delete Product Account"].tap()
     XCTAssertTrue(text("cannot be undone", in: app).waitForExistence(timeout: 15))
     app.buttons["Delete permanently"].tap()
+    // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
+    // leaves its confirmation for Welcome.
+    XCTAssertTrue(text("Deletion could not be confirmed", in: app).waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Confirm account deletion"].waitForExistence(timeout: 20))
+    app.buttons["Delete permanently"].tap()
     XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()

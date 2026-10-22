@@ -29,6 +29,7 @@ import { internal } from './_generated/api.js';
 import { action, internalAction } from './_generated/server.js';
 import { call, failureDiagnostic, runConvexProgram } from './effectRuntime.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
+import { abortedDeletionMessages } from './productAccountDeletionData.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -85,11 +86,7 @@ class AppleUnavailable extends Schema.TaggedError<AppleUnavailable>()(
 class AppleRejected extends Schema.TaggedError<AppleRejected>()(
   'AppleRejected',
   {
-    message: Schema.Literals([
-      'Apple authorization exchange failed',
-      'Apple authorization revocation failed',
-      'Recent authentication must match the Product Account',
-    ]),
+    message: Schema.Literals(abortedDeletionMessages),
   },
 ) {}
 

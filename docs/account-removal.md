@@ -55,10 +55,13 @@ A deletion whose reply was lost is reported as complete when repeated.
 
 Convex can refuse a deletion before it removes anything. That happens when the
 sign-in is stale, when it belongs to another account, or when it is a Google
-sign-in for an account Sign in with Apple also opens. A refused first attempt leaves
-the account open, not pending, and the screen says nothing was deleted. A refusal
+sign-in for an account Sign in with Apple also opens. Convex also aborts a deletion
+when Apple refuses its authorization, and keeps the account. A refused first attempt
+leaves the account open, not pending, and the screen says nothing was deleted. A refusal
 after an earlier unanswered attempt keeps deletion pending: the account may already
-be deleted, so retry to confirm it and finish local cleanup. After an Apple link
+be deleted, so retry to confirm it and finish local cleanup. Only an aborted deletion
+settles that earlier attempt, because Convex kept the account; the device returns to
+it and says nothing was deleted. After an Apple link
 this device had not seen, the next attempt asks for Sign in with Apple.
 
 ## What is removed
@@ -108,8 +111,11 @@ follows:
 | 200    | `{ deleted }`; `false` means cleanup continues in the background        |
 | 400    | The body is malformed                                                   |
 | 401    | The sign-in is stale or missing                                         |
-| 403    | The device proof failed                                                 |
+| 403    | The device proof failed, or `PRODUCT_ACCOUNT_DELETION_ABORTED`          |
 | 409    | An account that Sign in with Apple opens was asked without Apple's code |
+
+`PRODUCT_ACCOUNT_DELETION_ABORTED` means Apple refused the authorization, so Convex
+aborted the deletion before fencing anything and kept the account.
 
 The existing `productAccountDeletion:deleteProductAccount` action still requires an
 Apple authorization code; the Swift prototype uses it. Sign-out calls
@@ -132,6 +138,8 @@ bearer tokens. They check:
 - repeating a deletion reports it complete;
 - Google and Apple without a code are refused for an account Apple also opens;
 - the Apple path with a code deletes the account and its Linked Sign-Ins.
+- an Apple refusal aborts the deletion and keeps the account, and repeating a
+  completed Apple deletion reports it complete.
 
 Shared store and rendered host tests check:
 
@@ -158,7 +166,8 @@ tests run these sequences over a synthetic native vault and backend:
   until retried; acknowledged partial cleanup finishes before provider prompts.
 - An account Sign in with Apple also opens sends Apple's code.
 - A refused first attempt clears the pending state; a refused retry preserves
-  earlier uncertainty and cannot reopen account access. Another identity of the same
+  earlier uncertainty and cannot reopen account access, unless Convex aborted it
+  and kept the account. Another identity of the same
   provider is rejected before any request. An unseen Apple link moves the next
   attempt to Apple.
 
@@ -184,7 +193,12 @@ the suite exercises the real native store and Keychain.
 
 The `registration-removal` [Mock Mail Session](mock-mail-sessions.md) journey
 signs out, relaunches, signs in again to an approval request, deletes the account,
-relaunches and finds the account deleted. It passed on the iPhone and iPad 27
+relaunches and finds the account deleted. Since
+[#1173](https://github.com/unwired-dev/product/issues/1173), the deletion's reply is
+lost, and the journey retries it from **Confirm account deletion** after relaunch.
+That journey passed on the iPhone 27 simulator in
+`artifacts/expo-bootstrap/native-qu2jlz/`; its iPad and Mac runs are deferred.
+Before that change, it passed on the iPhone and iPad 27
 simulators on the final reviewed code in
 `artifacts/expo-bootstrap/native-CaVSw7/`. The earlier reviewer run
 `artifacts/expo-bootstrap/native-ur87w2/` predates equivalent JSX rendering

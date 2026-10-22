@@ -2834,6 +2834,55 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('answers a terminally refused Apple deletion as kept and a repeated deletion as complete', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asApple = t.withIdentity(appleIdentity);
+    const device = await connectTrusted(t, asApple, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const remove = async () =>
+      deleteRecentlyAuthenticated(
+        asApple,
+        {
+          appleClientId: 'dev.unwired.mail',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+        { identity: appleIdentity },
+      );
+    vi.mocked(fetch)
+      .mockImplementationOnce(async () => appleTokenResponse())
+      .mockImplementationOnce(async () =>
+        Response.json({ keys: [appleIdentitySigningKey] }),
+      )
+      .mockImplementationOnce(async () =>
+        Response.json({ error: 'invalid_client' }, { status: 400 }),
+      );
+
+    // Convex abandoned the attempt and kept the account, which the device may report as settled.
+    const refused = await remove();
+
+    await expect(
+      Promise.all([refused.json(), storedAccountData(t)]),
+    ).resolves.toMatchObject([
+      { code: 'PRODUCT_ACCOUNT_DELETION_ABORTED' },
+      { accounts: 1, tombstones: 0 },
+    ]);
+    expect(refused.status).toBe(403);
+
+    // A device whose reply was lost repeats the deletion and learns that it is complete.
+    const deleted = await remove();
+    const repeated = await remove();
+
+    await expect(
+      Promise.all([deleted.json(), repeated.json()]),
+    ).resolves.toStrictEqual([{ deleted: true }, { deleted: true }]);
+    expect(repeated.status).toBe(200);
+  });
+
   it('rejects an Apple exchange without a recoverable refresh token', async () => {
     expect.assertions(3);
 
