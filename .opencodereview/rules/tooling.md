@@ -7,8 +7,10 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 - Evidence validators such as `scripts/verify-assistance-evidence.py` accepting
   case identities, result labels and totals without the per-kind payload the
   owning qualification guide requires for review. Trace the recorder through the
-  validator and its subprocess tests; require device metadata, outcome details
-  and non-empty text for ready answers. Otherwise a complete-looking matrix can
+  validator and its subprocess tests; require device metadata, outcome details,
+  nonblank reasons for limited answer rows and non-empty text for ready answers.
+  Refusals name `refused`; cancellation/staleness rows carry their behavior states
+  instead. Otherwise a complete-looking matrix can
   qualify a run whose outputs and limitations cannot be inspected.
 
 - `apps/mobile/plugins/private-inbox.cjs` using an older AppDelegate integration's
@@ -50,6 +52,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 - A custom lint rule changed without its test in `scripts/*.test.mjs` covering both a rejected and an accepted case; `pnpm test:tooling` runs them for every configuration.
 
 #### Runners own what they touch
+
+- `apps/macos/scripts/qualify-assistance.zsh` or another runner removing a
+  container after its signed cleanup helper fails. Preserve the owned storage,
+  helper and ownership record together for recovery, and return failure; otherwise
+  cleanup can delete live state or leave credentials without their recovery path.
 
 - A Simulator, application, DerivedData directory, result bundle, Keychain item, temporary directory or port used without being created by this run, or selected by a shared name rather than a recorded identifier.
 - Cleanup that does not run on failure, cancellation and timeout, or that deletes anything the run did not create.
