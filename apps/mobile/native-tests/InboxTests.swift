@@ -1457,16 +1457,11 @@ final class InboxTests: XCTestCase {
       app.swipeUp(velocity: .slow)
     }
     XCTAssertTrue(onScreen())
-    // Settled once two polls see the same frame, after any scrolling momentum.
-    var settled = text.frame
-    waitUntil {
-      defer { settled = text.frame }
-      return text.frame == settled
-    }
+    let reading = settledFrame(of: text)
     let back = app.buttons["Back to Mailboxes"]
     edgeSwipe(app, completing: false)
     waitUntil { onScreen() && !back.exists }
-    XCTAssertEqual(text.frame.minY, settled.minY, accuracy: 2)
+    XCTAssertEqual(settledFrame(of: text).minY, reading.minY, accuracy: 2)
     edgeSwipe(app, completing: true)
     XCTAssertTrue(back.waitForExistence(timeout: 10))
     waitUntil { row.isHittable && !row.isSelected && !text.exists }
@@ -1474,6 +1469,18 @@ final class InboxTests: XCTestCase {
     shot.name = "Inbox after swiping back from a scrolled body"
     shot.lifetime = .keepAlways
     add(shot)
+  }
+
+  // The element's frame once two separate polls see it unchanged, after scrolling momentum or a
+  // transition has settled.
+  private func settledFrame(of element: XCUIElement) -> CGRect {
+    var previous = CGRect.null
+    waitUntil {
+      let frame = element.frame
+      defer { previous = frame }
+      return frame == previous
+    }
+    return previous
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
