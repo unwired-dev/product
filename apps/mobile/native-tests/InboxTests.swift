@@ -186,7 +186,6 @@ final class InboxTests: XCTestCase {
         NSPredicate(
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
-    // Profile writes need this launch's verified Product Sign-In, so they come before relaunch.
     profileSwitcherJourney(app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
@@ -295,9 +294,8 @@ final class InboxTests: XCTestCase {
     prompt.buttons["Cancel"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      app.buttons["All inboxes"].tap()
-    }
+    // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
+    app.buttons["All inboxes"].tap()
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged
