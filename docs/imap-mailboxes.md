@@ -193,7 +193,7 @@ connection and the message's UIDVALIDITY and UID, so a folder with a new UIDVALI
 restores none of them. Closing a message's last reader, or its Inbox, ends its remote loads.
 
 [#1020](https://github.com/unwired-dev/product/issues/1020) lists the opened message's
-received attachments below its body, with the same rows, limits, encrypted
+received attachments below its body, with the same rows, limits, protected local
 storage and **Download**, **Cancel**, **Open**, **Share** and **Attach to New Message**
 actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
 
@@ -211,10 +211,13 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   **Try again**.
 - **Removal.** A saved file is deleted when the message's last reader closes, the
   Inbox closes, and with the connection, sign-out, account deletion, device removal
-  and relaunch. A folder read that finds a new UIDVALIDITY deletes the saved files
-  of its earlier messages and drops their downloads in flight, even while a reader
-  still shows one and the folder's checkpoint has left the metadata cache; their
-  rows then say the attachment is no longer in the folder.
+  and relaunch. Like saved bodies, attachments follow the folder identity the
+  connection's encrypted cache commits: once a successful folder synchronization
+  records a new UIDVALIDITY, the saved files of the folder's earlier messages are
+  deleted and their downloads in flight are dropped, even while a reader still
+  shows one or the folder had left the cache. Their rows then say the attachment
+  is no longer in the folder. A search result or a refused read changes no other
+  attachment until that synchronization.
 
 There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
 message can be sent from an IMAP connection, as [Sending](#sending) describes.
@@ -355,8 +358,8 @@ reader and the Inbox, a new UIDVALIDITY restoring nothing, and the display budge
 with Gmail readers. `test/imap-attachments.test.ts` lists an attachment without a server
 read, downloads its exact bytes from the message source, opens and shares it, and covers
 an unreachable server, a refused password, locked storage, an expunged message,
-cancellation, a new UIDVALIDITY with a download in flight, and deletion with the last
-reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
+cancellation, a new UIDVALIDITY with a download in flight, including for a folder that
+had left the cache, and deletion with the last reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing

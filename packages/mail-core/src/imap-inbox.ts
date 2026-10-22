@@ -992,6 +992,7 @@ export function createImapInbox(
       lifetime,
     };
     document = stored;
+    retireSuperseded();
     // Reopening refreshes no other folder, so one whose last read failed keeps saying so.
     const previous = new Map(folderViews);
     folderViews.clear();
@@ -1031,6 +1032,7 @@ export function createImapInbox(
     }
     opened = { ...scope, revision: reply.revision };
     document = next;
+    retireSuperseded();
   });
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
@@ -1092,17 +1094,6 @@ export function createImapInbox(
     );
   });
 
-  // A new UIDVALIDITY ends the folder's earlier messages, and their attachments with them, even
-  // while a reader still shows one.
-  const retireGeneration = (name: string, next: number) => {
-    for (const id of documents.keys()) {
-      if (ofOtherGeneration(id, name, next)) {
-        discardAttachments(id, 'missing');
-      }
-    }
-    notify();
-  };
-
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1141,7 +1132,6 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
-    retireGeneration(name, entry.cache.uidValidity);
     yield* pruneBodies;
   });
 
@@ -1675,7 +1665,7 @@ export function createImapInbox(
   const attachments = createAttachmentDownloads(native, {
     scope: () => opened,
     owner: () => lifetime,
-    readable: (id) => visibleRow(id),
+    readable: (id) => visibleRow(id) && !superseded(id),
     listed: (id) => documents.get(id)?.attachments,
     fetch: (scope, id, listedAttachment) =>
       explicitLoad(
@@ -1725,6 +1715,36 @@ export function createImapInbox(
   // Callers above drop downloads through this, declared once the downloads exist.
   function discardAttachments(id?: string, reason?: AttachmentFailure) {
     attachments.discard(id, reason);
+  }
+  // A message of a folder the cache now records at another UIDVALIDITY. Like saved bodies, its
+  // attachments follow the committed folder identity, even while a reader still shows it.
+  function superseded(id: string) {
+    return (
+      document?.mailboxes.some(({ name, cache }) =>
+        ofOtherGeneration(id, name, cache.uidValidity),
+      ) === true
+    );
+  }
+  // Retires the saved and in-flight downloads of superseded messages once per change.
+  function retireSuperseded() {
+    let retired = false;
+    for (const id of documents.keys()) {
+      const shown = attachments.messageAttachments(id) ?? [];
+      if (
+        superseded(id) &&
+        shown.some(
+          (attachment) =>
+            attachment.state.kind !== 'unavailable' ||
+            attachment.state.reason !== 'missing',
+        )
+      ) {
+        attachments.discard(id, 'missing');
+        retired = true;
+      }
+    }
+    if (retired) {
+      notify();
+    }
   }
 
   // Which of these cached messages have a body saved on this device, read without the server and

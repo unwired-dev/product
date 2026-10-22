@@ -250,6 +250,10 @@ describe('imap received attachments', () => {
       reason: 'missing',
     });
     expect(imap.files.savedFiles.size).toBe(0);
+    // A superseded message downloads nothing more.
+    imap.server.reads.length = 0;
+    await inbox.downloadAttachment(report.id, '0.1');
+    expect(imap.server.reads).toStrictEqual([]);
   });
 
   it('deletes saved attachments when the connection leaves the Inbox', async () => {
