@@ -382,7 +382,7 @@ const call = (operation: () => Promise<unknown>) =>
 const decodeAccepted = Schema.decodeUnknownEffect(
   Schema.Struct({ accepted: Schema.Literal(true) }),
 );
-const decodeFiled = Schema.decodeUnknownEffect(Schema.Struct({}));
+const decodeEmpty = Schema.decodeUnknownEffect(Schema.Struct({}));
 const decodeStoredBodies = Schema.decodeUnknownEffect(
   Schema.Struct({
     stored: Schema.Array(Schema.String),
@@ -644,7 +644,10 @@ export function createImapInbox(
       ),
       use,
       (session) =>
-        call(() => native.imapClose(scope, session)).pipe(Effect.ignore),
+        call(() => native.imapClose(scope, session)).pipe(
+          Effect.flatMap(decodeEmpty),
+          Effect.ignore,
+        ),
     );
   let state: ImapInboxState = { kind: 'loading' };
   let opened: (Scope & { revision: number }) | undefined = undefined;
@@ -2057,7 +2060,7 @@ export function createImapInbox(
         }),
       ).pipe(
         Effect.flatMap((reply) =>
-          decodeFiled(reply).pipe(Effect.mapError(malformed)),
+          decodeEmpty(reply).pipe(Effect.mapError(malformed)),
         ),
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)
