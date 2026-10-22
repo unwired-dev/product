@@ -1876,8 +1876,9 @@ export function createImapInbox(
           return saved.value;
         }
         const body = yield* explicitLoad(bodyOf(message));
+        const cache = opened;
         // Bodies are stored only for listed messages of the open cache; a full cache keeps none.
-        if (listed(id) && current(scope)) {
+        if (cache !== undefined && listed(id) && current(scope)) {
           const text = yield* encodeBodyDocument(body).pipe(
             Effect.mapError(malformed),
           );
@@ -1888,6 +1889,7 @@ export function createImapInbox(
               // Opening a selected message keeps its prefetch status.
               tier: protectedIds.includes(id) ? 'prefetched' : 'opened',
               protectedIds,
+              expectedRevision: cache.revision,
             }),
           ).pipe(
             Effect.flatMap((reply) =>
@@ -1961,7 +1963,8 @@ export function createImapInbox(
     );
     yield* semaphore.withPermit(
       Effect.gen(function* () {
-        if (!current(scope) || !listed(body.id)) {
+        const cache = opened;
+        if (cache === undefined || !current(scope) || !listed(body.id)) {
           return;
         }
         const protectedIds = yield* protectedBodies;
@@ -1970,6 +1973,7 @@ export function createImapInbox(
             document: text,
             tier: body.excluded === true ? 'excluded' : 'prefetched',
             protectedIds,
+            expectedRevision: cache.revision,
           }),
         ).pipe(
           Effect.flatMap((reply) =>
@@ -2124,7 +2128,10 @@ export function createImapInbox(
         authenticationRejected ||= kind === 'authentication';
         return loadFailed({ kind, diagnostic });
       }
-      return expected(kind) || kind === 'changed' || kind === 'invalidated'
+      return expected(kind) ||
+        kind === 'changed' ||
+        kind === 'invalidated' ||
+        kind === 'conflict'
         ? Effect.void
         : Effect.logError('IMAP body prefetch failed:', diagnostic);
     };

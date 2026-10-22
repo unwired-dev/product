@@ -92,7 +92,9 @@ SwiftMail reads only Content-Type and Content-Disposition for the selected UIDs;
 TypeScript applies the shared MIME admission predicate before requesting any source.
 The per-message lane rechecks saved membership after that bulk preflight and shares
 both body and exclusion-marker work with explicit opens. Stores share the metadata
-semaphore and recheck committed membership before admission. Protection follows the
+semaphore and recheck committed membership before admission; native admission compares
+that metadata revision inside its file-locked transaction so another store's commit
+fences stale work too. Protection follows the
 current committed Inbox at one synchronization reference instant, including before
 prefetch starts. A concurrent authentication refusal survives the synchronization
 that was already running. Reader responses remain follow-up work under #882.

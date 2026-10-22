@@ -249,7 +249,8 @@ before they are opened, under Gmail's
   asks for the password again. Cache-only registration and a closed Inbox start none.
 - **Identity.** A prefetched body follows the folder's committed UIDVALIDITY like an
   opened one: a read still in flight when a synchronization records a new UIDVALIDITY
-  or drops the message saves nothing, and pruning removes earlier bodies.
+  or drops the message saves nothing, including when another store commits that change,
+  and pruning removes earlier bodies.
 - **Protection.** Open readers' and then the selected messages' saved bodies are
   protected from budget eviction as far as they fit. Prefetched bodies use the
   prefetched eviction tier, and opening one keeps that tier.
@@ -401,7 +402,8 @@ nothing again at the next synchronization, pauses while the server cannot be rea
 refuses the password and resumes afterwards, preserves that refusal through an overlapping
 synchronization, protects recent bodies before prefetch starts, preserves bodies opened
 during the header preflight, shares an in-flight prefetch with an
-explicit open, and keeps no body read before a new UIDVALIDITY. The fixture dates mail
+explicit open, and keeps no body read before a new UIDVALIDITY, including one committed
+by another store. The fixture dates mail
 older than any recent window unless a test dates it. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, SMTP verification before a connection is added, the SMTP password, the

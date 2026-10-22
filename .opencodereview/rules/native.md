@@ -438,6 +438,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   valid files and reads can return the older body. A failed replacement may leave
   a refetchable cache miss. Cache-only reads must not update access times
   or delete corrupt bodies; otherwise presentation-only access mutates storage.
+- `PrivateInboxStore.commitMessageBody` accepting an IMAP body or exclusion marker
+  without checking its metadata revision inside the same file-locked transaction,
+  before eviction or replacement. Trace `imap-inbox.ts` admission and every adapter's
+  forwarding of `expectedRevision`; a store-local semaphore and `listed` check cannot
+  observe another store's committed UIDVALIDITY reset or expunge. Otherwise a late
+  prefetch recreates bodies the newer synchronization already pruned. Keep omitted
+  revisions compatible with existing callers, but reject malformed supplied values.
 - `PrivateInboxStore.retainMessageBodies` losing ordered `protectedIds` between
   host adapters, the Swift/Objective-C bridge and storage, or pruning bodies that
   received cache-fitting protection. Keep revision/generation checks and select

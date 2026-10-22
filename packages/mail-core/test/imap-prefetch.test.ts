@@ -418,4 +418,37 @@ describe('imap recent-body prefetch', () => {
       true,
     );
   });
+
+  it('keeps no stale prefetched body after another store commits a new UIDVALIDITY', async () => {
+    expect.hasAssertions();
+    const { imap, ids } = recentInbox();
+    const requested = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    const read = imap.native.imapMessage;
+    vi.spyOn(imap.native, 'imapMessage').mockImplementationOnce(
+      async (...args) => {
+        const reply = await read(...args);
+        requested.resolve(undefined);
+        await held.promise;
+        return reply;
+      },
+    );
+    const inbox = createImapInbox(imap.native);
+    const other = createImapInbox(imap.native);
+    onTestFinished(() => {
+      held.resolve(undefined);
+      inbox.forget();
+      other.forget();
+    });
+    await inbox.load();
+    await requested.promise;
+    const release = inbox.retainMessage(ids.plain);
+    const opening = inbox.readMessage(ids.plain);
+    imap.renumber('INBOX');
+    await other.load();
+    held.resolve(undefined);
+    await opening;
+    release();
+    expect(imap.bodies.has(ids.plain)).toBe(false);
+  });
 });

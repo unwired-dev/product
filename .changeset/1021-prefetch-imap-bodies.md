@@ -13,4 +13,5 @@ saved and no attachment is downloaded speculatively; other messages stay on dema
 Opening a message waits for its prefetch instead of reading it twice, a new
 UIDVALIDITY keeps no body read before it, and local search reports prefetched bodies
 as saved. `NativeImapMailbox` gains `imapHeaders`, which the native Registration module
-implements over SwiftMail.
+implements over SwiftMail. Body admission accepts an optional `expectedRevision`;
+IMAP supplies it so a concurrent metadata commit fences stale body writes atomically.

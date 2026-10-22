@@ -495,6 +495,12 @@ export function createSyntheticImap({
     openMessageBody: (_mailbox, id) =>
       Promise.resolve({ document: bodies.get(id) ?? null }),
     commitMessageBody: (_mailbox, id, admission) => {
+      if (
+        admission.expectedRevision !== undefined &&
+        admission.expectedRevision !== cache.revision
+      ) {
+        return rejection('conflict');
+      }
       bodies.set(id, admission.document);
       tiers.set(id, admission.tier);
       return Promise.resolve({ admitted: true });
