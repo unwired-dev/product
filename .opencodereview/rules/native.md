@@ -88,6 +88,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   public bound remains tracked in #888; a smaller returned array does not resolve
   that native-memory risk.
 
+- `SwiftMailImap.headers` claiming an aggregate receive bound from the requested
+  UID count or TypeScript chunk size. Trace the pinned FETCH handler's collection
+  of unsolicited and repeated replies as well as requested messages. Bound retained
+  response count and bytes while receiving, before the bulk result materializes;
+  per-FETCH literal limits, parser working-buffer limits and post-return filtering
+  do not bound the command's accumulated results. Exercise extra replies through
+  the controlled TLS fixture, including multiple individually legal sections in
+  one response. Verify real wire refusal and its fixed bridge error, rather than
+  inferring protection from a parser option or synthetic handler events; otherwise
+  automatic prefetch can exhaust native memory before any exclusion marker is stored.
+
 - `SwiftMailImap.synchronize` estimating arrivals from the whole folder minus
   cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
   both when UIDNEXT is known, preserving the unknown-UIDNEXT fallback; old

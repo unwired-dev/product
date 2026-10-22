@@ -366,8 +366,8 @@ struct SwiftMailImap: ImapProvider {
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders] {
-    // Each message's fields are bounded like the MIME header budget, so at most
-    // `imapHeaderMessages` of them are buffered; a larger declaration refuses the whole read.
+    // Each header literal has the MIME header budget; larger declarations refuse the read.
+    // shortcut: SwiftMail still accumulates extra FETCH replies; add a receive-time aggregate bound.
     try await session(account, password, literalLimit: RegistrationStore.imapHeaderLimit) { server in
       let selection = try await Self.examine(server, folder: folder)
       guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }

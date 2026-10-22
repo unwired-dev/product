@@ -99,6 +99,22 @@ current committed Inbox at one synchronization reference instant, including befo
 prefetch starts. A concurrent authentication refusal survives the synchronization
 that was already running. Reader responses remain follow-up work under #882.
 
+The header preflight requests at most 20 UIDs and configures a 256 KiB BODY
+literal limit. That bounds the requested header payload to 5 MiB when the server
+returns one literal per requested UID,
+not the command's aggregate allocation. The pinned SwiftMail 1.16.0
+`FetchMessageInfoHandler` accumulates every FETCH, including unsolicited and
+repeated responses, before returning. Neither the UID request cap nor the parser's
+working-buffer limit bounds that collection. Its public stream wraps the same
+buffered command, and command execution and handlers are internal. A receive-time
+aggregate/count bound needs an upstream capability or an explicitly authorized
+dependency/adapter change. This remains an unresolved prefetch safety requirement;
+the separate LIST-response limitation tracked by #888 does not qualify FETCH.
+A controlled TLS probe also returned success for two individually legal header
+sections totaling over 256 KiB in one FETCH. The pinned engine's intended
+response-wide guard and its error mapping therefore require wire-level validation;
+its synthetic guard tests alone do not establish the adapter's receive bound.
+
 Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies
 the connection identity and descriptor key under the shared provider scheme.

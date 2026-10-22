@@ -259,6 +259,11 @@ before they are opened, under Gmail's
 
 Local search reports a prefetched body as saved on this device.
 
+The 20-message request limit and 256 KiB per-literal limit do not yet bound
+aggregate memory when a server sends extra or repeated replies. Receive-time
+aggregate refusal remains unresolved; prefetch must not be described as qualified
+against that server behavior.
+
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
 
